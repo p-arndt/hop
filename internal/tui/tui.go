@@ -20,12 +20,6 @@ var accent = lipgloss.Color("212")
 // ---- styles ----
 
 var (
-	headerStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("231")).
-			Background(accent).
-			Padding(0, 1)
-
 	footerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("245")).
 			Padding(0, 1)
@@ -41,10 +35,6 @@ var (
 	statusInfoStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("245")).
 			Padding(0, 1)
-
-	sessionCountStyle = lipgloss.NewStyle().
-				Foreground(accent).
-				Bold(true)
 
 	selectedAliasStyle = lipgloss.NewStyle().
 				Bold(true).
@@ -74,9 +64,40 @@ var (
 	idleDot      = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("○")
 
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
-
-	keyStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 )
+
+// ---- redesigned palette & helpers ----
+
+var (
+	headerBadge = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("16")).Background(accent).Padding(0, 1)
+	subtitle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+
+	chipStyle   = lipgloss.NewStyle().Bold(true).Foreground(accent).Background(lipgloss.Color("238")).Padding(0, 1)
+	keycapStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("238")).Padding(0, 1)
+
+	listTitle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
+	faint     = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	kvKey     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+
+	greenText  = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	yellowText = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+
+	selBar        = lipgloss.NewStyle().Foreground(accent).Render("▎")
+	connectingDot = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("◐")
+)
+
+// kc renders a keycap "pill" for legends and help bars.
+func kc(key string) string { return keycapStyle.Render(key) }
+
+// clampLines truncates every line to w cells so styled content can never wrap and
+// break out of its bordered box.
+func clampLines(s string, w int) string {
+	lines := strings.Split(s, "\n")
+	for i, ln := range lines {
+		lines[i] = truncate(ln, w)
+	}
+	return strings.Join(lines, "\n")
+}
 
 // session bundles a live SSH client with its embedded terminal pane.
 type session struct {
@@ -114,6 +135,9 @@ type model struct {
 
 	sessions map[string]*session
 
+	// connecting holds aliases with an in-flight connect (for a spinner dot).
+	connecting map[string]bool
+
 	// notify is signalled by live panes whenever new server output has been
 	// parsed, so the UI repaints event-driven (no polling ticker).
 	notify chan struct{}
@@ -143,10 +167,11 @@ func Run(st *store.Store) error {
 		return err
 	}
 	m := &model{
-		st:       st,
-		hosts:    hosts,
-		sessions: make(map[string]*session),
-		notify:   make(chan struct{}, 1),
+		st:         st,
+		hosts:      hosts,
+		sessions:   make(map[string]*session),
+		connecting: make(map[string]bool),
+		notify:     make(chan struct{}, 1),
 	}
 	m.applyFilter()
 	p := tea.NewProgram(m, tea.WithAltScreen())
@@ -257,6 +282,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForOutput(m.notify)
 
 	case connectedMsg:
+		delete(m.connecting, msg.alias)
 		if msg.err != nil {
 			m.status = fmt.Sprintf("connect %s failed: %v", msg.alias, msg.err)
 			return m, nil
@@ -354,6 +380,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.status = "connecting to " + h.Alias + "…"
+		m.connecting[h.Alias] = true
 		return m, connectCmd(h, m.paneW, m.paneH, m.notify)
 
 	case "s":
@@ -475,24 +502,32 @@ func (m *model) View() string {
 }
 
 func (m *model) renderHeader() string {
-	title := headerStyle.Render(" hop ")
+	left := lipgloss.JoinHorizontal(lipgloss.Center,
+		headerBadge.Render("hop"),
+		subtitle.Render(" ssh manager"),
+	)
 
-	count := ""
+	var chips []string
+	if m.focused && m.active != "" {
+		chips = append(chips, greenText.Bold(true).Render("● "+m.active))
+	}
 	if n := len(m.sessions); n > 0 {
 		word := "session"
 		if n > 1 {
 			word = "sessions"
 		}
-		count = sessionCountStyle.Render(fmt.Sprintf(" %d %s ", n, word))
+		chips = append(chips, chipStyle.Render(fmt.Sprintf("%d %s", n, word)))
 	}
+	if st := m.styledStatus(); st != "" {
+		chips = append(chips, st)
+	}
+	right := strings.Join(chips, " ")
 
-	right := lipgloss.JoinHorizontal(lipgloss.Center, count, m.styledStatus())
-
-	gap := m.width - lipgloss.Width(title) - lipgloss.Width(right)
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 0 {
 		gap = 0
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Center, title, strings.Repeat(" ", gap), right)
+	return lipgloss.JoinHorizontal(lipgloss.Center, left, strings.Repeat(" ", gap), right)
 }
 
 // styledStatus colors the status line by meaning: green for success, red for
@@ -527,24 +562,35 @@ func (m *model) renderList(w, h int) string {
 
 	var b strings.Builder
 
+	// Section title with host count.
+	title := listTitle.Render("HOSTS")
+	if len(m.hosts) > 0 {
+		title += faint.Render(fmt.Sprintf("  %d", len(m.hosts)))
+	}
+	b.WriteString(truncate(title, innerW))
+	b.WriteString("\n")
+	innerH--
+
 	if m.filtering || m.filter != "" {
-		prompt := "/" + m.filter
+		prompt := faint.Render("/") + m.filter
 		if m.filtering {
 			prompt += "▏"
 		}
-		b.WriteString(dimStyle.Render(truncate(prompt, innerW)))
+		b.WriteString(truncate(prompt, innerW))
 		b.WriteString("\n")
 		innerH--
 	}
 
+	if innerH < 1 {
+		innerH = 1
+	}
+
 	if len(m.hosts) == 0 {
 		b.WriteString(dimStyle.Render(truncate("No hosts yet.", innerW)))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(truncate("Run 'hop import' or", innerW)))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(truncate("add hosts to begin.", innerW)))
+		b.WriteString("\n\n")
+		b.WriteString(faint.Render(truncate("Run: hop import", innerW)))
 	} else if len(m.filtered) == 0 {
-		b.WriteString(dimStyle.Render(truncate("no matches", innerW)))
+		b.WriteString(faint.Render(truncate("no matches", innerW)))
 	} else {
 		// Simple scroll window so the cursor stays visible.
 		start := 0
@@ -571,12 +617,20 @@ func (m *model) renderList(w, h int) string {
 	return style.Width(innerW).Height(h - 2).Render(b.String())
 }
 
-func (m *model) renderRow(h store.Host, selected bool, w int) string {
-	dot := idleDot
-	if _, live := m.sessions[h.Alias]; live {
-		dot = connectedDot
+// dotFor returns the status dot for a host: green connected, yellow connecting,
+// dim idle.
+func (m *model) dotFor(alias string) string {
+	if _, live := m.sessions[alias]; live {
+		return connectedDot
 	}
-	alias := h.Alias
+	if m.connecting[alias] {
+		return connectingDot
+	}
+	return idleDot
+}
+
+func (m *model) renderRow(h store.Host, selected bool, w int) string {
+	dot := m.dotFor(h.Alias)
 	who := h.User
 	if who != "" {
 		who += "@"
@@ -585,19 +639,19 @@ func (m *model) renderRow(h store.Host, selected bool, w int) string {
 
 	tag := ""
 	if h.Group != "" {
-		tag = " " + dimStyle.Render("["+h.Group+"]")
+		tag = " " + faint.Render("["+h.Group+"]")
 	} else if len(h.Tags) > 0 {
-		tag = " " + dimStyle.Render("#"+h.Tags[0])
+		tag = " " + faint.Render("#"+h.Tags[0])
 	}
 
-	// A leading accent arrow + bright bold alias marks the selection, instead of
-	// a full-width background block (which nests badly with the inner styles).
+	// A leading accent bar + bright bold alias marks the selection (no full-width
+	// background block, which nests badly with the inner styles).
 	if selected {
-		line := keyStyle.Render("›") + " " + dot + " " +
-			selectedAliasStyle.Render(alias) + "  " + dimStyle.Render(who) + tag
+		line := selBar + " " + dot + " " +
+			selectedAliasStyle.Render(h.Alias) + "  " + dimStyle.Render(who) + tag
 		return truncate(line, w)
 	}
-	line := "  " + dot + " " + aliasStyle.Render(alias) + "  " + dimStyle.Render(who) + tag
+	line := "  " + dot + " " + aliasStyle.Render(h.Alias) + "  " + dimStyle.Render(who) + tag
 	return truncate(line, w)
 }
 
@@ -626,25 +680,36 @@ func (m *model) renderRight(h int) string {
 func (m *model) renderDetails(w int) string {
 	h, ok := m.selectedHost()
 	if !ok {
-		return dimStyle.Render("Select a host on the left.")
+		return "\n" + dimStyle.Render("  Select a host on the left.")
 	}
-
-	var b strings.Builder
-	b.WriteString(titleStyle.Render(h.Alias))
-	b.WriteString("\n\n")
 
 	port := h.Port
 	if port == 0 {
 		port = 22
 	}
 
+	// Status badge.
+	badge := idleDot + " " + dimStyle.Render("idle")
+	switch {
+	case m.sessions[h.Alias] != nil:
+		badge = connectedDot + " " + greenText.Render("connected")
+	case m.connecting[h.Alias]:
+		badge = connectingDot + " " + yellowText.Render("connecting…")
+	}
+
+	const pad = "  "
+	rule := faint.Render(strings.Repeat("─", min(max(w-4, 0), 34)))
+
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(pad + titleStyle.Render(h.Alias) + "   " + badge + "\n")
+	b.WriteString(pad + rule + "\n\n")
+
 	writeKV := func(k, v string) {
 		if v == "" {
 			return
 		}
-		b.WriteString(dimStyle.Render(fmt.Sprintf("%-9s", k)))
-		b.WriteString(v)
-		b.WriteString("\n")
+		b.WriteString(pad + kvKey.Render(fmt.Sprintf("%-9s", k)) + v + "\n")
 	}
 	writeKV("host", fmt.Sprintf("%s:%d", h.HostName, port))
 	writeKV("user", h.User)
@@ -657,40 +722,35 @@ func (m *model) renderDetails(w int) string {
 	}
 	writeKV("visits", fmt.Sprintf("%d", h.Visits))
 
-	status := "○ idle"
-	if _, live := m.sessions[h.Alias]; live {
-		status = connectedDot + " connected"
-	}
 	b.WriteString("\n")
-	b.WriteString(status)
-	b.WriteString("\n\n")
+	b.WriteString(pad + dimStyle.Render("actions") + "\n")
+	b.WriteString(pad + kc("enter") + " " + dimStyle.Render("connect") + "   " +
+		kc("s") + " " + dimStyle.Render("focus") + "\n")
+	b.WriteString(pad + kc("o") + " " + dimStyle.Render("vscode") + "    " +
+		kc("d") + " " + dimStyle.Render("disconnect") + "\n")
 
-	b.WriteString(dimStyle.Render("actions") + "\n")
-	b.WriteString(keyStyle.Render("enter") + " connect    ")
-	b.WriteString(keyStyle.Render("s") + " focus session\n")
-	b.WriteString(keyStyle.Render("o") + " VS Code remote  ")
-	b.WriteString(keyStyle.Render("d") + " disconnect\n")
-
-	return b.String()
+	return clampLines(b.String(), w)
 }
 
 func (m *model) renderFooter() string {
+	sep := "  "
+	item := func(k, label string) string { return kc(k) + " " + dimStyle.Render(label) }
+
 	var help string
 	switch {
 	case m.focused && m.active != "":
-		help = keyStyle.Render("ctrl+o") + ": back to hop"
+		help = item("ctrl+o", "back to hop") + sep +
+			dimStyle.Render("keys → ") + greenText.Render(m.active)
 	case m.filtering:
-		help = keyStyle.Render("type") + " filter  " +
-			keyStyle.Render("enter") + " apply  " +
-			keyStyle.Render("esc") + " clear"
+		help = item("type", "filter") + sep + item("enter", "apply") + sep + item("esc", "clear")
 	default:
-		help = keyStyle.Render("↑/↓") + " move  " +
-			keyStyle.Render("enter") + " connect  " +
-			keyStyle.Render("s") + " session  " +
-			keyStyle.Render("o") + " code  " +
-			keyStyle.Render("d") + " disconnect  " +
-			keyStyle.Render("/") + " filter  " +
-			keyStyle.Render("q") + " quit"
+		help = item("↑↓", "move") + sep +
+			item("enter", "connect") + sep +
+			item("s", "session") + sep +
+			item("o", "code") + sep +
+			item("d", "disconnect") + sep +
+			item("/", "filter") + sep +
+			item("q", "quit")
 	}
 	return footerStyle.Render(truncate(help, m.width-2))
 }
