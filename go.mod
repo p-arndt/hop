@@ -8,6 +8,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/vt v0.0.0-20260705004817-2cc9a8fe1146
 	github.com/kevinburke/ssh_config v1.6.0
+	github.com/pkg/sftp v1.13.10
 	github.com/sahilm/fuzzy v0.1.3
 	golang.org/x/crypto v0.53.0
 	modernc.org/sqlite v1.53.0
@@ -28,6 +29,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect

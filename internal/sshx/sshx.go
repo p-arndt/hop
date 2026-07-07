@@ -194,6 +194,9 @@ func (c *Client) Shell(cols, rows int) (*Session, error) {
 	}, nil
 }
 
+// SSHClient returns the underlying *ssh.Client.
+func (c *Client) SSHClient() *ssh.Client { return c.ssh }
+
 // Close closes the underlying SSH client connection.
 func (c *Client) Close() error {
 	if c.ssh == nil {

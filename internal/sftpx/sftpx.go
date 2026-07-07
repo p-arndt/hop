@@ -1,0 +1,160 @@
+// Package sftpx provides a small SFTP client for hop, layered over an existing
+// SSH connection. It exposes directory listing, transfer and basic mutation
+// operations used by the remote file browser. Remote paths always use forward
+// slashes and are manipulated with the stdlib "path" package.
+package sftpx
+
+import (
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
+)
+
+// Entry describes a single remote directory entry.
+type Entry struct {
+	Name    string
+	IsDir   bool
+	Size    int64
+	Mode    fs.FileMode
+	ModTime int64 // unix seconds
+}
+
+// Client wraps an *sftp.Client bound to a single SSH connection.
+type Client struct {
+	sc *sftp.Client
+}
+
+// Open starts an SFTP subsystem over the supplied SSH client.
+func Open(sshClient *ssh.Client) (*Client, error) {
+	sc, err := sftp.NewClient(sshClient)
+	if err != nil {
+		return nil, fmt.Errorf("sftpx: open: %w", err)
+	}
+	return &Client{sc: sc}, nil
+}
+
+// Close shuts down the SFTP subsystem.
+func (c *Client) Close() error {
+	return c.sc.Close()
+}
+
+// Home returns a best-effort remote starting directory: the working directory
+// if the server reports one, otherwise the real path of ".", falling back to
+// "/".
+func (c *Client) Home() (string, error) {
+	if wd, err := c.sc.Getwd(); err == nil && wd != "" {
+		return wd, nil
+	}
+	if rp, err := c.sc.RealPath("."); err == nil && rp != "" {
+		return rp, nil
+	}
+	return "/", nil
+}
+
+// List reads dir and returns its entries sorted directories-first, then by
+// case-insensitive name. It does not inject a ".." entry.
+func (c *Client) List(dir string) ([]Entry, error) {
+	infos, err := c.sc.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("sftpx: list %s: %w", dir, err)
+	}
+
+	entries := make([]Entry, 0, len(infos))
+	for _, fi := range infos {
+		entries = append(entries, Entry{
+			Name:    fi.Name(),
+			IsDir:   fi.IsDir(),
+			Size:    fi.Size(),
+			Mode:    fi.Mode(),
+			ModTime: fi.ModTime().Unix(),
+		})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].IsDir != entries[j].IsDir {
+			return entries[i].IsDir
+		}
+		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
+	})
+
+	return entries, nil
+}
+
+// Download copies a remote file to localPath, creating parent directories as
+// needed, and returns the number of bytes written.
+func (c *Client) Download(remotePath, localPath string) (int64, error) {
+	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
+		return 0, fmt.Errorf("sftpx: download: %w", err)
+	}
+
+	rf, err := c.sc.Open(remotePath)
+	if err != nil {
+		return 0, fmt.Errorf("sftpx: download open remote %s: %w", remotePath, err)
+	}
+	defer rf.Close()
+
+	lf, err := os.Create(localPath)
+	if err != nil {
+		return 0, fmt.Errorf("sftpx: download create local %s: %w", localPath, err)
+	}
+	defer lf.Close()
+
+	n, err := io.Copy(lf, rf)
+	if err != nil {
+		return n, fmt.Errorf("sftpx: download copy: %w", err)
+	}
+	return n, nil
+}
+
+// Upload copies a local file to remotePath and returns the number of bytes
+// written.
+func (c *Client) Upload(localPath, remotePath string) (int64, error) {
+	lf, err := os.Open(localPath)
+	if err != nil {
+		return 0, fmt.Errorf("sftpx: upload open local %s: %w", localPath, err)
+	}
+	defer lf.Close()
+
+	rf, err := c.sc.Create(remotePath)
+	if err != nil {
+		return 0, fmt.Errorf("sftpx: upload create remote %s: %w", remotePath, err)
+	}
+	defer rf.Close()
+
+	n, err := io.Copy(rf, lf)
+	if err != nil {
+		return n, fmt.Errorf("sftpx: upload copy: %w", err)
+	}
+	return n, nil
+}
+
+// Mkdir creates p and any necessary parents on the remote host.
+func (c *Client) Mkdir(p string) error {
+	if err := c.sc.MkdirAll(p); err != nil {
+		return fmt.Errorf("sftpx: mkdir %s: %w", p, err)
+	}
+	return nil
+}
+
+// Remove deletes a remote file or empty directory.
+func (c *Client) Remove(p string) error {
+	if err := c.sc.Remove(p); err != nil {
+		return fmt.Errorf("sftpx: remove %s: %w", p, err)
+	}
+	return nil
+}
+
+// Rename moves oldp to newp on the remote host.
+func (c *Client) Rename(oldp, newp string) error {
+	if err := c.sc.Rename(oldp, newp); err != nil {
+		return fmt.Errorf("sftpx: rename %s -> %s: %w", oldp, newp, err)
+	}
+	return nil
+}

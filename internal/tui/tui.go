@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -9,6 +11,8 @@ import (
 	"github.com/sahilm/fuzzy"
 
 	"hop/internal/action"
+	"hop/internal/filebrowser"
+	"hop/internal/sftpx"
 	"hop/internal/sshx"
 	"hop/internal/store"
 	"hop/internal/terminal"
@@ -99,10 +103,13 @@ func clampLines(s string, w int) string {
 	return strings.Join(lines, "\n")
 }
 
-// session bundles a live SSH client with its embedded terminal pane.
+// session bundles a live SSH client with its embedded terminal pane and/or an
+// optional SFTP file browser. A session may hold only a browser (browser-only,
+// pane == nil) when the SFTP view was opened for a host without a live shell.
 type session struct {
-	client *sshx.Client
-	pane   *terminal.Pane
+	client  *sshx.Client
+	pane    *terminal.Pane
+	browser *filebrowser.Browser
 }
 
 // ---- messages ----
@@ -116,6 +123,16 @@ type connectedMsg struct {
 	alias string
 	sess  *session
 	err   error
+}
+
+// browserOpenedMsg is returned by the SFTP-open command once the file browser is
+// ready (or has failed). client is non-nil only when a dedicated SSH connection
+// was made for browsing (so 'd' knows it must tear it down).
+type browserOpenedMsg struct {
+	alias   string
+	browser *filebrowser.Browser
+	client  *sshx.Client
+	err     error
 }
 
 // ---- model ----
@@ -147,6 +164,12 @@ type model struct {
 	active string
 	// focused is true when keystrokes are forwarded to the active pane.
 	focused bool
+	// browsing is true when the right pane shows the active session's SFTP file
+	// browser and keystrokes are forwarded to it. Mutually exclusive with focused.
+	browsing bool
+
+	// downloadDir is the local directory SFTP downloads land in, computed once.
+	downloadDir string
 
 	status string
 
@@ -166,12 +189,23 @@ func Run(st *store.Store) error {
 	if err != nil {
 		return err
 	}
+	// Compute the SFTP download directory once: <home>/Downloads, falling back
+	// to the home directory itself if it cannot be located.
+	downloadDir := "."
+	if home, herr := os.UserHomeDir(); herr == nil {
+		downloadDir = filepath.Join(home, "Downloads")
+		if _, derr := os.Stat(downloadDir); derr != nil {
+			downloadDir = home
+		}
+	}
+
 	m := &model{
-		st:         st,
-		hosts:      hosts,
-		sessions:   make(map[string]*session),
-		connecting: make(map[string]bool),
-		notify:     make(chan struct{}, 1),
+		st:          st,
+		hosts:       hosts,
+		sessions:    make(map[string]*session),
+		connecting:  make(map[string]bool),
+		notify:      make(chan struct{}, 1),
+		downloadDir: downloadDir,
 	}
 	m.applyFilter()
 	p := tea.NewProgram(m, tea.WithAltScreen())
@@ -260,6 +294,62 @@ func connectCmd(h store.Host, cols, rows int, notify chan struct{}) tea.Cmd {
 	}
 }
 
+// shellCmd opens an interactive shell over an already-established client (reused
+// from a browser-only session) and returns a connectedMsg.
+func shellCmd(alias string, cli *sshx.Client, cols, rows int, notify chan struct{}) tea.Cmd {
+	return func() tea.Msg {
+		sess, err := cli.Shell(cols, rows)
+		if err != nil {
+			return connectedMsg{alias: alias, err: err}
+		}
+		onOutput := func() {
+			select {
+			case notify <- struct{}{}:
+			default:
+			}
+		}
+		pane := terminal.New(sess, cols, rows, onOutput)
+		return connectedMsg{alias: alias, sess: &session{client: cli, pane: pane}}
+	}
+}
+
+// openBrowserCmd opens an SFTP file browser for h off the UI thread. When
+// existing is non-nil its SSH connection is reused; otherwise a dedicated
+// connection is dialed (and reported back so it can later be closed).
+func openBrowserCmd(h store.Host, existing *sshx.Client, downloadDir string, pw, ph int) tea.Cmd {
+	return func() tea.Msg {
+		cli := existing
+		var dialed *sshx.Client
+		if cli == nil {
+			c, err := sshx.Connect(h)
+			if err != nil {
+				return browserOpenedMsg{alias: h.Alias, err: err}
+			}
+			cli = c
+			dialed = c
+		}
+
+		sc, err := sftpx.Open(cli.SSHClient())
+		if err != nil {
+			if dialed != nil {
+				dialed.Close()
+			}
+			return browserOpenedMsg{alias: h.Alias, err: err}
+		}
+
+		br, err := filebrowser.New(sc, "", downloadDir, pw, ph)
+		if err != nil {
+			sc.Close()
+			if dialed != nil {
+				dialed.Close()
+			}
+			return browserOpenedMsg{alias: h.Alias, err: err}
+		}
+
+		return browserOpenedMsg{alias: h.Alias, browser: br, client: dialed}
+	}
+}
+
 // ---- update ----
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -270,9 +360,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 		m.recomputeLayout()
-		// Resize every live pane to the new right-pane inner size.
+		// Resize every live pane and browser to the new right-pane inner size.
 		for _, s := range m.sessions {
-			s.pane.Resize(m.paneW, m.paneH)
+			if s.pane != nil {
+				s.pane.Resize(m.paneW, m.paneH)
+			}
+			if s.browser != nil {
+				s.browser.Resize(m.paneW, m.paneH)
+			}
 		}
 		return m, nil
 
@@ -287,13 +382,46 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("connect %s failed: %v", msg.alias, msg.err)
 			return m, nil
 		}
-		m.sessions[msg.alias] = msg.sess
+		// Merge the new shell into any existing session (e.g. a browser-only one)
+		// so its browser survives; otherwise install a fresh session.
+		if existing := m.sessions[msg.alias]; existing != nil {
+			existing.client = msg.sess.client
+			existing.pane = msg.sess.pane
+		} else {
+			m.sessions[msg.alias] = msg.sess
+		}
 		m.st.Touch(msg.alias)
 		m.active = msg.alias
 		m.focused = true
+		m.browsing = false
 		m.status = "connected to " + msg.alias
 		// Match the pane to the current layout; repaints are event-driven.
 		msg.sess.pane.Resize(m.paneW, m.paneH)
+		return m, nil
+
+	case browserOpenedMsg:
+		if msg.err != nil {
+			m.status = fmt.Sprintf("sftp %s failed: %v", msg.alias, msg.err)
+			return m, nil
+		}
+		s := m.sessions[msg.alias]
+		if s == nil {
+			s = &session{}
+			m.sessions[msg.alias] = s
+		}
+		if s.browser != nil {
+			s.browser.Close()
+		}
+		s.browser = msg.browser
+		if msg.client != nil {
+			s.client = msg.client
+		}
+		m.st.Touch(msg.alias)
+		m.active = msg.alias
+		m.browsing = true
+		m.focused = false
+		m.status = "sftp: " + msg.alias
+		msg.browser.Resize(m.paneW, m.paneH)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -304,6 +432,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Browsing mode: forward everything to the file browser except ctrl+o, which
+	// exits back to navigation.
+	if m.browsing && m.active != "" {
+		if msg.String() == "ctrl+o" {
+			m.browsing = false
+			m.status = ""
+			return m, nil
+		}
+		if s := m.sessions[m.active]; s != nil && s.browser != nil {
+			s.browser.Handle(msg)
+		}
+		return m, nil
+	}
+
 	// Pane-focused mode: forward everything to the pane except ctrl+o.
 	if m.focused && m.active != "" {
 		if msg.String() == "ctrl+o" {
@@ -311,7 +453,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = ""
 			return m, nil
 		}
-		if s := m.sessions[m.active]; s != nil {
+		if s := m.sessions[m.active]; s != nil && s.pane != nil {
 			s.pane.SendKey(msg)
 		}
 		return m, nil
@@ -366,6 +508,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Leave the details/active view, back to plain navigation.
 		m.active = ""
 		m.status = ""
+		m.browsing = false
 
 	case "enter":
 		h, ok := m.selectedHost()
@@ -373,24 +516,44 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if s, live := m.sessions[h.Alias]; live {
-			// Already connected: just focus it.
-			m.active = h.Alias
-			m.focused = true
-			s.pane.Resize(m.paneW, m.paneH)
-			return m, nil
+			if s.pane != nil {
+				// Already has a shell: just focus it.
+				m.active = h.Alias
+				m.focused = true
+				m.browsing = false
+				s.pane.Resize(m.paneW, m.paneH)
+				return m, nil
+			}
+			// Browser-only session: open a shell reusing its SSH connection.
+			m.status = "connecting to " + h.Alias + "…"
+			m.connecting[h.Alias] = true
+			return m, shellCmd(h.Alias, s.client, m.paneW, m.paneH, m.notify)
 		}
 		m.status = "connecting to " + h.Alias + "…"
 		m.connecting[h.Alias] = true
 		return m, connectCmd(h, m.paneW, m.paneH, m.notify)
+
+	case "f":
+		h, ok := m.selectedHost()
+		if !ok {
+			return m, nil
+		}
+		var existing *sshx.Client
+		if s := m.sessions[h.Alias]; s != nil {
+			existing = s.client
+		}
+		m.status = "opening sftp " + h.Alias + "…"
+		return m, openBrowserCmd(h, existing, m.downloadDir, m.paneW, m.paneH)
 
 	case "s":
 		h, ok := m.selectedHost()
 		if !ok {
 			return m, nil
 		}
-		if s, live := m.sessions[h.Alias]; live {
+		if s, live := m.sessions[h.Alias]; live && s.pane != nil {
 			m.active = h.Alias
 			m.focused = true
+			m.browsing = false
 			s.pane.Resize(m.paneW, m.paneH)
 			return m, nil
 		}
@@ -413,12 +576,21 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if s, live := m.sessions[h.Alias]; live {
-			s.pane.Close()
-			s.client.Close()
+			if s.pane != nil {
+				s.pane.Close()
+			}
+			if s.browser != nil {
+				// Closes the SFTP subsystem; the SSH client is closed below.
+				s.browser.Close()
+			}
+			if s.client != nil {
+				s.client.Close()
+			}
 			delete(m.sessions, h.Alias)
 			if m.active == h.Alias {
 				m.active = ""
 				m.focused = false
+				m.browsing = false
 			}
 			m.status = "disconnected " + h.Alias
 		} else {
@@ -432,12 +604,20 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // closeAll tears down every live session.
 func (m *model) closeAll() {
 	for _, s := range m.sessions {
-		s.pane.Close()
-		s.client.Close()
+		if s.pane != nil {
+			s.pane.Close()
+		}
+		if s.browser != nil {
+			s.browser.Close()
+		}
+		if s.client != nil {
+			s.client.Close()
+		}
 	}
 	m.sessions = make(map[string]*session)
 	m.active = ""
 	m.focused = false
+	m.browsing = false
 }
 
 // recomputeLayout derives the left/right pane inner sizes from the window size.
@@ -508,7 +688,9 @@ func (m *model) renderHeader() string {
 	)
 
 	var chips []string
-	if m.focused && m.active != "" {
+	if m.browsing && m.active != "" {
+		chips = append(chips, chipStyle.Render("▤ "+m.active))
+	} else if m.focused && m.active != "" {
 		chips = append(chips, greenText.Bold(true).Render("● "+m.active))
 	}
 	if n := len(m.sessions); n > 0 {
@@ -661,6 +843,13 @@ func (m *model) renderRight(h int) string {
 		innerH = 1
 	}
 
+	// Browsing mode: show the active session's file browser in an accented box.
+	if m.browsing && m.active != "" {
+		if s, ok := m.sessions[m.active]; ok && s.browser != nil {
+			return rightBorderActive.Width(m.paneW).Height(innerH).Render(s.browser.View())
+		}
+	}
+
 	active := m.focused && m.active != ""
 	style := rightBorder
 	if active {
@@ -668,7 +857,7 @@ func (m *model) renderRight(h int) string {
 	}
 
 	var content string
-	if s, ok := m.sessions[m.active]; ok && m.active != "" {
+	if s, ok := m.sessions[m.active]; ok && m.active != "" && s.pane != nil {
 		content = s.pane.View()
 	} else {
 		content = m.renderDetails(m.paneW)
@@ -728,6 +917,7 @@ func (m *model) renderDetails(w int) string {
 		kc("s") + " " + dimStyle.Render("focus") + "\n")
 	b.WriteString(pad + kc("o") + " " + dimStyle.Render("vscode") + "    " +
 		kc("d") + " " + dimStyle.Render("disconnect") + "\n")
+	b.WriteString(pad + kc("f") + " " + dimStyle.Render("sftp") + "\n")
 
 	return clampLines(b.String(), w)
 }
@@ -738,6 +928,11 @@ func (m *model) renderFooter() string {
 
 	var help string
 	switch {
+	case m.browsing && m.active != "":
+		help = item("↑↓", "move") + sep +
+			item("enter", "open/download") + sep +
+			item("backspace", "up") + sep +
+			item("ctrl+o", "back to hop")
 	case m.focused && m.active != "":
 		help = item("ctrl+o", "back to hop") + sep +
 			dimStyle.Render("keys → ") + greenText.Render(m.active)
@@ -748,6 +943,7 @@ func (m *model) renderFooter() string {
 			item("enter", "connect") + sep +
 			item("s", "session") + sep +
 			item("o", "code") + sep +
+			item("f", "sftp") + sep +
 			item("d", "disconnect") + sep +
 			item("/", "filter") + sep +
 			item("q", "quit")
