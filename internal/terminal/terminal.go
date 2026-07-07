@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/vt"
 
 	"hop/internal/sshx"
@@ -87,9 +88,105 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 }
 
 // View returns the full rendered screen as an ANSI string, ready to be placed
-// into the surrounding TUI layout.
+// into the surrounding TUI layout. The emulator's Render() draws cell contents
+// but NOT a cursor (a real terminal draws its own hardware cursor), so we overlay
+// a reverse-video block at the emulator's cursor position.
 func (p *Pane) View() string {
-	return p.emu.Render()
+	rendered := p.emu.Render()
+	pos := p.emu.CursorPosition()
+	return overlayCursor(rendered, pos.X, pos.Y)
+}
+
+// overlayCursor draws a reverse-video block cursor at cell (cx, cy) on top of the
+// already-rendered screen. It operates on the row's string, column-aware and
+// skipping ANSI escape sequences, so it never touches emulator state (no races).
+func overlayCursor(rendered string, cx, cy int) string {
+	if cx < 0 || cy < 0 {
+		return rendered
+	}
+	lines := strings.Split(rendered, "\n")
+	if cy >= len(lines) {
+		return rendered
+	}
+	lines[cy] = reverseAtColumn(lines[cy], cx)
+	return strings.Join(lines, "\n")
+}
+
+// reverseAtColumn wraps the character at visible column col in reverse video,
+// advancing the visible column past ANSI escape sequences (which occupy no
+// cells). If the cursor sits past the end of the line's content, it pads with
+// spaces and appends a reversed block.
+func reverseAtColumn(line string, col int) string {
+	runes := []rune(line)
+	var b strings.Builder
+	visCol := 0
+	wrapped := false
+
+	for i := 0; i < len(runes); {
+		r := runes[i]
+		if r == 0x1b { // ESC: copy the whole escape sequence verbatim, no column advance.
+			j := i + 1
+			if j < len(runes) {
+				switch runes[j] {
+				case '[': // CSI ... final byte in 0x40-0x7E
+					j++
+					for j < len(runes) && !(runes[j] >= 0x40 && runes[j] <= 0x7e) {
+						j++
+					}
+					if j < len(runes) {
+						j++
+					}
+				case ']': // OSC ... terminated by BEL or ST (ESC \)
+					j++
+					for j < len(runes) {
+						if runes[j] == 0x07 {
+							j++
+							break
+						}
+						if runes[j] == 0x1b && j+1 < len(runes) && runes[j+1] == '\\' {
+							j += 2
+							break
+						}
+						j++
+					}
+				default: // ESC + single byte
+					j++
+				}
+			}
+			b.WriteString(string(runes[i:j]))
+			i = j
+			continue
+		}
+
+		if !wrapped && visCol == col {
+			b.WriteString("\x1b[7m")
+			b.WriteRune(r)
+			b.WriteString("\x1b[27m")
+			wrapped = true
+		} else {
+			b.WriteRune(r)
+		}
+		visCol += runeWidth(r)
+		i++
+	}
+
+	if !wrapped {
+		for visCol < col {
+			b.WriteRune(' ')
+			visCol++
+		}
+		b.WriteString("\x1b[7m \x1b[27m")
+	}
+	return b.String()
+}
+
+// runeWidth returns the terminal cell width of r (>=1 so column tracking always
+// advances).
+func runeWidth(r rune) int {
+	if w := lipgloss.Width(string(r)); w > 1 {
+		return w
+	}
+	return 1
 }
 
 // SendKey translates a Bubble Tea key event into a terminal input byte sequence
