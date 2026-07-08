@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"hop/internal/store"
 )
 
 // key builds the tea.KeyMsg whose String() is name.
@@ -223,6 +226,191 @@ func TestBrowsingEscIsNotADoubleEscChord(t *testing.T) {
 
 	if !m.browsing {
 		t.Fatal("double esc left the browser, want the chord to be pane-only")
+	}
+}
+
+// ---- recent directories in the sidebar ----
+
+// newDirModel builds a navigation-mode model with n hosts, where the host at
+// index hostIdx has the given recent directories. The dir cache is primed
+// directly so no store (and no database) is needed.
+func newDirModel(n, hostIdx int, dirs ...string) *model {
+	m := newNavModel(n)
+	m.hosts = make([]store.Host, n)
+	for i := range m.hosts {
+		m.hosts[i] = store.Host{Alias: fmt.Sprintf("host%d", i)}
+	}
+	m.dirCursor = -1
+	m.dirs = map[string][]store.Dir{}
+	if hostIdx < n {
+		ds := make([]store.Dir, len(dirs))
+		for i, p := range dirs {
+			ds[i] = store.Dir{Path: p, Visits: 1}
+		}
+		m.dirs[m.hosts[hostIdx].Alias] = ds
+	}
+	return m
+}
+
+// j walks off the host row into its directories, then on to the next host.
+func TestDirCursorWalksThroughDirs(t *testing.T) {
+	m := newDirModel(3, 0, "/a", "/b")
+
+	if m.dirIdx() != -1 {
+		t.Fatalf("dirIdx = %d, want -1 (host row selected)", m.dirIdx())
+	}
+
+	m.handleKey(key(t, "j"))
+	if m.cursor != 0 || m.dirIdx() != 0 {
+		t.Fatalf("after 1×j: cursor=%d dirIdx=%d, want 0/0", m.cursor, m.dirIdx())
+	}
+	m.handleKey(key(t, "j"))
+	if m.cursor != 0 || m.dirIdx() != 1 {
+		t.Fatalf("after 2×j: cursor=%d dirIdx=%d, want 0/1", m.cursor, m.dirIdx())
+	}
+	// Dirs exhausted: fall through to the next host's row.
+	m.handleKey(key(t, "j"))
+	if m.cursor != 1 || m.dirIdx() != -1 {
+		t.Fatalf("after 3×j: cursor=%d dirIdx=%d, want 1/-1", m.cursor, m.dirIdx())
+	}
+}
+
+// k off a host row lands on the previous host's last directory, not its header.
+func TestDirCursorWalksBackUpIntoDirs(t *testing.T) {
+	m := newDirModel(3, 0, "/a", "/b")
+	m.cursor = 1
+
+	m.handleKey(key(t, "k"))
+	if m.cursor != 0 || m.dirIdx() != 1 {
+		t.Fatalf("cursor=%d dirIdx=%d, want 0/1 (last dir of host0)", m.cursor, m.dirIdx())
+	}
+	m.handleKey(key(t, "k"))
+	if m.dirIdx() != 0 {
+		t.Fatalf("dirIdx = %d, want 0", m.dirIdx())
+	}
+	m.handleKey(key(t, "k"))
+	if m.cursor != 0 || m.dirIdx() != -1 {
+		t.Fatalf("cursor=%d dirIdx=%d, want 0/-1 (back on the host row)", m.cursor, m.dirIdx())
+	}
+}
+
+// A stale dirCursor pointing past the end of the current host's dirs reads as
+// "host row selected" rather than indexing out of range.
+func TestDirIdxIgnoresOutOfRangeCursor(t *testing.T) {
+	m := newDirModel(3, 0, "/a")
+	m.dirCursor = 7
+
+	if m.dirIdx() != -1 {
+		t.Fatalf("dirIdx = %d, want -1", m.dirIdx())
+	}
+	// And j descends into the first directory, as it would from any host row,
+	// rather than indexing out of range.
+	m.handleKey(key(t, "j"))
+	if m.cursor != 0 || m.dirIdx() != 0 {
+		t.Fatalf("cursor=%d dirIdx=%d, want 0/0", m.cursor, m.dirIdx())
+	}
+}
+
+// The jump motions always land on a host row, never mid-directory-list.
+func TestJumpMotionsResetDirCursor(t *testing.T) {
+	for _, k := range []string{"G", "H", "M", "L", "ctrl+d", "ctrl+u", "ctrl+f", "ctrl+b"} {
+		t.Run(k, func(t *testing.T) {
+			m := newDirModel(3, 0, "/a", "/b")
+			m.dirCursor = 1
+
+			m.handleKey(key(t, k))
+			if m.dirIdx() != -1 {
+				t.Fatalf("dirIdx = %d after %q, want -1", m.dirIdx(), k)
+			}
+		})
+	}
+}
+
+// The back keys step out of the directory list before they drop the details
+// view, so one press never does both.
+func TestBackKeyLeavesDirListFirst(t *testing.T) {
+	for _, k := range []string{"esc", "left", "h"} {
+		t.Run(k, func(t *testing.T) {
+			m := newDirModel(3, 0, "/a", "/b")
+			m.dirCursor = 1
+			m.active = "host0"
+
+			m.handleKey(key(t, k))
+			if m.dirIdx() != -1 {
+				t.Fatalf("dirIdx = %d, want -1", m.dirIdx())
+			}
+			if m.active != "host0" {
+				t.Fatalf("active = %q, want it untouched by the first back press", m.active)
+			}
+
+			// A second press now leaves the details view.
+			m.handleKey(key(t, k))
+			if m.active != "" {
+				t.Fatalf("active = %q, want empty", m.active)
+			}
+		})
+	}
+}
+
+// enter on a directory of a host with a live pane types a cd instead of
+// reconnecting. With no pane the model parks the directory for the shell that
+// the returned command will open.
+func TestEnterOnDirDefersCD(t *testing.T) {
+	for _, k := range []string{"enter", "right", "l"} {
+		t.Run(k, func(t *testing.T) {
+			m := newDirModel(3, 0, "/srv/app")
+			m.dirCursor = 0
+			m.sessions = map[string]*session{}
+			m.connecting = map[string]bool{}
+
+			_, cmd := m.handleKey(key(t, k))
+			if cmd == nil {
+				t.Fatal("no connect command issued")
+			}
+			if got := m.pendingCD["host0"]; got != "/srv/app" {
+				t.Fatalf("pendingCD[host0] = %q, want %q", got, "/srv/app")
+			}
+			if !m.connecting["host0"] {
+				t.Fatal("host0 not marked as connecting")
+			}
+		})
+	}
+}
+
+// x only forgets directories; on a host row it explains itself rather than
+// silently doing nothing (or, worse, deleting the host).
+func TestForgetKeyOnHostRowIsInert(t *testing.T) {
+	m := newDirModel(3, 0, "/a")
+
+	m.handleKey(key(t, "x"))
+
+	if m.status == "" {
+		t.Fatal("x on a host row gave no feedback")
+	}
+	if got := m.dirs["host0"]; len(got) != 1 {
+		t.Fatalf("x on a host row dropped a directory: %v", got)
+	}
+}
+
+// Only the host under the cursor contributes directory rows.
+func TestSidebarRowsExpandOnlyCursorHost(t *testing.T) {
+	m := newDirModel(3, 1, "/a", "/b")
+	m.cursor = 1
+
+	rows := m.sidebarRows()
+	if len(rows) != 5 {
+		t.Fatalf("got %d rows, want 5 (3 hosts + 2 dirs)", len(rows))
+	}
+	for i, want := range []bool{false, false, true, true, false} {
+		if isDir := rows[i].dir != nil; isDir != want {
+			t.Fatalf("row %d: dir=%v, want %v", i, isDir, want)
+		}
+	}
+	if !rows[3].last {
+		t.Fatal("final directory not flagged as last (it draws the └ glyph)")
+	}
+	if rows[2].last {
+		t.Fatal("first of two directories flagged as last")
 	}
 }
 

@@ -7,6 +7,7 @@ A Windows-first TUI SSH/server manager with embedded terminal panes. Stack: Go, 
 - **Phase 1 — MVP:** SQLite host store, `~/.ssh/config` import, embedded SSH terminal panes (agent auth, VT emulator, keystrokes, resize), multi-session with `ctrl+o` to leave a pane, VS Code Remote open (`o`), fuzzy search (`/`).
 - **Phase 2 — SFTP browser:** `internal/sftpx` (List/Download/Upload/Mkdir/Remove/Rename over the same SSH conn) + `internal/filebrowser` TUI component. `f` opens the browser; navigate, enter dir / download file → `~/Downloads`, `h`/`backspace` up, `r` refresh.
 - **Vim motions + back/forward keys:** `gg`/`G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`, `ctrl+f`/`ctrl+b` in both the host list and the browser. `enter`/`l`/`right` descends, `h`/`left` backs out; `left` at the browser's top directory pops back to hop. The terminal pane reserves only `ctrl+o` and a 400 ms double-`esc` — every other key belongs to the remote shell (a lone `esc` is still forwarded). See [KEYBINDINGS.md](KEYBINDINGS.md).
+- **Recent directories in the sidebar:** the host at the cursor expands into the directories the SFTP browser last visited on it, ranked by frecency (`dirs` table, capped at 5/host). `enter` connects and types `cd '<path>' && clear` into the shell (live pane or a freshly opened one, via `pendingCD`); `f` opens the browser rooted there; `x` forgets a directory. Covered by `store_test.go` and the dir-navigation tests in `keys_test.go`.
 - **Polish/fixes:** cursor now visible (reverse-video overlay at `CursorPosition`), typing lag removed (event-driven redraw instead of 50ms ticker), visual pass (keycap pills, `HOSTS` section, 3-state status dots incl. yellow `◐` connecting, accent selection bar, status badges).
 - **Verified headless:** `TestEmbeddedRoundTrip` (terminal), `TestSFTPRoundTrip` (sftp). `go build`/`vet`/`test` green.
 
@@ -22,6 +23,7 @@ A Windows-first TUI SSH/server manager with embedded terminal panes. Stack: Go, 
 - [ ] File preview/view (small text files) without downloading.
 - [ ] Transfer progress + async transfers (currently synchronous → large files briefly stall the UI).
 - [ ] Sort toggle (name/size/mtime) and show mtime column.
+- [ ] Recent dirs from the *shell* too, not just the browser: needs OSC-7 parsing out of the emulator (or a remote `PROMPT_COMMAND` hook), since a `cd` typed into a forwarded pane is invisible to hop.
 - [ ] Confirm before overwriting an existing local download.
 - [ ] Live-verify the browser look with a real host (not yet screenshotted).
 
@@ -54,7 +56,7 @@ A Windows-first TUI SSH/server manager with embedded terminal panes. Stack: Go, 
 
 ## 🧪 Testing
 
-- [ ] Unit tests for `store` (import parsing, frecency ordering, upsert/touch), `action`.
+- [ ] Unit tests for `store`: import parsing, host frecency ordering, upsert/touch. (`action` too.) Directory tracking is covered (`store_test.go`, via the new `OpenAt` + a temp db).
 - [x] `filebrowser` navigation: motions, `left`-at-top dismissal, cursor-stays-visible invariant (`filebrowser_test.go`, via the new `filebrowser.Client` interface + a fake). Rendering still untested.
 - [ ] `keyToBytes` mapping table test in `terminal`.
 - [x] `tui` navigation-mode keys (`keys_test.go`). Mode *switches* (navigation ↔ terminal ↔ browsing) still untested — they need a fake pane/browser.

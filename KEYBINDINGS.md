@@ -39,6 +39,45 @@ Because the host list does not scroll — every host is on screen — `H`/`M`/`L
 coincide with `gg`, the midpoint, and `G`. They are bound anyway so the motions
 stay consistent with the browser.
 
+### Recent directories
+
+The host under the cursor expands to show the directories you last browsed on
+it, most frecent first (visit count, then recency — the same ranking the host
+list itself uses):
+
+```
+  ● prod-web  root@10.0.0.4
+   ├ …ases/2024-06-01/current 2m
+  ▎├ /var/log/nginx           1h     ← cursor on a directory
+   └ /etc/caddy               3d
+  ○ db-01     pg@10.0.0.9
+```
+
+`j`/`k` walk through these rows as if they were hosts, so `j` off a host row
+steps into its first directory and `k` off a host row lands on the *previous*
+host's last one. Only the host at the cursor expands, so the sidebar stays a
+screenful however much history you accumulate. The jump motions (`gg`, `G`,
+`H`/`M`/`L`, `ctrl+d`/`ctrl+u`, `ctrl+f`/`ctrl+b`) always land on a host row.
+
+With a directory selected, three keys change meaning:
+
+| Key | Action |
+| --- | --- |
+| `enter` / `l` / `right` | connect (or focus the live session) and `cd` into it |
+| `f` | open the SFTP browser rooted there instead of at `$HOME` |
+| `x` | forget this directory |
+| `esc` / `h` / `left` | back to the host row (a second press leaves the details view) |
+
+**Where they come from.** Only the SFTP browser records them: every directory it
+lands in is stored against that host. A `cd` you type in the shell leaves no
+trace, because hop forwards keystrokes to the remote shell verbatim and never
+parses what comes back.
+
+**What `enter` does.** hop types `cd '<path>' && clear` into the shell — into the
+live pane if there is one, otherwise into the shell it opens for you. The `&&`
+means a `cd` that fails (directory gone, permissions changed) leaves the error on
+screen instead of clearing it away.
+
 ## Browsing — the SFTP file browser
 
 | Key | Action |

@@ -201,6 +201,17 @@ func (p *Pane) SendKey(msg tea.KeyMsg) {
 	_, _ = p.sess.Stdin.Write(b)
 }
 
+// SendString writes s to the remote shell verbatim, as if it had been typed.
+// The caller supplies any trailing newline.
+func (p *Pane) SendString(s string) {
+	if s == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, _ = p.sess.Stdin.Write([]byte(s))
+}
+
 // Resize resizes both the emulator screen and the remote PTY.
 func (p *Pane) Resize(w, h int) {
 	p.emu.Resize(w, h)
