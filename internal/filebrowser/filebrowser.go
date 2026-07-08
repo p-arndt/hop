@@ -36,22 +36,36 @@ var (
 	selBar = accentStyle.Render("▎")
 )
 
+// Client is the slice of *sftpx.Client the browser depends on. Narrowing it to
+// an interface keeps the component testable without a live SFTP connection.
+type Client interface {
+	Home() (string, error)
+	List(dir string) ([]sftpx.Entry, error)
+	Download(remotePath, localPath string) (int64, error)
+	Close() error
+}
+
 // Browser is a remote directory browser the TUI drives by forwarding key
 // messages and rendering View.
 type Browser struct {
-	client      *sftpx.Client
+	client      Client
 	cwd         string
+	root        string
 	entries     []sftpx.Entry
 	cursor      int
 	scroll      int
 	status      string
 	downloadDir string
 	w, h        int
+
+	// pendingG is set after a lone "g", so the next "g" completes the vim "gg"
+	// motion. Any other key clears it.
+	pendingG bool
 }
 
 // New builds a Browser rooted at startDir (or the remote home when startDir is
 // empty), ensuring downloadDir exists on the local filesystem.
-func New(c *sftpx.Client, startDir, downloadDir string, w, h int) (*Browser, error) {
+func New(c Client, startDir, downloadDir string, w, h int) (*Browser, error) {
 	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -68,6 +82,7 @@ func New(c *sftpx.Client, startDir, downloadDir string, w, h int) (*Browser, err
 	b := &Browser{
 		client:      c,
 		cwd:         dir,
+		root:        dir,
 		downloadDir: downloadDir,
 		w:           w,
 		h:           h,
@@ -92,10 +107,29 @@ func (b *Browser) load(dir string) {
 	b.status = ""
 }
 
-// Handle applies a key message: navigation, directory entry, parent, refresh,
-// top/bottom jumps, and file download. All SFTP work runs synchronously.
-func (b *Browser) Handle(msg tea.KeyMsg) {
-	switch msg.String() {
+// Handle applies a key message: motions, directory entry, parent, refresh, and
+// file download. All SFTP work runs synchronously.
+//
+// It reports whether the browser should be dismissed. Only "left" can ask for
+// that, and only when there is nowhere left to go up (see atTop): left walks up
+// the tree and then falls out of the browser entirely, the way a back button
+// pops the last screen off a stack. "backspace" and "h" stay strict "up a
+// directory" and never dismiss, so there is always a way to bump against the
+// top without leaving.
+func (b *Browser) Handle(msg tea.KeyMsg) (dismiss bool) {
+	key := msg.String()
+
+	// Complete or abandon a pending "gg".
+	if b.pendingG {
+		b.pendingG = false
+		if key == "g" {
+			b.cursor = 0
+			b.scroll = 0
+			return false
+		}
+	}
+
+	switch key {
 	case "up", "k":
 		b.cursor--
 		b.clampScroll()
@@ -105,41 +139,97 @@ func (b *Browser) Handle(msg tea.KeyMsg) {
 		b.clampScroll()
 
 	case "g":
-		b.cursor = 0
-		b.scroll = 0
+		b.pendingG = true
 
 	case "G":
 		b.cursor = len(b.entries) - 1
-		if b.cursor < 0 {
-			b.cursor = 0
-		}
+		b.clampScroll()
+
+	case "ctrl+d":
+		b.cursor += b.halfPage()
+		b.clampScroll()
+
+	case "ctrl+u":
+		b.cursor -= b.halfPage()
+		b.clampScroll()
+
+	case "ctrl+f", "pgdown":
+		b.cursor += b.contentRows()
+		b.clampScroll()
+
+	case "ctrl+b", "pgup":
+		b.cursor -= b.contentRows()
+		b.clampScroll()
+
+	case "H":
+		b.cursor = b.scroll
+		b.clampScroll()
+
+	case "M":
+		b.cursor = b.scroll + b.windowRows()/2
+		b.clampScroll()
+
+	case "L":
+		b.cursor = b.scroll + b.windowRows() - 1
 		b.clampScroll()
 
 	case "r":
 		b.load(b.cwd)
 
-	case "backspace", "left", "h":
-		// path.Dir of "/" stays "/".
+	case "left":
+		if b.atTop() {
+			return true
+		}
+		b.load(path.Dir(b.cwd))
+
+	case "backspace", "h":
+		// path.Dir of "/" stays "/", so this is a no-op at the filesystem root.
 		b.load(path.Dir(b.cwd))
 
 	case "enter", "right", "l":
 		if len(b.entries) == 0 {
-			return
+			return false
 		}
 		e := b.entries[b.cursor]
 		if e.IsDir {
 			b.load(path.Join(b.cwd, e.Name))
-			return
+			return false
 		}
 		// Regular file: download into downloadDir.
 		remote := path.Join(b.cwd, e.Name)
 		local := path.Join(b.downloadDir, e.Name)
 		if _, err := b.client.Download(remote, local); err != nil {
 			b.status = err.Error()
-			return
+			return false
 		}
 		b.status = fmt.Sprintf("downloaded %s → %s", e.Name, b.downloadDir)
 	}
+	return false
+}
+
+// atTop reports whether the browser cannot usefully go up any further: it sits
+// in the directory it opened in, or at the filesystem root.
+func (b *Browser) atTop() bool { return b.cwd == b.root || b.cwd == "/" }
+
+// windowRows is the number of entry rows actually filled on screen, which is
+// the viewport height except on a short final page.
+func (b *Browser) windowRows() int {
+	n := len(b.entries) - b.scroll
+	if rows := b.contentRows(); n > rows {
+		n = rows
+	}
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// halfPage is the ctrl+d/ctrl+u step: half a viewport, but never zero.
+func (b *Browser) halfPage() int {
+	if n := b.contentRows() / 2; n > 1 {
+		return n
+	}
+	return 1
 }
 
 // clampScroll clamps the cursor into range and slides the scroll window so the

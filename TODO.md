@@ -5,7 +5,8 @@ A Windows-first TUI SSH/server manager with embedded terminal panes. Stack: Go, 
 ## ✅ Done
 
 - **Phase 1 — MVP:** SQLite host store, `~/.ssh/config` import, embedded SSH terminal panes (agent auth, VT emulator, keystrokes, resize), multi-session with `ctrl+o` to leave a pane, VS Code Remote open (`o`), fuzzy search (`/`).
-- **Phase 2 — SFTP browser:** `internal/sftpx` (List/Download/Upload/Mkdir/Remove/Rename over the same SSH conn) + `internal/filebrowser` TUI component. `f` opens the browser; navigate, enter dir / download file → `~/Downloads`, `backspace` up, `r` refresh, `g`/`G` top/bottom.
+- **Phase 2 — SFTP browser:** `internal/sftpx` (List/Download/Upload/Mkdir/Remove/Rename over the same SSH conn) + `internal/filebrowser` TUI component. `f` opens the browser; navigate, enter dir / download file → `~/Downloads`, `h`/`backspace` up, `r` refresh.
+- **Vim motions + back/forward keys:** `gg`/`G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`, `ctrl+f`/`ctrl+b` in both the host list and the browser. `enter`/`l`/`right` descends, `h`/`left` backs out; `left` at the browser's top directory pops back to hop. The terminal pane still reserves only `ctrl+o` — every other key belongs to the remote shell. See [KEYBINDINGS.md](KEYBINDINGS.md).
 - **Polish/fixes:** cursor now visible (reverse-video overlay at `CursorPosition`), typing lag removed (event-driven redraw instead of 50ms ticker), visual pass (keycap pills, `HOSTS` section, 3-state status dots incl. yellow `◐` connecting, accent selection bar, status badges).
 - **Verified headless:** `TestEmbeddedRoundTrip` (terminal), `TestSFTPRoundTrip` (sftp). `go build`/`vet`/`test` green.
 
@@ -53,9 +54,10 @@ A Windows-first TUI SSH/server manager with embedded terminal panes. Stack: Go, 
 
 ## 🧪 Testing
 
-- [ ] Unit tests for `store` (import parsing, frecency ordering, upsert/touch), `filebrowser` (navigation/rendering), `action`.
+- [ ] Unit tests for `store` (import parsing, frecency ordering, upsert/touch), `action`.
+- [x] `filebrowser` navigation: motions, `left`-at-top dismissal, cursor-stays-visible invariant (`filebrowser_test.go`, via the new `filebrowser.Client` interface + a fake). Rendering still untested.
 - [ ] `keyToBytes` mapping table test in `terminal`.
-- [ ] Some coverage for the `tui` state machine (mode switches: navigation ↔ terminal ↔ browsing).
+- [x] `tui` navigation-mode keys (`keys_test.go`). Mode *switches* (navigation ↔ terminal ↔ browsing) still untested — they need a fake pane/browser.
 
 ## 📝 Known limitations / notes
 

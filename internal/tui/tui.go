@@ -146,6 +146,10 @@ type model struct {
 
 	cursor int
 
+	// pendingG is set after a lone "g", so the next "g" completes the vim "gg"
+	// motion. Any other key clears it.
+	pendingG bool
+
 	// filter input state.
 	filtering bool
 	filter    string
@@ -433,7 +437,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Browsing mode: forward everything to the file browser except ctrl+o, which
-	// exits back to navigation.
+	// exits back to navigation. The browser can also ask to be dismissed itself
+	// (left arrow at its top directory).
 	if m.browsing && m.active != "" {
 		if msg.String() == "ctrl+o" {
 			m.browsing = false
@@ -441,12 +446,17 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if s := m.sessions[m.active]; s != nil && s.browser != nil {
-			s.browser.Handle(msg)
+			if s.browser.Handle(msg) {
+				m.browsing = false
+				m.status = ""
+			}
 		}
 		return m, nil
 	}
 
-	// Pane-focused mode: forward everything to the pane except ctrl+o.
+	// Pane-focused mode: forward everything to the pane except ctrl+o. Nothing
+	// else may be intercepted here — the remote shell owns every other key,
+	// arrows included, so ctrl+o is deliberately the only way out.
 	if m.focused && m.active != "" {
 		if msg.String() == "ctrl+o" {
 			m.focused = false
@@ -484,33 +494,74 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Navigation mode.
-	switch msg.String() {
+	key := msg.String()
+
+	// Complete or abandon a pending "gg".
+	if m.pendingG {
+		m.pendingG = false
+		if key == "g" {
+			m.cursor = 0
+			return m, nil
+		}
+	}
+
+	switch key {
 	case "q", "ctrl+c":
 		m.closeAll()
 		return m, tea.Quit
 
 	case "up", "k":
-		if m.cursor > 0 {
-			m.cursor--
-		}
+		m.cursor--
+		m.clampCursor()
 
 	case "down", "j":
-		if m.cursor < len(m.filtered)-1 {
-			m.cursor++
-		}
+		m.cursor++
+		m.clampCursor()
+
+	case "g":
+		m.pendingG = true
+
+	case "G", "L":
+		m.cursor = len(m.filtered) - 1
+		m.clampCursor()
+
+	case "H":
+		m.cursor = 0
+
+	case "M":
+		m.cursor = len(m.filtered) / 2
+		m.clampCursor()
+
+	case "ctrl+d":
+		m.cursor += m.halfPage()
+		m.clampCursor()
+
+	case "ctrl+u":
+		m.cursor -= m.halfPage()
+		m.clampCursor()
+
+	case "ctrl+f", "pgdown":
+		m.cursor += m.listRows()
+		m.clampCursor()
+
+	case "ctrl+b", "pgup":
+		m.cursor -= m.listRows()
+		m.clampCursor()
 
 	case "/":
 		m.filtering = true
 		m.filter = ""
 		m.applyFilter()
 
-	case "esc":
-		// Leave the details/active view, back to plain navigation.
+	case "esc", "left", "h":
+		// Back: leave the details/active view, back to plain navigation.
 		m.active = ""
 		m.status = ""
 		m.browsing = false
 
-	case "enter":
+	case "enter", "right", "l":
+		// Forward: connect to the selected host, mirroring the browser's
+		// enter/right/l "descend into this thing".
 		h, ok := m.selectedHost()
 		if !ok {
 			return m, nil
@@ -599,6 +650,38 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// clampCursor holds the list cursor inside the filtered host list.
+func (m *model) clampCursor() {
+	if m.cursor > len(m.filtered)-1 {
+		m.cursor = len(m.filtered) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+}
+
+// listRows approximates the host rows visible in the list pane. It mirrors
+// renderList's bookkeeping: the body loses the header and footer, the border
+// takes two more, then the HOSTS title and (when present) the filter prompt.
+func (m *model) listRows() int {
+	r := m.height - 5
+	if m.filtering || m.filter != "" {
+		r--
+	}
+	if r < 1 {
+		r = 1
+	}
+	return r
+}
+
+// halfPage is the ctrl+d/ctrl+u step: half a viewport, but never zero.
+func (m *model) halfPage() int {
+	if n := m.listRows() / 2; n > 1 {
+		return n
+	}
+	return 1
 }
 
 // closeAll tears down every live session.
@@ -931,7 +1014,8 @@ func (m *model) renderFooter() string {
 	case m.browsing && m.active != "":
 		help = item("↑↓", "move") + sep +
 			item("enter", "open/download") + sep +
-			item("backspace", "up") + sep +
+			item("←", "up · back") + sep +
+			item("r", "refresh") + sep +
 			item("ctrl+o", "back to hop")
 	case m.focused && m.active != "":
 		help = item("ctrl+o", "back to hop") + sep +

@@ -19,9 +19,9 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
+	"github.com/skeema/knownhosts"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
-	"golang.org/x/crypto/ssh/knownhosts"
 
 	"hop/internal/store"
 )
@@ -98,23 +98,28 @@ func Connect(h store.Host) (*Client, error) {
 		username = currentUsername()
 	}
 
-	hkcb, err := tofuHostKeyCallback()
-	if err != nil {
-		return nil, err
-	}
-
-	cfg := &ssh.ClientConfig{
-		User:            username,
-		Auth:            []ssh.AuthMethod{auth},
-		HostKeyCallback: hkcb,
-		Timeout:         dialTimeout,
-	}
-
 	port := h.Port
 	if port == 0 {
 		port = 22
 	}
 	addr := net.JoinHostPort(h.HostName, fmt.Sprintf("%d", port))
+
+	db, khPath, err := hostKeyDB()
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := &ssh.ClientConfig{
+		User: username,
+		Auth: []ssh.AuthMethod{auth},
+		// Ask the server for the key types we already trust for this host.
+		// Without this the server may answer with a type we have no entry for
+		// (e.g. ecdsa when known_hosts holds ed25519), which knownhosts reports
+		// as a key mismatch. Empty for an unknown host => library defaults.
+		HostKeyAlgorithms: db.HostKeyAlgorithms(addr),
+		HostKeyCallback:   tofuHostKeyCallback(db, khPath),
+		Timeout:           dialTimeout,
+	}
 
 	return ConnectAddr(addr, cfg)
 }
@@ -218,75 +223,64 @@ func currentUsername() string {
 	return name
 }
 
-// tofuHostKeyCallback returns a HostKeyCallback that verifies against
-// ~/.ssh/known_hosts, and on first contact appends the presented key and
-// accepts it. A genuine key mismatch is rejected.
-func tofuHostKeyCallback() (ssh.HostKeyCallback, error) {
+// hostKeyDB opens ~/.ssh/known_hosts, creating the file and its directory on
+// first run, and returns the parsed database alongside its path.
+func hostKeyDB() (*knownhosts.HostKeyDB, string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("sshx: locate home dir: %w", err)
+		return nil, "", fmt.Errorf("sshx: locate home dir: %w", err)
 	}
 	sshDir := filepath.Join(home, ".ssh")
 	khPath := filepath.Join(sshDir, "known_hosts")
 
-	// Ensure the file and its directory exist so knownhosts.New can open it.
+	// Ensure the file and its directory exist so knownhosts.NewDB can open it.
 	if err := os.MkdirAll(sshDir, 0o700); err != nil {
-		return nil, fmt.Errorf("sshx: create .ssh dir: %w", err)
+		return nil, "", fmt.Errorf("sshx: create .ssh dir: %w", err)
 	}
 	if _, err := os.Stat(khPath); errors.Is(err, os.ErrNotExist) {
 		f, err := os.OpenFile(khPath, os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {
-			return nil, fmt.Errorf("sshx: create known_hosts: %w", err)
+			return nil, "", fmt.Errorf("sshx: create known_hosts: %w", err)
 		}
 		f.Close()
 	}
 
-	inner, err := knownhosts.New(khPath)
+	db, err := knownhosts.NewDB(khPath)
 	if err != nil {
-		return nil, fmt.Errorf("sshx: load known_hosts: %w", err)
+		return nil, "", fmt.Errorf("sshx: load known_hosts: %w", err)
 	}
+	return db, khPath, nil
+}
+
+// tofuHostKeyCallback verifies the presented key against db, and on first
+// contact appends it to khPath and accepts it. A genuine key change is
+// rejected.
+func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath string) ssh.HostKeyCallback {
+	inner := db.HostKeyCallback()
 
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		err := inner(hostname, remote, key)
-		if err == nil {
+		switch {
+		case err == nil:
 			return nil
-		}
-
-		var keyErr *knownhosts.KeyError
-		if errors.As(err, &keyErr) {
-			// Want slice populated => host is known under a different key =>
-			// genuine mismatch: reject.
-			if len(keyErr.Want) > 0 {
-				return fmt.Errorf("sshx: host key mismatch for %s: %w", hostname, err)
-			}
-			// No known key for this host: trust on first use.
+		case knownhosts.IsHostKeyChanged(err):
+			return fmt.Errorf("sshx: host key mismatch for %s: %w", hostname, err)
+		case knownhosts.IsHostUnknown(err):
 			if aerr := appendKnownHost(khPath, hostname, remote, key); aerr != nil {
 				return fmt.Errorf("sshx: record new host key for %s: %w", hostname, aerr)
 			}
 			return nil
 		}
-
 		return err
-	}, nil
+	}
 }
 
 // appendKnownHost appends a normalized known_hosts line for the given host key.
 func appendKnownHost(path, hostname string, remote net.Addr, key ssh.PublicKey) error {
-	addresses := []string{knownhosts.Normalize(hostname)}
-	if remote != nil {
-		if raddr := knownhosts.Normalize(remote.String()); raddr != addresses[0] {
-			addresses = append(addresses, raddr)
-		}
-	}
-	line := knownhosts.Line(addresses, key)
-
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	if _, err := f.WriteString(line + "\n"); err != nil {
-		return err
-	}
-	return nil
+	return knownhosts.WriteKnownHost(f, hostname, remote, key)
 }
