@@ -216,17 +216,68 @@ func TestPaneCtrlOLeaves(t *testing.T) {
 	}
 }
 
-// The double-esc chord belongs to the terminal pane only; in the browser, esc is
-// the browser's own key and must not pop the mode.
-func TestBrowsingEscIsNotADoubleEscChord(t *testing.T) {
-	m := &model{active: "web1", browsing: true, sessions: map[string]*session{}, height: 20}
+// The browser leaves on the same two chords the pane does: a fast double esc...
+func TestBrowsingDoubleEscLeaves(t *testing.T) {
+	m := newBrowseModel()
 
 	m.handleKey(key(t, "esc"))
+	if !m.browsing {
+		t.Fatal("a lone esc left the browser, want it to only arm the window")
+	}
+
+	m.handleKey(key(t, "esc"))
+	if m.browsing {
+		t.Fatal("double esc did not leave the browser")
+	}
+	if !m.lastEsc.IsZero() {
+		t.Fatal("lastEsc not reset on leaving the browser")
+	}
+}
+
+// ...and any other key in between breaks the chord, as in the pane.
+func TestBrowsingEscOtherEscIsNotAChord(t *testing.T) {
+	m := newBrowseModel()
+
+	m.handleKey(key(t, "esc"))
+	m.handleKey(key(t, "j"))
 	m.handleKey(key(t, "esc"))
 
 	if !m.browsing {
-		t.Fatal("double esc left the browser, want the chord to be pane-only")
+		t.Fatal("esc-j-esc left the browser, want it treated as two lone escs")
 	}
+}
+
+// A slow second esc is two lone escapes, not a chord.
+func TestBrowsingSlowDoubleEscStays(t *testing.T) {
+	m := newBrowseModel()
+
+	m.handleKey(key(t, "esc"))
+	m.lastEsc = time.Now().Add(-2 * doubleEscWindow)
+	m.handleKey(key(t, "esc"))
+
+	if !m.browsing {
+		t.Fatal("a slow double esc left the browser, want the window to have expired")
+	}
+}
+
+func TestBrowsingCtrlOLeaves(t *testing.T) {
+	m := newBrowseModel()
+
+	m.handleKey(key(t, "esc"))
+	m.handleKey(key(t, "ctrl+o"))
+
+	if m.browsing {
+		t.Fatal("ctrl+o did not leave the browser")
+	}
+	if !m.lastEsc.IsZero() {
+		t.Fatal("lastEsc not reset on leaving the browser")
+	}
+}
+
+// newBrowseModel builds a model in browsing mode with no live session, so keys
+// that would reach the browser are simply dropped.
+func newBrowseModel() *model {
+	return &model{active: "web1", browsing: true, sessions: map[string]*session{}, height: 20}
 }
 
 // ---- recent directories in the sidebar ----

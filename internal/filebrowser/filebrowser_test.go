@@ -60,50 +60,27 @@ func newTestBrowser(n int) (*Browser, *fakeClient) {
 	return &Browser{
 		client:  fc,
 		cwd:     "/home/u",
-		root:    "/home/u",
 		entries: ents,
 		w:       40,
 		h:       13, // contentRows() == 10
 	}, fc
 }
 
-func TestHandleLeftDismissesAtTop(t *testing.T) {
-	cases := []struct {
-		name string
-		cwd  string
-		root string
-		want bool
-	}{
-		{"at start dir", "/home/u", "/home/u", true},
-		{"at filesystem root", "/", "/home/u", true},
-		{"above start dir", "/home", "/home/u", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			b, _ := newTestBrowser(3)
-			b.cwd, b.root = tc.cwd, tc.root
-
-			got := b.Handle(key(t, "left"))
-			if got != tc.want {
-				t.Fatalf("Handle(left) = %v, want %v", got, tc.want)
-			}
-			if !tc.want && b.cwd != "/" {
-				t.Fatalf("cwd = %q, want the parent %q", b.cwd, "/")
-			}
-		})
-	}
-}
-
-// Backspace and h are strict "up a directory": they must never dismiss, so the
-// user can bump against the top without falling out of the browser.
-func TestHandleUpKeysNeverDismiss(t *testing.T) {
-	for _, k := range []string{"backspace", "h"} {
+// left, backspace and h are all strict "up a directory". None of them leaves the
+// browser, and at the filesystem root they are no-ops rather than an exit.
+func TestHandleUpKeys(t *testing.T) {
+	for _, k := range []string{"left", "backspace", "h"} {
 		t.Run(k, func(t *testing.T) {
 			b, _ := newTestBrowser(3)
-			b.cwd, b.root = "/", "/" // already at the top
-			if b.Handle(key(t, k)) {
-				t.Fatalf("Handle(%q) = true, want no dismiss", k)
+			b.cwd = "/home/u"
+
+			b.Handle(key(t, k))
+			if b.cwd != "/home" {
+				t.Fatalf("cwd = %q, want the parent %q", b.cwd, "/home")
 			}
+
+			b.cwd = "/" // already at the top
+			b.Handle(key(t, k))
 			if b.cwd != "/" {
 				t.Fatalf("cwd = %q, want %q", b.cwd, "/")
 			}
@@ -136,9 +113,7 @@ func TestVimMotions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b, _ := newTestBrowser(tc.entries)
 			for _, k := range tc.keys {
-				if b.Handle(key(t, k)) {
-					t.Fatalf("Handle(%q) unexpectedly dismissed", k)
-				}
+				b.Handle(key(t, k))
 			}
 			if b.cursor != tc.want {
 				t.Fatalf("cursor = %d, want %d", b.cursor, tc.want)

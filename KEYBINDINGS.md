@@ -1,8 +1,8 @@
 # hop — keybindings
 
 hop has three input modes. The footer always shows the keys for the mode you are
-in, and every mode returns to navigation with `ctrl+o` (from a terminal pane,
-`esc` `esc` also works).
+in, and every mode returns to navigation with `ctrl+o` (from a terminal pane or
+the file browser, `esc` `esc` also works).
 
 | Mode | You are here when | Who owns your keystrokes |
 | --- | --- | --- |
@@ -90,26 +90,21 @@ screen instead of clearing it away.
 | `ctrl+d` / `ctrl+u` | half a page down / up |
 | `ctrl+f` / `ctrl+b` | a full page down / up (also `pgdn` / `pgup`) |
 | `enter` / `l` / `right` | enter a directory, or download a file to `~/Downloads` |
-| `h` / `backspace` | up one directory (never leaves the browser) |
-| `left` | up one directory — **or back to hop** when there is nowhere left to go up |
+| `h` / `left` / `backspace` | up one directory |
 | `r` | refresh the listing |
 | `ctrl+o` | back to hop |
+| `esc` `esc` | back to hop (two presses within 400 ms) |
 
-### How `left` behaves
+### Leaving the browser
 
-`left` is the back button. It walks up the directory tree, and once it reaches
-the top it pops you out of the browser entirely — the way `left` backs out of a
-screen in a Claude agent:
+`left` is pure motion: it walks up the directory tree and stops at `/`. It never
+leaves the browser, because the directory you open in is usually your home
+directory — so a `left` there would drop you back to hop exactly when you meant
+to go up to `/home`.
 
-```
-~/projects/api   --left-->  ~/projects
-~/projects       --left-->  ~
-~  (start dir)   --left-->  back to hop
-```
-
-"The top" means the directory the browser opened in, or `/`. `h` and `backspace`
-stay strict *up a directory* and never dismiss the browser, so you always have a
-way to bump against the top without falling out of it.
+Leaving is always explicit, with the same two chords the terminal pane uses:
+`ctrl+o`, or `esc` `esc` within 400 ms. Unlike in a pane, a lone `esc` here is
+swallowed rather than forwarded: the browser has no use for it.
 
 ## Terminal — a live shell on a remote host
 

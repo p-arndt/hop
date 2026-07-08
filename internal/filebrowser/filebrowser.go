@@ -50,7 +50,6 @@ type Client interface {
 type Browser struct {
 	client      Client
 	cwd         string
-	root        string
 	entries     []sftpx.Entry
 	cursor      int
 	scroll      int
@@ -63,8 +62,8 @@ type Browser struct {
 	pendingG bool
 }
 
-// New builds a Browser rooted at startDir (or the remote home when startDir is
-// empty), ensuring downloadDir exists on the local filesystem.
+// New builds a Browser starting in startDir (or the remote home when startDir
+// is empty), ensuring downloadDir exists on the local filesystem.
 func New(c Client, startDir, downloadDir string, w, h int) (*Browser, error) {
 	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
 		return nil, err
@@ -82,7 +81,6 @@ func New(c Client, startDir, downloadDir string, w, h int) (*Browser, error) {
 	b := &Browser{
 		client:      c,
 		cwd:         dir,
-		root:        dir,
 		downloadDir: downloadDir,
 		w:           w,
 		h:           h,
@@ -110,13 +108,10 @@ func (b *Browser) load(dir string) {
 // Handle applies a key message: motions, directory entry, parent, refresh, and
 // file download. All SFTP work runs synchronously.
 //
-// It reports whether the browser should be dismissed. Only "left" can ask for
-// that, and only when there is nowhere left to go up (see atTop): left walks up
-// the tree and then falls out of the browser entirely, the way a back button
-// pops the last screen off a stack. "backspace" and "h" stay strict "up a
-// directory" and never dismiss, so there is always a way to bump against the
-// top without leaving.
-func (b *Browser) Handle(msg tea.KeyMsg) (dismiss bool) {
+// No key here leaves the browser: dismissal is the enclosing model's business
+// (ctrl+o or a double esc). "left", "backspace" and "h" are all strict "up a
+// directory", so bumping against the top is a no-op rather than a surprise exit.
+func (b *Browser) Handle(msg tea.KeyMsg) {
 	key := msg.String()
 
 	// Complete or abandon a pending "gg".
@@ -125,7 +120,7 @@ func (b *Browser) Handle(msg tea.KeyMsg) (dismiss bool) {
 		if key == "g" {
 			b.cursor = 0
 			b.scroll = 0
-			return false
+			return
 		}
 	}
 
@@ -176,40 +171,29 @@ func (b *Browser) Handle(msg tea.KeyMsg) (dismiss bool) {
 	case "r":
 		b.load(b.cwd)
 
-	case "left":
-		if b.atTop() {
-			return true
-		}
-		b.load(path.Dir(b.cwd))
-
-	case "backspace", "h":
+	case "left", "backspace", "h":
 		// path.Dir of "/" stays "/", so this is a no-op at the filesystem root.
 		b.load(path.Dir(b.cwd))
 
 	case "enter", "right", "l":
 		if len(b.entries) == 0 {
-			return false
+			return
 		}
 		e := b.entries[b.cursor]
 		if e.IsDir {
 			b.load(path.Join(b.cwd, e.Name))
-			return false
+			return
 		}
 		// Regular file: download into downloadDir.
 		remote := path.Join(b.cwd, e.Name)
 		local := path.Join(b.downloadDir, e.Name)
 		if _, err := b.client.Download(remote, local); err != nil {
 			b.status = err.Error()
-			return false
+			return
 		}
 		b.status = fmt.Sprintf("downloaded %s → %s", e.Name, b.downloadDir)
 	}
-	return false
 }
-
-// atTop reports whether the browser cannot usefully go up any further: it sits
-// in the directory it opened in, or at the filesystem root.
-func (b *Browser) atTop() bool { return b.cwd == b.root || b.cwd == "/" }
 
 // windowRows is the number of entry rows actually filled on screen, which is
 // the viewport height except on a short final page.

@@ -57,7 +57,7 @@ A Windows-first TUI SSH/server manager with embedded terminal panes. Stack: Go, 
 ## 🧪 Testing
 
 - [ ] Unit tests for `store`: import parsing, host frecency ordering, upsert/touch. (`action` too.) Directory tracking is covered (`store_test.go`, via the new `OpenAt` + a temp db).
-- [x] `filebrowser` navigation: motions, `left`-at-top dismissal, cursor-stays-visible invariant (`filebrowser_test.go`, via the new `filebrowser.Client` interface + a fake). Rendering still untested.
+- [x] `filebrowser` navigation: motions, up-a-directory keys, cursor-stays-visible invariant (`filebrowser_test.go`, via the new `filebrowser.Client` interface + a fake). Rendering still untested.
 - [ ] `keyToBytes` mapping table test in `terminal`.
 - [x] `tui` navigation-mode keys (`keys_test.go`). Mode *switches* (navigation ↔ terminal ↔ browsing) still untested — they need a fake pane/browser.
 

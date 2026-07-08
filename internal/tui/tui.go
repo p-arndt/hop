@@ -557,27 +557,38 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Browsing mode: forward everything to the file browser except ctrl+o, which
-	// exits back to navigation. The browser can also ask to be dismissed itself
-	// (left arrow at its top directory).
+	// Browsing mode: forward everything to the file browser except the two exits,
+	// ctrl+o and a double esc — the same pair the focused pane reserves. The
+	// browser itself never asks to be dismissed, so arrows stay pure motion.
 	if m.browsing && m.active != "" {
-		if msg.String() == "ctrl+o" {
-			m.browsing = false
-			m.status = ""
+		key := msg.String()
+
+		if key == "ctrl+o" {
+			m.leaveBrowser()
 			return m, nil
 		}
+
+		if key == "esc" {
+			// Unlike the focused pane, nothing downstream wants an esc: the browser
+			// ignores it. So swallow the first one and only arm the window.
+			if !m.lastEsc.IsZero() && time.Since(m.lastEsc) <= doubleEscWindow {
+				m.leaveBrowser()
+				return m, nil
+			}
+			m.lastEsc = time.Now()
+			return m, nil
+		}
+		// Any other key breaks the sequence, so esc-j-esc is not a double.
+		m.lastEsc = time.Time{}
+
 		if s := m.sessions[m.active]; s != nil && s.browser != nil {
 			before := s.browser.Path()
-			dismiss := s.browser.Handle(msg)
+			s.browser.Handle(msg)
 			// Every directory the browser lands in becomes a recent directory for
 			// this host. That is the only source of them, so a shell-side `cd`
 			// leaves no trace here.
 			if after := s.browser.Path(); after != before {
 				m.touchDir(m.active, after)
-			}
-			if dismiss {
-				m.browsing = false
-				m.status = ""
 			}
 		}
 		return m, nil
@@ -890,6 +901,13 @@ func (m *model) hopTo(h store.Host, dir string) tea.Cmd {
 // leavePane returns from a focused terminal pane to navigation mode.
 func (m *model) leavePane() {
 	m.focused = false
+	m.status = ""
+	m.lastEsc = time.Time{}
+}
+
+// leaveBrowser returns from the file browser to navigation mode.
+func (m *model) leaveBrowser() {
+	m.browsing = false
 	m.status = ""
 	m.lastEsc = time.Time{}
 }
@@ -1390,9 +1408,10 @@ func (m *model) renderFooter() string {
 	case m.browsing && m.active != "":
 		help = item("↑↓", "move") + sep +
 			item("enter", "open/download") + sep +
-			item("←", "up · back") + sep +
+			item("←", "up") + sep +
 			item("r", "refresh") + sep +
-			item("ctrl+o", "back to hop")
+			item("ctrl+o", "back to hop") + sep +
+			item("esc esc", "back to hop")
 	case m.focused && m.active != "":
 		help = item("ctrl+o", "back to hop") + sep +
 			item("esc esc", "back to hop") + sep +
