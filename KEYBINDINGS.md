@@ -1,7 +1,8 @@
 # hop — keybindings
 
 hop has three input modes. The footer always shows the keys for the mode you are
-in, and every mode returns to navigation with `ctrl+o`.
+in, and every mode returns to navigation with `ctrl+o` (from a terminal pane,
+`esc` `esc` also works).
 
 | Mode | You are here when | Who owns your keystrokes |
 | --- | --- | --- |
@@ -76,6 +77,7 @@ way to bump against the top without falling out of it.
 | Key | Action |
 | --- | --- |
 | `ctrl+o` | back to hop |
+| `esc` `esc` | back to hop (two presses within 400 ms) |
 | *everything else* | sent to the remote shell |
 
 **`left` is not a back key here, and cannot be.** Once a pane is focused, every
@@ -84,9 +86,27 @@ all: arrow keys move the readline cursor, `ctrl+d` sends EOF, `esc` leaves vim's
 insert mode. Intercepting any of them would silently break editing on every
 server you connect to.
 
-That is why `ctrl+o` — a chord no common shell binds — is deliberately the *only*
-key hop reserves in this mode. The asymmetry with the browser is intentional: the
-browser is hop's own UI, the terminal is someone else's.
+`ctrl+o` — a chord no common shell binds — is the safe way out. `esc` `esc` is
+the fast one.
+
+### How double-esc works, and what it costs
+
+A lone `esc` **is still forwarded to the shell.** hop cannot know a second `esc`
+is coming without swallowing the first one and waiting out the timer, which would
+put a 400 ms lag on every `esc` you press in vim. So the rule is:
+
+| You press | The shell receives | hop does |
+| --- | --- | --- |
+| `esc` | `esc` | arms the window |
+| `esc` `esc` (fast) | `esc` | leaves the pane on the second |
+| `esc` … pause … `esc` | `esc` `esc` | nothing |
+| `esc` `j` `esc` | `esc` `j` `esc` | nothing — any key breaks the chord |
+
+The trade-off: **if you mash `esc` twice quickly in vim, you will land back in
+the host list.** The shell will have seen one of those escapes, which in normal
+mode is a harmless no-op, so nothing is lost — press `enter` or `s` to drop
+straight back into the session. If that bothers you, `ctrl+o` is unambiguous and
+never fires by accident.
 
 ---
 

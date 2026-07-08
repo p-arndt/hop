@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -149,6 +150,11 @@ type model struct {
 	// pendingG is set after a lone "g", so the next "g" completes the vim "gg"
 	// motion. Any other key clears it.
 	pendingG bool
+
+	// lastEsc is when the most recent esc was forwarded to the focused pane.
+	// A second esc within doubleEscWindow leaves the pane. Zero means no esc is
+	// pending.
+	lastEsc time.Time
 
 	// filter input state.
 	filtering bool
@@ -454,15 +460,33 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Pane-focused mode: forward everything to the pane except ctrl+o. Nothing
-	// else may be intercepted here — the remote shell owns every other key,
-	// arrows included, so ctrl+o is deliberately the only way out.
+	// Pane-focused mode: the remote shell owns every key, arrows included, so
+	// hop reserves only ctrl+o and a double-esc. Everything else is forwarded
+	// verbatim.
 	if m.focused && m.active != "" {
-		if msg.String() == "ctrl+o" {
-			m.focused = false
-			m.status = ""
+		key := msg.String()
+
+		if key == "ctrl+o" {
+			m.leavePane()
 			return m, nil
 		}
+
+		if key == "esc" {
+			// A second esc inside the window leaves the pane. The *first* esc is
+			// still forwarded below, because a lone esc belongs to the shell
+			// (it drops vim out of insert mode) and we cannot know a second one
+			// is coming without swallowing it. A stray extra esc is harmless:
+			// in vim's normal mode it is a no-op.
+			if !m.lastEsc.IsZero() && time.Since(m.lastEsc) <= doubleEscWindow {
+				m.leavePane()
+				return m, nil
+			}
+			m.lastEsc = time.Now()
+		} else {
+			// Any other key breaks the sequence, so esc-j-esc is not a double.
+			m.lastEsc = time.Time{}
+		}
+
 		if s := m.sessions[m.active]; s != nil && s.pane != nil {
 			s.pane.SendKey(msg)
 		}
@@ -650,6 +674,19 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// doubleEscWindow is how long after an esc a second esc counts as "leave the
+// pane" rather than two independent escapes bound for the remote shell. Long
+// enough for a deliberate double-tap, short enough that two considered presses
+// (say, in vim) stay independent.
+const doubleEscWindow = 400 * time.Millisecond
+
+// leavePane returns from a focused terminal pane to navigation mode.
+func (m *model) leavePane() {
+	m.focused = false
+	m.status = ""
+	m.lastEsc = time.Time{}
 }
 
 // clampCursor holds the list cursor inside the filtered host list.
@@ -1019,6 +1056,7 @@ func (m *model) renderFooter() string {
 			item("ctrl+o", "back to hop")
 	case m.focused && m.active != "":
 		help = item("ctrl+o", "back to hop") + sep +
+			item("esc esc", "back to hop") + sep +
 			dimStyle.Render("keys → ") + greenText.Render(m.active)
 	case m.filtering:
 		help = item("type", "filter") + sep + item("enter", "apply") + sep + item("esc", "clear")

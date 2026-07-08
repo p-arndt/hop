@@ -2,6 +2,7 @@ package tui
 
 import (
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -10,6 +11,8 @@ import (
 func key(t *testing.T, name string) tea.KeyMsg {
 	t.Helper()
 	switch name {
+	case "ctrl+o":
+		return tea.KeyMsg{Type: tea.KeyCtrlO}
 	case "ctrl+d":
 		return tea.KeyMsg{Type: tea.KeyCtrlD}
 	case "ctrl+u":
@@ -128,6 +131,98 @@ func TestNavForwardKeysOnEmptyList(t *testing.T) {
 				t.Fatal("got a connect command for an empty list, want none")
 			}
 		})
+	}
+}
+
+// newPaneModel builds a model focused on a terminal pane. The session map is
+// empty, so key forwarding is a no-op and we can assert purely on mode changes.
+func newPaneModel() *model {
+	return &model{
+		active:   "web1",
+		focused:  true,
+		sessions: map[string]*session{},
+		height:   20,
+	}
+}
+
+func TestPaneDoubleEscLeaves(t *testing.T) {
+	m := newPaneModel()
+
+	m.handleKey(key(t, "esc"))
+	if !m.focused {
+		t.Fatal("a single esc left the pane, want it forwarded to the shell")
+	}
+	if m.lastEsc.IsZero() {
+		t.Fatal("first esc did not arm the double-esc window")
+	}
+
+	m.handleKey(key(t, "esc"))
+	if m.focused {
+		t.Fatal("double esc did not leave the pane")
+	}
+	if !m.lastEsc.IsZero() {
+		t.Fatal("lastEsc not reset on leaving the pane")
+	}
+}
+
+// Two escs further apart than the window are two independent escapes for the
+// remote shell, not a "leave" chord.
+func TestPaneSlowEscsStayInPane(t *testing.T) {
+	m := newPaneModel()
+
+	m.handleKey(key(t, "esc"))
+	m.lastEsc = time.Now().Add(-2 * doubleEscWindow) // as if the user paused
+	m.handleKey(key(t, "esc"))
+
+	if !m.focused {
+		t.Fatal("two slow escs left the pane, want both forwarded to the shell")
+	}
+	if m.lastEsc.IsZero() {
+		t.Fatal("the second esc should re-arm the window")
+	}
+}
+
+// An intervening key breaks the sequence: esc, j, esc is not a double-esc.
+func TestPaneEscSequenceBrokenByOtherKey(t *testing.T) {
+	m := newPaneModel()
+
+	m.handleKey(key(t, "esc"))
+	m.handleKey(key(t, "j"))
+	if !m.lastEsc.IsZero() {
+		t.Fatal("an intervening key did not clear the pending esc")
+	}
+
+	m.handleKey(key(t, "esc"))
+	if !m.focused {
+		t.Fatal("esc-j-esc left the pane, want it treated as two lone escs")
+	}
+}
+
+// ctrl+o still leaves the pane, and clears any half-finished esc chord.
+func TestPaneCtrlOLeaves(t *testing.T) {
+	m := newPaneModel()
+
+	m.handleKey(key(t, "esc"))
+	m.handleKey(key(t, "ctrl+o"))
+
+	if m.focused {
+		t.Fatal("ctrl+o did not leave the pane")
+	}
+	if !m.lastEsc.IsZero() {
+		t.Fatal("lastEsc not reset on leaving the pane")
+	}
+}
+
+// The double-esc chord belongs to the terminal pane only; in the browser, esc is
+// the browser's own key and must not pop the mode.
+func TestBrowsingEscIsNotADoubleEscChord(t *testing.T) {
+	m := &model{active: "web1", browsing: true, sessions: map[string]*session{}, height: 20}
+
+	m.handleKey(key(t, "esc"))
+	m.handleKey(key(t, "esc"))
+
+	if !m.browsing {
+		t.Fatal("double esc left the browser, want the chord to be pane-only")
 	}
 }
 
