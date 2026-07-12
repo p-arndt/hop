@@ -31,15 +31,7 @@ type Store struct {
 	db *sql.DB
 }
 
-// Dir is a remote directory visited on a host, ranked by frecency the same way
-// hosts are.
-type Dir struct {
-	Path      string
-	Visits    int
-	LastVisit int64
-}
-
-var schema = []string{`
+const schema = `
 CREATE TABLE IF NOT EXISTS hosts (
 	id            INTEGER PRIMARY KEY,
 	alias         TEXT UNIQUE NOT NULL,
@@ -51,14 +43,7 @@ CREATE TABLE IF NOT EXISTS hosts (
 	grp           TEXT,
 	visits        INTEGER DEFAULT 0,
 	last_connect  INTEGER DEFAULT 0
-);`, `
-CREATE TABLE IF NOT EXISTS dirs (
-	host_id    INTEGER NOT NULL,
-	path       TEXT NOT NULL,
-	visits     INTEGER DEFAULT 0,
-	last_visit INTEGER DEFAULT 0,
-	PRIMARY KEY (host_id, path)
-);`}
+);`
 
 // Open opens (creating if needed) the hop database at
 // <UserConfigDir>/hop/hop.db and ensures the schema exists.
@@ -81,11 +66,15 @@ func OpenAt(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, stmt := range schema {
-		if _, err := db.Exec(stmt); err != nil {
-			db.Close()
-			return nil, err
-		}
+	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, err
+	}
+	// Drop the table behind the withdrawn "recent directories" feature, so a
+	// database written by an older build does not keep its browsing history.
+	if _, err := db.Exec(`DROP TABLE IF EXISTS dirs`); err != nil {
+		db.Close()
+		return nil, err
 	}
 	return &Store{db: db}, nil
 }
@@ -160,67 +149,9 @@ func (s *Store) Upsert(h Host) (int64, error) {
 	return rowID, nil
 }
 
-// Delete removes the host with the given alias and the directories recorded for
-// it.
+// Delete removes the host with the given alias.
 func (s *Store) Delete(alias string) error {
-	if _, err := s.db.Exec(
-		`DELETE FROM dirs WHERE host_id IN (SELECT id FROM hosts WHERE alias = ?)`, alias,
-	); err != nil {
-		return err
-	}
 	_, err := s.db.Exec(`DELETE FROM hosts WHERE alias = ?`, alias)
-	return err
-}
-
-// TouchDir records a visit to path on the given host: it bumps the visit count
-// and stamps the current time. Unknown aliases are silently ignored (the INSERT
-// selects zero rows), so a caller need not check the host still exists.
-func (s *Store) TouchDir(alias, path string) error {
-	_, err := s.db.Exec(`
-		INSERT INTO dirs (host_id, path, visits, last_visit)
-		SELECT id, ?, 1, ? FROM hosts WHERE alias = ?
-		ON CONFLICT(host_id, path) DO UPDATE SET
-			visits     = visits + 1,
-			last_visit = excluded.last_visit`,
-		path, time.Now().Unix(), alias,
-	)
-	return err
-}
-
-// Dirs returns at most limit directories visited on the given host, most
-// frecent first. A limit <= 0 means no limit.
-func (s *Store) Dirs(alias string, limit int) ([]Dir, error) {
-	if limit <= 0 {
-		limit = -1 // SQLite reads a negative LIMIT as "no limit".
-	}
-	rows, err := s.db.Query(`
-		SELECT d.path, d.visits, d.last_visit
-		FROM dirs d JOIN hosts h ON h.id = d.host_id
-		WHERE h.alias = ?
-		ORDER BY d.visits DESC, d.last_visit DESC
-		LIMIT ?`, alias, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var dirs []Dir
-	for rows.Next() {
-		var d Dir
-		if err := rows.Scan(&d.Path, &d.Visits, &d.LastVisit); err != nil {
-			return nil, err
-		}
-		dirs = append(dirs, d)
-	}
-	return dirs, rows.Err()
-}
-
-// ForgetDir drops a single recorded directory from a host.
-func (s *Store) ForgetDir(alias, path string) error {
-	_, err := s.db.Exec(
-		`DELETE FROM dirs WHERE path = ? AND host_id IN (SELECT id FROM hosts WHERE alias = ?)`,
-		path, alias,
-	)
 	return err
 }
 

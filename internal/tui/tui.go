@@ -147,19 +147,6 @@ type model struct {
 
 	cursor int
 
-	// dirCursor selects one of the recent directories listed under the host at
-	// cursor; -1 (and any out-of-range value — see dirIdx) means the host row
-	// itself is selected.
-	dirCursor int
-
-	// dirs caches store.Dirs per alias. Any write through touchDir/forgetDir
-	// drops the alias so the next read re-queries.
-	dirs map[string][]store.Dir
-
-	// pendingCD holds, per alias, a directory to cd into as soon as that host's
-	// shell comes up.
-	pendingCD map[string]string
-
 	// pendingG is set after a lone "g", so the next "g" completes the vim "gg"
 	// motion. Any other key clears it.
 	pendingG bool
@@ -227,9 +214,6 @@ func Run(st *store.Store) error {
 		hosts:       hosts,
 		sessions:    make(map[string]*session),
 		connecting:  make(map[string]bool),
-		dirs:        make(map[string][]store.Dir),
-		pendingCD:   make(map[string]string),
-		dirCursor:   -1,
 		notify:      make(chan struct{}, 1),
 		downloadDir: downloadDir,
 	}
@@ -272,7 +256,6 @@ func (m *model) applyFilter() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
-	m.dirCursor = -1
 }
 
 // selectedHost returns the host under the cursor, or false if the list is empty.
@@ -287,77 +270,9 @@ func (m *model) selectedHost() (store.Host, bool) {
 	return m.hosts[i], true
 }
 
-// ---- recent directories ----
-
-// maxRecentDirs caps how many directories a host contributes to the sidebar, so
-// one heavily-browsed host cannot push the others off screen.
-const maxRecentDirs = 5
-
-// sidebarWidth is the host list's preferred width, wide enough for a nested
-// path plus its age column. It still yields to half the window on narrow ones.
-const sidebarWidth = 34
-
-// dirsFor returns the recent directories of alias, reading through the cache.
-// A model without a store has only what is already cached.
-func (m *model) dirsFor(alias string) []store.Dir {
-	if alias == "" {
-		return nil
-	}
-	if d, ok := m.dirs[alias]; ok {
-		return d
-	}
-	if m.st == nil {
-		return nil
-	}
-	d, err := m.st.Dirs(alias, maxRecentDirs)
-	if err != nil {
-		d = nil
-	}
-	if m.dirs == nil {
-		m.dirs = make(map[string][]store.Dir)
-	}
-	m.dirs[alias] = d
-	return d
-}
-
-// cursorDirs returns the directories expanded under the host at the cursor.
-func (m *model) cursorDirs() []store.Dir {
-	h, ok := m.selectedHost()
-	if !ok {
-		return nil
-	}
-	return m.dirsFor(h.Alias)
-}
-
-// dirIdx normalizes dirCursor: it is the index of the selected directory, or -1
-// when the host row itself is selected. Reading through this keeps a stale or
-// zero-value dirCursor from pointing at a directory that is not there.
-func (m *model) dirIdx() int {
-	if m.dirCursor >= 0 && m.dirCursor < len(m.cursorDirs()) {
-		return m.dirCursor
-	}
-	return -1
-}
-
-// selectedDir returns the recent directory under the cursor, or false when the
-// cursor is on a host row.
-func (m *model) selectedDir() (store.Dir, bool) {
-	i := m.dirIdx()
-	if i < 0 {
-		return store.Dir{}, false
-	}
-	return m.cursorDirs()[i], true
-}
-
-// touchDir records a visit and invalidates the cached list for that host.
-func (m *model) touchDir(alias, path string) {
-	if m.st == nil || alias == "" || path == "" {
-		return
-	}
-	if err := m.st.TouchDir(alias, path); err == nil {
-		delete(m.dirs, alias)
-	}
-}
+// sidebarWidth is the host list's preferred width. It still yields to half the
+// window on narrow ones.
+const sidebarWidth = 30
 
 // ---- commands ----
 
@@ -416,11 +331,10 @@ func shellCmd(alias string, cli *sshx.Client, cols, rows int, notify chan struct
 	}
 }
 
-// openBrowserCmd opens an SFTP file browser for h off the UI thread, rooted at
-// startDir (or the remote home when empty). When existing is non-nil its SSH
-// connection is reused; otherwise a dedicated connection is dialed (and reported
-// back so it can later be closed).
-func openBrowserCmd(h store.Host, existing *sshx.Client, downloadDir, startDir string, pw, ph int) tea.Cmd {
+// openBrowserCmd opens an SFTP file browser for h off the UI thread. When
+// existing is non-nil its SSH connection is reused; otherwise a dedicated
+// connection is dialed (and reported back so it can later be closed).
+func openBrowserCmd(h store.Host, existing *sshx.Client, downloadDir string, pw, ph int) tea.Cmd {
 	return func() tea.Msg {
 		cli := existing
 		var dialed *sshx.Client
@@ -441,7 +355,7 @@ func openBrowserCmd(h store.Host, existing *sshx.Client, downloadDir, startDir s
 			return browserOpenedMsg{alias: h.Alias, err: err}
 		}
 
-		br, err := filebrowser.New(sc, startDir, downloadDir, pw, ph)
+		br, err := filebrowser.New(sc, "", downloadDir, pw, ph)
 		if err != nil {
 			sc.Close()
 			if dialed != nil {
@@ -452,19 +366,6 @@ func openBrowserCmd(h store.Host, existing *sshx.Client, downloadDir, startDir s
 
 		return browserOpenedMsg{alias: h.Alias, browser: br, client: dialed}
 	}
-}
-
-// cdCommand is the line hop types into a fresh shell to land in dir. The `&&`
-// keeps a failed cd (directory gone, permissions changed) on screen instead of
-// wiping it away with clear.
-func cdCommand(dir string) string {
-	return "cd " + shellQuote(dir) + " && clear\n"
-}
-
-// shellQuote wraps s in single quotes for a POSIX shell, ending and reopening
-// the quoted run around any embedded single quote.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // ---- update ----
@@ -496,7 +397,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case connectedMsg:
 		delete(m.connecting, msg.alias)
 		if msg.err != nil {
-			delete(m.pendingCD, msg.alias)
 			m.status = fmt.Sprintf("connect %s failed: %v", msg.alias, msg.err)
 			return m, nil
 		}
@@ -515,12 +415,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "connected to " + msg.alias
 		// Match the pane to the current layout; repaints are event-driven.
 		msg.sess.pane.Resize(m.paneW, m.paneH)
-		// A shell opened by "hop to this directory" starts by walking there.
-		if dir := m.pendingCD[msg.alias]; dir != "" {
-			delete(m.pendingCD, msg.alias)
-			msg.sess.pane.SendString(cdCommand(dir))
-			m.status = msg.alias + ":" + dir
-		}
 		return m, nil
 
 	case browserOpenedMsg:
@@ -541,7 +435,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.client = msg.client
 		}
 		m.st.Touch(msg.alias)
-		m.touchDir(msg.alias, msg.browser.Path())
 		m.active = msg.alias
 		m.browsing = true
 		m.focused = false
@@ -582,14 +475,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.lastEsc = time.Time{}
 
 		if s := m.sessions[m.active]; s != nil && s.browser != nil {
-			before := s.browser.Path()
 			s.browser.Handle(msg)
-			// Every directory the browser lands in becomes a recent directory for
-			// this host. That is the only source of them, so a shell-side `cd`
-			// leaves no trace here.
-			if after := s.browser.Path(); after != before {
-				m.touchDir(m.active, after)
-			}
 		}
 		return m, nil
 	}
@@ -669,26 +555,12 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "up", "k":
-		if i := m.dirIdx(); i >= 0 {
-			m.dirCursor = i - 1
-			break
-		}
-		if m.cursor > 0 {
-			m.cursor--
-			m.clampCursor()
-			// Walking up into a host lands on its last directory, not its header.
-			m.dirCursor = len(m.cursorDirs()) - 1
-		}
+		m.cursor--
+		m.clampCursor()
 
 	case "down", "j":
-		if i := m.dirIdx(); i < len(m.cursorDirs())-1 {
-			m.dirCursor = i + 1
-			break
-		}
-		if m.cursor < len(m.filtered)-1 {
-			m.cursor++
-			m.clampCursor()
-		}
+		m.cursor++
+		m.clampCursor()
 
 	case "g":
 		m.pendingG = true
@@ -727,12 +599,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.applyFilter()
 
 	case "esc", "left", "h":
-		// Back: step out of the directory list first, then leave the
-		// details/active view for plain navigation.
-		if m.dirIdx() >= 0 {
-			m.dirCursor = -1
-			return m, nil
-		}
+		// Back: leave the details/active view, back to plain navigation.
 		m.active = ""
 		m.status = ""
 		m.browsing = false
@@ -743,10 +610,6 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h, ok := m.selectedHost()
 		if !ok {
 			return m, nil
-		}
-		// On a recent directory: connect (or focus) and land in it.
-		if d, isDir := m.selectedDir(); isDir {
-			return m, m.hopTo(h, d.Path)
 		}
 		if s, live := m.sessions[h.Alias]; live {
 			if s.pane != nil {
@@ -775,33 +638,8 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if s := m.sessions[h.Alias]; s != nil {
 			existing = s.client
 		}
-		// On a recent directory the browser opens rooted there instead of at home.
-		startDir := ""
-		if d, isDir := m.selectedDir(); isDir {
-			startDir = d.Path
-		}
 		m.status = "opening sftp " + h.Alias + "…"
-		return m, openBrowserCmd(h, existing, m.downloadDir, startDir, m.paneW, m.paneH)
-
-	case "x":
-		h, ok := m.selectedHost()
-		if !ok {
-			return m, nil
-		}
-		d, isDir := m.selectedDir()
-		if !isDir {
-			m.status = "x forgets a directory — select one under the host"
-			return m, nil
-		}
-		if m.st != nil {
-			if err := m.st.ForgetDir(h.Alias, d.Path); err != nil {
-				m.status = "forget: " + err.Error()
-				return m, nil
-			}
-			delete(m.dirs, h.Alias)
-		}
-		m.dirCursor = -1
-		m.status = "forgot " + d.Path
+		return m, openBrowserCmd(h, existing, m.downloadDir, m.paneW, m.paneH)
 
 	case "s":
 		h, ok := m.selectedHost()
@@ -845,7 +683,6 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				s.client.Close()
 			}
 			delete(m.sessions, h.Alias)
-			delete(m.pendingCD, h.Alias)
 			if m.active == h.Alias {
 				m.active = ""
 				m.focused = false
@@ -866,38 +703,6 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // (say, in vim) stay independent.
 const doubleEscWindow = 400 * time.Millisecond
 
-// hopTo focuses h's shell and walks it into dir. A live pane gets the cd typed
-// straight in; otherwise the directory is parked in pendingCD and sent once the
-// shell comes up (see the connectedMsg case).
-func (m *model) hopTo(h store.Host, dir string) tea.Cmd {
-	s, live := m.sessions[h.Alias]
-	if live && s.pane != nil {
-		m.active = h.Alias
-		m.focused = true
-		m.browsing = false
-		s.pane.Resize(m.paneW, m.paneH)
-		s.pane.SendString(cdCommand(dir))
-		m.status = h.Alias + ":" + dir
-		return nil
-	}
-
-	if m.pendingCD == nil {
-		m.pendingCD = make(map[string]string)
-	}
-	m.pendingCD[h.Alias] = dir
-	if m.connecting == nil {
-		m.connecting = make(map[string]bool)
-	}
-	m.connecting[h.Alias] = true
-	m.status = "connecting to " + h.Alias + "…"
-
-	if live {
-		// Browser-only session: open a shell over its existing SSH connection.
-		return shellCmd(h.Alias, s.client, m.paneW, m.paneH, m.notify)
-	}
-	return connectCmd(h, m.paneW, m.paneH, m.notify)
-}
-
 // leavePane returns from a focused terminal pane to navigation mode.
 func (m *model) leavePane() {
 	m.focused = false
@@ -912,9 +717,7 @@ func (m *model) leaveBrowser() {
 	m.lastEsc = time.Time{}
 }
 
-// clampCursor holds the list cursor inside the filtered host list and puts the
-// selection back on the host row. Callers that mean to land on a directory
-// (the up/down walk) set dirCursor after calling this.
+// clampCursor holds the list cursor inside the filtered host list.
 func (m *model) clampCursor() {
 	if m.cursor > len(m.filtered)-1 {
 		m.cursor = len(m.filtered) - 1
@@ -922,7 +725,6 @@ func (m *model) clampCursor() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
-	m.dirCursor = -1
 }
 
 // listRows approximates the host rows visible in the list pane. It mirrors
@@ -1120,31 +922,18 @@ func (m *model) renderList(w, h int) string {
 	} else if len(m.filtered) == 0 {
 		b.WriteString(faint.Render(truncate("no matches", innerW)))
 	} else {
-		rows := m.sidebarRows()
-
-		// Simple scroll window so the selected row stays visible.
-		sel := 0
-		for i, r := range rows {
-			if r.sel {
-				sel = i
-				break
-			}
-		}
+		// Simple scroll window so the cursor stays visible.
 		start := 0
-		if sel >= innerH {
-			start = sel - innerH + 1
+		if m.cursor >= innerH {
+			start = m.cursor - innerH + 1
 		}
 		end := start + innerH
-		if end > len(rows) {
-			end = len(rows)
+		if end > len(m.filtered) {
+			end = len(m.filtered)
 		}
 		for i := start; i < end; i++ {
-			r := rows[i]
-			if r.dir != nil {
-				b.WriteString(m.renderDirRow(*r.dir, r.last, r.sel, innerW))
-			} else {
-				b.WriteString(m.renderRow(r.host, r.sel, innerW))
-			}
+			h := m.hosts[m.filtered[i]]
+			b.WriteString(m.renderRow(h, i == m.cursor, innerW))
 			if i < end-1 {
 				b.WriteString("\n")
 			}
@@ -1168,111 +957,6 @@ func (m *model) dotFor(alias string) string {
 		return connectingDot
 	}
 	return idleDot
-}
-
-// sidebarRow is one line of the host tree: either a host header, or one of the
-// recent directories expanded beneath the host under the cursor.
-type sidebarRow struct {
-	host store.Host
-	dir  *store.Dir // nil on a host row
-	last bool       // last directory of its host (draws └ rather than ├)
-	sel  bool
-}
-
-// sidebarRows flattens the tree into the lines the list draws. Only the host at
-// the cursor expands, so the sidebar stays a screenful no matter how many hosts
-// have history.
-func (m *model) sidebarRows() []sidebarRow {
-	rows := make([]sidebarRow, 0, len(m.filtered)+maxRecentDirs)
-	di := m.dirIdx()
-	for i, hi := range m.filtered {
-		h := m.hosts[hi]
-		rows = append(rows, sidebarRow{host: h, sel: i == m.cursor && di < 0})
-		if i != m.cursor {
-			continue
-		}
-		ds := m.dirsFor(h.Alias)
-		for j, d := range ds {
-			rows = append(rows, sidebarRow{
-				host: h,
-				dir:  &d,
-				last: j == len(ds)-1,
-				sel:  j == di,
-			})
-		}
-	}
-	return rows
-}
-
-// renderDirRow draws one recent directory: a tree glyph, the path (trimmed from
-// the left, so the leaf stays readable), and its age right-aligned.
-func (m *model) renderDirRow(d store.Dir, last, selected bool, w int) string {
-	glyph := "└"
-	if !last {
-		glyph = "├"
-	}
-
-	lead := "   "
-	if selected {
-		lead = selBar + "  "
-	}
-	head := lead + faint.Render(glyph) + " "
-
-	age := humanAge(d.LastVisit)
-	// The path takes what the glyph and the age column leave over.
-	avail := w - lipgloss.Width(head) - lipgloss.Width(age) - 1
-	if avail < 1 {
-		return truncate(head+d.Path, w)
-	}
-
-	path := truncLeft(d.Path, avail)
-	gap := avail - lipgloss.Width(path) + 1
-
-	styled := dimStyle.Render(path)
-	if selected {
-		styled = selectedAliasStyle.Render(path)
-	}
-	return head + styled + strings.Repeat(" ", gap) + faint.Render(age)
-}
-
-// humanAge renders a coarse "how long ago" for a unix timestamp.
-func humanAge(unix int64) string {
-	if unix <= 0 {
-		return ""
-	}
-	d := time.Since(time.Unix(unix, 0))
-	switch {
-	case d < time.Minute:
-		return "now"
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	case d < 7*24*time.Hour:
-		return fmt.Sprintf("%dd", int(d.Hours()/24))
-	default:
-		return fmt.Sprintf("%dw", int(d.Hours()/(24*7)))
-	}
-}
-
-// truncLeft shortens s to at most w cells by dropping leading runes, marking the
-// cut with an ellipsis. Paths keep their tail, which is the part that identifies
-// them.
-func truncLeft(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= w {
-		return s
-	}
-	runes := []rune(s)
-	for i := range runes {
-		tail := string(runes[i:])
-		if lipgloss.Width(tail)+1 <= w {
-			return "…" + tail
-		}
-	}
-	return "…"
 }
 
 func (m *model) renderRow(h store.Host, selected bool, w int) string {
@@ -1375,19 +1059,6 @@ func (m *model) renderDetails(w int) string {
 	}
 	writeKV("visits", fmt.Sprintf("%d", h.Visits))
 
-	// With a recent directory selected the panel describes that hop, not the host.
-	if d, isDir := m.selectedDir(); isDir {
-		b.WriteString("\n")
-		b.WriteString(pad + dimStyle.Render("hop to") + "\n")
-		b.WriteString(pad + selectedAliasStyle.Render(d.Path) + "\n")
-		b.WriteString(pad + faint.Render(fmt.Sprintf("%d visits · %s ago", d.Visits, humanAge(d.LastVisit))) + "\n")
-		b.WriteString("\n")
-		b.WriteString(pad + kc("enter") + " " + dimStyle.Render("cd + shell") + "\n")
-		b.WriteString(pad + kc("f") + " " + dimStyle.Render("sftp here") + "   " +
-			kc("x") + " " + dimStyle.Render("forget") + "\n")
-		return clampLines(b.String(), w)
-	}
-
 	b.WriteString("\n")
 	b.WriteString(pad + dimStyle.Render("actions") + "\n")
 	b.WriteString(pad + kc("enter") + " " + dimStyle.Render("connect") + "   " +
@@ -1418,14 +1089,6 @@ func (m *model) renderFooter() string {
 			dimStyle.Render("keys → ") + greenText.Render(m.active)
 	case m.filtering:
 		help = item("type", "filter") + sep + item("enter", "apply") + sep + item("esc", "clear")
-	case m.dirIdx() >= 0:
-		// On a recent directory the same keys mean "…and land there".
-		help = item("↑↓", "move") + sep +
-			item("enter", "cd + shell") + sep +
-			item("f", "sftp here") + sep +
-			item("x", "forget") + sep +
-			item("←", "back to host") + sep +
-			item("q", "quit")
 	default:
 		help = item("↑↓", "move") + sep +
 			item("enter", "connect") + sep +
