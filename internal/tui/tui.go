@@ -154,18 +154,70 @@ func clampLines(s string, w int) string {
 	return strings.Join(lines, "\n")
 }
 
-// session bundles a live SSH client with its embedded terminal pane and/or an
+// session bundles a live SSH client with the shells open on it and/or an
 // optional SFTP file browser. A session may hold only a browser (browser-only,
-// pane == nil) when the SFTP view was opened for a host without a live shell.
+// no shells) when the SFTP view was opened for a host without a live shell.
 type session struct {
-	client  *sshx.Client
-	pane    *terminal.Pane
+	client *sshx.Client
+
+	// shells are the interactive shells open on this host, shown as tabs when
+	// there is more than one. activeSh indexes into it. Each is its own channel on
+	// the one connection, so a second shell costs no handshake.
+	shells   []*shellTab
+	activeSh int
+
 	browser *filebrowser.Browser
 
 	// editors are the files opened from the browser, each a remote editor running
 	// on its own SSH session, shown as tabs. activeEd indexes into it.
 	editors  []*editorTab
 	activeEd int
+}
+
+// shellTab is one interactive shell: an SSH session on a pty, rendered through a
+// terminal pane. The id is stable across tab removals, so an exit maps back to
+// its tab.
+type shellTab struct {
+	id   int
+	pane *terminal.Pane
+	sess *sshx.Session
+}
+
+// shell returns the shell currently shown, or nil when the host has none.
+func (s *session) shell() *shellTab {
+	if s.activeSh < 0 || s.activeSh >= len(s.shells) {
+		return nil
+	}
+	return s.shells[s.activeSh]
+}
+
+// dropShell closes the shell with the given id and removes its tab, returning
+// true if it was there.
+func (s *session) dropShell(id int) bool {
+	for i, sh := range s.shells {
+		if sh.id != id {
+			continue
+		}
+		sh.pane.Close()
+		s.shells = append(s.shells[:i], s.shells[i+1:]...)
+		if s.activeSh >= len(s.shells) {
+			s.activeSh = len(s.shells) - 1
+		}
+		if s.activeSh < 0 {
+			s.activeSh = 0
+		}
+		return true
+	}
+	return false
+}
+
+// closeShells tears down every shell open on the host.
+func (s *session) closeShells() {
+	for _, sh := range s.shells {
+		sh.pane.Close()
+	}
+	s.shells = nil
+	s.activeSh = 0
 }
 
 // editorTab is one open file: a remote editor process on its own SSH session,
@@ -230,12 +282,22 @@ func (s *session) closeEditors() {
 // redrawMsg fires on a ticker so asynchronously-updated panes repaint.
 type redrawMsg struct{}
 
-// connectedMsg is returned by the connect command once the SSH shell is ready
-// (or has failed).
+// connectedMsg is returned by the connect command once an SSH shell is ready (or
+// has failed). client is non-nil only when this connect dialed a new connection;
+// a shell opened on a host that is already connected reuses its client and
+// reports only the tab.
 type connectedMsg struct {
+	alias  string
+	client *sshx.Client
+	tab    *shellTab
+	err    error
+}
+
+// shellExitedMsg fires when a remote shell ends ("exit"), so its tab can be
+// dropped instead of lingering as a dead pane.
+type shellExitedMsg struct {
 	alias string
-	sess  *session
-	err   error
+	id    int
 }
 
 // browserOpenedMsg is returned by the SFTP-open command once the file browser is
@@ -309,8 +371,9 @@ type model struct {
 	// focused and browsing.
 	editing bool
 
-	// nextEdID hands out editorTab ids.
+	// nextEdID hands out editorTab ids; nextShID hands out shellTab ids.
 	nextEdID int
+	nextShID int
 
 	// cfg is the user's settings, as loaded at startup and edited in the popover.
 	cfg config.Config
@@ -421,45 +484,56 @@ func waitForOutput(notify chan struct{}) tea.Cmd {
 // connectCmd performs the (blocking) SSH connect + shell start off the UI thread
 // and returns a connectedMsg. notify is handed to the pane so its output pump can
 // wake the UI for an immediate repaint.
-func connectCmd(h store.Host, cols, rows int, notify chan struct{}) tea.Cmd {
+func connectCmd(h store.Host, id, cols, rows int, notify chan struct{}) tea.Cmd {
 	return func() tea.Msg {
 		cli, err := sshx.Connect(h)
 		if err != nil {
 			return connectedMsg{alias: h.Alias, err: err}
 		}
-		sess, err := cli.Shell(cols, rows)
+		tab, err := newShell(cli, id, cols, rows, notify)
 		if err != nil {
 			cli.Close()
 			return connectedMsg{alias: h.Alias, err: err}
 		}
-		onOutput := func() {
-			// Non-blocking: coalesce bursts into a single pending redraw.
-			select {
-			case notify <- struct{}{}:
-			default:
-			}
-		}
-		pane := terminal.New(sess, cols, rows, onOutput)
-		return connectedMsg{alias: h.Alias, sess: &session{client: cli, pane: pane}}
+		return connectedMsg{alias: h.Alias, client: cli, tab: tab}
 	}
 }
 
-// shellCmd opens an interactive shell over an already-established client (reused
-// from a browser-only session) and returns a connectedMsg.
-func shellCmd(alias string, cli *sshx.Client, cols, rows int, notify chan struct{}) tea.Cmd {
+// shellCmd opens another interactive shell over an already-established client —
+// the connection a browser-only session dialed, or the one the host's other
+// shells are already running on.
+func shellCmd(alias string, cli *sshx.Client, id, cols, rows int, notify chan struct{}) tea.Cmd {
 	return func() tea.Msg {
-		sess, err := cli.Shell(cols, rows)
+		tab, err := newShell(cli, id, cols, rows, notify)
 		if err != nil {
 			return connectedMsg{alias: alias, err: err}
 		}
-		onOutput := func() {
-			select {
-			case notify <- struct{}{}:
-			default:
-			}
+		return connectedMsg{alias: alias, tab: tab}
+	}
+}
+
+// newShell starts a shell on cli and wraps it in a terminal pane.
+func newShell(cli *sshx.Client, id, cols, rows int, notify chan struct{}) (*shellTab, error) {
+	sess, err := cli.Shell(cols, rows)
+	if err != nil {
+		return nil, err
+	}
+	onOutput := func() {
+		// Non-blocking: coalesce bursts into a single pending redraw.
+		select {
+		case notify <- struct{}{}:
+		default:
 		}
-		pane := terminal.New(sess, cols, rows, onOutput)
-		return connectedMsg{alias: alias, sess: &session{client: cli, pane: pane}}
+	}
+	return &shellTab{id: id, pane: terminal.New(sess, cols, rows, onOutput), sess: sess}, nil
+}
+
+// waitShellCmd blocks until the remote shell exits, then reports it so its tab
+// can be dropped — "exit" is how you close a shell tab.
+func waitShellCmd(alias string, id int, sess *sshx.Session) tea.Cmd {
+	return func() tea.Msg {
+		_ = sess.Wait()
+		return shellExitedMsg{alias: alias, id: id}
 	}
 }
 
@@ -569,13 +643,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		m.recomputeLayout()
 		// Resize every live pane, browser and editor to the new right-pane inner
-		// size. Editors are resized even while hidden, so a tab switched to after a
-		// window change is already laid out for it.
+		// size. Hidden tabs are resized too, so one switched to after a window
+		// change is already laid out for it.
 		ew, eh := m.editorSize()
 		for _, s := range m.sessions {
-			if s.pane != nil {
-				s.pane.Resize(m.paneW, m.paneH)
-			}
+			m.resizeShells(s)
 			if s.browser != nil {
 				s.browser.Resize(m.paneW, m.paneH)
 			}
@@ -596,21 +668,58 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("connect %s failed: %v", msg.alias, msg.err)
 			return m, nil
 		}
-		// Merge the new shell into any existing session (e.g. a browser-only one)
-		// so its browser survives; otherwise install a fresh session.
-		if existing := m.sessions[msg.alias]; existing != nil {
-			existing.client = msg.sess.client
-			existing.pane = msg.sess.pane
-		} else {
-			m.sessions[msg.alias] = msg.sess
+		// Merge the new shell into any existing session (a browser-only one, or one
+		// that already has shells) so what is open there survives.
+		s := m.sessions[msg.alias]
+		if s == nil {
+			s = &session{}
+			m.sessions[msg.alias] = s
 		}
+		if msg.client != nil {
+			s.client = msg.client
+		}
+		s.shells = append(s.shells, msg.tab)
+		s.activeSh = len(s.shells) - 1
 		m.st.Touch(msg.alias)
 		m.active = msg.alias
 		m.focused = true
 		m.browsing = false
+		m.editing = false
 		m.status = "connected to " + msg.alias
-		// Match the pane to the current layout; repaints are event-driven.
-		msg.sess.pane.Resize(m.paneW, m.paneH)
+		// Match the panes to the current layout; repaints are event-driven. The
+		// second shell brings in the tab strip, which costs every pane a row.
+		m.resizeShells(s)
+		return m, waitShellCmd(msg.alias, msg.tab.id, msg.tab.sess)
+
+	case shellExitedMsg:
+		s := m.sessions[msg.alias]
+		if s == nil || !s.dropShell(msg.id) {
+			return m, nil
+		}
+		m.resizeShells(s)
+		if len(s.shells) > 0 {
+			return m, nil
+		}
+		// The last shell exited. Keep the session alive only for what is still open
+		// on its connection; with nothing left, the connection is done — closing it
+		// is what "exit" meant, and the host goes back to idle in the list.
+		if s.browser == nil && len(s.editors) == 0 {
+			if s.client != nil {
+				s.client.Close()
+			}
+			delete(m.sessions, msg.alias)
+			if m.active == msg.alias {
+				m.active = ""
+				m.focused = false
+				m.browsing = false
+				m.editing = false
+			}
+			return m, nil
+		}
+		if m.active == msg.alias && m.focused {
+			m.focused = false
+			m.browsing = s.browser != nil
+		}
 		return m, nil
 
 	case browserOpenedMsg:
@@ -712,6 +821,30 @@ func (m *model) editorSize() (int, int) {
 	return m.paneW, h
 }
 
+// shellSize is the terminal size a shell pane gets on a host with n shells open.
+// A lone shell gets the whole right pane — the tab strip only appears once there
+// is a second shell to switch to, and only then does it cost a row.
+func (m *model) shellSize(n int) (int, int) {
+	h := m.paneH
+	if n > 1 {
+		h--
+	}
+	if h < 1 {
+		h = 1
+	}
+	return m.paneW, h
+}
+
+// resizeShells re-lays out every shell of s for the current pane size and tab
+// strip. It runs whenever the shell count changes, because the strip appearing
+// (or going away) resizes the panes underneath it.
+func (m *model) resizeShells(s *session) {
+	w, h := m.shellSize(len(s.shells))
+	for _, sh := range s.shells {
+		sh.pane.Resize(w, h)
+	}
+}
+
 // handleEditorKey routes a key while an editor tab is shown. The editor is a
 // full-screen terminal program, so it owns nearly every key — hop reserves only
 // ctrl+o, a double esc, and the alt chords that switch tabs. Alt is free to take
@@ -772,6 +905,112 @@ func (m *model) cycleEditor(s *session, delta int) {
 	s.activeEd = ((s.activeEd+delta)%n + n) % n
 }
 
+// handleShellKey routes a key while a shell pane is focused. The remote shell
+// owns every key, arrows included, so hop reserves only ctrl+o, a double esc, and
+// — when the host has more than one shell — alt+←/→ and alt+1..9 to switch
+// between them. Everything else is forwarded verbatim.
+//
+// The alt chords are deliberately fewer than the editor's: readline binds the
+// alt+letters (alt+l downcases a word, alt+b walks one back), so alt+h/alt+l are
+// not taken here the way they are in an editor.
+func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	s := m.sessions[m.active]
+	key := msg.String()
+
+	switch key {
+	case "ctrl+o":
+		m.leavePane()
+		return m, nil
+
+	case "alt+right":
+		if s != nil {
+			m.cycleShell(s, 1)
+		}
+		return m, nil
+
+	case "alt+left":
+		if s != nil {
+			m.cycleShell(s, -1)
+		}
+		return m, nil
+	}
+
+	// alt+1 … alt+9 jump straight to a shell, ignoring one that is not open.
+	if n, ok := strings.CutPrefix(key, "alt+"); ok && len(n) == 1 && n[0] >= '1' && n[0] <= '9' {
+		if i := int(n[0] - '1'); s != nil && i < len(s.shells) {
+			s.activeSh = i
+		}
+		return m, nil
+	}
+
+	if key == "esc" {
+		// A second esc inside the window leaves the pane. The *first* esc is
+		// still forwarded below, because a lone esc belongs to the shell
+		// (it drops vim out of insert mode) and we cannot know a second one
+		// is coming without swallowing it. A stray extra esc is harmless:
+		// in vim's normal mode it is a no-op.
+		if !m.lastEsc.IsZero() && time.Since(m.lastEsc) <= doubleEscWindow {
+			m.leavePane()
+			return m, nil
+		}
+		m.lastEsc = time.Now()
+	} else {
+		// Any other key breaks the sequence, so esc-j-esc is not a double.
+		m.lastEsc = time.Time{}
+	}
+
+	if s != nil && s.shell() != nil {
+		s.shell().pane.SendKey(msg)
+	}
+	return m, nil
+}
+
+// cycleShell moves delta shell tabs along, wrapping around at both ends.
+func (m *model) cycleShell(s *session, delta int) {
+	if len(s.shells) < 2 {
+		return
+	}
+	n := len(s.shells)
+	s.activeSh = ((s.activeSh+delta)%n + n) % n
+}
+
+// openShell focuses the host's current shell, or starts one. With extra set it
+// always starts another shell, even when the host already has one: it is a second
+// channel on the connection hop already holds, so there is no new handshake and
+// no second authentication.
+func (m *model) openShell(h store.Host, extra bool) tea.Cmd {
+	// A connect for this host is already in flight. Waiting for it keeps a second
+	// dial (and a second, orphaned client) from racing the first one in.
+	if m.connecting[h.Alias] {
+		m.status = "connecting to " + h.Alias + "…"
+		return nil
+	}
+
+	s := m.sessions[h.Alias]
+	if s != nil && !extra && s.shell() != nil {
+		// Already has a shell: just focus it.
+		m.active = h.Alias
+		m.focused = true
+		m.browsing = false
+		m.editing = false
+		m.resizeShells(s)
+		return nil
+	}
+
+	m.nextShID++
+	m.status = "connecting to " + h.Alias + "…"
+	m.connecting[h.Alias] = true
+
+	if s != nil && s.client != nil {
+		// The host is connected (a browser-only session, or one with shells
+		// already): open the new shell on the connection it holds.
+		cols, rows := m.shellSize(len(s.shells) + 1)
+		return shellCmd(h.Alias, s.client, m.nextShID, cols, rows, m.notify)
+	}
+	cols, rows := m.shellSize(1)
+	return connectCmd(h, m.nextShID, cols, rows, m.notify)
+}
+
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// The settings popover is modal: while it is up it takes every key.
 	if m.settings.open {
@@ -822,37 +1061,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Pane-focused mode: the remote shell owns every key, arrows included, so
-	// hop reserves only ctrl+o and a double-esc. Everything else is forwarded
-	// verbatim.
+	// Pane-focused mode: the remote shell takes the keys.
 	if m.focused && m.active != "" {
-		key := msg.String()
-
-		if key == "ctrl+o" {
-			m.leavePane()
-			return m, nil
-		}
-
-		if key == "esc" {
-			// A second esc inside the window leaves the pane. The *first* esc is
-			// still forwarded below, because a lone esc belongs to the shell
-			// (it drops vim out of insert mode) and we cannot know a second one
-			// is coming without swallowing it. A stray extra esc is harmless:
-			// in vim's normal mode it is a no-op.
-			if !m.lastEsc.IsZero() && time.Since(m.lastEsc) <= doubleEscWindow {
-				m.leavePane()
-				return m, nil
-			}
-			m.lastEsc = time.Now()
-		} else {
-			// Any other key breaks the sequence, so esc-j-esc is not a double.
-			m.lastEsc = time.Time{}
-		}
-
-		if s := m.sessions[m.active]; s != nil && s.pane != nil {
-			s.pane.SendKey(msg)
-		}
-		return m, nil
+		return m.handleShellKey(msg)
 	}
 
 	// Filter-entry mode.
@@ -956,23 +1167,15 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		if s, live := m.sessions[h.Alias]; live {
-			if s.pane != nil {
-				// Already has a shell: just focus it.
-				m.active = h.Alias
-				m.focused = true
-				m.browsing = false
-				s.pane.Resize(m.paneW, m.paneH)
-				return m, nil
-			}
-			// Browser-only session: open a shell reusing its SSH connection.
-			m.status = "connecting to " + h.Alias + "…"
-			m.connecting[h.Alias] = true
-			return m, shellCmd(h.Alias, s.client, m.paneW, m.paneH, m.notify)
+		return m, m.openShell(h, false)
+
+	case "S":
+		// Another shell on the same host, alongside the ones already open.
+		h, ok := m.selectedHost()
+		if !ok {
+			return m, nil
 		}
-		m.status = "connecting to " + h.Alias + "…"
-		m.connecting[h.Alias] = true
-		return m, connectCmd(h, m.paneW, m.paneH, m.notify)
+		return m, m.openShell(h, true)
 
 	case "f":
 		h, ok := m.selectedHost()
@@ -991,11 +1194,12 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		if s, live := m.sessions[h.Alias]; live && s.pane != nil {
+		if s, live := m.sessions[h.Alias]; live && s.shell() != nil {
 			m.active = h.Alias
 			m.focused = true
 			m.browsing = false
-			s.pane.Resize(m.paneW, m.paneH)
+			m.editing = false
+			m.resizeShells(s)
 			return m, nil
 		}
 		m.status = "no live session for " + h.Alias
@@ -1017,9 +1221,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if s, live := m.sessions[h.Alias]; live {
-			if s.pane != nil {
-				s.pane.Close()
-			}
+			s.closeShells()
 			s.closeEditors()
 			if s.browser != nil {
 				// Closes the SFTP subsystem; the SSH client is closed below.
@@ -1112,9 +1314,7 @@ func (m *model) halfPage() int {
 // closeAll tears down every live session.
 func (m *model) closeAll() {
 	for _, s := range m.sessions {
-		if s.pane != nil {
-			s.pane.Close()
-		}
+		s.closeShells()
 		s.closeEditors()
 		if s.browser != nil {
 			s.browser.Close()
@@ -1218,6 +1418,9 @@ func (m *model) renderHeader() string {
 		chips = append(chips, chipStyle.Render("▤ "+m.active))
 	} else if m.focused && m.active != "" {
 		chips = append(chips, greenText.Bold(true).Render("● "+m.active))
+		if s := m.sessions[m.active]; s != nil && len(s.shells) > 1 {
+			chips = append(chips, chipStyle.Render(fmt.Sprintf("shell %d/%d", s.activeSh+1, len(s.shells))))
+		}
 	}
 	if n := len(m.sessions); n > 0 {
 		word := "session"
@@ -1391,8 +1594,12 @@ func (m *model) renderRight(h int) string {
 	}
 
 	var content string
-	if s, ok := m.sessions[m.active]; ok && m.active != "" && s.pane != nil {
-		content = s.pane.View()
+	if s, ok := m.sessions[m.active]; ok && m.active != "" && s.shell() != nil {
+		content = s.shell().pane.View()
+		// The strip only earns its row once there is a second shell to switch to.
+		if len(s.shells) > 1 {
+			content = m.renderShellTabs(s) + "\n" + content
+		}
 	} else {
 		content = m.renderDetails(m.paneW)
 	}
@@ -1401,16 +1608,36 @@ func (m *model) renderRight(h int) string {
 }
 
 // renderTabs draws the strip of open files above the editor: the one on screen in
-// accent, the rest dim. It is always exactly one line — the editor pane below was
-// sized on that promise — and is truncated to the pane width, so a long row of
-// filenames cannot push the layout around.
+// accent, the rest dim.
 func (m *model) renderTabs(s *session) string {
-	parts := make([]string, 0, len(s.editors))
+	names := make([]string, len(s.editors))
 	for i, e := range s.editors {
-		if i == s.activeEd {
-			parts = append(parts, titleStyle.Render(e.name))
+		names[i] = e.name
+	}
+	return m.renderTabStrip(names, s.activeEd)
+}
+
+// renderShellTabs draws the strip of shells open on the host. They have no names
+// of their own, so they are numbered — which is also how alt+1..9 addresses them.
+func (m *model) renderShellTabs(s *session) string {
+	names := make([]string, len(s.shells))
+	for i := range s.shells {
+		names[i] = fmt.Sprintf("shell %d", i+1)
+	}
+	return m.renderTabStrip(names, s.activeSh)
+}
+
+// renderTabStrip draws a row of tabs, the active one in accent and the rest dim.
+// It is always exactly one line — the pane below was sized on that promise — and
+// is truncated to the pane width, so a long row of tabs cannot push the layout
+// around.
+func (m *model) renderTabStrip(names []string, active int) string {
+	parts := make([]string, 0, len(names))
+	for i, n := range names {
+		if i == active {
+			parts = append(parts, titleStyle.Render(n))
 		} else {
-			parts = append(parts, dimStyle.Render(e.name))
+			parts = append(parts, dimStyle.Render(n))
 		}
 	}
 	return truncate(strings.Join(parts, faint.Render(" │ ")), m.paneW)
@@ -1427,11 +1654,15 @@ func (m *model) renderDetails(w int) string {
 		port = 22
 	}
 
-	// Status badge.
+	// Status badge. A connected host also says how many shells it is holding, so
+	// the ones behind the visible tab are not a surprise on 'd'.
 	badge := idleDot + " " + dimStyle.Render("idle")
 	switch {
 	case m.sessions[h.Alias] != nil:
 		badge = connectedDot + " " + greenText.Render("connected")
+		if n := len(m.sessions[h.Alias].shells); n > 1 {
+			badge += " " + faint.Render(fmt.Sprintf("· %d shells", n))
+		}
 	case m.connecting[h.Alias]:
 		badge = connectingDot + " " + yellowText.Render("connecting…")
 	}
@@ -1465,9 +1696,10 @@ func (m *model) renderDetails(w int) string {
 	b.WriteString(pad + dimStyle.Render("actions") + "\n")
 	b.WriteString(pad + kc("enter") + " " + dimStyle.Render("connect") + "   " +
 		kc("s") + " " + dimStyle.Render("focus") + "\n")
-	b.WriteString(pad + kc("o") + " " + dimStyle.Render("vscode") + "    " +
+	b.WriteString(pad + kc("S") + " " + dimStyle.Render("new shell") + "  " +
 		kc("d") + " " + dimStyle.Render("disconnect") + "\n")
-	b.WriteString(pad + kc("f") + " " + dimStyle.Render("sftp") + "\n")
+	b.WriteString(pad + kc("o") + " " + dimStyle.Render("vscode") + "    " +
+		kc("f") + " " + dimStyle.Render("sftp") + "\n")
 
 	return clampLines(b.String(), w)
 }
@@ -1503,14 +1735,18 @@ func (m *model) renderFooter() string {
 			item("ctrl+o", "back to hop")
 	case m.focused && m.active != "":
 		help = item("ctrl+o", "back to hop") + sep +
-			item("esc esc", "back to hop") + sep +
-			dimStyle.Render("keys → ") + greenText.Render(m.active)
+			item("esc esc", "back to hop") + sep
+		if s := m.sessions[m.active]; s != nil && len(s.shells) > 1 {
+			help += item("alt+←→", "shell") + sep + item("alt+1-9", "jump") + sep
+		}
+		help += dimStyle.Render("keys → ") + greenText.Render(m.active)
 	case m.filtering:
 		help = item("type", "filter") + sep + item("enter", "apply") + sep + item("esc", "clear")
 	default:
 		help = item("↑↓", "move") + sep +
 			item("enter", "connect") + sep +
 			item("s", "session") + sep +
+			item("S", "new shell") + sep +
 			item("o", "code") + sep +
 			item("f", "sftp") + sep +
 			item("d", "disconnect") + sep +

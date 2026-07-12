@@ -23,9 +23,10 @@ the file browser, `esc` `esc` also works).
 | `H` / `M` / `L` | jump to first / middle / last host |
 | `ctrl+d` / `ctrl+u` | half a page down / up |
 | `ctrl+f` / `ctrl+b` | a full page down / up (also `pgdn` / `pgup`) |
-| `enter` / `l` / `right` | connect (opens a terminal pane) |
+| `enter` / `l` / `right` | connect (opens a terminal pane), or focus the shell already open |
 | `esc` / `h` / `left` | back — leave the details view |
 | `s` | focus the existing session for this host |
+| `S` | open **another** shell on this host, alongside the ones already open |
 | `f` | open the SFTP browser |
 | `o` | open the host in VS Code Remote |
 | `d` | disconnect the session |
@@ -155,7 +156,26 @@ swallowed rather than forwarded: the browser has no use for it.
 | --- | --- |
 | `ctrl+o` | back to hop |
 | `esc` `esc` | back to hop (two presses within 400 ms) |
+| `alt+→` / `alt+←` | next / previous shell on this host (wraps) |
+| `alt+1` … `alt+9` | jump straight to that shell |
 | *everything else* | sent to the remote shell |
+
+### Several shells on one host
+
+`S` in the host list opens another shell on a host you are already connected to.
+It is a second **channel** on the connection hop already holds — no new handshake,
+no second authentication — and it appears as a tab strip above the pane (`shell 1
+│ shell 2 │ …`), which shows up only once there is a second shell to switch to.
+
+Switch with `alt+←`/`alt+→`, or jump with `alt+1`…`alt+9`. Unlike the editor, the
+alt+**letters** are *not* bound here: readline owns them (`alt+b` walks back a
+word, `alt+l` downcases one), and taking them would break the shell.
+
+Type `exit` to close a shell: its tab goes away, the rest keep running. When the
+last one exits, the connection is done and the host goes back to idle in the list
+— unless its SFTP browser or an editor tab is still open on it, which keeps the
+connection alive. `d` still tears down the whole host at once: every shell, the
+browser and the editors.
 
 **`left` is not a back key here, and cannot be.** Once a pane is focused, every
 keystroke is forwarded verbatim to the remote host, because the shell needs them
