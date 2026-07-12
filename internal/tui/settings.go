@@ -205,7 +205,6 @@ func (m *model) clampSettings() {
 // restyled, and every live browser picks up the new directories.
 func (m *model) applySettings() {
 	setAccent(m.cfg.Accent)
-	filebrowser.SetAccent(m.cfg.Accent)
 
 	opts := m.browserOptions()
 	for _, s := range m.sessions {
@@ -227,17 +226,18 @@ func (m *model) browserOptions() filebrowser.Options {
 // keeping a change that will not survive a restart.
 func (m *model) saveSettings() {
 	if err := m.cfg.Save(); err != nil {
-		m.status = "settings: " + err.Error()
+		m.setStatus(statusErr, "settings: %v", err)
 		return
 	}
-	m.status = "settings saved"
+	m.setStatus(statusOK, "settings saved")
 }
 
 // Popover geometry.
 const (
 	settingsMaxW = 64 // content width, borders and padding excluded
-	settingsMinW = 34
-	settingsPadX = 3 // horizontal padding inside the border
+	// settingsFloorW is the narrowest the card gets before it stops shrinking and
+	// starts truncating: a window narrower than this has bigger problems.
+	settingsFloorW = 20
 	// settingsDescH is the height reserved for the selected field's explanation.
 	// It is fixed, and the text wraps into it rather than being cut, so the card
 	// keeps one shape: nothing below it jumps as the cursor moves.
@@ -246,16 +246,11 @@ const (
 
 // settingsInnerW is the width available to a rendered row: the box minus its
 // border and padding. Every line is held to it, because a modal that wraps spills
-// outside its own frame.
+// outside its own frame — and the box itself is held to the window, because a
+// card wider than the screen is worse than a cramped one.
 func (m *model) settingsInnerW() int {
-	w := settingsMaxW
-	if roomy := m.width - 12; w > roomy {
-		w = roomy
-	}
-	if w < settingsMinW {
-		w = settingsMinW
-	}
-	return w
+	room := max(m.width-2*cardPadX-2, settingsFloorW)
+	return clamp(settingsMaxW, settingsFloorW, room)
 }
 
 // renderSettings draws the popover: a card of stacked fields, each a quiet label
@@ -284,7 +279,7 @@ func (m *model) renderSettings() string {
 		b.WriteString("\n\n")
 	}
 
-	b.WriteString(faint.Render(strings.Repeat("─", w)))
+	b.WriteString(rule(w))
 	b.WriteString("\n")
 
 	// The selected field explains itself, in a fixed-height block.
@@ -303,7 +298,7 @@ func (m *model) renderSettings() string {
 		b.WriteString(settingsHint("↑↓", "move", "enter", "edit", "r", "reset", "esc", "close"))
 	}
 
-	return settingsBox.Width(w + 2*settingsPadX).Render(b.String())
+	return cardBox.Width(w + 2*cardPadX).Render(b.String())
 }
 
 // renderSettingsValue draws a field's value as a full-width row: the live text
@@ -381,7 +376,7 @@ func (m *model) renderSwatches(f settingsField, selected bool, w int) string {
 func settingsHint(pairs ...string) string {
 	var parts []string
 	for i := 0; i+1 < len(pairs); i += 2 {
-		parts = append(parts, kc(pairs[i])+" "+dimStyle.Render(pairs[i+1]))
+		parts = append(parts, keyHint(pairs[i], pairs[i+1]))
 	}
 	return strings.Join(parts, "  ")
 }

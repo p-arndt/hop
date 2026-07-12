@@ -152,7 +152,7 @@ func TestOpenFileFocusesExistingTab(t *testing.T) {
 	m.editing = false
 	m.browsing = true
 
-	_, cmd := m.openFile(filebrowser.OpenFileMsg{Path: "/etc/a.conf", Name: "a.conf"})
+	cmd := m.openFile(filebrowser.OpenFileMsg{Path: "/etc/a.conf", Name: "a.conf"})
 	if cmd != nil {
 		t.Fatal("openFile started a second editor on a file that is already open")
 	}
