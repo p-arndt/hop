@@ -192,6 +192,73 @@ func TestLastShellExitKeepsBrowser(t *testing.T) {
 	}
 }
 
+// ← at a bare prompt is hop's: it hands the keyboard back to the host list, the
+// way it backs out of a directory in the browser.
+func TestLeftAtABarePromptLeavesTheShell(t *testing.T) {
+	m, _ := shellModel(t, 1)
+
+	m.handleKey(key(t, "left"))
+
+	if m.focused {
+		t.Fatal("left at a bare prompt did not leave the pane")
+	}
+	if m.active != "web" {
+		t.Fatalf("active = %q, want the session still on screen behind the list", m.active)
+	}
+}
+
+// ...but the moment there is something on the line, ← is the shell's again: it is
+// how you move the cursor back over a typo, and hop taking it would break editing
+// on every server you connect to.
+func TestLeftOverATypedLineGoesToTheShell(t *testing.T) {
+	m, _ := shellModel(t, 1)
+
+	m.handleKey(key(t, "l"))
+	m.handleKey(key(t, "s"))
+	m.handleKey(key(t, "left"))
+
+	if !m.focused {
+		t.Fatal("left over a half-typed command left the pane instead of moving the cursor")
+	}
+
+	// Enter sends the line to the shell, so the next prompt is bare again — and ←
+	// is hop's once more.
+	m.handleKey(key(t, "enter"))
+	m.handleKey(key(t, "left"))
+
+	if m.focused {
+		t.Fatal("left at the prompt after enter did not leave the pane")
+	}
+}
+
+// The keys that kill the line leave the prompt bare, so ← is hop's after them too.
+// Backspacing the line away is the same fact one character at a time.
+func TestLeftAfterTheLineIsCleared(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		clear []string
+	}{
+		{"ctrl+c", []string{"ctrl+c"}},
+		{"ctrl+u", []string{"ctrl+u"}},
+		{"backspace", []string{"backspace", "backspace"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _ := shellModel(t, 1)
+			m.handleKey(key(t, "l"))
+			m.handleKey(key(t, "s"))
+			for _, k := range tc.clear {
+				m.handleKey(key(t, k))
+			}
+
+			m.handleKey(key(t, "left"))
+
+			if m.focused {
+				t.Fatalf("left after %s did not leave the pane", tc.name)
+			}
+		})
+	}
+}
+
 // The tab strip only costs a row once there is a second shell to switch to.
 func TestShellSizeMakesRoomForTheStrip(t *testing.T) {
 	m, _ := shellModel(t, 1)

@@ -37,6 +37,17 @@ type Pane struct {
 	emu  *vt.SafeEmulator
 	sess *sshx.Session
 	mu   sync.Mutex // guards ALL writes to sess.Stdin
+
+	// typed counts the characters hop has put on the input line since the line was
+	// last emptied (see LineEmpty), under a lock of its own.
+	//
+	// It gets its own lock, and not mu, on purpose: mu is held across the write to
+	// sess.Stdin, which is a write to the network and can block for as long as the
+	// connection wants. LineEmpty is asked once per frame by the footer — on the
+	// render path — so hanging it off mu would park the whole UI behind an in-flight
+	// SSH write every time it repainted.
+	lineMu sync.Mutex
+	typed  int
 }
 
 // New creates an emulator sized w x h, binds it to sess, and starts the two
@@ -196,9 +207,73 @@ func (p *Pane) SendKey(msg tea.KeyMsg) {
 	if len(b) == 0 {
 		return
 	}
+	// Before mu, and not under it: tracking the line must not be one more thing
+	// waiting on the network write below.
+	p.track(msg)
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	_, _ = p.sess.Stdin.Write(b)
+}
+
+// track follows what the keys hop forwards do to the length of the input line.
+//
+// It is a count of what was *typed*, not a reading of what is on the line: hop
+// sees only the keys it sends, never the line the remote is holding. So it is
+// deliberately biased — a key whose effect on the line hop cannot know (ctrl+w,
+// ctrl+k, a completion) leaves the count standing rather than clearing it. The
+// count is then too high, never too low, and the only thing hanging off it (see
+// LineEmpty) errs towards giving the key to the shell, which is the status quo.
+func (p *Pane) track(msg tea.KeyMsg) {
+	p.lineMu.Lock()
+	defer p.lineMu.Unlock()
+
+	switch msg.Type {
+	case tea.KeyRunes:
+		p.typed += len(msg.Runes)
+
+	case tea.KeySpace, tea.KeyTab:
+		// What tab completes onto the line is the remote's business, and hop has no
+		// way to count it — but it is never *nothing*, and one is enough to make the
+		// line non-empty, which is all the count is asked.
+		p.typed++
+
+	case tea.KeyBackspace:
+		p.typed = max(p.typed-1, 0)
+
+	case tea.KeyEnter:
+		// The line is gone to the shell: whatever comes back is a fresh prompt.
+		p.typed = 0
+
+	default:
+		// ctrl+c abandons the line and ctrl+u kills it back to the start; both leave
+		// the prompt bare. Everything else — the arrows, the other ctrl chords —
+		// moves around inside the line or does something that is not about it.
+		switch msg.String() {
+		case "ctrl+c", "ctrl+u":
+			p.typed = 0
+		}
+	}
+}
+
+// LineEmpty reports whether the input line is bare, as far as the keys hop has
+// forwarded can say: nothing typed since the last enter, or since the last key that
+// killed the line.
+//
+// It is what lets hop bind ← at a prompt without taking it from the shell: at a bare
+// prompt there is nothing to the left of the cursor, so ← would have moved it
+// nowhere. The moment there is something to move over, the key is the shell's again.
+func (p *Pane) LineEmpty() bool {
+	p.lineMu.Lock()
+	defer p.lineMu.Unlock()
+	return p.typed == 0
+}
+
+// AltScreen reports whether a full-screen program — vim, htop, less — has taken the
+// screen. Such a program owns the whole keyboard, arrows included, and is not typing
+// a line at all, so it is the other half of the question LineEmpty answers.
+func (p *Pane) AltScreen() bool {
+	return p.emu.IsAltScreen()
 }
 
 // Resize resizes both the emulator screen and the remote PTY.

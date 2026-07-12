@@ -207,8 +207,17 @@ func (m *model) renderFooter() string {
 		// the second one, so a footer that waited for a second shell to mention it
 		// would only ever tell you what you had already worked out.
 		hints = []string{keyHint("ctrl+o", "back"), keyHint("esc esc", "back"), keyHint("alt+0", "new shell")}
-		if s := m.sessions[m.active]; s != nil && len(s.shells) > 1 {
+		s := m.sessions[m.active]
+		if s != nil && len(s.shells) > 1 {
 			hints = append(hints, keyHint("alt+←→", "shell"), keyHint("alt+1-9", "jump"))
+		}
+		// ← is hop's only while the shell has no use for it, and this line is the one
+		// place that can say *so it is, right now*: it appears at a bare prompt and
+		// goes away the moment you start typing, which is the moment the key goes back
+		// to the shell. A footer that named it unconditionally would be lying half the
+		// time.
+		if s != nil && backsOut(s.shell()) {
+			hints = append([]string{keyHint("←", "back")}, hints...)
 		}
 		hints = append(hints, dimStyle.Render("keys →")+" "+greenText.Render(m.active))
 
