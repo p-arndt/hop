@@ -73,6 +73,11 @@ func (se *Session) Wait() error {
 // Client wraps an established *ssh.Client.
 type Client struct {
 	ssh *ssh.Client
+
+	// NewHostKey is the SHA256 fingerprint of a host key recorded on first
+	// contact (TOFU) during this dial, or "" when the host was already known.
+	// The UI shows it, so a silent first trust is at least a visible one.
+	NewHostKey string
 }
 
 // AgentAuth builds an ssh.AuthMethod backed by the Windows OpenSSH agent.
@@ -109,6 +114,7 @@ func Connect(h store.Host) (*Client, error) {
 		return nil, err
 	}
 
+	var newKey string
 	cfg := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{auth},
@@ -117,11 +123,16 @@ func Connect(h store.Host) (*Client, error) {
 		// (e.g. ecdsa when known_hosts holds ed25519), which knownhosts reports
 		// as a key mismatch. Empty for an unknown host => library defaults.
 		HostKeyAlgorithms: db.HostKeyAlgorithms(addr),
-		HostKeyCallback:   tofuHostKeyCallback(db, khPath),
+		HostKeyCallback:   tofuHostKeyCallback(db, khPath, &newKey),
 		Timeout:           dialTimeout,
 	}
 
-	return ConnectAddr(addr, cfg)
+	cl, err := ConnectAddr(addr, cfg)
+	if err != nil {
+		return nil, err
+	}
+	cl.NewHostKey = newKey
+	return cl, nil
 }
 
 // ConnectAddr dials addr with the supplied config. Tests may pass a config
@@ -267,9 +278,10 @@ func hostKeyDB() (*knownhosts.HostKeyDB, string, error) {
 }
 
 // tofuHostKeyCallback verifies the presented key against db, and on first
-// contact appends it to khPath and accepts it. A genuine key change is
-// rejected.
-func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath string) ssh.HostKeyCallback {
+// contact appends it to khPath and accepts it, reporting the accepted key's
+// fingerprint through recorded so the UI can show what was just trusted. A
+// genuine key change is rejected.
+func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath string, recorded *string) ssh.HostKeyCallback {
 	inner := db.HostKeyCallback()
 
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
@@ -283,6 +295,7 @@ func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath string) ssh.HostKeyCal
 			if aerr := appendKnownHost(khPath, hostname, remote, key); aerr != nil {
 				return fmt.Errorf("sshx: record new host key for %s: %w", hostname, aerr)
 			}
+			*recorded = ssh.FingerprintSHA256(key)
 			return nil
 		}
 		return err

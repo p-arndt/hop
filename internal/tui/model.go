@@ -240,7 +240,13 @@ func (m *model) shellLanded(msg connectedMsg) (tea.Model, tea.Cmd) {
 	m.reloadHosts()
 
 	m.focusShell(msg.alias)
-	m.setStatus(statusOK, "connected to %s", msg.alias)
+	// First contact with this host: say which key was just trusted, so TOFU is
+	// at least visible — a fingerprint you can compare beats a silent accept.
+	if msg.client != nil && msg.client.NewHostKey != "" {
+		m.setStatus(statusWarn, "%s: new host key trusted (%s)", msg.alias, msg.client.NewHostKey)
+	} else {
+		m.setStatus(statusOK, "connected to %s", msg.alias)
+	}
 	return m, waitShellCmd(msg.alias, msg.tab.id, msg.tab.sess)
 }
 
@@ -300,7 +306,11 @@ func (m *model) browserLanded(msg browserOpenedMsg) (tea.Model, tea.Cmd) {
 	m.browsing = true
 	m.focused = false
 	m.editing = false
-	m.setStatus(statusOK, "sftp %s", msg.alias)
+	if msg.client != nil && msg.client.NewHostKey != "" {
+		m.setStatus(statusWarn, "%s: new host key trusted (%s)", msg.alias, msg.client.NewHostKey)
+	} else {
+		m.setStatus(statusOK, "sftp %s", msg.alias)
+	}
 	msg.browser.Resize(m.paneW, m.paneH)
 	return m, nil
 }
