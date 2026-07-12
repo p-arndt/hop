@@ -50,8 +50,8 @@ stay consistent with the browser.
 | `H` / `M` / `L` | jump to top / middle / bottom **of the visible window** |
 | `ctrl+d` / `ctrl+u` | half a page down / up |
 | `ctrl+f` / `ctrl+b` | a full page down / up (also `pgdn` / `pgup`) |
-| `enter` / `l` / `right` | enter a directory, or open a file in the OS default app |
-| `e` | open the file in `$VISUAL` / `$EDITOR` |
+| `enter` / `l` / `right` | enter a directory, or open a file in the terminal editor |
+| `o` | open the file in the OS default app (GUI) |
 | `d` | download the file to `~/Downloads` |
 | `h` / `left` / `backspace` | up one directory |
 | `r` | refresh the listing |
@@ -60,13 +60,21 @@ stay consistent with the browser.
 
 ### Opening files
 
-`enter` and `e` both fetch the file into a scratch directory under the system temp
+`enter` and `o` both fetch the file into a scratch directory under the system temp
 dir, so reading a remote file never litters `~/Downloads` — that is what `d` is
-for. `enter` then hands the local copy to the desktop (`start` on Windows, `open`
-on macOS, `xdg-open` elsewhere) and returns immediately, so hop stays usable while
-the file opens in its own window. `e` instead suspends hop, gives the terminal to
-`$VISUAL` (or `$EDITOR`, or `notepad`/`vi` when neither is set), and restores the
-TUI when the editor exits.
+for.
+
+`enter` then suspends hop, hands the terminal to the editor, and restores the TUI
+when it exits. The editor is `$VISUAL`, else `$EDITOR` (both may carry flags, as in
+`nvim -R`), else the first of `nvim`, `vim`, `vi`, `nano`, `micro`, `helix`, `hx`
+found on `PATH`. Only if none of those exist does it fall back to `notepad` on
+Windows or `vi` elsewhere — so a stray GUI window is the last resort, never the
+default.
+
+`o` is the escape hatch for files a terminal editor is no good for — a PDF, an
+image. It hands the local copy to the desktop (`start` on Windows, `open` on
+macOS, `xdg-open` elsewhere) and returns immediately, so hop stays usable while the
+file opens in its own window.
 
 Edits are made to the *local* copy: nothing is written back to the remote host.
 

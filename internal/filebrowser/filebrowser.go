@@ -194,10 +194,10 @@ func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 		b.load(path.Dir(b.cwd))
 
 	case "enter", "right", "l":
-		b.activate()
+		return b.activate()
 
-	case "e":
-		return b.edit()
+	case "o":
+		b.openInApp()
 
 	case "d":
 		b.download()
@@ -206,15 +206,35 @@ func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 }
 
 // activate enters the directory under the cursor, or fetches the file under it
-// and hands the local copy to the desktop's default application. The launch is
-// fire-and-forget: the app opens in its own window and hop keeps running.
-func (b *Browser) activate() {
+// and opens it in the terminal editor. The returned command suspends the TUI for
+// as long as the editor owns the terminal.
+func (b *Browser) activate() tea.Cmd {
 	e, ok := b.selected()
 	if !ok {
-		return
+		return nil
 	}
 	if e.IsDir {
 		b.load(path.Join(b.cwd, e.Name))
+		return nil
+	}
+
+	local, err := b.fetch(e)
+	if err != nil {
+		b.fail(err)
+		return nil
+	}
+	return tea.ExecProcess(editorCmd(local), func(err error) tea.Msg {
+		return EditFinishedMsg{Name: e.Name, Err: err}
+	})
+}
+
+// openInApp fetches the file under the cursor and hands the local copy to the
+// desktop's default application for its type. The launch is fire-and-forget: the
+// app opens in its own window and hop keeps running. Directories have no default
+// app, so "o" on one is a no-op.
+func (b *Browser) openInApp() {
+	e, ok := b.selected()
+	if !ok || e.IsDir {
 		return
 	}
 
@@ -232,25 +252,6 @@ func (b *Browser) activate() {
 	// does not linger as a zombie.
 	go cmd.Wait()
 	b.ok("opened " + e.Name)
-}
-
-// edit fetches the file under the cursor and returns a command that suspends the
-// TUI to run $VISUAL/$EDITOR on the local copy, restoring hop when it exits.
-// Directories have nothing to edit, so "e" on one is a no-op.
-func (b *Browser) edit() tea.Cmd {
-	e, ok := b.selected()
-	if !ok || e.IsDir {
-		return nil
-	}
-
-	local, err := b.fetch(e)
-	if err != nil {
-		b.fail(err)
-		return nil
-	}
-	return tea.ExecProcess(editorCmd(local), func(err error) tea.Msg {
-		return EditFinishedMsg{Name: e.Name, Err: err}
-	})
 }
 
 // EditFinished records the outcome of the editor launched by edit.
@@ -342,23 +343,41 @@ var openCmd = func(p string) *exec.Cmd {
 	}
 }
 
-// editorCmd builds the $VISUAL/$EDITOR command for p, falling back to a platform
-// default. The variable may carry flags ("code -w"), so it is split, not used as
-// a bare program name.
+// terminalEditors are probed on PATH, in order, when neither $VISUAL nor $EDITOR
+// says what to use. All of them draw inside the terminal hop hands them, which is
+// the whole point: enter must not throw a window at you.
+var terminalEditors = []string{"nvim", "vim", "vi", "nano", "micro", "helix", "hx"}
+
+// editorCmd builds the editor command for p: $VISUAL, else $EDITOR, else the
+// first terminal editor found on PATH. The env vars may carry flags ("nvim -R"),
+// so they are split rather than used as a bare program name.
+//
+// The last resort is notepad on Windows and vi elsewhere — neither is probed for,
+// because if nothing above matched there is nothing better left to try.
 var editorCmd = func(p string) *exec.Cmd {
 	ed := os.Getenv("VISUAL")
 	if ed == "" {
 		ed = os.Getenv("EDITOR")
 	}
 	if ed == "" {
-		if runtime.GOOS == "windows" {
-			ed = "notepad"
-		} else {
-			ed = "vi"
-		}
+		ed = lookEditor()
 	}
 	fields := strings.Fields(ed)
 	return exec.Command(fields[0], append(fields[1:], p)...)
+}
+
+// lookEditor returns the first terminalEditors entry that exists on PATH, or a
+// platform default when none does.
+func lookEditor() string {
+	for _, ed := range terminalEditors {
+		if _, err := exec.LookPath(ed); err == nil {
+			return ed
+		}
+	}
+	if runtime.GOOS == "windows" {
+		return "notepad"
+	}
+	return "vi"
 }
 
 // windowRows is the number of entry rows actually filled on screen, which is

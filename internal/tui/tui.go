@@ -1087,8 +1087,8 @@ func (m *model) renderFooter() string {
 	switch {
 	case m.browsing && m.active != "":
 		help = item("↑↓", "move") + sep +
-			item("enter", "open") + sep +
-			item("e", "edit") + sep +
+			item("enter", "edit") + sep +
+			item("o", "open") + sep +
 			item("d", "download") + sep +
 			item("←", "up") + sep +
 			item("r", "refresh") + sep +
