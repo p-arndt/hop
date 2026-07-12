@@ -50,33 +50,56 @@ stay consistent with the browser.
 | `H` / `M` / `L` | jump to top / middle / bottom **of the visible window** |
 | `ctrl+d` / `ctrl+u` | half a page down / up |
 | `ctrl+f` / `ctrl+b` | a full page down / up (also `pgdn` / `pgup`) |
-| `enter` / `l` / `right` | enter a directory, or open a file in the terminal editor |
-| `o` | open the file in the OS default app (GUI) |
+| `enter` / `l` / `right` | enter a directory, or open a file in an editor tab |
+| `o` | open the file in the local OS default app (GUI) |
 | `d` | download the file to `~/Downloads` |
 | `h` / `left` / `backspace` | up one directory |
 | `r` | refresh the listing |
 | `ctrl+o` | back to hop |
 | `esc` `esc` | back to hop (two presses within 400 ms) |
 
-### Opening files
+## Editing — editor tabs
 
-`enter` and `o` both fetch the file into a scratch directory under the system temp
-dir, so reading a remote file never litters `~/Downloads` — that is what `d` is
-for.
+`enter` on a file opens it in an editor **inside hop**, in the same right-hand pane
+the browser lives in, with a tab strip above it listing every open file.
 
-`enter` then suspends hop, hands the terminal to the editor, and restores the TUI
-when it exits. The editor is `$VISUAL`, else `$EDITOR` (both may carry flags, as in
-`nvim -R`), else the first of `nvim`, `vim`, `vi`, `nano`, `micro`, `helix`, `hx`
-found on `PATH`. Only if none of those exist does it fall back to `notepad` on
-Windows or `vi` elsewhere — so a stray GUI window is the last resort, never the
-default.
+| Key | Action |
+| --- | --- |
+| `alt+→` / `alt+l` | next tab (wraps) |
+| `alt+←` / `alt+h` | previous tab (wraps) |
+| `alt+1` … `alt+9` | jump straight to that tab |
+| `:q` (i.e. quit the editor) | close the tab |
+| `ctrl+o` | back to the file browser |
+| `esc` `esc` | back to the file browser (two presses within 400 ms) |
+
+Every other key goes to the editor — it is a full-screen terminal program and owns
+its own keymap. Only alt combinations are reserved, because neither vim nor nano
+binds them.
+
+### How it works
+
+The editor runs **on the remote host**, not locally: hop opens a second SSH channel
+on the connection it already has and runs `${EDITOR:-vi} <file>` on a pty, then
+renders that pty in a pane exactly as it renders a remote shell. So there is no
+download and no copy — you are editing the real file, and `:w` writes straight back
+to the server.
+
+If the remote `$EDITOR` is unset (it usually is over SSH, since the rc-file that
+sets it is never sourced for a non-interactive command), hop probes the remote
+`PATH` for `nvim`, `vim`, `vi`, then `nano`, falling back to `vi` — POSIX requires
+it to exist.
+
+Tabs are independent editor processes, so leaving with `ctrl+o` keeps them all
+running: come back and every file is where you left it, cursor included. A tab is
+closed by quitting its editor.
+
+### Editing locally instead
 
 `o` is the escape hatch for files a terminal editor is no good for — a PDF, an
-image. It hands the local copy to the desktop (`start` on Windows, `open` on
-macOS, `xdg-open` elsewhere) and returns immediately, so hop stays usable while the
-file opens in its own window.
-
-Edits are made to the *local* copy: nothing is written back to the remote host.
+image. It downloads the file to a scratch directory under the system temp dir and
+hands that copy to the desktop (`start` on Windows, `open` on macOS, `xdg-open`
+elsewhere), returning immediately so hop stays usable. Unlike `enter`, this edits a
+*local copy*: nothing is written back to the remote host.
 
 ### Leaving the browser
 

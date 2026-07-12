@@ -111,6 +111,68 @@ type session struct {
 	client  *sshx.Client
 	pane    *terminal.Pane
 	browser *filebrowser.Browser
+
+	// editors are the files opened from the browser, each a remote editor running
+	// on its own SSH session, shown as tabs. activeEd indexes into it.
+	editors  []*editorTab
+	activeEd int
+}
+
+// editorTab is one open file: a remote editor process on its own SSH session,
+// rendered through the same terminal pane the remote shell uses.
+type editorTab struct {
+	id   int // stable across tab removals, so an exit maps back to its tab
+	name string
+	path string
+	pane *terminal.Pane
+	sess *sshx.Session
+}
+
+// editor returns the tab currently shown, or nil when none is open.
+func (s *session) editor() *editorTab {
+	if s.activeEd < 0 || s.activeEd >= len(s.editors) {
+		return nil
+	}
+	return s.editors[s.activeEd]
+}
+
+// findEditor returns the index of the tab holding path, or -1.
+func (s *session) findEditor(path string) int {
+	for i, e := range s.editors {
+		if e.path == path {
+			return i
+		}
+	}
+	return -1
+}
+
+// dropEditor closes the tab with the given id and removes it, returning true if
+// it was there. The caller decides where focus goes next.
+func (s *session) dropEditor(id int) bool {
+	for i, e := range s.editors {
+		if e.id != id {
+			continue
+		}
+		e.pane.Close()
+		s.editors = append(s.editors[:i], s.editors[i+1:]...)
+		if s.activeEd >= len(s.editors) {
+			s.activeEd = len(s.editors) - 1
+		}
+		if s.activeEd < 0 {
+			s.activeEd = 0
+		}
+		return true
+	}
+	return false
+}
+
+// closeEditors tears down every open tab.
+func (s *session) closeEditors() {
+	for _, e := range s.editors {
+		e.pane.Close()
+	}
+	s.editors = nil
+	s.activeEd = 0
 }
 
 // ---- messages ----
@@ -134,6 +196,21 @@ type browserOpenedMsg struct {
 	browser *filebrowser.Browser
 	client  *sshx.Client
 	err     error
+}
+
+// editorOpenedMsg is returned once a remote editor is running on its own SSH
+// session (or has failed to start).
+type editorOpenedMsg struct {
+	alias string
+	tab   *editorTab
+	err   error
+}
+
+// editorExitedMsg fires when a remote editor process ends — ":q" is how a tab is
+// closed, so hop watches for the exit rather than binding a close key.
+type editorExitedMsg struct {
+	alias string
+	id    int
 }
 
 // ---- model ----
@@ -177,6 +254,13 @@ type model struct {
 	// browsing is true when the right pane shows the active session's SFTP file
 	// browser and keystrokes are forwarded to it. Mutually exclusive with focused.
 	browsing bool
+	// editing is true when the right pane shows the active session's editor tabs
+	// and keystrokes are forwarded to the open one. Mutually exclusive with both
+	// focused and browsing.
+	editing bool
+
+	// nextEdID hands out editorTab ids.
+	nextEdID int
 
 	// downloadDir is the local directory SFTP downloads land in, computed once.
 	downloadDir string
@@ -368,6 +452,57 @@ func openBrowserCmd(h store.Host, existing *sshx.Client, downloadDir string, pw,
 	}
 }
 
+// openEditorCmd starts a remote editor on path over the session's existing SSH
+// connection and wraps it in a terminal pane. It is a second SSH channel on the
+// same connection — no new handshake, and no download: the editor opens the real
+// remote file, so ":w" writes straight back to the server.
+func openEditorCmd(alias string, cli *sshx.Client, id int, path, name string, cols, rows int, notify chan struct{}) tea.Cmd {
+	return func() tea.Msg {
+		sess, err := cli.Command(remoteEditorCmd(path), cols, rows)
+		if err != nil {
+			return editorOpenedMsg{alias: alias, err: err}
+		}
+		onOutput := func() {
+			select {
+			case notify <- struct{}{}:
+			default:
+			}
+		}
+		pane := terminal.New(sess, cols, rows, onOutput)
+		return editorOpenedMsg{alias: alias, tab: &editorTab{
+			id: id, name: name, path: path, pane: pane, sess: sess,
+		}}
+	}
+}
+
+// waitEditorCmd blocks until the remote editor exits, then reports it so its tab
+// can be dropped. Quitting the editor is how you close a tab.
+func waitEditorCmd(alias string, id int, sess *sshx.Session) tea.Cmd {
+	return func() tea.Msg {
+		_ = sess.Wait()
+		return editorExitedMsg{alias: alias, id: id}
+	}
+}
+
+// remoteEditorCmd builds the shell command that runs the *remote* user's editor
+// on path. $EDITOR is preferred, but it is often only set in an interactive
+// rc-file that a non-interactive SSH command never sources — so when it is empty
+// we probe the remote PATH ourselves rather than assuming. vi is the last resort
+// because POSIX requires it to exist.
+func remoteEditorCmd(path string) string {
+	return `ed="${EDITOR:-${VISUAL:-}}"; ` +
+		`[ -n "$ed" ] || for c in nvim vim vi nano; do ` +
+		`command -v "$c" >/dev/null 2>&1 && { ed="$c"; break; }; done; ` +
+		`exec ${ed:-vi} ` + shellQuote(path)
+}
+
+// shellQuote wraps s in single quotes for a POSIX shell, so spaces and glob
+// characters in a filename cannot be reinterpreted as syntax. A single quote in
+// the name is closed, escaped and reopened — the standard '\” dance.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // ---- update ----
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -378,13 +513,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 		m.recomputeLayout()
-		// Resize every live pane and browser to the new right-pane inner size.
+		// Resize every live pane, browser and editor to the new right-pane inner
+		// size. Editors are resized even while hidden, so a tab switched to after a
+		// window change is already laid out for it.
+		ew, eh := m.editorSize()
 		for _, s := range m.sessions {
 			if s.pane != nil {
 				s.pane.Resize(m.paneW, m.paneH)
 			}
 			if s.browser != nil {
 				s.browser.Resize(m.paneW, m.paneH)
+			}
+			for _, e := range s.editors {
+				e.pane.Resize(ew, eh)
 			}
 		}
 		return m, nil
@@ -442,11 +583,40 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		msg.browser.Resize(m.paneW, m.paneH)
 		return m, nil
 
-	case filebrowser.EditFinishedMsg:
-		// The editor had the terminal to itself; hop is now back. Report how it
-		// went on the browser's own status line.
-		if s := m.sessions[m.active]; s != nil && s.browser != nil {
-			s.browser.EditFinished(msg)
+	case filebrowser.OpenFileMsg:
+		return m.openFile(msg)
+
+	case editorOpenedMsg:
+		if msg.err != nil {
+			m.status = fmt.Sprintf("edit %s failed: %v", msg.alias, msg.err)
+			return m, nil
+		}
+		s := m.sessions[msg.alias]
+		if s == nil {
+			// The session went away while the editor was starting.
+			msg.tab.pane.Close()
+			return m, nil
+		}
+		s.editors = append(s.editors, msg.tab)
+		s.activeEd = len(s.editors) - 1
+		m.active = msg.alias
+		m.editing = true
+		m.browsing = false
+		m.focused = false
+		m.status = ""
+		ew, eh := m.editorSize()
+		msg.tab.pane.Resize(ew, eh)
+		return m, waitEditorCmd(msg.alias, msg.tab.id, msg.tab.sess)
+
+	case editorExitedMsg:
+		s := m.sessions[msg.alias]
+		if s == nil || !s.dropEditor(msg.id) {
+			return m, nil
+		}
+		// The last tab closing drops back where the file was opened from.
+		if len(s.editors) == 0 && m.editing && m.active == msg.alias {
+			m.editing = false
+			m.browsing = s.browser != nil
 		}
 		return m, nil
 
@@ -457,7 +627,102 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// openFile opens the file the browser just activated in an editor tab. A file
+// that is already open focuses its tab instead of starting a second editor on it.
+func (m *model) openFile(msg filebrowser.OpenFileMsg) (tea.Model, tea.Cmd) {
+	s := m.sessions[m.active]
+	if s == nil || s.client == nil {
+		return m, nil
+	}
+	if i := s.findEditor(msg.Path); i >= 0 {
+		s.activeEd = i
+		m.editing = true
+		m.browsing = false
+		return m, nil
+	}
+
+	m.nextEdID++
+	ew, eh := m.editorSize()
+	m.status = "opening " + msg.Name + "…"
+	return m, openEditorCmd(m.active, s.client, m.nextEdID, msg.Path, msg.Name, ew, eh, m.notify)
+}
+
+// editorSize is the terminal size an editor pane gets: the right pane, less the
+// row the tab bar sits on.
+func (m *model) editorSize() (int, int) {
+	h := m.paneH - 1
+	if h < 1 {
+		h = 1
+	}
+	return m.paneW, h
+}
+
+// handleEditorKey routes a key while an editor tab is shown. The editor is a
+// full-screen terminal program, so it owns nearly every key — hop reserves only
+// ctrl+o, a double esc, and the alt chords that switch tabs. Alt is free to take
+// because neither vim nor nano binds it.
+func (m *model) handleEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	s := m.sessions[m.active]
+	if s == nil || s.editor() == nil {
+		// Every tab closed while we were in editing mode; there is nothing to show.
+		m.editing = false
+		return m, nil
+	}
+	key := msg.String()
+
+	switch key {
+	case "ctrl+o":
+		m.leaveEditor()
+		return m, nil
+
+	case "alt+right", "alt+l":
+		m.cycleEditor(s, 1)
+		return m, nil
+
+	case "alt+left", "alt+h":
+		m.cycleEditor(s, -1)
+		return m, nil
+	}
+
+	// alt+1 … alt+9 jump straight to a tab, ignoring one that is not open.
+	if n, ok := strings.CutPrefix(key, "alt+"); ok && len(n) == 1 && n[0] >= '1' && n[0] <= '9' {
+		if i := int(n[0] - '1'); i < len(s.editors) {
+			s.activeEd = i
+		}
+		return m, nil
+	}
+
+	if key == "esc" {
+		// As in a shell pane, the first esc is still forwarded — it belongs to the
+		// editor, and we cannot know a second one is coming without swallowing it.
+		if !m.lastEsc.IsZero() && time.Since(m.lastEsc) <= doubleEscWindow {
+			m.leaveEditor()
+			return m, nil
+		}
+		m.lastEsc = time.Now()
+	} else {
+		m.lastEsc = time.Time{}
+	}
+
+	s.editor().pane.SendKey(msg)
+	return m, nil
+}
+
+// cycleEditor moves delta tabs along, wrapping around at both ends.
+func (m *model) cycleEditor(s *session, delta int) {
+	if len(s.editors) < 2 {
+		return
+	}
+	n := len(s.editors)
+	s.activeEd = ((s.activeEd+delta)%n + n) % n
+}
+
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Editing mode: an open editor tab takes the keys.
+	if m.editing && m.active != "" {
+		return m.handleEditorKey(msg)
+	}
+
 	// Browsing mode: forward everything to the file browser except the two exits,
 	// ctrl+o and a double esc — the same pair the focused pane reserves. The
 	// browser itself never asks to be dismissed, so arrows stay pure motion.
@@ -684,6 +949,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if s.pane != nil {
 				s.pane.Close()
 			}
+			s.closeEditors()
 			if s.browser != nil {
 				// Closes the SFTP subsystem; the SSH client is closed below.
 				s.browser.Close()
@@ -696,6 +962,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.active = ""
 				m.focused = false
 				m.browsing = false
+				m.editing = false
 			}
 			m.status = "disconnected " + h.Alias
 		} else {
@@ -724,6 +991,19 @@ func (m *model) leaveBrowser() {
 	m.browsing = false
 	m.status = ""
 	m.lastEsc = time.Time{}
+}
+
+// leaveEditor returns from the editor tabs to the browser the file was opened
+// from (or to navigation, when that browser is gone). The editors keep running:
+// the tabs are still open when you come back, cursor where you left it. Closing
+// one is the editor's own business — quit it and its tab goes with it.
+func (m *model) leaveEditor() {
+	m.editing = false
+	m.status = ""
+	m.lastEsc = time.Time{}
+	if s := m.sessions[m.active]; s != nil && s.browser != nil {
+		m.browsing = true
+	}
 }
 
 // clampCursor holds the list cursor inside the filtered host list.
@@ -764,6 +1044,7 @@ func (m *model) closeAll() {
 		if s.pane != nil {
 			s.pane.Close()
 		}
+		s.closeEditors()
 		if s.browser != nil {
 			s.browser.Close()
 		}
@@ -775,6 +1056,7 @@ func (m *model) closeAll() {
 	m.active = ""
 	m.focused = false
 	m.browsing = false
+	m.editing = false
 }
 
 // recomputeLayout derives the left/right pane inner sizes from the window size.
@@ -845,7 +1127,13 @@ func (m *model) renderHeader() string {
 	)
 
 	var chips []string
-	if m.browsing && m.active != "" {
+	if m.editing && m.active != "" {
+		name := m.active
+		if s := m.sessions[m.active]; s != nil && s.editor() != nil {
+			name = s.editor().name
+		}
+		chips = append(chips, chipStyle.Render("✎ "+name))
+	} else if m.browsing && m.active != "" {
 		chips = append(chips, chipStyle.Render("▤ "+m.active))
 	} else if m.focused && m.active != "" {
 		chips = append(chips, greenText.Bold(true).Render("● "+m.active))
@@ -1000,6 +1288,14 @@ func (m *model) renderRight(h int) string {
 		innerH = 1
 	}
 
+	// Editing mode: a tab strip over the open editor's screen.
+	if m.editing && m.active != "" {
+		if s, ok := m.sessions[m.active]; ok && s.editor() != nil {
+			content := m.renderTabs(s) + "\n" + s.editor().pane.View()
+			return rightBorderActive.Width(m.paneW).Height(innerH).Render(content)
+		}
+	}
+
 	// Browsing mode: show the active session's file browser in an accented box.
 	if m.browsing && m.active != "" {
 		if s, ok := m.sessions[m.active]; ok && s.browser != nil {
@@ -1021,6 +1317,22 @@ func (m *model) renderRight(h int) string {
 	}
 
 	return style.Width(m.paneW).Height(innerH).Render(content)
+}
+
+// renderTabs draws the strip of open files above the editor: the one on screen in
+// accent, the rest dim. It is always exactly one line — the editor pane below was
+// sized on that promise — and is truncated to the pane width, so a long row of
+// filenames cannot push the layout around.
+func (m *model) renderTabs(s *session) string {
+	parts := make([]string, 0, len(s.editors))
+	for i, e := range s.editors {
+		if i == s.activeEd {
+			parts = append(parts, titleStyle.Render(e.name))
+		} else {
+			parts = append(parts, dimStyle.Render(e.name))
+		}
+	}
+	return truncate(strings.Join(parts, faint.Render(" │ ")), m.paneW)
 }
 
 func (m *model) renderDetails(w int) string {
@@ -1085,10 +1397,16 @@ func (m *model) renderFooter() string {
 
 	var help string
 	switch {
+	case m.editing && m.active != "":
+		help = item("alt+←→", "tab") + sep +
+			item("alt+1-9", "jump") + sep +
+			item(":q", "close") + sep +
+			item("ctrl+o", "browser") + sep +
+			dimStyle.Render("keys → ") + greenText.Render("editor")
 	case m.browsing && m.active != "":
 		help = item("↑↓", "move") + sep +
 			item("enter", "edit") + sep +
-			item("o", "open") + sep +
+			item("o", "open local") + sep +
 			item("d", "download") + sep +
 			item("←", "up") + sep +
 			item("r", "refresh") + sep +

@@ -48,11 +48,13 @@ type Client interface {
 	Close() error
 }
 
-// EditFinishedMsg reports that the external editor launched by "e" has exited.
-// The TUI hands it back to the browser via EditFinished.
-type EditFinishedMsg struct {
+// OpenFileMsg asks the enclosing model to open a remote file in an editor pane.
+// The browser deliberately does not open it itself: the editor runs on the remote
+// host, over the SSH connection the TUI owns, and the browser knows nothing about
+// either.
+type OpenFileMsg struct {
+	Path string // absolute remote path
 	Name string
-	Err  error
 }
 
 // Browser is a remote directory browser the TUI drives by forwarding key
@@ -68,8 +70,8 @@ type Browser struct {
 	downloadDir string
 	w, h        int
 
-	// tmpDir is the scratch directory files opened with enter or "e" are fetched
-	// into, created on first use. Empty until then.
+	// tmpDir is the scratch directory files opened with "o" are fetched into,
+	// created on first use. Empty until then.
 	tmpDir string
 
 	// pendingG is set after a lone "g", so the next "g" completes the vim "gg"
@@ -122,9 +124,12 @@ func (b *Browser) load(dir string) {
 }
 
 // Handle applies a key message: motions, directory entry, parent, refresh, and
-// the three file actions (open, edit, download). All SFTP work runs
-// synchronously; the returned tea.Cmd is non-nil only for "e", which suspends
-// the TUI while the editor owns the terminal.
+// the three file actions — enter (edit remotely), "o" (open a local copy in the
+// desktop's default app) and "d" (download). All SFTP work runs synchronously.
+//
+// The returned tea.Cmd is non-nil only for enter on a file, which yields an
+// OpenFileMsg: opening an editor needs the SSH connection, which belongs to the
+// model, not here.
 //
 // No key here leaves the browser: dismissal is the enclosing model's business
 // (ctrl+o or a double esc). "left", "backspace" and "h" are all strict "up a
@@ -205,9 +210,9 @@ func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// activate enters the directory under the cursor, or fetches the file under it
-// and opens it in the terminal editor. The returned command suspends the TUI for
-// as long as the editor owns the terminal.
+// activate enters the directory under the cursor, or asks the model to open the
+// file under it in an editor pane. Nothing is downloaded: the editor runs on the
+// remote host, against the real file.
 func (b *Browser) activate() tea.Cmd {
 	e, ok := b.selected()
 	if !ok {
@@ -218,14 +223,8 @@ func (b *Browser) activate() tea.Cmd {
 		return nil
 	}
 
-	local, err := b.fetch(e)
-	if err != nil {
-		b.fail(err)
-		return nil
-	}
-	return tea.ExecProcess(editorCmd(local), func(err error) tea.Msg {
-		return EditFinishedMsg{Name: e.Name, Err: err}
-	})
+	msg := OpenFileMsg{Path: path.Join(b.cwd, e.Name), Name: e.Name}
+	return func() tea.Msg { return msg }
 }
 
 // openInApp fetches the file under the cursor and hands the local copy to the
@@ -254,17 +253,8 @@ func (b *Browser) openInApp() {
 	b.ok("opened " + e.Name)
 }
 
-// EditFinished records the outcome of the editor launched by edit.
-func (b *Browser) EditFinished(msg EditFinishedMsg) {
-	if msg.Err != nil {
-		b.fail(fmt.Errorf("edit %s: %w", msg.Name, msg.Err))
-		return
-	}
-	b.ok("edited " + msg.Name)
-}
-
 // download copies the file under the cursor into downloadDir, where — unlike the
-// scratch copies enter and "e" make — it is meant to be kept.
+// scratch copy "o" makes — it is meant to be kept.
 func (b *Browser) download() {
 	e, ok := b.selected()
 	if !ok || e.IsDir {
@@ -301,9 +291,9 @@ func (b *Browser) fetch(e sftpx.Entry) (string, error) {
 }
 
 // scratch returns the browser's temp directory, creating it on first use. Files
-// opened for viewing or editing land here instead of downloadDir so that reading
-// a remote file leaves no clutter behind. It is deliberately never removed: an
-// editor or viewer may still hold a file open long after the browser is closed,
+// handed to the desktop's default app land here instead of downloadDir, so merely
+// looking at a remote file leaves no clutter behind. It is deliberately never
+// removed: the app may still hold the file open long after the browser is closed,
 // so cleanup is left to the OS.
 func (b *Browser) scratch() (string, error) {
 	if b.tmpDir != "" {
@@ -341,43 +331,6 @@ var openCmd = func(p string) *exec.Cmd {
 	default:
 		return exec.Command("xdg-open", p)
 	}
-}
-
-// terminalEditors are probed on PATH, in order, when neither $VISUAL nor $EDITOR
-// says what to use. All of them draw inside the terminal hop hands them, which is
-// the whole point: enter must not throw a window at you.
-var terminalEditors = []string{"nvim", "vim", "vi", "nano", "micro", "helix", "hx"}
-
-// editorCmd builds the editor command for p: $VISUAL, else $EDITOR, else the
-// first terminal editor found on PATH. The env vars may carry flags ("nvim -R"),
-// so they are split rather than used as a bare program name.
-//
-// The last resort is notepad on Windows and vi elsewhere — neither is probed for,
-// because if nothing above matched there is nothing better left to try.
-var editorCmd = func(p string) *exec.Cmd {
-	ed := os.Getenv("VISUAL")
-	if ed == "" {
-		ed = os.Getenv("EDITOR")
-	}
-	if ed == "" {
-		ed = lookEditor()
-	}
-	fields := strings.Fields(ed)
-	return exec.Command(fields[0], append(fields[1:], p)...)
-}
-
-// lookEditor returns the first terminalEditors entry that exists on PATH, or a
-// platform default when none does.
-func lookEditor() string {
-	for _, ed := range terminalEditors {
-		if _, err := exec.LookPath(ed); err == nil {
-			return ed
-		}
-	}
-	if runtime.GOOS == "windows" {
-		return "notepad"
-	}
-	return "vi"
 }
 
 // windowRows is the number of entry rows actually filled on screen, which is

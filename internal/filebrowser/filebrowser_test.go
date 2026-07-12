@@ -183,54 +183,48 @@ func fileTestBrowser(t *testing.T) (*Browser, *fakeClient, string, string) {
 	}, fc, tmp, dl
 }
 
-// stubExec swaps the two launchers for commands that start and exit immediately
-// (the test binary itself, told to run no tests), recording the path each was
-// handed. It restores the originals when the test ends.
-func stubExec(t *testing.T) (opened, edited *string) {
+// stubOpen swaps the default-app launcher for a command that starts and exits
+// immediately (the test binary itself, told to run no tests), recording the path
+// it was handed. It restores the original when the test ends.
+func stubOpen(t *testing.T) *string {
 	t.Helper()
-	var o, e string
-	origOpen, origEditor := openCmd, editorCmd
-	openCmd = func(p string) *exec.Cmd { o = p; return exec.Command(os.Args[0], "-test.run=^$") }
-	editorCmd = func(p string) *exec.Cmd { e = p; return exec.Command(os.Args[0], "-test.run=^$") }
-	t.Cleanup(func() { openCmd, editorCmd = origOpen, origEditor })
-	return &o, &e
+	var opened string
+	orig := openCmd
+	openCmd = func(p string) *exec.Cmd { opened = p; return exec.Command(os.Args[0], "-test.run=^$") }
+	t.Cleanup(func() { openCmd = orig })
+	return &opened
 }
 
-// Enter on a file fetches it into the scratch dir — not the download dir — and
-// returns a command, because the terminal editor takes over the terminal.
-func TestEnterEditsFile(t *testing.T) {
+// Enter on a file asks the model to open it, and touches no local disk at all:
+// the editor runs on the remote host, against the real file.
+func TestEnterAsksToOpenFile(t *testing.T) {
 	b, fc, tmp, dl := fileTestBrowser(t)
-	_, edited := stubExec(t)
 
 	b.cursor = 1 // a.txt
-	if cmd := b.Handle(key(t, "enter")); cmd == nil {
-		t.Fatal("enter returned no tea.Cmd; the editor needs the terminal to itself")
+	cmd := b.Handle(key(t, "enter"))
+	if cmd == nil {
+		t.Fatal("enter returned no tea.Cmd, want an OpenFileMsg for the model")
 	}
-
-	want := filepath.Join(tmp, "a.txt")
-	if len(fc.downloads) != 1 {
-		t.Fatalf("downloads = %v, want exactly one", fc.downloads)
+	msg, ok := cmd().(OpenFileMsg)
+	if !ok {
+		t.Fatalf("enter produced %T, want OpenFileMsg", cmd())
 	}
-	if got := fc.downloads[0]; got[0] != "/home/u/a.txt" || got[1] != want {
-		t.Fatalf("download = %v, want {/home/u/a.txt %s}", got, want)
+	if msg.Path != "/home/u/a.txt" || msg.Name != "a.txt" {
+		t.Fatalf("OpenFileMsg = %+v, want {/home/u/a.txt a.txt}", msg)
 	}
-	if *edited != want {
-		t.Fatalf("edited %q, want %q", *edited, want)
+	if len(fc.downloads) != 0 {
+		t.Fatalf("enter downloaded %v, want nothing fetched", fc.downloads)
 	}
-	if entries, _ := os.ReadDir(dl); len(entries) != 0 {
-		t.Fatalf("download dir is not empty: %v", entries)
-	}
-
-	b.EditFinished(EditFinishedMsg{Name: "a.txt"})
-	if b.statusErr || b.status != "edited a.txt" {
-		t.Fatalf("status = %q (err=%v), want %q", b.status, b.statusErr, "edited a.txt")
+	for _, dir := range []string{tmp, dl} {
+		if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+			t.Fatalf("%s is not empty: %v", dir, entries)
+		}
 	}
 }
 
-// Enter on a directory still navigates into it, and starts nothing.
+// Enter on a directory still navigates into it, and asks for nothing.
 func TestEnterOnDirNavigates(t *testing.T) {
 	b, fc, _, _ := fileTestBrowser(t)
-	_, edited := stubExec(t)
 
 	b.cursor = 0 // sub/
 	if cmd := b.Handle(key(t, "enter")); cmd != nil {
@@ -240,27 +234,37 @@ func TestEnterOnDirNavigates(t *testing.T) {
 	if b.cwd != "/home/u/sub" {
 		t.Fatalf("cwd = %q, want %q", b.cwd, "/home/u/sub")
 	}
-	if len(fc.downloads) != 0 || *edited != "" {
-		t.Fatalf("entering a directory fetched %v / edited %q", fc.downloads, *edited)
+	if len(fc.downloads) != 0 {
+		t.Fatalf("entering a directory fetched %v", fc.downloads)
 	}
 }
 
-// "o" hands the scratch copy to the OS default app without suspending the TUI.
-// On a directory it does nothing at all.
+// "o" fetches into the scratch dir — not the download dir — and hands that copy
+// to the OS default app. On a directory it does nothing at all.
 func TestOpenInAppKey(t *testing.T) {
-	b, fc, tmp, _ := fileTestBrowser(t)
-	opened, _ := stubExec(t)
+	b, fc, tmp, dl := fileTestBrowser(t)
+	opened := stubOpen(t)
 
 	b.cursor = 1 // a.txt
 	if cmd := b.Handle(key(t, "o")); cmd != nil {
 		t.Fatal("o returned a tea.Cmd; the default-app launch must not suspend the TUI")
 	}
+
 	want := filepath.Join(tmp, "a.txt")
+	if len(fc.downloads) != 1 {
+		t.Fatalf("downloads = %v, want exactly one", fc.downloads)
+	}
+	if got := fc.downloads[0]; got[0] != "/home/u/a.txt" || got[1] != want {
+		t.Fatalf("download = %v, want {/home/u/a.txt %s}", got, want)
+	}
 	if *opened != want {
 		t.Fatalf("opened %q, want %q", *opened, want)
 	}
 	if b.statusErr || b.status != "opened a.txt" {
 		t.Fatalf("status = %q (err=%v), want %q", b.status, b.statusErr, "opened a.txt")
+	}
+	if entries, _ := os.ReadDir(dl); len(entries) != 0 {
+		t.Fatalf("download dir is not empty: %v", entries)
 	}
 
 	b.cursor = 0 // sub/
@@ -273,7 +277,7 @@ func TestOpenInAppKey(t *testing.T) {
 // "d" is the only key that writes to the download dir, and it launches nothing.
 func TestDownloadKey(t *testing.T) {
 	b, fc, _, dl := fileTestBrowser(t)
-	opened, edited := stubExec(t)
+	opened := stubOpen(t)
 
 	b.cursor = 1 // a.txt
 	b.Handle(key(t, "d"))
@@ -282,28 +286,11 @@ func TestDownloadKey(t *testing.T) {
 	if len(fc.downloads) != 1 || fc.downloads[0][1] != want {
 		t.Fatalf("downloads = %v, want a single one to %s", fc.downloads, want)
 	}
-	if *opened != "" || *edited != "" {
-		t.Fatalf("download launched something: opened=%q edited=%q", *opened, *edited)
+	if *opened != "" {
+		t.Fatalf("download launched the default app on %q", *opened)
 	}
 	if b.statusErr || !strings.HasPrefix(b.status, "downloaded a.txt") {
 		t.Fatalf("status = %q (err=%v), want a downloaded... message", b.status, b.statusErr)
-	}
-}
-
-// With no $EDITOR set, the fallback must be a terminal editor whenever one exists
-// on PATH — landing on a GUI (notepad) would defeat the point of editing in place.
-func TestLookEditorPrefersTerminalEditors(t *testing.T) {
-	var onPath []string
-	for _, ed := range terminalEditors {
-		if _, err := exec.LookPath(ed); err == nil {
-			onPath = append(onPath, ed)
-		}
-	}
-	if len(onPath) == 0 {
-		t.Skip("no terminal editor on PATH")
-	}
-	if got := lookEditor(); got != onPath[0] {
-		t.Fatalf("lookEditor() = %q, want the highest-priority one on PATH, %q", got, onPath[0])
 	}
 }
 

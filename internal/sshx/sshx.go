@@ -136,6 +136,20 @@ func ConnectAddr(addr string, cfg *ssh.ClientConfig) (*Client, error) {
 
 // Shell opens an interactive login shell with a pty of the given size.
 func (c *Client) Shell(cols, rows int) (*Session, error) {
+	return c.startPTY(cols, rows, func(s *ssh.Session) error { return s.Shell() })
+}
+
+// Command runs cmd on a pty of the given size, exactly as Shell does for a login
+// shell. A pty is what makes it usable for full-screen programs — an editor needs
+// one to draw at all, and needs its size to lay out.
+func (c *Client) Command(cmd string, cols, rows int) (*Session, error) {
+	return c.startPTY(cols, rows, func(s *ssh.Session) error { return s.Start(cmd) })
+}
+
+// startPTY opens a session, requests a pty, wires the three std streams (stdout
+// and stderr merged into one ordered stream), and hands the prepared session to
+// start — which either opens a shell or launches a command on it.
+func (c *Client) startPTY(cols, rows int, start func(*ssh.Session) error) (*Session, error) {
 	sess, err := c.ssh.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("sshx: new session: %w", err)
@@ -185,10 +199,10 @@ func (c *Client) Shell(cols, rows int) (*Session, error) {
 		pw.Close()
 	}()
 
-	if err := sess.Shell(); err != nil {
+	if err := start(sess); err != nil {
 		sess.Close()
 		pw.Close()
-		return nil, fmt.Errorf("sshx: start shell: %w", err)
+		return nil, fmt.Errorf("sshx: start: %w", err)
 	}
 
 	return &Session{

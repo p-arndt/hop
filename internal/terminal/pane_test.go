@@ -3,6 +3,7 @@ package terminal
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/binary"
 	"io"
 	"net"
 	"strings"
@@ -86,7 +87,10 @@ func serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
 	}
 }
 
-// handleSession accepts pty-req and shell, then writes a banner and echoes input.
+// handleSession accepts pty-req plus shell and exec, then writes a banner and
+// echoes input. exec echoes the command line it was given, which is how the
+// editor path is checked: what hop asks the remote host to run is visible in the
+// pane it renders.
 func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
 	for req := range reqs {
 		switch req.Type {
@@ -98,25 +102,45 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
 			if req.WantReply {
 				req.Reply(true, nil)
 			}
-			// Banner, then echo loop.
-			go func() {
-				io.WriteString(ch, "HOPTEST-READY\r\n")
-				buf := make([]byte, 1024)
-				for {
-					n, err := ch.Read(buf)
-					if n > 0 {
-						ch.Write(buf[:n])
-					}
-					if err != nil {
-						ch.Close()
-						return
-					}
-				}
-			}()
+			go banneredEcho(ch, "HOPTEST-READY")
+		case "exec":
+			if req.WantReply {
+				req.Reply(true, nil)
+			}
+			go banneredEcho(ch, "HOPEXEC:"+execPayload(req.Payload))
 		default:
 			if req.WantReply {
 				req.Reply(false, nil)
 			}
+		}
+	}
+}
+
+// execPayload extracts the command string from an exec request: RFC 4254 encodes
+// it as a uint32 length followed by the bytes.
+func execPayload(p []byte) string {
+	if len(p) < 4 {
+		return ""
+	}
+	n := binary.BigEndian.Uint32(p[:4])
+	if int(n) > len(p)-4 {
+		return ""
+	}
+	return string(p[4 : 4+n])
+}
+
+// banneredEcho writes banner, then echoes everything it receives back.
+func banneredEcho(ch ssh.Channel, banner string) {
+	io.WriteString(ch, banner+"\r\n")
+	buf := make([]byte, 1024)
+	for {
+		n, err := ch.Read(buf)
+		if n > 0 {
+			ch.Write(buf[:n])
+		}
+		if err != nil {
+			ch.Close()
+			return
 		}
 	}
 }
@@ -172,5 +196,48 @@ func TestEmbeddedRoundTrip(t *testing.T) {
 
 	if !waitForView(term, "Z", 3*time.Second) {
 		t.Fatalf("echoed keystroke 'Z' never appeared in emulator; view:\n%s", term.View())
+	}
+}
+
+// TestCommandPaneRoundTrip is the editor-pane chain: sshx.Command runs a program
+// on a remote pty and terminal.Pane renders it, exactly as a shell pane does. The
+// editor tabs in the TUI are nothing more than this, with "vi <file>" as the
+// command — so if this holds, an editor can draw inside hop.
+func TestCommandPaneRoundTrip(t *testing.T) {
+	hostKey := newSigner(t)
+	clientKey := newSigner(t)
+
+	addr := startTestServer(t, hostKey)
+
+	cfg := &ssh.ClientConfig{
+		User:            "tester",
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(clientKey)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
+	}
+
+	cli, err := sshx.ConnectAddr(addr, cfg)
+	if err != nil {
+		t.Fatalf("ConnectAddr: %v", err)
+	}
+	defer cli.Close()
+
+	sess, err := cli.Command("vi /etc/hosts", 80, 24)
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+
+	term := New(sess, 80, 24, nil)
+	defer term.Close()
+
+	// The server echoes back the command line it was asked to exec.
+	if !waitForView(term, "HOPEXEC:vi /etc/hosts", 3*time.Second) {
+		t.Fatalf("exec'd command never surfaced in emulator; view:\n%s", term.View())
+	}
+
+	// The pane drives it like any other: keys go to the running program.
+	term.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	if !waitForView(term, "i", 3*time.Second) {
+		t.Fatalf("keystroke never reached the exec'd program; view:\n%s", term.View())
 	}
 }
