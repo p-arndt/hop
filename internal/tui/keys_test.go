@@ -113,18 +113,24 @@ func TestNavVimMotionsOffByDefault(t *testing.T) {
 		})
 	}
 
-	// "gg" is two keys, and the first must not arm anything that a later "g" could
-	// complete once the setting is turned back on.
+	// "gg" is two keys, and with the setting off the first must not quietly arm a
+	// chord that a later "g" completes — least of all after the setting is switched
+	// back on, which would make turning it on jump the cursor by itself.
 	m := newNavModel(30)
 	m.cfg.VimKeys = false
 	m.cursor = 5
+
 	m.handleKey(key(t, "g"))
-	if m.pendingG {
-		t.Fatal("g armed a pending gg with vim keys off")
-	}
 	m.handleKey(key(t, "g"))
 	if m.cursor != 5 {
 		t.Fatalf("gg jumped to %d with vim keys off", m.cursor)
+	}
+
+	m.handleKey(key(t, "g"))
+	m.cfg.VimKeys = true
+	m.handleKey(key(t, "g"))
+	if m.cursor != 5 {
+		t.Fatalf("a g typed while off was completed by the first g typed after on: cursor = %d", m.cursor)
 	}
 }
 
@@ -342,16 +348,24 @@ func newBrowseModel() *model {
 	return &model{active: "web1", browsing: true, sessions: map[string]*session{}, height: 20}
 }
 
-// A "g" typed into the filter is literal text, not the start of a "gg" motion.
+// A "g" typed into the filter is literal text, not the start of a "gg" motion — so
+// it must not leave a chord armed for the next "g" to complete once the filter is
+// applied and the list has the keyboard back.
 func TestFilterSwallowsG(t *testing.T) {
 	m := newNavModel(30)
 	m.filtering = true
-	m.handleKey(key(t, "g"))
+	m.cursor = 5
 
+	m.handleKey(key(t, "g"))
 	if m.filter != "g" {
 		t.Fatalf("filter = %q, want %q", m.filter, "g")
 	}
-	if m.pendingG {
-		t.Fatal("pendingG set while filtering, want false")
+
+	m.handleKey(key(t, "enter")) // apply the filter, back to the list
+	m.cursor = 5                 // applyFilter may have clamped it
+	m.handleKey(key(t, "g"))
+
+	if m.cursor != 5 {
+		t.Fatalf("cursor = %d; the g typed into the filter armed a gg the list completed", m.cursor)
 	}
 }

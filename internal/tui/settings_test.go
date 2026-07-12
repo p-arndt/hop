@@ -219,13 +219,57 @@ func TestSettingsSwallowsKeys(t *testing.T) {
 	m.filtered = []int{0, 1, 2}
 	m.cursor = 1
 
-	m.handleKey(key(t, "j")) // would move the host cursor if it leaked through
+	m.handleKey(key(t, "down")) // would move the host cursor if it leaked through
 
 	if m.cursor != 1 {
 		t.Fatalf("host cursor moved to %d; the popover must swallow the key", m.cursor)
 	}
 	if m.settings.cursor != 1 {
-		t.Fatalf("settings cursor = %d, want j to have moved it to 1", m.settings.cursor)
+		t.Fatalf("settings cursor = %d, want down to have moved it to 1", m.settings.cursor)
+	}
+}
+
+// The popover honours the vim setting like everything else: a card that still
+// answered to hjkl while holding the switch that says the vim keys are off would be
+// lying about its own state. Turning them off from this card cannot strand you — the
+// arrows and enter are never gated, and they are what the hint line names.
+func TestSettingsHonoursVimSetting(t *testing.T) {
+	m := settingsModel(t)
+
+	m.handleKey(key(t, "j"))
+	if m.settings.cursor != 0 {
+		t.Fatalf("settings cursor = %d; with the vim keys off, j must not move it", m.settings.cursor)
+	}
+
+	m.cfg.VimKeys = true
+	m.handleKey(key(t, "j"))
+	if m.settings.cursor != 1 {
+		t.Fatalf("settings cursor = %d; with the vim keys on, j must move it", m.settings.cursor)
+	}
+
+	// And the arrows work regardless, which is what makes turning the keys off from
+	// in here a decision rather than a trap.
+	m.cfg.VimKeys = false
+	m.handleKey(key(t, "down"))
+	if m.settings.cursor != 2 {
+		t.Fatalf("settings cursor = %d, want the arrow to move it to 2 with vim off", m.settings.cursor)
+	}
+}
+
+// The gate sits below text entry: while a field has the keyboard, "h" is a letter of
+// the value being typed, not a motion the vim setting gets to veto.
+func TestSettingsTypingIsNotGated(t *testing.T) {
+	m := settingsModel(t)
+	m.settings.cursor = fieldIndex(t, "Editor")
+
+	m.handleKey(key(t, "enter")) // open the buffer
+	for _, r := range "helix" {
+		m.handleKey(key(t, string(r)))
+	}
+	m.handleKey(key(t, "enter")) // commit
+
+	if m.cfg.Editor != "helix" {
+		t.Fatalf("cfg.Editor = %q, want helix — the vim gate ate letters out of a typed value", m.cfg.Editor)
 	}
 }
 

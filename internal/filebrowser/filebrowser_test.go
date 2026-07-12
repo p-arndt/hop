@@ -149,11 +149,24 @@ func TestVimMotionsOffByDefault(t *testing.T) {
 			if b.cursor != 5 {
 				t.Fatalf("%q moved the cursor to %d; with vim keys off it must do nothing", k, b.cursor)
 			}
-			if b.pendingG {
-				t.Fatalf("%q armed a pending gg with vim keys off", k)
-			}
 		})
 	}
+
+	// The "gg" chord must not be armed while the setting is off, or turning it on
+	// would complete a motion the user began before they had the keys.
+	t.Run("gg is not armed while off", func(t *testing.T) {
+		b, _ := newTestBrowser(30)
+		b.opts.VimKeys = false
+		b.cursor = 5
+
+		b.Handle(key(t, "g"))
+		b.opts.VimKeys = true
+		b.Handle(key(t, "g"))
+
+		if b.cursor != 5 {
+			t.Fatalf("cursor = %d; a g typed while off was completed by the first g typed after on", b.cursor)
+		}
+	})
 
 	t.Run("h does not leave the directory", func(t *testing.T) {
 		b, _ := newTestBrowser(3)

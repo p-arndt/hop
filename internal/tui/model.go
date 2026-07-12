@@ -10,6 +10,7 @@ import (
 
 	"hop/internal/config"
 	"hop/internal/filebrowser"
+	"hop/internal/keymap"
 	"hop/internal/store"
 )
 
@@ -37,9 +38,9 @@ type model struct {
 
 	cursor int
 
-	// pendingG is set after a lone "g", so the next "g" completes the vim "gg"
-	// motion. Any other key clears it.
-	pendingG bool
+	// keys resolves the list's motion keys (and holds a half-typed "gg"). What the
+	// motions then do to the cursor is model.move.
+	keys keymap.Reader
 
 	// lastEsc is when the most recent esc was forwarded to the focused pane.
 	// A second esc within doubleEscWindow leaves the pane. Zero means no esc is

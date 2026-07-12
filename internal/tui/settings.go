@@ -8,6 +8,7 @@ import (
 
 	"hop/internal/config"
 	"hop/internal/filebrowser"
+	"hop/internal/keymap"
 )
 
 // swatch is one colour on the accent picker: a name to say what it is, and the
@@ -36,37 +37,53 @@ var accentSwatches = []swatch{
 	{"gray", "247"},
 }
 
+// fieldKind is how a setting is edited, and so how its row is drawn. It is the one
+// thing the popover switches on: adding a kind means teaching adjust how to walk it
+// and renderSettingsValue how to draw it, and nothing else.
+type fieldKind int
+
+const (
+	// fieldText is a value you type: enter opens a buffer on it.
+	fieldText fieldKind = iota
+	// fieldColor is a value you type *or* walk: ←/→ step through the palette, which
+	// is how a colour is really chosen, and enter still opens the buffer for a
+	// 256-code or a #hex that is not on it.
+	fieldColor
+	// fieldToggle is a switch: ←/→ or enter flips it, and there is nothing to type,
+	// because neither of the two values is worth spelling out.
+	fieldToggle
+)
+
 // settingsField is one editable row of the popover. Each field is described by
 // how to read and write it, so the list below is the single place a new setting
 // has to be added.
 type settingsField struct {
 	label string
+	kind  fieldKind
 	// placeholder stands in for an empty value: it says what hop does when the
 	// field is left blank, which for most of them is "work it out".
 	placeholder string
 	// desc is the one-line explanation shown under the selected field. It is why
 	// the popover can stay this sparse — the detail appears only where you are.
 	desc string
-	// swatches, when set, makes this a colour field: ←/→ walk the palette and the
-	// row renders as swatches rather than as text. Typing a value still works, for
-	// a code or a #hex that is not in the palette.
+	// swatches is the palette a fieldColor walks. Unused by the other kinds.
 	swatches []swatch
-	// toggle, when set, makes this an on/off field: ←/→ and enter flip it, and the
-	// row renders as its two states. It never enters text entry — there are only
-	// two values, and neither of them is worth typing.
-	toggle bool
-	get    func(config.Config) string
-	set    func(*config.Config, string)
+	// get and set are string-valued for every kind, so that typing, resetting and
+	// persisting are one code path rather than one per type. A kind whose config
+	// field is not a string (a switch is a bool) converts here, at the boundary,
+	// and nowhere else.
+	get func(config.Config) string
+	set func(*config.Config, string)
 }
 
-// on and off are how a toggle field's value crosses the get/set string boundary the
-// field table is built on. The config itself stores a bool.
+// on and off are a switch's two values, as the string get/set deal in. The config
+// stores a real bool — this is only how it crosses the table.
 const (
 	on  = "on"
 	off = "off"
 )
 
-// onOff renders a bool as the value a toggle field reads and writes.
+// onOff renders a bool as the value a switch reads and writes.
 func onOff(b bool) string {
 	if b {
 		return on
@@ -77,6 +94,7 @@ func onOff(b bool) string {
 var settingsFields = []settingsField{
 	{
 		label:       "Editor",
+		kind:        fieldText,
 		placeholder: "auto-detect",
 		desc:        "Command run on the remote host by enter. Blank: $EDITOR, else nvim/vim/vi/nano.",
 		get:         func(c config.Config) string { return c.Editor },
@@ -84,6 +102,7 @@ var settingsFields = []settingsField{
 	},
 	{
 		label:       "Download dir",
+		kind:        fieldText,
 		placeholder: "~/Downloads",
 		desc:        "Where the browser's d puts a file. Created on the next download if missing.",
 		get:         func(c config.Config) string { return c.DownloadDir },
@@ -91,6 +110,7 @@ var settingsFields = []settingsField{
 	},
 	{
 		label:       "Accent color",
+		kind:        fieldColor,
 		placeholder: config.DefaultAccent,
 		desc:        "←/→ to pick a color — it applies as you go. enter to type a 256-code or #hex.",
 		swatches:    accentSwatches,
@@ -99,17 +119,18 @@ var settingsFields = []settingsField{
 	},
 	{
 		label:       "Open with",
+		kind:        fieldText,
 		placeholder: "OS default app",
 		desc:        "Local command the browser's o opens a file with, e.g. code -n.",
 		get:         func(c config.Config) string { return c.OpenWith },
 		set:         func(c *config.Config, v string) { c.OpenWith = v },
 	},
 	{
-		label:  "Vim keys",
-		desc:   "hjkl, gg/G, H/M/L and ctrl+d/u/f/b in the list and the browser. Off: arrows, enter, esc.",
-		toggle: true,
-		get:    func(c config.Config) string { return onOff(c.VimKeys) },
-		set:    func(c *config.Config, v string) { c.VimKeys = v == on },
+		label: "Vim keys",
+		kind:  fieldToggle,
+		desc:  "hjkl, gg/G, H/M/L and ctrl+d/u/f/b in the list and the browser. Off: arrows, enter, esc.",
+		get:   func(c config.Config) string { return onOff(c.VimKeys) },
+		set:   func(c *config.Config, v string) { c.VimKeys = v == on },
 	},
 }
 
@@ -136,10 +157,11 @@ func (m *model) closeSettings() {
 // handleSettingsKey routes a key while the popover is up. It swallows everything:
 // a modal that let keys through to the list behind it would be a trap.
 //
-// The popover keeps its own hjkl bound whatever the "Vim keys" setting says — that
-// setting's own switch is one of the rows here, and a control that takes away the
-// keys you are steering it with, as you use them, is the trap the setting exists to
-// avoid. Nothing else is bound to those letters here, so there is nothing to shadow.
+// The vim motions are gated here exactly as they are everywhere else: a card that
+// still answered to hjkl while claiming the vim keys are off would be lying about
+// the setting it is holding. Turning them off from this very card cannot strand you
+// — ↑↓ and ←→ and enter drive every row and are never gated, which is what the hint
+// line at the foot of the card has been naming all along.
 func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	f := settingsFields[m.settings.cursor]
 	key := msg.String()
@@ -170,6 +192,13 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Below text entry, not above it: while a field has the keyboard, "h" is a
+	// letter of the value being typed, and dropping it there would make the vim
+	// setting decide what you are allowed to name your editor.
+	if !m.cfg.VimKeys && keymap.Vim(key) {
+		return m, nil
+	}
+
 	switch key {
 	case "esc", "q", ",", "ctrl+o":
 		m.closeSettings()
@@ -183,22 +212,17 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.clampSettings()
 
 	case "left", "h":
-		if f.toggle {
-			m.flip(f)
-			return m, nil
-		}
-		m.cycleSwatch(f, -1)
+		m.adjust(f, -1)
 
 	case "right", "l":
-		if f.toggle {
-			m.flip(f)
-			return m, nil
-		}
-		m.cycleSwatch(f, 1)
+		m.adjust(f, 1)
 
 	case "enter", "i":
-		if f.toggle {
-			m.flip(f)
+		if f.kind == fieldToggle {
+			// There is nothing to type on a switch, so the key that would open the
+			// buffer flips it instead — the obvious thing to happen when you press
+			// enter on something that has two states.
+			m.adjust(f, 1)
 			return m, nil
 		}
 		m.settings.editing = true
@@ -206,44 +230,54 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "r":
 		// Reset this field to its default — the way back out of a bad value.
-		f.set(&m.cfg, f.get(config.Default()))
-		m.applySettings()
-		m.saveSettings()
+		m.commit(f, f.get(config.Default()))
 	}
 	return m, nil
 }
 
-// cycleSwatch walks a colour field's palette by delta, wrapping around, and
-// applies the colour as it goes: you judge a colour by seeing it, so there is
-// nothing to confirm. A value not in the palette (a typed code) starts the walk
-// from the beginning. On a text field this does nothing.
-func (m *model) cycleSwatch(f settingsField, delta int) {
-	n := len(f.swatches)
+// adjust walks a field's value by delta: the next colour along the palette, or the
+// other side of a switch. A field you can only type into has nothing to walk, so
+// ←/→ leave it alone.
+//
+// It applies as it goes, with nothing to confirm — a colour is judged by seeing it
+// and a binding by living with it for a keystroke, and the same key walks back.
+func (m *model) adjust(f settingsField, delta int) {
+	switch f.kind {
+	case fieldColor:
+		m.commit(f, nextSwatch(f.swatches, f.get(m.cfg), delta))
+	case fieldToggle:
+		m.commit(f, onOff(f.get(m.cfg) != on))
+	}
+}
+
+// commit writes a value to the config, applies it to everything already running and
+// saves it. Every way of changing a setting — typing one, walking one, resetting one
+// — ends here, so none of them can be the one that forgets to persist.
+func (m *model) commit(f settingsField, v string) {
+	f.set(&m.cfg, v)
+	m.applySettings()
+	m.saveSettings()
+}
+
+// nextSwatch is the colour delta steps along the palette from current, wrapping at
+// both ends. A colour that is not on the palette (a typed code) starts the walk from
+// the beginning, since there is nowhere on it to walk from.
+func nextSwatch(palette []swatch, current string, delta int) string {
+	n := len(palette)
 	if n == 0 {
-		return
+		return current
 	}
 
 	i := 0
-	for j, s := range f.swatches {
-		if s.code == f.get(m.cfg) {
+	for j, s := range palette {
+		if s.code == current {
 			i = j
 			break
 		}
 	}
 
 	i = ((i+delta)%n + n) % n
-	f.set(&m.cfg, f.swatches[i].code)
-	m.applySettings()
-	m.saveSettings()
-}
-
-// flip turns an on/off field over and applies it at once. Like a colour, a binding
-// is judged by living with it for a keystroke — so there is nothing to confirm, and
-// the same key flips it back.
-func (m *model) flip(f settingsField) {
-	f.set(&m.cfg, onOff(f.get(m.cfg) != on))
-	m.applySettings()
-	m.saveSettings()
+	return palette[i].code
 }
 
 // clampSettings wraps the cursor around the field list.
@@ -345,12 +379,15 @@ func (m *model) renderSettings() string {
 	switch {
 	case m.settings.editing:
 		b.WriteString(settingsHint("enter", "save", "esc", "cancel", "ctrl+u", "clear"))
-	case settingsFields[m.settings.cursor].toggle:
-		b.WriteString(settingsHint("↑↓", "move", "←→ enter", "toggle", "r", "reset", "esc", "close"))
-	case len(settingsFields[m.settings.cursor].swatches) > 0:
-		b.WriteString(settingsHint("↑↓", "move", "←→", "color", "enter", "custom", "esc", "close"))
 	default:
-		b.WriteString(settingsHint("↑↓", "move", "enter", "edit", "r", "reset", "esc", "close"))
+		switch settingsFields[m.settings.cursor].kind {
+		case fieldToggle:
+			b.WriteString(settingsHint("↑↓", "move", "←→ enter", "toggle", "r", "reset", "esc", "close"))
+		case fieldColor:
+			b.WriteString(settingsHint("↑↓", "move", "←→", "color", "enter", "custom", "esc", "close"))
+		default:
+			b.WriteString(settingsHint("↑↓", "move", "enter", "edit", "r", "reset", "esc", "close"))
+		}
 	}
 
 	return cardBox.Width(w + 2*cardPadX).Render(b.String())
@@ -370,10 +407,10 @@ func (m *model) renderSettingsValue(f settingsField, selected bool, w int) strin
 		text := truncate(m.settings.buf, vw-3) + accentText.Render("▏")
 		return indent + inputStyle.Width(vw).Render(text)
 	}
-	if f.toggle {
+	switch f.kind {
+	case fieldToggle:
 		return indent + m.renderToggle(f, selected, vw)
-	}
-	if len(f.swatches) > 0 {
+	case fieldColor:
 		return indent + m.renderSwatches(f, selected, vw)
 	}
 

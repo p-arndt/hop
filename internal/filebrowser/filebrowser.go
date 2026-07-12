@@ -103,9 +103,9 @@ type Browser struct {
 	// created on first use. Empty until then.
 	tmpDir string
 
-	// pendingG is set after a lone "g", so the next "g" completes the vim "gg"
-	// motion. Any other key clears it.
-	pendingG bool
+	// keys resolves the listing's motion keys (and holds a half-typed "gg"). What
+	// the motions then do to the cursor is Browser.move.
+	keys keymap.Reader
 }
 
 // New builds a Browser starting in startDir (or the remote home when startDir
@@ -157,91 +157,34 @@ func (b *Browser) load(dir string) {
 	b.statusErr = false
 }
 
-// Handle applies a key message: motions, directory entry, parent, refresh, and
-// the three file actions — enter (edit remotely), "o" (open a local copy in the
+// Handle applies a key message: the motions (resolved through the shared keymap,
+// which is what decides whether the vim keys are live), then the browser's own
+// keyboard — refresh, and the two file actions "o" (open a local copy in the
 // desktop's default app) and "d" (download). All SFTP work runs synchronously.
 //
-// The returned tea.Cmd is non-nil only for enter on a file, which yields an
+// The returned tea.Cmd is non-nil only for entering a file, which yields an
 // OpenFileMsg: opening an editor needs the SSH connection, which belongs to the
 // model, not here.
 //
 // No key here leaves the browser: dismissal is the enclosing model's business
-// (ctrl+o or a double esc). "left", "backspace" and "h" are all strict "up a
-// directory", so bumping against the top is a no-op rather than a surprise exit.
+// (ctrl+o or a double esc). Out is a strict "up a directory", so bumping against
+// the top is a no-op rather than a surprise exit.
 func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 	key := msg.String()
 
-	// The vim motions are bound only when the setting says so. Off, they are dropped
-	// here: "h" is then not a way up a directory, and "d" is still the download it
-	// says it is on every row.
-	if !b.opts.VimKeys && keymap.Vim(key) {
-		b.pendingG = false
-		return nil
-	}
-
-	// Complete or abandon a pending "gg".
-	if b.pendingG {
-		b.pendingG = false
-		if key == "g" {
-			b.cursor = 0
-			b.scroll = 0
-			return nil
-		}
+	if mo := b.keys.Motion(key, b.opts.VimKeys); mo != keymap.None {
+		return b.move(mo)
 	}
 
 	switch key {
-	case "up", "k":
-		b.cursor--
-		b.clampScroll()
-
-	case "down", "j":
-		b.cursor++
-		b.clampScroll()
-
-	case "g":
-		b.pendingG = true
-
-	case "G":
-		b.cursor = len(b.entries) - 1
-		b.clampScroll()
-
-	case "ctrl+d":
-		b.cursor += b.halfPage()
-		b.clampScroll()
-
-	case "ctrl+u":
-		b.cursor -= b.halfPage()
-		b.clampScroll()
-
-	case "ctrl+f", "pgdown":
-		b.cursor += b.contentRows()
-		b.clampScroll()
-
-	case "ctrl+b", "pgup":
-		b.cursor -= b.contentRows()
-		b.clampScroll()
-
-	case "H":
-		b.cursor = b.scroll
-		b.clampScroll()
-
-	case "M":
-		b.cursor = b.scroll + b.windowRows()/2
-		b.clampScroll()
-
-	case "L":
-		b.cursor = b.scroll + b.windowRows() - 1
-		b.clampScroll()
+	case "backspace":
+		// Not a motion — nothing else in hop scrolls with it — but here it is the
+		// same "up a directory" the arrow is, because a file browser that ignored
+		// backspace would be the odd one out.
+		b.load(path.Dir(b.cwd))
 
 	case "r":
 		b.load(b.cwd)
-
-	case "left", "backspace", "h":
-		// path.Dir of "/" stays "/", so this is a no-op at the filesystem root.
-		b.load(path.Dir(b.cwd))
-
-	case "enter", "right", "l":
-		return b.activate()
 
 	case "o":
 		b.openInApp()
@@ -249,6 +192,47 @@ func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 	case "d":
 		b.download()
 	}
+	return nil
+}
+
+// move applies a motion to the listing. Unlike the host list, the browser scrolls,
+// so the screen-relative motions (H/M/L) land inside the visible window while Top
+// and Bottom address the directory.
+func (b *Browser) move(mo keymap.Motion) tea.Cmd {
+	switch mo {
+	case keymap.Up:
+		b.cursor--
+	case keymap.Down:
+		b.cursor++
+	case keymap.Top:
+		b.cursor = 0
+	case keymap.Bottom:
+		b.cursor = len(b.entries) - 1
+	case keymap.HalfDown:
+		b.cursor += b.halfPage()
+	case keymap.HalfUp:
+		b.cursor -= b.halfPage()
+	case keymap.PageDown:
+		b.cursor += b.contentRows()
+	case keymap.PageUp:
+		b.cursor -= b.contentRows()
+	case keymap.ScreenTop:
+		b.cursor = b.scroll
+	case keymap.ScreenMid:
+		b.cursor = b.scroll + b.windowRows()/2
+	case keymap.ScreenBot:
+		b.cursor = b.scroll + b.windowRows() - 1
+
+	case keymap.Out:
+		// path.Dir of "/" stays "/", so this is a no-op at the filesystem root.
+		b.load(path.Dir(b.cwd))
+		return nil
+
+	case keymap.In:
+		return b.activate()
+	}
+
+	b.clampScroll()
 	return nil
 }
 

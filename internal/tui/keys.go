@@ -42,66 +42,17 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// The vim motions below are bound only when the setting says so. Off, they are
-	// dropped here rather than being given some other meaning: the list still moves
-	// on the arrows, enter and esc, and a stray "l" does nothing at all.
-	if !m.cfg.VimKeys && keymap.Vim(key) {
-		m.pendingG = false
-		return m, nil
-	}
-
-	// Complete or abandon a pending "gg".
-	if m.pendingG {
-		m.pendingG = false
-		if key == "g" {
-			m.cursor = 0
-			return m, nil
-		}
+	// The motions first, resolved through the shared keymap — which is also what
+	// drops the vim keys when the setting is off, so this switch never learns they
+	// exist. What is left below is the list's own keyboard: the commands.
+	if mo := m.keys.Motion(key, m.cfg.VimKeys); mo != keymap.None {
+		return m.move(mo)
 	}
 
 	switch key {
 	case "q", "ctrl+c":
 		m.closeAll()
 		return m, tea.Quit
-
-	case "up", "k":
-		m.cursor--
-		m.clampCursor()
-
-	case "down", "j":
-		m.cursor++
-		m.clampCursor()
-
-	case "g":
-		m.pendingG = true
-
-	case "G", "L":
-		m.cursor = len(m.filtered) - 1
-		m.clampCursor()
-
-	case "H":
-		m.cursor = 0
-		m.clampCursor()
-
-	case "M":
-		m.cursor = len(m.filtered) / 2
-		m.clampCursor()
-
-	case "ctrl+d":
-		m.cursor += m.halfPage()
-		m.clampCursor()
-
-	case "ctrl+u":
-		m.cursor -= m.halfPage()
-		m.clampCursor()
-
-	case "ctrl+f", "pgdown":
-		m.cursor += m.listRows()
-		m.clampCursor()
-
-	case "ctrl+b", "pgup":
-		m.cursor -= m.listRows()
-		m.clampCursor()
 
 	case "/":
 		m.filtering = true
@@ -115,20 +66,10 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.help = true
 		m.clearStatus()
 
-	case "esc", "left", "h":
-		// Back: leave the details/active view, back to plain navigation.
-		m.active = ""
-		m.browsing = false
-		m.clearStatus()
-
-	case "enter", "right", "l":
-		// Forward: connect to the selected host, mirroring the browser's
-		// enter/right/l "descend into this thing".
-		h, ok := m.selectedHost()
-		if !ok {
-			return m, nil
-		}
-		return m, m.openShell(h, false)
+	case "esc":
+		// The one way back that is not a motion: esc is the browser's double-tap
+		// chord, so the keymap leaves it to the mode that owns it.
+		m.leaveDetails()
 
 	case "S":
 		// Another shell on the same host, alongside the ones already open.
@@ -176,6 +117,57 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// move applies a motion to the host list.
+//
+// The list does not scroll — every host is on screen — so the screen-relative
+// motions land on the same rows as the absolute ones. They are honoured anyway,
+// rather than dropped, so that H/M/L mean in the list what they mean in the browser
+// and a habit formed in one still works in the other.
+func (m *model) move(mo keymap.Motion) (tea.Model, tea.Cmd) {
+	switch mo {
+	case keymap.Up:
+		m.cursor--
+	case keymap.Down:
+		m.cursor++
+	case keymap.Top, keymap.ScreenTop:
+		m.cursor = 0
+	case keymap.Bottom, keymap.ScreenBot:
+		m.cursor = len(m.filtered) - 1
+	case keymap.ScreenMid:
+		m.cursor = len(m.filtered) / 2
+	case keymap.HalfDown:
+		m.cursor += m.halfPage()
+	case keymap.HalfUp:
+		m.cursor -= m.halfPage()
+	case keymap.PageDown:
+		m.cursor += m.listRows()
+	case keymap.PageUp:
+		m.cursor -= m.listRows()
+
+	case keymap.Out:
+		m.leaveDetails()
+
+	case keymap.In:
+		// Descend into the host under the cursor: connect to it, which is what the
+		// browser's In does to a directory.
+		h, ok := m.selectedHost()
+		if !ok {
+			return m, nil
+		}
+		return m, m.openShell(h, false)
+	}
+
+	m.clampCursor()
+	return m, nil
+}
+
+// leaveDetails backs out of the details/active view, to plain navigation.
+func (m *model) leaveDetails() {
+	m.active = ""
+	m.browsing = false
+	m.clearStatus()
 }
 
 // ---- filter entry ----

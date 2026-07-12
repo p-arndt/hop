@@ -59,8 +59,8 @@ so it is not reachable from those). It is modal: while it is up, keys go to it.
 
 | Key | Action |
 | --- | --- |
-| `j` / `k` / `↑` / `↓` | move between settings |
-| `h` / `l` / `←` / `→` | pick a color (accent), or flip a switch (vim keys) |
+| `↑` / `↓` (`k` / `j`) | move between settings |
+| `←` / `→` (`h` / `l`) | pick a color (accent), or flip a switch (vim keys) |
 | `enter` / `i` | edit the selected setting — or flip it, if it is a switch |
 | `enter` (while editing) | save |
 | `esc` (while editing) | cancel the edit |
@@ -68,10 +68,11 @@ so it is not reachable from those). It is modal: while it is up, keys go to it.
 | `r` | reset the setting to its default |
 | `esc` / `q` / `,` | close |
 
-The popover binds `hjkl` whether or not the vim keys are on: the switch that turns
-them off is one of the rows in here, and a card that took away the keys you were
-steering it with, as you used them, would be exactly the surprise the setting is
-there to prevent.
+The popover honours the vim setting like everything else — with it off, `hjkl` do
+nothing here either. Turning the keys off from this very card cannot strand you: the
+arrows and `enter` drive every row and are never gated, and they are what the hint
+line at the foot of the card names. While you are *typing* a value, the gate is off:
+`h` is then a letter of the value, not a motion.
 
 The accent is a **swatch picker**, not a number to be looked up: `←`/`→` walk a
 palette of twelve colors — pink, magenta, red, orange, yellow, green, teal, cyan,
@@ -257,3 +258,27 @@ never fires by accident.
 - **The cursor never leaves the visible window.** Every motion re-clamps the
   scroll offset to keep it in view; `TestCursorStaysVisible` pins that invariant.
 - Motions are inert on an empty listing rather than driving the cursor negative.
+
+## Where a binding lives
+
+The host list and the file browser move on the same keys, so they do not each spell
+that keyboard out. `internal/keymap` holds it: one table, one row per key, saying
+what the key *means* (a `Motion`) and whether the vim setting owns it. Both views
+resolve keys through it and act on the motion they get back — what a key means is
+decided in one place, what it does is decided by the view, which is the only part
+that knows how tall it is or what is under the cursor.
+
+So:
+
+| To add… | Touch |
+| --- | --- |
+| a motion key, in both views at once | the `bindings` table in `internal/keymap` |
+| what a motion *does* to the list | `model.move` in `internal/tui/keys.go` |
+| what a motion *does* to the browser | `Browser.move` in `internal/filebrowser` |
+| a command key (`d`, `o`, `r`, `f`, …) | the command switch in whichever view owns it |
+| a setting | the `settingsFields` table in `internal/tui/settings.go` |
+
+A mode with no motions of its own — the settings popover — asks `keymap.Vim(key)`
+instead, which is the same table answering the narrower question: *is this a key the
+vim setting owns?* That is why turning the setting off is one fact in the config
+rather than a flag threaded through three switch statements.
