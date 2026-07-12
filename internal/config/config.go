@@ -31,6 +31,12 @@ type Config struct {
 	// OpenWith is the local command the browser's "o" opens a file with, flags and
 	// all ("code"). Empty means the desktop default (start / open / xdg-open).
 	OpenWith string `json:"openWith"`
+
+	// VimKeys turns on the vim motions in the host list and the file browser —
+	// hjkl, gg/G, H/M/L, ctrl+d/u/f/b. False (the default) leaves those letters
+	// unbound, so navigation is the arrows, enter and esc: hop asks for vim rather
+	// than assuming it.
+	VimKeys bool `json:"vimKeys"`
 }
 
 // DefaultAccent is hop's pink.

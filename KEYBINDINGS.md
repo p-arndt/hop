@@ -16,25 +16,36 @@ the file browser, `esc` `esc` also works).
 
 | Key | Action |
 | --- | --- |
-| `j` / `down` | move down |
-| `k` / `up` | move up |
-| `gg` | jump to first host |
-| `G` | jump to last host |
-| `H` / `M` / `L` | jump to first / middle / last host |
-| `ctrl+d` / `ctrl+u` | half a page down / up |
-| `ctrl+f` / `ctrl+b` | a full page down / up (also `pgdn` / `pgup`) |
-| `enter` / `l` / `right` | connect (opens a terminal pane), or focus the shell already open |
-| `esc` / `h` / `left` | back — leave the details view |
+| `down` / `up` | move |
+| `pgdn` / `pgup` | a full page down / up |
+| `enter` / `right` | connect (opens a terminal pane), or focus the shell already open |
+| `esc` / `left` | back — leave the details view |
 | `s` | focus the existing session for this host |
 | `S` | open **another** shell on this host, alongside the ones already open |
 | `f` | open the SFTP browser |
 | `o` | open the host in VS Code Remote |
 | `d` | disconnect the session |
 | `/` | filter hosts (`enter` applies, `esc` clears) |
+| `,` | settings |
+| `?` | the keys card |
 | `q` / `ctrl+c` | quit |
 
-Forward and back use the same keys as the browser: `enter`/`l`/`right` descends
-into the thing under the cursor, `h`/`left` backs out of it.
+With **vim keys** turned on (`,` → *Vim keys*, off by default), these are bound as
+well:
+
+| Key | Action |
+| --- | --- |
+| `j` / `k` | move down / up |
+| `gg` | jump to first host |
+| `G` | jump to last host |
+| `H` / `M` / `L` | jump to first / middle / last host |
+| `ctrl+d` / `ctrl+u` | half a page down / up |
+| `ctrl+f` / `ctrl+b` | a full page down / up |
+| `l` | connect — as `enter` does |
+| `h` | back — as `esc` does |
+
+Forward and back then use the same keys as the browser: `enter`/`l`/`right`
+descends into the thing under the cursor, `h`/`left` backs out of it.
 
 Because the host list does not scroll — every host is on screen — `H`/`M`/`L`
 coincide with `gg`, the midpoint, and `G`. They are bound anyway so the motions
@@ -49,13 +60,18 @@ so it is not reachable from those). It is modal: while it is up, keys go to it.
 | Key | Action |
 | --- | --- |
 | `j` / `k` / `↑` / `↓` | move between settings |
-| `h` / `l` / `←` / `→` | pick a color (on the accent field) |
-| `enter` / `i` | edit the selected setting |
+| `h` / `l` / `←` / `→` | pick a color (accent), or flip a switch (vim keys) |
+| `enter` / `i` | edit the selected setting — or flip it, if it is a switch |
 | `enter` (while editing) | save |
 | `esc` (while editing) | cancel the edit |
 | `ctrl+u` (while editing) | clear the value |
 | `r` | reset the setting to its default |
 | `esc` / `q` / `,` | close |
+
+The popover binds `hjkl` whether or not the vim keys are on: the switch that turns
+them off is one of the rows in here, and a card that took away the keys you were
+steering it with, as you used them, would be exactly the surprise the setting is
+there to prevent.
 
 The accent is a **swatch picker**, not a number to be looked up: `←`/`→` walk a
 palette of twelve colors — pink, magenta, red, orange, yellow, green, teal, cyan,
@@ -76,25 +92,41 @@ hop starts on defaults rather than refusing to start.
 | Download dir | where `d` puts a file | `~/Downloads` |
 | Accent color | picked from the swatch strip with `←`/`→`, or typed | `212`, hop's pink |
 | Open with | the local command `o` opens a file with, e.g. `code -n` | the OS default app |
+| Vim keys | the vim motions in the list and the browser — a switch, `←`/`→` or `enter` | **off** — the arrows, `enter` and `esc` are all of navigation |
+
+**Vim keys are opt-in.** They are a dozen plain letters, and hop holding `h` and `l`
+for "out of" and "into a host" is a surprise to anyone who did not ask for it — so
+it asks. Turn the switch on and the motions below appear in the host list, in the
+file browser, and in the keys card (`?`), which always lists the keyboard you
+actually have rather than the one hop could give you.
 
 ## Browsing — the SFTP file browser
 
 | Key | Action |
 | --- | --- |
-| `j` / `down` | move down |
-| `k` / `up` | move up |
+| `down` / `up` | move |
+| `pgdn` / `pgup` | a full page down / up |
+| `enter` / `right` | enter a directory, or open a file in an editor tab |
+| `o` | open the file in the local OS default app (GUI) |
+| `d` | download the file to `~/Downloads` |
+| `left` / `backspace` | up one directory |
+| `r` | refresh the listing |
+| `,` | settings |
+| `ctrl+o` | back to hop |
+| `esc` `esc` | back to hop (two presses within 400 ms) |
+
+With **vim keys** turned on:
+
+| Key | Action |
+| --- | --- |
+| `j` / `k` | move down / up |
 | `gg` | jump to first entry |
 | `G` | jump to last entry |
 | `H` / `M` / `L` | jump to top / middle / bottom **of the visible window** |
 | `ctrl+d` / `ctrl+u` | half a page down / up |
-| `ctrl+f` / `ctrl+b` | a full page down / up (also `pgdn` / `pgup`) |
-| `enter` / `l` / `right` | enter a directory, or open a file in an editor tab |
-| `o` | open the file in the local OS default app (GUI) |
-| `d` | download the file to `~/Downloads` |
-| `h` / `left` / `backspace` | up one directory |
-| `r` | refresh the listing |
-| `ctrl+o` | back to hop |
-| `esc` `esc` | back to hop (two presses within 400 ms) |
+| `ctrl+f` / `ctrl+b` | a full page down / up |
+| `l` | enter a directory / open a file — as `enter` does |
+| `h` | up one directory — as `left` does |
 
 ## Editing — editor tabs
 
@@ -209,6 +241,11 @@ never fires by accident.
 
 ## Notes on the vim motions
 
+- **They are off until you turn them on**, in the settings popover (`,` → *Vim
+  keys*). Off, they are not bound to anything else either: a stray `l` in the host
+  list does nothing at all. `pgdn`/`pgup` are *not* part of the switch — they mean
+  what `ctrl+f`/`ctrl+b` mean, but they are not vim, so turning vim off never costs
+  you a way to page.
 - **`gg` is a real two-key motion.** A lone `g` arms it; the next `g` jumps to
   the top. Any other key in between cancels it, so `g` `j` is just a `j`.
 - **Half and full pages are viewport-relative**, matching vim: `ctrl+d` moves by

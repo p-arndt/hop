@@ -61,7 +61,8 @@ func (f *fakeClient) Download(remote, local string) (int64, error) {
 func (f *fakeClient) Close() error { return nil }
 
 // newTestBrowser builds a Browser over n synthetic entries with a viewport tall
-// enough for 10 content rows, rooted at /home/u.
+// enough for 10 content rows, rooted at /home/u. The vim motions are switched on:
+// they are what most of these tests are about, and they are off by default.
 func newTestBrowser(n int) (*Browser, *fakeClient) {
 	ents := make([]sftpx.Entry, n)
 	for i := range ents {
@@ -72,6 +73,7 @@ func newTestBrowser(n int) (*Browser, *fakeClient) {
 		client:  fc,
 		cwd:     "/home/u",
 		entries: ents,
+		opts:    Options{VimKeys: true},
 		w:       40,
 		h:       13, // contentRows() == 10
 	}, fc
@@ -131,6 +133,52 @@ func TestVimMotions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// With the setting off the vim motions are not bound, so "h" is not a way out of a
+// directory and "j" is not a way down a list. The arrows and backspace still are.
+func TestVimMotionsOffByDefault(t *testing.T) {
+	for _, k := range []string{"j", "k", "g", "G", "H", "M", "L", "ctrl+d", "ctrl+u", "ctrl+f", "ctrl+b"} {
+		t.Run(k, func(t *testing.T) {
+			b, _ := newTestBrowser(30)
+			b.opts.VimKeys = false
+			b.cursor = 5
+
+			b.Handle(key(t, k))
+
+			if b.cursor != 5 {
+				t.Fatalf("%q moved the cursor to %d; with vim keys off it must do nothing", k, b.cursor)
+			}
+			if b.pendingG {
+				t.Fatalf("%q armed a pending gg with vim keys off", k)
+			}
+		})
+	}
+
+	t.Run("h does not leave the directory", func(t *testing.T) {
+		b, _ := newTestBrowser(3)
+		b.opts.VimKeys = false
+
+		b.Handle(key(t, "h"))
+		if b.cwd != "/home/u" {
+			t.Fatalf("cwd = %q; with vim keys off, h must not walk up", b.cwd)
+		}
+
+		b.Handle(key(t, "left"))
+		if b.cwd != "/home" {
+			t.Fatalf("cwd = %q; the arrow must still walk up", b.cwd)
+		}
+	})
+
+	t.Run("arrows still move", func(t *testing.T) {
+		b, _ := newTestBrowser(30)
+		b.opts.VimKeys = false
+
+		b.Handle(key(t, "down"))
+		if b.cursor != 1 {
+			t.Fatalf("cursor = %d, want down to have moved it to 1", b.cursor)
+		}
+	})
 }
 
 // TestScreenMotions checks H/M/L land inside the visible window, not the whole

@@ -156,6 +156,49 @@ func TestAccentCustomValueSurvives(t *testing.T) {
 	}
 }
 
+// The vim keys field is a switch: ←/→ and enter flip it, it applies to the browsers
+// already open, and it persists — and it never opens a text field, because there is
+// nothing about "on" worth typing.
+func TestVimKeysToggle(t *testing.T) {
+	m := settingsModel(t)
+	m.settings.cursor = fieldIndex(t, "Vim keys")
+
+	if m.cfg.VimKeys {
+		t.Fatal("vim keys start on; they are meant to be opt-in")
+	}
+
+	m.handleKey(key(t, "enter"))
+	if m.settings.editing {
+		t.Fatal("enter opened a text field on a switch")
+	}
+	if !m.cfg.VimKeys {
+		t.Fatal("enter did not turn the vim keys on")
+	}
+	if !config.Load().VimKeys {
+		t.Fatal("turning the vim keys on did not persist")
+	}
+	if !m.browserOptions().VimKeys {
+		t.Fatal("the browsers were not told the vim keys are on")
+	}
+
+	// Either arrow flips it back — there are only two states, so there is no
+	// direction to walk in.
+	m.handleKey(key(t, "left"))
+	if m.cfg.VimKeys {
+		t.Fatal("left did not turn the vim keys back off")
+	}
+	m.handleKey(key(t, "right"))
+	if !m.cfg.VimKeys {
+		t.Fatal("right did not turn the vim keys back on")
+	}
+
+	// And "r" resets it to the default, like any other field.
+	m.handleKey(key(t, "r"))
+	if m.cfg.VimKeys {
+		t.Fatal("r did not reset the vim keys to off")
+	}
+}
+
 // ←/→ do nothing on a text field: they are the color picker's keys alone.
 func TestArrowsLeaveTextFieldsAlone(t *testing.T) {
 	m := settingsModel(t)

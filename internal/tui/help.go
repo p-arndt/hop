@@ -17,17 +17,18 @@ type helpSection struct {
 // the two columns the card stands up in. It is the same set of bindings the
 // footer shows a slice of — the footer says what is live right now, this says
 // what exists.
-var (
-	helpLeft = []helpSection{
-		{"LIST", [][2]string{
-			{"↑ ↓ / j k", "move"},
-			{"gg / G", "top / bottom"},
-			{"H M L", "high / mid / low in view"},
-			{"ctrl+d / u", "half page"},
-			{"ctrl+f / b", "full page"},
+//
+// The two motion sections are built rather than declared, because what hop binds in
+// them depends on the "Vim keys" setting. A reference card that lists keys you do
+// not have is worse than no card: the card shows the keyboard you are actually
+// holding, and when vim is off it says where to go and turn it on.
+
+func helpLeft(vim bool) []helpSection {
+	return []helpSection{
+		{"LIST", append(motionKeys(vim), [][2]string{
 			{"/", "filter the hosts"},
 			{"q", "quit hop"},
-		}},
+		}...)},
 		{"HOST", [][2]string{
 			{"enter", "connect / focus its shell"},
 			{"S", "another shell, same connection"},
@@ -38,8 +39,15 @@ var (
 			{",", "settings"},
 		}},
 	}
+}
 
-	helpRight = []helpSection{
+func helpRight(vim bool) []helpSection {
+	open, up := [2]string{"enter", "open dir / edit file"}, [2]string{"←", "up a directory"}
+	if vim {
+		open, up = [2]string{"enter / l", "open dir / edit file"}, [2]string{"h / ←", "up a directory"}
+	}
+
+	return []helpSection{
 		{"SHELL", [][2]string{
 			{"ctrl+o", "back to hop"},
 			{"esc esc", "back to hop"},
@@ -48,8 +56,8 @@ var (
 			{"…anything", "goes to the remote shell"},
 		}},
 		{"SFTP BROWSER", [][2]string{
-			{"enter / l", "open dir / edit file"},
-			{"h / ←", "up a directory"},
+			open,
+			up,
 			{"o", "open the file locally"},
 			{"d", "download the file"},
 			{"r", "refresh"},
@@ -63,7 +71,26 @@ var (
 			{"…anything", "goes to the remote editor"},
 		}},
 	}
-)
+}
+
+// motionKeys is how the list moves: the vim motions when they are switched on, and
+// the plain ones plus a pointer at the switch when they are not.
+func motionKeys(vim bool) [][2]string {
+	if vim {
+		return [][2]string{
+			{"↑ ↓ / j k", "move"},
+			{"gg / G", "top / bottom"},
+			{"H M L", "high / mid / low in view"},
+			{"ctrl+d / u", "half page"},
+			{"ctrl+f / b", "full page"},
+		}
+	}
+	return [][2]string{
+		{"↑ ↓", "move"},
+		{"pgup / pgdn", "page"},
+		{"j k h l …", "vim keys: off — , to turn on"},
+	}
+}
 
 // Help card geometry. helpKeyW is wide enough for the longest key hop names, and
 // helpColW for the longest thing it says about one.
@@ -81,15 +108,17 @@ func (m *model) renderHelp() string {
 	// What the window can hold once the card's own border and padding are paid for.
 	room := max(m.width-2*cardPadX-2, 20)
 
+	left, right := helpLeft(m.cfg.VimKeys), helpRight(m.cfg.VimKeys)
+
 	w := min(2*helpColW+helpGutter, room)
-	body := helpColumn(helpLeft, min(helpColW, room)) + "\n\n" +
-		helpColumn(helpRight, min(helpColW, room))
+	body := helpColumn(left, min(helpColW, room)) + "\n\n" +
+		helpColumn(right, min(helpColW, room))
 
 	if room >= 2*helpColW+helpGutter {
 		body = lipgloss.JoinHorizontal(lipgloss.Top,
-			helpColumn(helpLeft, helpColW),
+			helpColumn(left, helpColW),
 			strings.Repeat(" ", helpGutter),
-			helpColumn(helpRight, helpColW),
+			helpColumn(right, helpColW),
 		)
 	}
 

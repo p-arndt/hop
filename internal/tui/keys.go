@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"hop/internal/action"
+	"hop/internal/keymap"
 )
 
 // doubleEscWindow is how long after an esc a second esc counts as "leave the
@@ -40,6 +41,14 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+
+	// The vim motions below are bound only when the setting says so. Off, they are
+	// dropped here rather than being given some other meaning: the list still moves
+	// on the arrows, enter and esc, and a stray "l" does nothing at all.
+	if !m.cfg.VimKeys && keymap.Vim(key) {
+		m.pendingG = false
+		return m, nil
+	}
 
 	// Complete or abandon a pending "gg".
 	if m.pendingG {

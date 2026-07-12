@@ -17,6 +17,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"hop/internal/keymap"
 	"hop/internal/sftpx"
 )
 
@@ -79,6 +80,10 @@ type Options struct {
 	// OpenWith is the local command "o" opens a file with, flags and all ("code").
 	// Empty means the desktop's default application for the file type.
 	OpenWith string
+
+	// VimKeys binds the vim motions (hjkl, gg/G, H/M/L, ctrl+d/u/f/b). False leaves
+	// them unbound: the arrows, backspace and enter are then the whole of movement.
+	VimKeys bool
 }
 
 // Browser is a remote directory browser the TUI drives by forwarding key
@@ -165,6 +170,14 @@ func (b *Browser) load(dir string) {
 // directory", so bumping against the top is a no-op rather than a surprise exit.
 func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 	key := msg.String()
+
+	// The vim motions are bound only when the setting says so. Off, they are dropped
+	// here: "h" is then not a way up a directory, and "d" is still the download it
+	// says it is on every row.
+	if !b.opts.VimKeys && keymap.Vim(key) {
+		b.pendingG = false
+		return nil
+	}
 
 	// Complete or abandon a pending "gg".
 	if b.pendingG {

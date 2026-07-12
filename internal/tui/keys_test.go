@@ -5,6 +5,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"hop/internal/config"
 )
 
 // key builds the tea.KeyMsg whose String() is name.
@@ -29,6 +31,10 @@ func key(t *testing.T, name string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyLeft}
 	case "right":
 		return tea.KeyMsg{Type: tea.KeyRight}
+	case "pgup":
+		return tea.KeyMsg{Type: tea.KeyPgUp}
+	case "pgdown":
+		return tea.KeyMsg{Type: tea.KeyPgDown}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "esc":
@@ -42,13 +48,14 @@ func key(t *testing.T, name string) tea.KeyMsg {
 }
 
 // newNavModel builds a model in navigation mode with n hosts in the filtered
-// list and a viewport where listRows() == 15.
+// list and a viewport where listRows() == 15. The vim motions are switched on:
+// they are what most of these tests are about, and they are off by default.
 func newNavModel(n int) *model {
 	filtered := make([]int, n)
 	for i := range filtered {
 		filtered[i] = i
 	}
-	return &model{filtered: filtered, height: 20}
+	return &model{filtered: filtered, height: 20, cfg: config.Config{VimKeys: true}}
 }
 
 func TestNavVimMotions(t *testing.T) {
@@ -82,6 +89,64 @@ func TestNavVimMotions(t *testing.T) {
 				t.Fatalf("cursor = %d, want %d", m.cursor, tc.want)
 			}
 		})
+	}
+}
+
+// With the setting off, every vim motion is inert: the letters are not bound to
+// anything, so a user who never asked for vim cannot move (or leave) by typing one.
+func TestNavVimMotionsOffByDefault(t *testing.T) {
+	for _, k := range []string{"j", "k", "G", "H", "M", "L", "ctrl+d", "ctrl+u", "ctrl+f", "ctrl+b"} {
+		t.Run(k, func(t *testing.T) {
+			m := newNavModel(30)
+			m.cfg.VimKeys = false
+			m.cursor = 5
+			m.active = "web"
+
+			m.handleKey(key(t, k))
+
+			if m.cursor != 5 {
+				t.Fatalf("%q moved the cursor to %d; with vim keys off it must do nothing", k, m.cursor)
+			}
+			if m.active != "web" {
+				t.Fatalf("%q left the active host; with vim keys off it must do nothing", k)
+			}
+		})
+	}
+
+	// "gg" is two keys, and the first must not arm anything that a later "g" could
+	// complete once the setting is turned back on.
+	m := newNavModel(30)
+	m.cfg.VimKeys = false
+	m.cursor = 5
+	m.handleKey(key(t, "g"))
+	if m.pendingG {
+		t.Fatal("g armed a pending gg with vim keys off")
+	}
+	m.handleKey(key(t, "g"))
+	if m.cursor != 5 {
+		t.Fatalf("gg jumped to %d with vim keys off", m.cursor)
+	}
+}
+
+// Turning vim keys off must not cost you a way to move: the arrows, enter and the
+// page keys are bound either way.
+func TestNavPlainKeysWorkWithoutVim(t *testing.T) {
+	m := newNavModel(30)
+	m.cfg.VimKeys = false
+
+	m.handleKey(key(t, "down"))
+	if m.cursor != 1 {
+		t.Fatalf("cursor = %d, want down to have moved it to 1", m.cursor)
+	}
+
+	m.handleKey(key(t, "pgdown"))
+	if want := 1 + m.listRows(); m.cursor != want {
+		t.Fatalf("cursor = %d, want pgdown to have paged to %d", m.cursor, want)
+	}
+
+	m.handleKey(key(t, "up"))
+	if want := m.listRows(); m.cursor != want {
+		t.Fatalf("cursor = %d, want up to have moved it to %d", m.cursor, want)
 	}
 }
 
