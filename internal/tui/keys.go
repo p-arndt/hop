@@ -253,13 +253,15 @@ func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ---- shell pane ----
 
 // handleShellKey routes a key while a shell pane is focused. The remote shell
-// owns every key, arrows included, so hop reserves only ctrl+o, a double esc, and
-// — when the host has more than one shell — alt+←/→ and alt+1..9 to switch
-// between them. Everything else is forwarded verbatim.
+// owns every key, arrows included, so hop reserves only ctrl+o, a double esc,
+// alt+0 to open another shell, and alt+←/→ and alt+1..9 to switch between the
+// ones already open. Everything else is forwarded verbatim.
 //
 // The alt chords are deliberately fewer than the editor's: readline binds the
 // alt+letters (alt+l downcases a word, alt+b walks one back), so alt+h/alt+l are
-// not taken here the way they are in an editor.
+// not taken here the way they are in an editor. The digits are the exception hop
+// already makes — which is why "another shell" is alt+0 and not alt+n: it costs
+// the shell nothing that alt+1..9 has not already cost it.
 func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	s := m.sessions[m.active]
 	key := msg.String()
@@ -268,6 +270,16 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+o":
 		m.leavePane()
 		return m, nil
+
+	case "alt+0":
+		// Another shell on the host you are already in — S in the host list, without
+		// going back to the list for it. It is a second channel on the connection hop
+		// holds, so there is no handshake, and it lands focused (see shellLanded).
+		h, ok := m.hostByAlias(m.active)
+		if !ok {
+			return m, nil
+		}
+		return m, m.openShell(h, true)
 
 	case "alt+right":
 		if s != nil {

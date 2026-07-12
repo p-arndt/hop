@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/store"
@@ -190,6 +191,30 @@ func TestSpinnerStopsWhenNothingIsConnecting(t *testing.T) {
 	m.connecting["web1"] = true
 	if _, cmd := m.Update(tickMsg{}); cmd == nil {
 		t.Fatal("the spinner stopped while a connect was still in flight")
+	}
+}
+
+// A focused pane can open another shell on the host it is already on, without
+// going back to the list for S — and the footer says so, on the first shell as
+// much as the second: the key that makes the second one is no use to you only
+// after you have one.
+func TestNewShellFromAFocusedPane(t *testing.T) {
+	m := viewModel(120, 34)
+	m.notify = make(chan struct{}, 1)
+	m.sessions["web1"] = &session{}
+	m.active, m.focused = "web1", true
+
+	if foot := m.renderFooter(); !strings.Contains(foot, "alt+0") {
+		t.Fatalf("the focused pane's footer does not name the new-shell key:\n%s", foot)
+	}
+
+	altZero := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("0"), Alt: true}
+	_, cmd := m.Update(altZero)
+	if cmd == nil {
+		t.Fatal("alt+0 in a focused pane started no shell")
+	}
+	if !m.connecting["web1"] {
+		t.Fatal("alt+0 did not open the shell on the host the pane is on")
 	}
 }
 

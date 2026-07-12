@@ -460,6 +460,18 @@ func (m *model) selectedHost() (store.Host, bool) {
 	return m.hosts[i], true
 }
 
+// hostByAlias returns the host with this alias. It looks over every host rather
+// than the filtered ones, because the modes that ask — a focused pane, a browser
+// — are on a host the filter may well have hidden since.
+func (m *model) hostByAlias(alias string) (store.Host, bool) {
+	for _, h := range m.hosts {
+		if h.Alias == alias {
+			return h, true
+		}
+	}
+	return store.Host{}, false
+}
+
 // clampCursor holds the list cursor inside the filtered host list.
 func (m *model) clampCursor() {
 	m.cursor = clamp(m.cursor, 0, len(m.filtered)-1)

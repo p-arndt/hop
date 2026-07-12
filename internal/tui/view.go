@@ -203,7 +203,10 @@ func (m *model) renderFooter() string {
 		}
 
 	case m.focused && m.active != "":
-		hints = []string{keyHint("ctrl+o", "back"), keyHint("esc esc", "back")}
+		// alt+0 is named even on a host with one shell — it is the key that *makes*
+		// the second one, so a footer that waited for a second shell to mention it
+		// would only ever tell you what you had already worked out.
+		hints = []string{keyHint("ctrl+o", "back"), keyHint("esc esc", "back"), keyHint("alt+0", "new shell")}
 		if s := m.sessions[m.active]; s != nil && len(s.shells) > 1 {
 			hints = append(hints, keyHint("alt+←→", "shell"), keyHint("alt+1-9", "jump"))
 		}

@@ -189,20 +189,26 @@ swallowed rather than forwarded: the browser has no use for it.
 | --- | --- |
 | `ctrl+o` | back to hop |
 | `esc` `esc` | back to hop (two presses within 400 ms) |
+| `alt+0` | open **another** shell on this host, and go to it |
 | `alt+→` / `alt+←` | next / previous shell on this host (wraps) |
 | `alt+1` … `alt+9` | jump straight to that shell |
 | *everything else* | sent to the remote shell |
 
 ### Several shells on one host
 
-`S` in the host list opens another shell on a host you are already connected to.
-It is a second **channel** on the connection hop already holds — no new handshake,
-no second authentication — and it appears as a tab strip above the pane (`shell 1
-│ shell 2 │ …`), which shows up only once there is a second shell to switch to.
+`S` in the host list, or `alt+0` from inside the pane, opens another shell on a
+host you are already connected to. It is a second **channel** on the connection
+hop already holds — no new handshake, no second authentication — and it appears
+as a tab strip above the pane (`shell 1 │ shell 2 │ …`), which shows up only once
+there is a second shell to switch to. The new shell arrives focused, so `alt+0`
+is one key from "I need another terminal here" to typing in it.
 
 Switch with `alt+←`/`alt+→`, or jump with `alt+1`…`alt+9`. Unlike the editor, the
 alt+**letters** are *not* bound here: readline owns them (`alt+b` walks back a
-word, `alt+l` downcases one), and taking them would break the shell.
+word, `alt+l` downcases one), and taking them would break the shell. The
+alt+**digits** are the one exception hop makes, and `alt+0` is why the new-shell
+key is a digit rather than the more memorable `alt+n`: it costs the remote shell
+nothing that `alt+1`…`alt+9` has not already cost it.
 
 Type `exit` to close a shell: its tab goes away, the rest keep running. When the
 last one exits, the connection is done and the host goes back to idle in the list

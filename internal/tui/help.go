@@ -51,6 +51,7 @@ func helpRight(vim bool) []helpSection {
 		{"SHELL", [][2]string{
 			{"ctrl+o", "back to hop"},
 			{"esc esc", "back to hop"},
+			{"alt+0", "another shell, same host"},
 			{"alt+← →", "switch shell tab"},
 			{"alt+1…9", "jump to shell tab"},
 			{"…anything", "goes to the remote shell"},
