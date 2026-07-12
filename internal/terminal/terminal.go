@@ -282,10 +282,33 @@ func (p *Pane) Resize(w, h int) {
 	_ = p.sess.Resize(w, h)
 }
 
-// Close tears down the emulator and the underlying SSH session. The io.Copy
-// pumps started in New unblock once these streams close.
+// Close tears down the emulator and the underlying SSH session. The two pumps
+// started in New unblock once these streams close, and neither touches the emulator
+// again afterwards.
+//
+// It closes the emulator's *input pipe* rather than calling emu.Close(), and that is
+// the whole point of the dance: emu.Close() sets an unguarded `closed` flag that the
+// response pump — parked inside emu.Read for the life of the pane — is reading at
+// that very moment, and SafeEmulator locks neither one (its Read passes straight
+// through, and it has no Close of its own). Closing a pane while its pump was alive
+// was therefore a data race, which -race reported on any test that closed one.
+//
+// Closing the pipe does the one thing emu.Close() was wanted for — Read returns EOF,
+// the copy finishes, the goroutine goes — and it writes nothing, so there is nothing
+// left to race on. The flag is all that is skipped, and it guards a Write that can no
+// longer be reached: the session is closed just below, so no further output arrives
+// to be parsed. Nothing leaks — the emulator is memory, and it goes with the pane.
+//
+// The fallback keeps the old behaviour if vt ever stops handing back a Closer: a
+// benign race beats a stranded goroutine holding a dead session open.
 func (p *Pane) Close() error {
-	emuErr := p.emu.Close()
+	var emuErr error
+	if pipe, ok := p.emu.InputPipe().(io.Closer); ok {
+		emuErr = pipe.Close()
+	} else {
+		emuErr = p.emu.Close()
+	}
+
 	sessErr := p.sess.Close()
 	if sessErr != nil {
 		return sessErr

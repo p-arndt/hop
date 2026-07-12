@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -196,6 +197,67 @@ func TestEmbeddedRoundTrip(t *testing.T) {
 
 	if !waitForView(term, "Z", 3*time.Second) {
 		t.Fatalf("echoed keystroke 'Z' never appeared in emulator; view:\n%s", term.View())
+	}
+}
+
+// Closing a pane while its pumps are running must be quiet and complete: the two
+// goroutines New starts go away, and nothing touches the emulator on the way out.
+//
+// Both halves are the point. The goroutines are what a pane costs, and hop closes
+// panes all the time — every 'exit', every 'd', every quit — so a pane that left its
+// pumps behind would bleed a goroutine and a live session per shell. And the tear-down
+// used to be a data race (see Pane.Close): the response pump sits inside emu.Read for
+// the life of the pane, reading the very flag emu.Close() writes. This test is run
+// under -race in CI, which is what makes that half of it mean anything.
+func TestCloseStopsThePumps(t *testing.T) {
+	hostKey := newSigner(t)
+	clientKey := newSigner(t)
+	addr := startTestServer(t, hostKey)
+
+	cfg := &ssh.ClientConfig{
+		User:            "tester",
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(clientKey)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
+	}
+	cli, err := sshx.ConnectAddr(addr, cfg)
+	if err != nil {
+		t.Fatalf("ConnectAddr: %v", err)
+	}
+	defer cli.Close()
+
+	sess, err := cli.Shell(80, 24)
+	if err != nil {
+		t.Fatalf("Shell: %v", err)
+	}
+
+	// Everything the pane will start is started after this count is taken.
+	before := runtime.NumGoroutine()
+
+	term := New(sess, 80, 24, nil)
+	if !waitForView(term, "HOPTEST-READY", 3*time.Second) {
+		t.Fatalf("the shell never came up; view:\n%s", term.View())
+	}
+	// The pumps are demonstrably live: this keystroke went out through one and its
+	// echo came back through the other.
+	term.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'Z'}})
+	if !waitForView(term, "Z", 3*time.Second) {
+		t.Fatalf("the pane is not pumping; view:\n%s", term.View())
+	}
+
+	if err := term.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// The goroutines are torn down asynchronously, so this is a wait rather than a
+	// reading: what is being asserted is that they end, not when.
+	deadline := time.Now().Add(3 * time.Second)
+	for runtime.NumGoroutine() > before && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if after := runtime.NumGoroutine(); after > before {
+		t.Fatalf("goroutines: %d before the pane, %d after closing it — its pumps outlived it",
+			before, after)
 	}
 }
 
