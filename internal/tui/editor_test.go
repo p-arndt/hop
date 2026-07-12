@@ -178,7 +178,7 @@ func TestRemoteEditorCmdQuotesPath(t *testing.T) {
 		{"/tmp/*.conf", `'/tmp/*.conf'`},
 	}
 	for _, tc := range cases {
-		got := remoteEditorCmd(tc.path)
+		got := remoteEditorCmd("", tc.path)
 		if !strings.HasSuffix(got, " "+tc.want) {
 			t.Fatalf("remoteEditorCmd(%q) ends %q, want it to end with %q", tc.path, got, tc.want)
 		}

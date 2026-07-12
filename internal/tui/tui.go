@@ -2,16 +2,16 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/sahilm/fuzzy"
 
 	"hop/internal/action"
+	"hop/internal/config"
 	"hop/internal/filebrowser"
 	"hop/internal/sftpx"
 	"hop/internal/sshx"
@@ -89,7 +89,57 @@ var (
 
 	selBar        = lipgloss.NewStyle().Foreground(accent).Render("▎")
 	connectingDot = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("◐")
+
+	accentText = lipgloss.NewStyle().Foreground(accent)
+
+	// The settings card: a quiet label above each value, the selected value filled
+	// so it reads as a field you are standing in, and the one being edited filled
+	// brighter still with a caret in it.
+	settingsLabel    = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	settingsLabelSel = lipgloss.NewStyle().Bold(true).Foreground(accent)
+
+	// The unselected values carry the same padding as the filled one, so the text
+	// does not jog sideways by a cell as the cursor moves down the card.
+	settingsValue       = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Padding(0, 1)
+	settingsPlaceholder = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("240")).Padding(0, 1)
+
+	settingsValueSel = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("231")).
+				Background(lipgloss.Color("236")).
+				Padding(0, 1)
+
+	inputStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("231")).
+			Background(lipgloss.Color("238")).
+			Padding(0, 1)
+
+	settingsBox = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(accent).
+			Padding(1, settingsPadX)
 )
+
+// setAccent re-points the palette at a new highlight color. The accent-derived
+// styles are values, not lazy lookups, so they have to be rebuilt — which is also
+// what lets a color chosen in the settings popover show up immediately, without a
+// restart.
+func setAccent(color string) {
+	if color == "" {
+		color = config.DefaultAccent
+	}
+	accent = lipgloss.Color(color)
+
+	selectedAliasStyle = selectedAliasStyle.Foreground(accent)
+	leftBorderActive = leftBorderActive.BorderForeground(accent)
+	rightBorderActive = rightBorderActive.BorderForeground(accent)
+	titleStyle = titleStyle.Foreground(accent)
+	headerBadge = headerBadge.Background(accent)
+	chipStyle = chipStyle.Foreground(accent)
+	accentText = accentText.Foreground(accent)
+	settingsBox = settingsBox.BorderForeground(accent)
+	settingsLabelSel = settingsLabelSel.Foreground(accent)
+	selBar = lipgloss.NewStyle().Foreground(accent).Render("▎")
+}
 
 // kc renders a keycap "pill" for legends and help bars.
 func kc(key string) string { return keycapStyle.Render(key) }
@@ -262,8 +312,10 @@ type model struct {
 	// nextEdID hands out editorTab ids.
 	nextEdID int
 
-	// downloadDir is the local directory SFTP downloads land in, computed once.
-	downloadDir string
+	// cfg is the user's settings, as loaded at startup and edited in the popover.
+	cfg config.Config
+	// settings is the settings popover's own state (cursor, text entry).
+	settings settingsUI
 
 	status string
 
@@ -283,23 +335,19 @@ func Run(st *store.Store) error {
 	if err != nil {
 		return err
 	}
-	// Compute the SFTP download directory once: <home>/Downloads, falling back
-	// to the home directory itself if it cannot be located.
-	downloadDir := "."
-	if home, herr := os.UserHomeDir(); herr == nil {
-		downloadDir = filepath.Join(home, "Downloads")
-		if _, derr := os.Stat(downloadDir); derr != nil {
-			downloadDir = home
-		}
-	}
+	// Settings are advisory: a missing or unreadable config file yields defaults
+	// rather than keeping hop from starting.
+	cfg := config.Load()
+	setAccent(cfg.Accent)
+	filebrowser.SetAccent(cfg.Accent)
 
 	m := &model{
-		st:          st,
-		hosts:       hosts,
-		sessions:    make(map[string]*session),
-		connecting:  make(map[string]bool),
-		notify:      make(chan struct{}, 1),
-		downloadDir: downloadDir,
+		st:         st,
+		hosts:      hosts,
+		sessions:   make(map[string]*session),
+		connecting: make(map[string]bool),
+		notify:     make(chan struct{}, 1),
+		cfg:        cfg,
 	}
 	m.applyFilter()
 	p := tea.NewProgram(m, tea.WithAltScreen())
@@ -418,7 +466,7 @@ func shellCmd(alias string, cli *sshx.Client, cols, rows int, notify chan struct
 // openBrowserCmd opens an SFTP file browser for h off the UI thread. When
 // existing is non-nil its SSH connection is reused; otherwise a dedicated
 // connection is dialed (and reported back so it can later be closed).
-func openBrowserCmd(h store.Host, existing *sshx.Client, downloadDir string, pw, ph int) tea.Cmd {
+func openBrowserCmd(h store.Host, existing *sshx.Client, opts filebrowser.Options, pw, ph int) tea.Cmd {
 	return func() tea.Msg {
 		cli := existing
 		var dialed *sshx.Client
@@ -439,7 +487,7 @@ func openBrowserCmd(h store.Host, existing *sshx.Client, downloadDir string, pw,
 			return browserOpenedMsg{alias: h.Alias, err: err}
 		}
 
-		br, err := filebrowser.New(sc, "", downloadDir, pw, ph)
+		br, err := filebrowser.New(sc, "", opts, pw, ph)
 		if err != nil {
 			sc.Close()
 			if dialed != nil {
@@ -456,9 +504,9 @@ func openBrowserCmd(h store.Host, existing *sshx.Client, downloadDir string, pw,
 // connection and wraps it in a terminal pane. It is a second SSH channel on the
 // same connection — no new handshake, and no download: the editor opens the real
 // remote file, so ":w" writes straight back to the server.
-func openEditorCmd(alias string, cli *sshx.Client, id int, path, name string, cols, rows int, notify chan struct{}) tea.Cmd {
+func openEditorCmd(alias string, cli *sshx.Client, id int, path, name, editor string, cols, rows int, notify chan struct{}) tea.Cmd {
 	return func() tea.Msg {
-		sess, err := cli.Command(remoteEditorCmd(path), cols, rows)
+		sess, err := cli.Command(remoteEditorCmd(editor, path), cols, rows)
 		if err != nil {
 			return editorOpenedMsg{alias: alias, err: err}
 		}
@@ -484,12 +532,19 @@ func waitEditorCmd(alias string, id int, sess *sshx.Session) tea.Cmd {
 	}
 }
 
-// remoteEditorCmd builds the shell command that runs the *remote* user's editor
-// on path. $EDITOR is preferred, but it is often only set in an interactive
-// rc-file that a non-interactive SSH command never sources — so when it is empty
-// we probe the remote PATH ourselves rather than assuming. vi is the last resort
-// because POSIX requires it to exist.
-func remoteEditorCmd(path string) string {
+// remoteEditorCmd builds the shell command that runs an editor on path on the
+// remote host.
+//
+// The editor configured in the settings popover wins, and is passed through
+// unquoted so it can carry flags ("vim -R"). With none set, $EDITOR is preferred
+// — but it is often only exported from an interactive rc-file that a
+// non-interactive SSH command never sources, so when it is empty we probe the
+// remote PATH ourselves rather than assuming. vi is the last resort because POSIX
+// requires it to exist.
+func remoteEditorCmd(editor, path string) string {
+	if editor = strings.TrimSpace(editor); editor != "" {
+		return "exec " + editor + " " + shellQuote(path)
+	}
 	return `ed="${EDITOR:-${VISUAL:-}}"; ` +
 		`[ -n "$ed" ] || for c in nvim vim vi nano; do ` +
 		`command -v "$c" >/dev/null 2>&1 && { ed="$c"; break; }; done; ` +
@@ -644,7 +699,7 @@ func (m *model) openFile(msg filebrowser.OpenFileMsg) (tea.Model, tea.Cmd) {
 	m.nextEdID++
 	ew, eh := m.editorSize()
 	m.status = "opening " + msg.Name + "…"
-	return m, openEditorCmd(m.active, s.client, m.nextEdID, msg.Path, msg.Name, ew, eh, m.notify)
+	return m, openEditorCmd(m.active, s.client, m.nextEdID, msg.Path, msg.Name, m.cfg.Editor, ew, eh, m.notify)
 }
 
 // editorSize is the terminal size an editor pane gets: the right pane, less the
@@ -718,6 +773,11 @@ func (m *model) cycleEditor(s *session, delta int) {
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The settings popover is modal: while it is up it takes every key.
+	if m.settings.open {
+		return m.handleSettingsKey(msg)
+	}
+
 	// Editing mode: an open editor tab takes the keys.
 	if m.editing && m.active != "" {
 		return m.handleEditorKey(msg)
@@ -731,6 +791,14 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		if key == "ctrl+o" {
 			m.leaveBrowser()
+			return m, nil
+		}
+
+		// Settings are reachable from the browser too — it is where the editor and
+		// download settings are felt, so it is where you notice you want to change
+		// them. The browser binds no ",".
+		if key == "," {
+			m.openSettings()
 			return m, nil
 		}
 
@@ -872,6 +940,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filter = ""
 		m.applyFilter()
 
+	case ",":
+		m.openSettings()
+
 	case "esc", "left", "h":
 		// Back: leave the details/active view, back to plain navigation.
 		m.active = ""
@@ -913,7 +984,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			existing = s.client
 		}
 		m.status = "opening sftp " + h.Alias + "…"
-		return m, openBrowserCmd(h, existing, m.downloadDir, m.paneW, m.paneH)
+		return m, openBrowserCmd(h, existing, m.browserOptions(), m.paneW, m.paneH)
 
 	case "s":
 		h, ok := m.selectedHost()
@@ -1117,7 +1188,17 @@ func (m *model) View() string {
 	header := m.renderHeader()
 	footer := m.renderFooter()
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+	screen := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+
+	// The settings popover floats over the finished screen rather than replacing
+	// any part of it: the hosts and the pane stay visible behind it.
+	if m.settings.open {
+		box := m.renderSettings()
+		x, y := centered(m.width, m.height, lipgloss.Width(box), lipgloss.Height(box))
+		screen = overlay(screen, box, x, y)
+	}
+
+	return screen
 }
 
 func (m *model) renderHeader() string {
@@ -1397,6 +1478,15 @@ func (m *model) renderFooter() string {
 
 	var help string
 	switch {
+	case m.settings.open:
+		if m.settings.editing {
+			help = item("enter", "save") + sep + item("esc", "cancel") + sep + item("ctrl+u", "clear")
+		} else {
+			help = item("↑↓", "move") + sep +
+				item("enter", "edit") + sep +
+				item("r", "reset") + sep +
+				item("esc", "close")
+		}
 	case m.editing && m.active != "":
 		help = item("alt+←→", "tab") + sep +
 			item("alt+1-9", "jump") + sep +
@@ -1425,6 +1515,7 @@ func (m *model) renderFooter() string {
 			item("f", "sftp") + sep +
 			item("d", "disconnect") + sep +
 			item("/", "filter") + sep +
+			item(",", "settings") + sep +
 			item("q", "quit")
 	}
 	return footerStyle.Render(truncate(help, m.width-2))
@@ -1439,17 +1530,9 @@ func truncate(s string, w int) string {
 	if lipgloss.Width(s) <= w {
 		return s
 	}
-	// Cut rune-by-rune until it fits, leaving room for the ellipsis.
-	target := w - 1
-	if target < 0 {
-		target = 0
-	}
-	var b strings.Builder
-	for _, r := range s {
-		if lipgloss.Width(b.String()+string(r)) > target {
-			break
-		}
-		b.WriteRune(r)
-	}
-	return b.String() + "…"
+	// Style-aware: a naive rune-by-rune cut can land in the middle of an ANSI
+	// escape, which then leaks into the terminal as garbage (and drops the colour
+	// it was opening). ansi.Truncate cuts on cell boundaries and keeps the escapes
+	// balanced.
+	return ansi.Truncate(s, w, "…")
 }

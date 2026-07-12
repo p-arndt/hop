@@ -6,6 +6,7 @@ A Windows-first TUI SSH/server manager with embedded terminal panes. Stack: Go, 
 
 - **Phase 1 — MVP:** SQLite host store, `~/.ssh/config` import, embedded SSH terminal panes (agent auth, VT emulator, keystrokes, resize), multi-session with `ctrl+o` to leave a pane, VS Code Remote open (`o`), fuzzy search (`/`).
 - **Phase 2 — SFTP browser:** `internal/sftpx` (List/Download/Upload/Mkdir/Remove/Rename over the same SSH conn) + `internal/filebrowser` TUI component. `f` opens the browser; navigate, `o` opens a file in the local OS default app, `d` downloads it → `~/Downloads`, `h`/`backspace` up, `r` refresh.
+- **Settings popover:** `,` opens a floating card (`internal/tui/overlay.go` composites it over the finished screen with `x/ansi`, so the UI stays visible behind it) over `internal/config` — editor, download dir, accent, open-with, stored as JSON at `%AppData%\hop\config.json`, applied live on save.
 - **Editor tabs:** `enter` on a file opens it in a *remote* editor (`${EDITOR:-vi}` over a second SSH channel, on a pty) rendered in a hop pane, with a tab strip: `alt+←/→` cycle, `alt+1..9` jump, `:q` closes a tab, `ctrl+o` back to the browser. No download — `:w` writes to the real remote file. `sshx.Command` (pty + exec) is the new primitive; `internal/terminal` renders it unchanged.
 - **Vim motions + back/forward keys:** `gg`/`G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`, `ctrl+f`/`ctrl+b` in both the host list and the browser. `enter`/`l`/`right` descends, `h`/`left` backs out; `left` at the browser's top directory pops back to hop. The terminal pane reserves only `ctrl+o` and a 400 ms double-`esc` — every other key belongs to the remote shell (a lone `esc` is still forwarded). See [KEYBINDINGS.md](KEYBINDINGS.md).
 - **Polish/fixes:** cursor now visible (reverse-video overlay at `CursorPosition`), typing lag removed (event-driven redraw instead of 50ms ticker), visual pass (keycap pills, `HOSTS` section, 3-state status dots incl. yellow `◐` connecting, accent selection bar, status badges).
@@ -49,7 +50,7 @@ A Windows-first TUI SSH/server manager with embedded terminal panes. Stack: Go, 
 
 ## ⚙️ Config & distribution
 
-- [ ] Config file (theme/accent, download dir, keybindings, default user).
+- [ ] Config file: keybindings and default user (accent/download dir/editor/open-with are done — see the settings popover).
 - [ ] Put `hop` on PATH; ship a build/install script; write a README.
 - [ ] Cross-platform (macOS/Linux) — currently Windows-first (uses the Windows OpenSSH agent named pipe; agent access needs an OS abstraction).
 

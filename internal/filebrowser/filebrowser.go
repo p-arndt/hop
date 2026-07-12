@@ -39,6 +39,19 @@ var (
 	selBar = accentStyle.Render("▎")
 )
 
+// SetAccent re-points the browser's highlight color, keeping it in step with the
+// rest of hop when the accent is changed in the settings popover. The styles are
+// values rather than lazy lookups, so they must be rebuilt.
+func SetAccent(color string) {
+	if color == "" {
+		return
+	}
+	accent = lipgloss.Color(color)
+	accentStyle = accentStyle.Foreground(accent)
+	accentBold = accentBold.Foreground(accent)
+	selBar = accentStyle.Render("▎")
+}
+
 // Client is the slice of *sftpx.Client the browser depends on. Narrowing it to
 // an interface keeps the component testable without a live SFTP connection.
 type Client interface {
@@ -57,18 +70,29 @@ type OpenFileMsg struct {
 	Name string
 }
 
+// Options are the user settings the browser honours. They can change while it is
+// open — the settings popover applies them live — so they are held as a unit and
+// replaced wholesale rather than baked in at construction.
+type Options struct {
+	// DownloadDir is where "d" puts a file.
+	DownloadDir string
+	// OpenWith is the local command "o" opens a file with, flags and all ("code").
+	// Empty means the desktop's default application for the file type.
+	OpenWith string
+}
+
 // Browser is a remote directory browser the TUI drives by forwarding key
 // messages and rendering View.
 type Browser struct {
-	client      Client
-	cwd         string
-	entries     []sftpx.Entry
-	cursor      int
-	scroll      int
-	status      string
-	statusErr   bool
-	downloadDir string
-	w, h        int
+	client    Client
+	cwd       string
+	entries   []sftpx.Entry
+	cursor    int
+	scroll    int
+	status    string
+	statusErr bool
+	opts      Options
+	w, h      int
 
 	// tmpDir is the scratch directory files opened with "o" are fetched into,
 	// created on first use. Empty until then.
@@ -80,9 +104,9 @@ type Browser struct {
 }
 
 // New builds a Browser starting in startDir (or the remote home when startDir
-// is empty), ensuring downloadDir exists on the local filesystem.
-func New(c Client, startDir, downloadDir string, w, h int) (*Browser, error) {
-	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
+// is empty), ensuring the download directory exists on the local filesystem.
+func New(c Client, startDir string, opts Options, w, h int) (*Browser, error) {
+	if err := os.MkdirAll(opts.DownloadDir, 0o755); err != nil {
 		return nil, err
 	}
 
@@ -96,15 +120,20 @@ func New(c Client, startDir, downloadDir string, w, h int) (*Browser, error) {
 	}
 
 	b := &Browser{
-		client:      c,
-		cwd:         dir,
-		downloadDir: downloadDir,
-		w:           w,
-		h:           h,
+		client: c,
+		cwd:    dir,
+		opts:   opts,
+		w:      w,
+		h:      h,
 	}
 	b.load(dir)
 	return b, nil
 }
+
+// SetOptions swaps in new user settings. A download directory that does not exist
+// yet is created on the next download, not here: a settings edit should not fail
+// because a directory is missing.
+func (b *Browser) SetOptions(opts Options) { b.opts = opts }
 
 // load lists dir and, on success, commits it as the current directory, resetting
 // the cursor and scroll. On error it sets the status and leaves cwd/entries
@@ -242,7 +271,7 @@ func (b *Browser) openInApp() {
 		b.fail(err)
 		return
 	}
-	cmd := openCmd(local)
+	cmd := openCmd(b.opts.OpenWith, local)
 	if err := cmd.Start(); err != nil {
 		b.fail(fmt.Errorf("open %s: %w", e.Name, err))
 		return
@@ -261,12 +290,16 @@ func (b *Browser) download() {
 		return
 	}
 
-	local := filepath.Join(b.downloadDir, e.Name)
+	local := filepath.Join(b.opts.DownloadDir, e.Name)
+	if err := os.MkdirAll(b.opts.DownloadDir, 0o755); err != nil {
+		b.fail(err)
+		return
+	}
 	if _, err := b.client.Download(path.Join(b.cwd, e.Name), local); err != nil {
 		b.fail(err)
 		return
 	}
-	b.ok(fmt.Sprintf("downloaded %s → %s", e.Name, b.downloadDir))
+	b.ok(fmt.Sprintf("downloaded %s → %s", e.Name, b.opts.DownloadDir))
 }
 
 // selected returns the entry under the cursor, or ok=false in an empty listing.
@@ -318,9 +351,14 @@ func (b *Browser) fail(err error) {
 	b.statusErr = true
 }
 
-// openCmd builds the command that hands p to the desktop's default handler for
-// its file type. A variable so tests can swap in something harmless.
-var openCmd = func(p string) *exec.Cmd {
+// openCmd builds the command that opens p. With an explicit "open with" setting
+// that command is used verbatim (it may carry flags, as in "code -n"); otherwise
+// p goes to the desktop's default handler for its file type. A variable so tests
+// can swap in something harmless.
+var openCmd = func(with, p string) *exec.Cmd {
+	if fields := strings.Fields(with); len(fields) > 0 {
+		return exec.Command(fields[0], append(fields[1:], p)...)
+	}
 	switch runtime.GOOS {
 	case "windows":
 		// The empty argument is start's window title: without it, a quoted path

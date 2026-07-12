@@ -173,26 +173,29 @@ func fileTestBrowser(t *testing.T) (*Browser, *fakeClient, string, string) {
 	fc := &fakeClient{entries: ents}
 	tmp, dl := t.TempDir(), t.TempDir()
 	return &Browser{
-		client:      fc,
-		cwd:         "/home/u",
-		entries:     ents,
-		downloadDir: dl,
-		tmpDir:      tmp,
-		w:           40,
-		h:           13,
+		client:  fc,
+		cwd:     "/home/u",
+		entries: ents,
+		opts:    Options{DownloadDir: dl},
+		tmpDir:  tmp,
+		w:       40,
+		h:       13,
 	}, fc, tmp, dl
 }
 
 // stubOpen swaps the default-app launcher for a command that starts and exits
 // immediately (the test binary itself, told to run no tests), recording the path
 // it was handed. It restores the original when the test ends.
-func stubOpen(t *testing.T) *string {
+func stubOpen(t *testing.T) (opened, openedWith *string) {
 	t.Helper()
-	var opened string
+	var p, with string
 	orig := openCmd
-	openCmd = func(p string) *exec.Cmd { opened = p; return exec.Command(os.Args[0], "-test.run=^$") }
+	openCmd = func(w, path string) *exec.Cmd {
+		with, p = w, path
+		return exec.Command(os.Args[0], "-test.run=^$")
+	}
 	t.Cleanup(func() { openCmd = orig })
-	return &opened
+	return &p, &with
 }
 
 // Enter on a file asks the model to open it, and touches no local disk at all:
@@ -243,7 +246,7 @@ func TestEnterOnDirNavigates(t *testing.T) {
 // to the OS default app. On a directory it does nothing at all.
 func TestOpenInAppKey(t *testing.T) {
 	b, fc, tmp, dl := fileTestBrowser(t)
-	opened := stubOpen(t)
+	opened, _ := stubOpen(t)
 
 	b.cursor = 1 // a.txt
 	if cmd := b.Handle(key(t, "o")); cmd != nil {
@@ -274,10 +277,28 @@ func TestOpenInAppKey(t *testing.T) {
 	}
 }
 
+// With an "open with" setting, "o" uses that command instead of the desktop
+// default — flags and all.
+func TestOpenWithOverride(t *testing.T) {
+	b, _, tmp, _ := fileTestBrowser(t)
+	opened, with := stubOpen(t)
+
+	b.SetOptions(Options{DownloadDir: b.opts.DownloadDir, OpenWith: "code -n"})
+	b.cursor = 1 // a.txt
+	b.Handle(key(t, "o"))
+
+	if *with != "code -n" {
+		t.Fatalf("openCmd got %q, want the configured %q", *with, "code -n")
+	}
+	if want := filepath.Join(tmp, "a.txt"); *opened != want {
+		t.Fatalf("opened %q, want %q", *opened, want)
+	}
+}
+
 // "d" is the only key that writes to the download dir, and it launches nothing.
 func TestDownloadKey(t *testing.T) {
 	b, fc, _, dl := fileTestBrowser(t)
-	opened := stubOpen(t)
+	opened, _ := stubOpen(t)
 
 	b.cursor = 1 // a.txt
 	b.Handle(key(t, "d"))

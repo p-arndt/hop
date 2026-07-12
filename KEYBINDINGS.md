@@ -39,6 +39,43 @@ Because the host list does not scroll — every host is on screen — `H`/`M`/`L
 coincide with `gg`, the midpoint, and `G`. They are bound anyway so the motions
 stay consistent with the browser.
 
+## Settings — the popover
+
+`,` opens the settings card, floating over whatever is on screen (it works from the
+host list and from the file browser; a terminal pane and an editor own every key,
+so it is not reachable from those). It is modal: while it is up, keys go to it.
+
+| Key | Action |
+| --- | --- |
+| `j` / `k` / `↑` / `↓` | move between settings |
+| `h` / `l` / `←` / `→` | pick a color (on the accent field) |
+| `enter` / `i` | edit the selected setting |
+| `enter` (while editing) | save |
+| `esc` (while editing) | cancel the edit |
+| `ctrl+u` (while editing) | clear the value |
+| `r` | reset the setting to its default |
+| `esc` / `q` / `,` | close |
+
+The accent is a **swatch picker**, not a number to be looked up: `←`/`→` walk a
+palette of twelve colors — pink, magenta, red, orange, yellow, green, teal, cyan,
+blue, indigo, purple, gray — each drawn in the color it actually is, and each
+applied to hop the instant you land on it. Nothing to confirm; you judge a color by
+seeing it. `enter` still opens text entry if you want a specific 256-code or a
+`#hex`, and a value that isn't in the palette gets its own swatch on the strip, so
+what's in force is always on screen.
+
+Settings are written to `%AppData%\hop\config.json` (next to `hop.db`) the moment
+you save one, and applied on the spot — a new accent recolours hop immediately.
+The file is plain JSON and can be edited by hand; if it is missing or malformed,
+hop starts on defaults rather than refusing to start.
+
+| Setting | What it is | Blank means |
+| --- | --- | --- |
+| Editor | the command `enter` runs on the remote host, e.g. `nvim`, `vim -R` | auto: remote `$EDITOR`, else probe for nvim/vim/vi/nano |
+| Download dir | where `d` puts a file | `~/Downloads` |
+| Accent color | picked from the swatch strip with `←`/`→`, or typed | `212`, hop's pink |
+| Open with | the local command `o` opens a file with, e.g. `code -n` | the OS default app |
+
 ## Browsing — the SFTP file browser
 
 | Key | Action |
