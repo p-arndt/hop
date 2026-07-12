@@ -50,11 +50,25 @@ stay consistent with the browser.
 | `H` / `M` / `L` | jump to top / middle / bottom **of the visible window** |
 | `ctrl+d` / `ctrl+u` | half a page down / up |
 | `ctrl+f` / `ctrl+b` | a full page down / up (also `pgdn` / `pgup`) |
-| `enter` / `l` / `right` | enter a directory, or download a file to `~/Downloads` |
+| `enter` / `l` / `right` | enter a directory, or open a file in the OS default app |
+| `e` | open the file in `$VISUAL` / `$EDITOR` |
+| `d` | download the file to `~/Downloads` |
 | `h` / `left` / `backspace` | up one directory |
 | `r` | refresh the listing |
 | `ctrl+o` | back to hop |
 | `esc` `esc` | back to hop (two presses within 400 ms) |
+
+### Opening files
+
+`enter` and `e` both fetch the file into a scratch directory under the system temp
+dir, so reading a remote file never litters `~/Downloads` — that is what `d` is
+for. `enter` then hands the local copy to the desktop (`start` on Windows, `open`
+on macOS, `xdg-open` elsewhere) and returns immediately, so hop stays usable while
+the file opens in its own window. `e` instead suspends hop, gives the terminal to
+`$VISUAL` (or `$EDITOR`, or `notepad`/`vi` when neither is set), and restores the
+TUI when the editor exits.
+
+Edits are made to the *local* copy: nothing is written back to the remote host.
 
 ### Leaving the browser
 

@@ -8,7 +8,10 @@ package filebrowser
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -45,6 +48,13 @@ type Client interface {
 	Close() error
 }
 
+// EditFinishedMsg reports that the external editor launched by "e" has exited.
+// The TUI hands it back to the browser via EditFinished.
+type EditFinishedMsg struct {
+	Name string
+	Err  error
+}
+
 // Browser is a remote directory browser the TUI drives by forwarding key
 // messages and rendering View.
 type Browser struct {
@@ -54,8 +64,13 @@ type Browser struct {
 	cursor      int
 	scroll      int
 	status      string
+	statusErr   bool
 	downloadDir string
 	w, h        int
+
+	// tmpDir is the scratch directory files opened with enter or "e" are fetched
+	// into, created on first use. Empty until then.
+	tmpDir string
 
 	// pendingG is set after a lone "g", so the next "g" completes the vim "gg"
 	// motion. Any other key clears it.
@@ -95,7 +110,7 @@ func New(c Client, startDir, downloadDir string, w, h int) (*Browser, error) {
 func (b *Browser) load(dir string) {
 	ents, err := b.client.List(dir)
 	if err != nil {
-		b.status = err.Error()
+		b.fail(err)
 		return
 	}
 	b.cwd = dir
@@ -103,15 +118,18 @@ func (b *Browser) load(dir string) {
 	b.cursor = 0
 	b.scroll = 0
 	b.status = ""
+	b.statusErr = false
 }
 
 // Handle applies a key message: motions, directory entry, parent, refresh, and
-// file download. All SFTP work runs synchronously.
+// the three file actions (open, edit, download). All SFTP work runs
+// synchronously; the returned tea.Cmd is non-nil only for "e", which suspends
+// the TUI while the editor owns the terminal.
 //
 // No key here leaves the browser: dismissal is the enclosing model's business
 // (ctrl+o or a double esc). "left", "backspace" and "h" are all strict "up a
 // directory", so bumping against the top is a no-op rather than a surprise exit.
-func (b *Browser) Handle(msg tea.KeyMsg) {
+func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 	key := msg.String()
 
 	// Complete or abandon a pending "gg".
@@ -120,7 +138,7 @@ func (b *Browser) Handle(msg tea.KeyMsg) {
 		if key == "g" {
 			b.cursor = 0
 			b.scroll = 0
-			return
+			return nil
 		}
 	}
 
@@ -176,23 +194,171 @@ func (b *Browser) Handle(msg tea.KeyMsg) {
 		b.load(path.Dir(b.cwd))
 
 	case "enter", "right", "l":
-		if len(b.entries) == 0 {
-			return
-		}
-		e := b.entries[b.cursor]
-		if e.IsDir {
-			b.load(path.Join(b.cwd, e.Name))
-			return
-		}
-		// Regular file: download into downloadDir.
-		remote := path.Join(b.cwd, e.Name)
-		local := path.Join(b.downloadDir, e.Name)
-		if _, err := b.client.Download(remote, local); err != nil {
-			b.status = err.Error()
-			return
-		}
-		b.status = fmt.Sprintf("downloaded %s → %s", e.Name, b.downloadDir)
+		b.activate()
+
+	case "e":
+		return b.edit()
+
+	case "d":
+		b.download()
 	}
+	return nil
+}
+
+// activate enters the directory under the cursor, or fetches the file under it
+// and hands the local copy to the desktop's default application. The launch is
+// fire-and-forget: the app opens in its own window and hop keeps running.
+func (b *Browser) activate() {
+	e, ok := b.selected()
+	if !ok {
+		return
+	}
+	if e.IsDir {
+		b.load(path.Join(b.cwd, e.Name))
+		return
+	}
+
+	local, err := b.fetch(e)
+	if err != nil {
+		b.fail(err)
+		return
+	}
+	cmd := openCmd(local)
+	if err := cmd.Start(); err != nil {
+		b.fail(fmt.Errorf("open %s: %w", e.Name, err))
+		return
+	}
+	// The launcher exits as soon as the real application is up; reap it so it
+	// does not linger as a zombie.
+	go cmd.Wait()
+	b.ok("opened " + e.Name)
+}
+
+// edit fetches the file under the cursor and returns a command that suspends the
+// TUI to run $VISUAL/$EDITOR on the local copy, restoring hop when it exits.
+// Directories have nothing to edit, so "e" on one is a no-op.
+func (b *Browser) edit() tea.Cmd {
+	e, ok := b.selected()
+	if !ok || e.IsDir {
+		return nil
+	}
+
+	local, err := b.fetch(e)
+	if err != nil {
+		b.fail(err)
+		return nil
+	}
+	return tea.ExecProcess(editorCmd(local), func(err error) tea.Msg {
+		return EditFinishedMsg{Name: e.Name, Err: err}
+	})
+}
+
+// EditFinished records the outcome of the editor launched by edit.
+func (b *Browser) EditFinished(msg EditFinishedMsg) {
+	if msg.Err != nil {
+		b.fail(fmt.Errorf("edit %s: %w", msg.Name, msg.Err))
+		return
+	}
+	b.ok("edited " + msg.Name)
+}
+
+// download copies the file under the cursor into downloadDir, where — unlike the
+// scratch copies enter and "e" make — it is meant to be kept.
+func (b *Browser) download() {
+	e, ok := b.selected()
+	if !ok || e.IsDir {
+		return
+	}
+
+	local := filepath.Join(b.downloadDir, e.Name)
+	if _, err := b.client.Download(path.Join(b.cwd, e.Name), local); err != nil {
+		b.fail(err)
+		return
+	}
+	b.ok(fmt.Sprintf("downloaded %s → %s", e.Name, b.downloadDir))
+}
+
+// selected returns the entry under the cursor, or ok=false in an empty listing.
+func (b *Browser) selected() (sftpx.Entry, bool) {
+	if len(b.entries) == 0 {
+		return sftpx.Entry{}, false
+	}
+	return b.entries[b.cursor], true
+}
+
+// fetch downloads e into the scratch directory and returns the local path.
+func (b *Browser) fetch(e sftpx.Entry) (string, error) {
+	dir, err := b.scratch()
+	if err != nil {
+		return "", err
+	}
+	local := filepath.Join(dir, e.Name)
+	if _, err := b.client.Download(path.Join(b.cwd, e.Name), local); err != nil {
+		return "", err
+	}
+	return local, nil
+}
+
+// scratch returns the browser's temp directory, creating it on first use. Files
+// opened for viewing or editing land here instead of downloadDir so that reading
+// a remote file leaves no clutter behind. It is deliberately never removed: an
+// editor or viewer may still hold a file open long after the browser is closed,
+// so cleanup is left to the OS.
+func (b *Browser) scratch() (string, error) {
+	if b.tmpDir != "" {
+		return b.tmpDir, nil
+	}
+	dir, err := os.MkdirTemp("", "hop-sftp-*")
+	if err != nil {
+		return "", err
+	}
+	b.tmpDir = dir
+	return dir, nil
+}
+
+// ok and fail set the status line and the colour View renders it in.
+func (b *Browser) ok(msg string) {
+	b.status = msg
+	b.statusErr = false
+}
+
+func (b *Browser) fail(err error) {
+	b.status = err.Error()
+	b.statusErr = true
+}
+
+// openCmd builds the command that hands p to the desktop's default handler for
+// its file type. A variable so tests can swap in something harmless.
+var openCmd = func(p string) *exec.Cmd {
+	switch runtime.GOOS {
+	case "windows":
+		// The empty argument is start's window title: without it, a quoted path
+		// is taken *as* the title and nothing opens.
+		return exec.Command("cmd", "/c", "start", "", p)
+	case "darwin":
+		return exec.Command("open", p)
+	default:
+		return exec.Command("xdg-open", p)
+	}
+}
+
+// editorCmd builds the $VISUAL/$EDITOR command for p, falling back to a platform
+// default. The variable may carry flags ("code -w"), so it is split, not used as
+// a bare program name.
+var editorCmd = func(p string) *exec.Cmd {
+	ed := os.Getenv("VISUAL")
+	if ed == "" {
+		ed = os.Getenv("EDITOR")
+	}
+	if ed == "" {
+		if runtime.GOOS == "windows" {
+			ed = "notepad"
+		} else {
+			ed = "vi"
+		}
+	}
+	fields := strings.Fields(ed)
+	return exec.Command(fields[0], append(fields[1:], p)...)
 }
 
 // windowRows is the number of entry rows actually filled on screen, which is
@@ -292,13 +458,14 @@ func (b *Browser) View() string {
 		lines = append(lines, "")
 	}
 
-	// Status line: green for downloads, red-ish for errors, empty otherwise.
+	// Status line: red-ish for errors, green for a completed action, empty
+	// otherwise.
 	if b.status != "" {
 		txt := truncateText(b.status, b.w)
-		if strings.HasPrefix(b.status, "downloaded") {
-			lines = append(lines, greenStyle.Render(txt))
-		} else {
+		if b.statusErr {
 			lines = append(lines, redStyle.Render(txt))
+		} else {
+			lines = append(lines, greenStyle.Render(txt))
 		}
 	} else {
 		lines = append(lines, "")

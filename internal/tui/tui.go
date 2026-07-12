@@ -442,6 +442,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		msg.browser.Resize(m.paneW, m.paneH)
 		return m, nil
 
+	case filebrowser.EditFinishedMsg:
+		// The editor had the terminal to itself; hop is now back. Report how it
+		// went on the browser's own status line.
+		if s := m.sessions[m.active]; s != nil && s.browser != nil {
+			s.browser.EditFinished(msg)
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -475,7 +483,8 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.lastEsc = time.Time{}
 
 		if s := m.sessions[m.active]; s != nil && s.browser != nil {
-			s.browser.Handle(msg)
+			// Non-nil only for "e", which suspends hop to run the editor.
+			return m, s.browser.Handle(msg)
 		}
 		return m, nil
 	}
@@ -1078,11 +1087,12 @@ func (m *model) renderFooter() string {
 	switch {
 	case m.browsing && m.active != "":
 		help = item("↑↓", "move") + sep +
-			item("enter", "open/download") + sep +
+			item("enter", "open") + sep +
+			item("e", "edit") + sep +
+			item("d", "download") + sep +
 			item("←", "up") + sep +
 			item("r", "refresh") + sep +
-			item("ctrl+o", "back to hop") + sep +
-			item("esc esc", "back to hop")
+			item("ctrl+o", "back to hop")
 	case m.focused && m.active != "":
 		help = item("ctrl+o", "back to hop") + sep +
 			item("esc esc", "back to hop") + sep +

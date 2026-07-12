@@ -1,6 +1,10 @@
 package filebrowser
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,6 +17,8 @@ import (
 func key(t *testing.T, name string) tea.KeyMsg {
 	t.Helper()
 	switch name {
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "left":
 		return tea.KeyMsg{Type: tea.KeyLeft}
 	case "backspace":
@@ -37,17 +43,22 @@ func key(t *testing.T, name string) tea.KeyMsg {
 	}
 }
 
-// fakeClient serves a fixed listing for every directory.
+// fakeClient serves a fixed listing for every directory and records the paths
+// Download was called with.
 type fakeClient struct {
-	entries []sftpx.Entry
+	entries   []sftpx.Entry
+	downloads [][2]string // {remote, local}
 }
 
 func (f *fakeClient) Home() (string, error) { return "/home/u", nil }
 
 func (f *fakeClient) List(string) ([]sftpx.Entry, error) { return f.entries, nil }
 
-func (f *fakeClient) Download(string, string) (int64, error) { return 0, nil }
-func (f *fakeClient) Close() error                           { return nil }
+func (f *fakeClient) Download(remote, local string) (int64, error) {
+	f.downloads = append(f.downloads, [2]string{remote, local})
+	return 0, nil
+}
+func (f *fakeClient) Close() error { return nil }
 
 // newTestBrowser builds a Browser over n synthetic entries with a viewport tall
 // enough for 10 content rows, rooted at /home/u.
@@ -148,6 +159,135 @@ func TestScreenMotions(t *testing.T) {
 				t.Fatalf("scroll moved to %d, want 20", b.scroll)
 			}
 		})
+	}
+}
+
+// fileTestBrowser builds a Browser over one directory and one file, with the
+// scratch and download directories pointed at throwaway locations.
+func fileTestBrowser(t *testing.T) (*Browser, *fakeClient, string, string) {
+	t.Helper()
+	ents := []sftpx.Entry{
+		{Name: "sub", IsDir: true},
+		{Name: "a.txt", Size: 12},
+	}
+	fc := &fakeClient{entries: ents}
+	tmp, dl := t.TempDir(), t.TempDir()
+	return &Browser{
+		client:      fc,
+		cwd:         "/home/u",
+		entries:     ents,
+		downloadDir: dl,
+		tmpDir:      tmp,
+		w:           40,
+		h:           13,
+	}, fc, tmp, dl
+}
+
+// stubExec swaps the two launchers for commands that start and exit immediately
+// (the test binary itself, told to run no tests), recording the path each was
+// handed. It restores the originals when the test ends.
+func stubExec(t *testing.T) (opened, edited *string) {
+	t.Helper()
+	var o, e string
+	origOpen, origEditor := openCmd, editorCmd
+	openCmd = func(p string) *exec.Cmd { o = p; return exec.Command(os.Args[0], "-test.run=^$") }
+	editorCmd = func(p string) *exec.Cmd { e = p; return exec.Command(os.Args[0], "-test.run=^$") }
+	t.Cleanup(func() { openCmd, editorCmd = origOpen, origEditor })
+	return &o, &e
+}
+
+// Enter on a file fetches it into the scratch dir — not the download dir — and
+// hands that local copy to the OS default application.
+func TestEnterOpensFile(t *testing.T) {
+	b, fc, tmp, dl := fileTestBrowser(t)
+	opened, _ := stubExec(t)
+
+	b.cursor = 1 // a.txt
+	if cmd := b.Handle(key(t, "enter")); cmd != nil {
+		t.Fatalf("enter returned a tea.Cmd; the default-app launch must not suspend the TUI")
+	}
+
+	want := filepath.Join(tmp, "a.txt")
+	if len(fc.downloads) != 1 {
+		t.Fatalf("downloads = %v, want exactly one", fc.downloads)
+	}
+	if got := fc.downloads[0]; got[0] != "/home/u/a.txt" || got[1] != want {
+		t.Fatalf("download = %v, want {/home/u/a.txt %s}", got, want)
+	}
+	if *opened != want {
+		t.Fatalf("opened %q, want %q", *opened, want)
+	}
+	if b.statusErr || b.status != "opened a.txt" {
+		t.Fatalf("status = %q (err=%v), want %q", b.status, b.statusErr, "opened a.txt")
+	}
+	if entries, _ := os.ReadDir(dl); len(entries) != 0 {
+		t.Fatalf("download dir is not empty: %v", entries)
+	}
+}
+
+// Enter on a directory still navigates into it.
+func TestEnterOnDirNavigates(t *testing.T) {
+	b, fc, _, _ := fileTestBrowser(t)
+	stubExec(t)
+
+	b.cursor = 0 // sub/
+	b.Handle(key(t, "enter"))
+
+	if b.cwd != "/home/u/sub" {
+		t.Fatalf("cwd = %q, want %q", b.cwd, "/home/u/sub")
+	}
+	if len(fc.downloads) != 0 {
+		t.Fatalf("entering a directory downloaded %v", fc.downloads)
+	}
+}
+
+// "e" fetches to the scratch dir and returns a command, because the editor takes
+// over the terminal. On a directory it does nothing at all.
+func TestEditKey(t *testing.T) {
+	b, fc, tmp, _ := fileTestBrowser(t)
+	_, edited := stubExec(t)
+
+	b.cursor = 1 // a.txt
+	cmd := b.Handle(key(t, "e"))
+	if cmd == nil {
+		t.Fatal("e returned no tea.Cmd; the editor needs the terminal")
+	}
+	want := filepath.Join(tmp, "a.txt")
+	if *edited != want {
+		t.Fatalf("edited %q, want %q", *edited, want)
+	}
+
+	b.cursor = 0 // sub/
+	if cmd := b.Handle(key(t, "e")); cmd != nil {
+		t.Fatal("e on a directory returned a tea.Cmd, want a no-op")
+	}
+	if len(fc.downloads) != 1 {
+		t.Fatalf("downloads = %v, want only the file", fc.downloads)
+	}
+
+	b.EditFinished(EditFinishedMsg{Name: "a.txt"})
+	if b.statusErr || b.status != "edited a.txt" {
+		t.Fatalf("status = %q (err=%v), want %q", b.status, b.statusErr, "edited a.txt")
+	}
+}
+
+// "d" is the only key that writes to the download dir, and it launches nothing.
+func TestDownloadKey(t *testing.T) {
+	b, fc, _, dl := fileTestBrowser(t)
+	opened, edited := stubExec(t)
+
+	b.cursor = 1 // a.txt
+	b.Handle(key(t, "d"))
+
+	want := filepath.Join(dl, "a.txt")
+	if len(fc.downloads) != 1 || fc.downloads[0][1] != want {
+		t.Fatalf("downloads = %v, want a single one to %s", fc.downloads, want)
+	}
+	if *opened != "" || *edited != "" {
+		t.Fatalf("download launched something: opened=%q edited=%q", *opened, *edited)
+	}
+	if b.statusErr || !strings.HasPrefix(b.status, "downloaded a.txt") {
+		t.Fatalf("status = %q (err=%v), want a downloaded... message", b.status, b.statusErr)
 	}
 }
 
