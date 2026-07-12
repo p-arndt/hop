@@ -315,6 +315,71 @@ func TestDownloadKey(t *testing.T) {
 	}
 }
 
+// A server-supplied entry name must not be able to place a download outside
+// the chosen directory (path separators, ".."), address an NTFS stream (":"),
+// or name a device (CON) — for "d" and "o" alike: both write locally.
+func TestRejectsUnsafeRemoteNames(t *testing.T) {
+	for _, name := range []string{
+		`..`, `..\..\evil.exe`, `../../evil`, `sub/file`, `C:evil`,
+		`ads.txt:Zone.Identifier`, `CON`, `NUL.txt`, "esc\x1b[2Jape", "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, k := range []string{"d", "o"} {
+				b, fc, _, _ := fileTestBrowser(t)
+				opened, _ := stubOpen(t)
+				b.entries[1].Name = name
+				b.cursor = 1
+
+				b.Handle(key(t, k))
+
+				if len(fc.downloads) != 0 {
+					t.Fatalf("%q on %q downloaded to %v, want a refusal", k, name, fc.downloads)
+				}
+				if *opened != "" {
+					t.Fatalf("%q on %q launched the default app on %q", k, name, *opened)
+				}
+				if !b.statusErr {
+					t.Fatalf("%q on %q: status = %q, want an error", k, name, b.status)
+				}
+			}
+		})
+	}
+}
+
+// A plain name — dots, spaces, unicode — must keep working.
+func TestAcceptsOrdinaryNames(t *testing.T) {
+	for _, name := range []string{"a.txt", "my report.pdf", "übersicht.md", "archive.tar.gz", "console.log"} {
+		b, fc, _, dl := fileTestBrowser(t)
+		b.entries[1].Name = name
+		b.cursor = 1
+
+		b.Handle(key(t, "d"))
+
+		want := filepath.Join(dl, name)
+		if len(fc.downloads) != 1 || fc.downloads[0][1] != want {
+			t.Fatalf("download of %q = %v, want one to %s", name, fc.downloads, want)
+		}
+	}
+}
+
+// Control characters in remote-supplied strings are display-stripped, so a file
+// name cannot smuggle an escape sequence into the user's terminal.
+func TestViewStripsControlCharacters(t *testing.T) {
+	b, _, _, _ := fileTestBrowser(t)
+	b.entries[1].Name = "evil\x1b]0;owned\x07\x9b31mname"
+	b.cwd = "/home/u\x1b[2J"
+
+	view := b.View()
+	for _, bad := range []string{"\x1b]", "\x1b[2J", "\x07", "\x9b"} {
+		if strings.Contains(view, bad) {
+			t.Fatalf("View() leaked control sequence %q", bad)
+		}
+	}
+	if !strings.Contains(view, "evil") || !strings.Contains(view, "name") {
+		t.Fatalf("View() lost the printable part of the name:\n%s", view)
+	}
+}
+
 // TestCursorStaysVisible is the invariant every motion must preserve.
 func TestCursorStaysVisible(t *testing.T) {
 	b, _ := newTestBrowser(100)

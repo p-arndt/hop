@@ -265,6 +265,10 @@ func (b *Browser) openInApp() {
 	if !ok || e.IsDir {
 		return
 	}
+	if err := checkLocalName(e.Name); err != nil {
+		b.fail(err)
+		return
+	}
 
 	local, err := b.fetch(e)
 	if err != nil {
@@ -287,6 +291,10 @@ func (b *Browser) openInApp() {
 func (b *Browser) download() {
 	e, ok := b.selected()
 	if !ok || e.IsDir {
+		return
+	}
+	if err := checkLocalName(e.Name); err != nil {
+		b.fail(err)
 		return
 	}
 
@@ -351,19 +359,53 @@ func (b *Browser) fail(err error) {
 	b.statusErr = true
 }
 
+// checkLocalName rejects a server-supplied entry name that cannot safely be
+// used as a local file name. The listing comes from the remote host, so a
+// hostile or compromised server can put anything in it: path separators or
+// ".." would let a "download" write outside the download directory, a colon
+// would address an NTFS alternate data stream or a drive, and the reserved
+// device names open devices rather than files on Windows.
+func checkLocalName(name string) error {
+	if name == "" || name == "." || name == ".." {
+		return fmt.Errorf("refusing unsafe remote file name %q", name)
+	}
+	if strings.ContainsAny(name, `/\:`) {
+		return fmt.Errorf("refusing unsafe remote file name %q", name)
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("refusing remote file name with control characters")
+		}
+	}
+	stem := name
+	if i := strings.IndexByte(stem, '.'); i >= 0 {
+		stem = stem[:i]
+	}
+	switch s := strings.ToUpper(stem); s {
+	case "CON", "PRN", "AUX", "NUL",
+		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+		return fmt.Errorf("refusing reserved device name %q", name)
+	}
+	return nil
+}
+
 // openCmd builds the command that opens p. With an explicit "open with" setting
 // that command is used verbatim (it may carry flags, as in "code -n"); otherwise
 // p goes to the desktop's default handler for its file type. A variable so tests
 // can swap in something harmless.
+//
+// On Windows the handler is explorer.exe, not "cmd /c start": cmd re-parses its
+// command line, so metacharacters in a (remote-chosen) file name — "&", "%",
+// "^" are all legal in Windows names — could be executed as commands.
+// explorer.exe takes the path as a plain argument, with no shell in between.
 var openCmd = func(with, p string) *exec.Cmd {
 	if fields := strings.Fields(with); len(fields) > 0 {
 		return exec.Command(fields[0], append(fields[1:], p)...)
 	}
 	switch runtime.GOOS {
 	case "windows":
-		// The empty argument is start's window title: without it, a quoted path
-		// is taken *as* the title and nothing opens.
-		return exec.Command("cmd", "/c", "start", "", p)
+		return exec.Command("explorer", p)
 	case "darwin":
 		return exec.Command("open", p)
 	default:
@@ -447,7 +489,7 @@ func (b *Browser) View() string {
 	lines := make([]string, 0, b.h)
 
 	// Header: current path (dim), tail-truncated with a leading "…/".
-	lines = append(lines, dimStyle.Render(truncPath(b.cwd, b.w)))
+	lines = append(lines, dimStyle.Render(truncPath(stripControl(b.cwd), b.w)))
 	// Faint horizontal rule.
 	lines = append(lines, faintStyle.Render(strings.Repeat("─", b.w)))
 
@@ -471,7 +513,7 @@ func (b *Browser) View() string {
 	// Status line: red-ish for errors, green for a completed action, empty
 	// otherwise.
 	if b.status != "" {
-		txt := truncateText(b.status, b.w)
+		txt := truncateText(stripControl(b.status), b.w)
 		if b.statusErr {
 			lines = append(lines, redStyle.Render(txt))
 		} else {
@@ -496,7 +538,7 @@ func (b *Browser) renderRow(e sftpx.Entry, selected bool) string {
 		prefix = selBar + " "
 	}
 
-	nameText := e.Name
+	nameText := stripControl(e.Name)
 	if e.IsDir {
 		nameText += "/"
 	}
@@ -572,6 +614,19 @@ func humanizeBytes(n int64) string {
 		i++
 	}
 	return fmt.Sprintf("%.1f%s", f, units[i-1])
+}
+
+// stripControl removes control characters (C0, DEL and C1) from s. Entry names
+// and error texts originate on the remote host; rendered raw, an embedded
+// escape sequence would be interpreted by the user's terminal — repainting the
+// UI, retitling the window, or worse — instead of being displayed.
+func stripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || (r >= 0x7f && r < 0xa0) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // truncateText shortens s (measured by display width) to at most w cells,
