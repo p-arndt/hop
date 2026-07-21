@@ -41,7 +41,7 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 
 ## 🔐 Connection & auth
 
-- [ ] **known_hosts:** currently silent TOFU (auto-accepts + appends). Add a confirmation prompt on first connect / mismatch warning.
+- [x] **known_hosts:** an unknown key aborts the dial (`sshx.UnknownHostKeyError`, nothing appended) and the TUI shows a modal "NEW HOST KEY" card (`internal/tui/hostkey.go`) with the fingerprint; `y` retries via `sshx.ConnectTrusting` (appends only if the presented key matches the approved fingerprint), `n`/`esc` trusts nothing. A known-host mismatch stays a hard error.
 - [ ] Reconnect handling: detect a dropped session, mark it dead, offer reconnect (a dead pane just stops updating today).
 - [ ] Deferred (not needed for current setup): password auth, 2FA/OTP passthrough, ProxyJump/bastion, PuTTY session import.
 

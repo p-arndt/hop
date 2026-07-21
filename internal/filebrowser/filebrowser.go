@@ -266,6 +266,16 @@ func (b *Browser) openInApp() {
 		b.fail(err)
 		return
 	}
+	// Handing an executable-extension file to the OS default handler would run
+	// it via ShellExecute rather than view it, so a server that names a payload
+	// like a document could get code executed locally on a single "o". Refuse
+	// when the launch would reach the default handler. An explicit OpenWith
+	// command receives the file as an argument to a program the user chose, not
+	// through ShellExecute, so that path is left alone.
+	if b.opts.OpenWith == "" && executableName(e.Name) {
+		b.fail(fmt.Errorf("refusing to open executable file %q — use d to download instead", e.Name))
+		return
+	}
 
 	local, err := b.fetch(e)
 	if err != nil {
@@ -374,10 +384,17 @@ func checkLocalName(name string) error {
 			return fmt.Errorf("refusing remote file name with control characters")
 		}
 	}
-	stem := name
+	// Windows strips trailing dots and spaces while normalizing a name, so
+	// "CON .txt" and "con." both resolve to the reserved device CON. Trim them
+	// before splitting off the stem, or the check is trivially side-stepped.
+	trimmed := strings.TrimRight(name, ". ")
+	stem := trimmed
 	if i := strings.IndexByte(stem, '.'); i >= 0 {
 		stem = stem[:i]
 	}
+	// The stem itself can carry trailing spaces that Windows drops, so "CON .txt"
+	// normalizes to the device CON. Trim them before the comparison.
+	stem = strings.TrimRight(stem, " ")
 	switch s := strings.ToUpper(stem); s {
 	case "CON", "PRN", "AUX", "NUL",
 		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
@@ -385,6 +402,35 @@ func checkLocalName(name string) error {
 		return fmt.Errorf("refusing reserved device name %q", name)
 	}
 	return nil
+}
+
+// executableExts are the final extensions ShellExecute (the desktop's default
+// handler) will run rather than merely open: native executables, installer and
+// control-panel formats, Windows Script Host targets, shortcuts that can point
+// anywhere, and shell-namespace files that can trigger code or reach into the
+// filesystem when double-clicked. A remote-named file carrying one of these
+// would be executed locally when handed to the OS default handler, so it is a
+// package-level set the guard and its test both range over.
+var executableExts = map[string]bool{
+	".exe": true, ".com": true, ".bat": true, ".cmd": true, ".scr": true,
+	".pif": true, ".msi": true, ".msp": true, ".msc": true, ".cpl": true,
+	".hta": true, ".js": true, ".jse": true, ".vbs": true, ".vbe": true,
+	".ws": true, ".wsf": true, ".wsh": true, ".ps1": true, ".psm1": true,
+	".lnk": true, ".url": true, ".reg": true, ".inf": true, ".application": true,
+	".appx": true, ".msix": true, ".jar": true, ".sct": true,
+	".settingcontent-ms": true, ".iso": true, ".vhd": true, ".vhdx": true,
+	".library-ms": true, ".search-ms": true,
+}
+
+// executableName reports whether name's final extension is one the OS default
+// handler would execute rather than view. The name comes from the remote host,
+// so a hostile server can label a payload as a document ("invoice.pdf.hta");
+// only the last extension decides what ShellExecute does with it. Trailing dots
+// and spaces are trimmed first because Windows drops them while normalizing the
+// name, so "evil.exe ." reaches ShellExecute as "evil.exe".
+func executableName(name string) bool {
+	trimmed := strings.TrimRight(name, ". ")
+	return executableExts[strings.ToLower(filepath.Ext(trimmed))]
 }
 
 // openCmd builds the command that opens p. With an explicit "open with" setting

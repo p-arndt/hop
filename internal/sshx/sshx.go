@@ -91,8 +91,41 @@ func AgentAuth() (ssh.AuthMethod, error) {
 	return ssh.PublicKeysCallback(ag.Signers), nil
 }
 
-// Connect resolves auth, host-key policy and address from h and dials.
+// UnknownHostKeyError is returned by Connect when the host is met for the first
+// time and no fingerprint has been approved for it yet. It carries what the UI
+// needs to ask the user to trust the key, and nothing is written to known_hosts:
+// a first-contact MITM must not be waved through silently, so the decision is
+// handed back to the caller instead of taken here.
+type UnknownHostKeyError struct {
+	Hostname    string // the host as presented to the host-key callback
+	Fingerprint string // ssh.FingerprintSHA256 of the presented key
+	KeyType     string // key.Type(), e.g. "ssh-ed25519"
+}
+
+func (e *UnknownHostKeyError) Error() string {
+	return fmt.Sprintf("sshx: unknown host key for %s: %s %s", e.Hostname, e.KeyType, e.Fingerprint)
+}
+
+// Connect resolves auth, host-key policy and address from h and dials. An unknown
+// host aborts the dial with an error that unwraps to *UnknownHostKeyError, and
+// appends nothing to known_hosts — the caller decides whether to trust the key
+// and retries through ConnectTrusting.
 func Connect(h store.Host) (*Client, error) {
+	return connect(h, "")
+}
+
+// ConnectTrusting dials h like Connect, but when the host is unknown and the
+// presented key's fingerprint equals fingerprint, the key is appended to
+// known_hosts and accepted. A presented key that does not match fingerprint is
+// refused: it means the key changed between the prompt that produced fingerprint
+// and this retry, which is exactly the swap the confirmation was there to catch.
+func ConnectTrusting(h store.Host, fingerprint string) (*Client, error) {
+	return connect(h, fingerprint)
+}
+
+// connect is the shared dial body. trustedFP is empty for a plain TOFU-guarded
+// dial and the user-approved fingerprint for a trusting retry.
+func connect(h store.Host, trustedFP string) (*Client, error) {
 	auth, err := AgentAuth()
 	if err != nil {
 		return nil, err
@@ -123,7 +156,7 @@ func Connect(h store.Host) (*Client, error) {
 		// (e.g. ecdsa when known_hosts holds ed25519), which knownhosts reports
 		// as a key mismatch. Empty for an unknown host => library defaults.
 		HostKeyAlgorithms: db.HostKeyAlgorithms(addr),
-		HostKeyCallback:   tofuHostKeyCallback(db, khPath, &newKey),
+		HostKeyCallback:   tofuHostKeyCallback(db, khPath, trustedFP, &newKey),
 		Timeout:           dialTimeout,
 	}
 
@@ -277,11 +310,17 @@ func hostKeyDB() (*knownhosts.HostKeyDB, string, error) {
 	return db, khPath, nil
 }
 
-// tofuHostKeyCallback verifies the presented key against db, and on first
-// contact appends it to khPath and accepts it, reporting the accepted key's
-// fingerprint through recorded so the UI can show what was just trusted. A
-// genuine key change is rejected.
-func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath string, recorded *string) ssh.HostKeyCallback {
+// tofuHostKeyCallback verifies the presented key against db. A key already known
+// is accepted; a genuine key change is rejected outright.
+//
+// A first-contact host is handled by trustedFP. When it is empty the key is not
+// trusted: the callback returns an *UnknownHostKeyError and writes nothing, so
+// the caller can ask the user before anything is committed. When it holds a
+// fingerprint the user has approved, a presented key matching it is appended to
+// khPath and accepted (its fingerprint reported through recorded so the UI can
+// confirm what was trusted); a presented key that does not match is refused, as
+// it means the key changed since the fingerprint was approved.
+func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath, trustedFP string, recorded *string) ssh.HostKeyCallback {
 	inner := db.HostKeyCallback()
 
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
@@ -292,10 +331,17 @@ func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath string, recorded *stri
 		case knownhosts.IsHostKeyChanged(err):
 			return fmt.Errorf("sshx: host key mismatch for %s: %w", hostname, err)
 		case knownhosts.IsHostUnknown(err):
+			fp := ssh.FingerprintSHA256(key)
+			if trustedFP == "" {
+				return &UnknownHostKeyError{Hostname: hostname, Fingerprint: fp, KeyType: key.Type()}
+			}
+			if fp != trustedFP {
+				return fmt.Errorf("sshx: host key for %s does not match the approved fingerprint (got %s, expected %s); possible key swap", hostname, fp, trustedFP)
+			}
 			if aerr := appendKnownHost(khPath, hostname, remote, key); aerr != nil {
 				return fmt.Errorf("sshx: record new host key for %s: %w", hostname, aerr)
 			}
-			*recorded = ssh.FingerprintSHA256(key)
+			*recorded = fp
 			return nil
 		}
 		return err

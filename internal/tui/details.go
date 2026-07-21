@@ -33,7 +33,9 @@ func (m *model) renderDetails(w int) string {
 
 	// Title row: the alias on the left, its state on the right, pushed apart to
 	// the full width of the card.
-	title := titleStyle.Render(h.Alias)
+	// Host fields can arrive from an untrusted SSH config or a paste into the
+	// form, so strip escape sequences before they reach the terminal.
+	title := titleStyle.Render(stripControl(h.Alias))
 	badge := m.hostBadge(h)
 	gap := max(inner-lipgloss.Width(title)-lipgloss.Width(badge), 1)
 	b.WriteString(pad + title + strings.Repeat(" ", gap) + badge + "\n")
@@ -46,9 +48,9 @@ func (m *model) renderDetails(w int) string {
 		port = 22
 	}
 	left := [][2]string{
-		{"host", fmt.Sprintf("%s:%d", h.HostName, port)},
-		{"user", h.User},
-		{"identity", h.IdentityFile},
+		{"host", fmt.Sprintf("%s:%d", stripControl(h.HostName), port)},
+		{"user", stripControl(h.User)},
+		{"identity", stripControl(h.IdentityFile)},
 	}
 	right := [][2]string{
 		{"last", relTime(h.LastConnect)},
@@ -56,9 +58,9 @@ func (m *model) renderDetails(w int) string {
 	}
 	switch {
 	case h.Group != "":
-		right = append(right, [2]string{"group", h.Group})
+		right = append(right, [2]string{"group", stripControl(h.Group)})
 	case len(h.Tags) > 0:
-		right = append(right, [2]string{"tags", strings.Join(h.Tags, ", ")})
+		right = append(right, [2]string{"tags", stripControl(strings.Join(h.Tags, ", "))})
 	}
 
 	colW := inner / 2

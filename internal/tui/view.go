@@ -42,6 +42,8 @@ func (m *model) modalCard() string {
 	switch {
 	case m.help:
 		return m.renderHelp()
+	case m.hostKey.open:
+		return m.renderHostKeyConfirm()
 	case m.confirm.open:
 		return m.renderConfirm()
 	case m.hostForm.open:
@@ -196,6 +198,9 @@ func (m *model) renderFooter() string {
 	switch {
 	case m.help:
 		hints = []string{keyHint("esc", "close")}
+
+	case m.hostKey.open:
+		hints = []string{keyHint("y", "trust"), keyHint("n", "cancel")}
 
 	case m.confirm.open:
 		hints = []string{keyHint("y", "delete"), keyHint("n", "cancel")}

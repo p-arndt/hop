@@ -23,6 +23,8 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case m.help:
 		return m.handleHelpKey(msg)
+	case m.hostKey.open:
+		return m.handleHostKeyKey(msg)
 	case m.confirm.open:
 		return m.handleConfirmKey(msg)
 	case m.hostForm.open:

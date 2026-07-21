@@ -28,7 +28,11 @@ type connectedMsg struct {
 	alias  string
 	client *sshx.Client
 	tab    *shellTab
-	err    error
+	// extra carries the shell intent through a dial so that, if the dial trips the
+	// new-host-key prompt, the retry knows whether it was for another shell (S /
+	// alt+0) or a host's first one. It is unused once the connect lands.
+	extra bool
+	err   error
 }
 
 // shellExitedMsg fires when a remote shell ends ("exit"), so its tab can be

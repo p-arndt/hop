@@ -441,6 +441,118 @@ func TestViewStripsControlCharacters(t *testing.T) {
 	}
 }
 
+// executableName must flag exactly the names the OS default handler would run,
+// judging by the last extension only, and see through the trailing dot/space
+// Windows strips while normalizing a name.
+func TestExecutableName(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{"evil.exe", true},
+		{"Evil.EXE", true},         // the deny-list is case-insensitive
+		{"note.pdf.hta", true},     // only the final extension counts
+		{"evil.exe .", true},       // trailing dot and space are stripped by Windows
+		{"setup.MSI", true},
+		{"shortcut.lnk", true},
+		{"report.pdf", false},
+		{"main.go", false},
+		{"README", false},          // no extension at all
+		{"archive.tar.gz", false},  // .gz is not executable
+	}
+	for _, tc := range cases {
+		if got := executableName(tc.name); got != tc.want {
+			t.Errorf("executableName(%q) = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// "o" on a file whose name carries an executable extension must refuse when the
+// launch would reach the OS default handler (empty OpenWith): handing it over
+// would execute it via ShellExecute. Nothing is fetched and nothing is launched.
+func TestOpenInAppRefusesExecutable(t *testing.T) {
+	b, fc, _, _ := fileTestBrowser(t)
+	opened, _ := stubOpen(t)
+
+	b.entries[1].Name = "invoice.pdf.hta"
+	b.cursor = 1
+	b.Handle(key(t, "o"))
+
+	if len(fc.downloads) != 0 {
+		t.Fatalf("o on an executable fetched %v, want a refusal before any download", fc.downloads)
+	}
+	if *opened != "" {
+		t.Fatalf("o on an executable launched the default app on %q", *opened)
+	}
+	if !b.statusErr {
+		t.Fatalf("o on an executable: status = %q, want an error", b.status)
+	}
+}
+
+// With an explicit OpenWith command the file is an argument to a program the
+// user chose, not a ShellExecute target, so an executable extension is allowed.
+func TestOpenInAppExecutableAllowedWithOpenWith(t *testing.T) {
+	b, _, tmp, _ := fileTestBrowser(t)
+	opened, with := stubOpen(t)
+
+	b.SetOptions(Options{DownloadDir: b.opts.DownloadDir, OpenWith: "code -n"})
+	b.entries[1].Name = "script.ps1"
+	b.cursor = 1
+	b.Handle(key(t, "o"))
+
+	if *with != "code -n" {
+		t.Fatalf("openCmd got %q, want the configured %q", *with, "code -n")
+	}
+	if want := filepath.Join(tmp, "script.ps1"); *opened != want {
+		t.Fatalf("opened %q, want %q", *opened, want)
+	}
+}
+
+// "d" on the same executable-named file still downloads: saving a file is not
+// executing it, so the guard applies only to "o".
+func TestDownloadExecutableAllowed(t *testing.T) {
+	b, fc, _, dl := fileTestBrowser(t)
+
+	b.entries[1].Name = "invoice.pdf.hta"
+	b.cursor = 1
+	b.Handle(key(t, "d"))
+
+	want := filepath.Join(dl, "invoice.pdf.hta")
+	if len(fc.downloads) != 1 || fc.downloads[0][1] != want {
+		t.Fatalf("download of an executable = %v, want one to %s", fc.downloads, want)
+	}
+	if b.statusErr {
+		t.Fatalf("download of an executable failed: %q", b.status)
+	}
+}
+
+// A reserved device name dressed up with the trailing dot/space or an extension
+// Windows normalizes away must still be refused for "d" and "o" alike.
+func TestRejectsNormalizedReservedNames(t *testing.T) {
+	for _, name := range []string{"CON .txt", "con."} {
+		t.Run(name, func(t *testing.T) {
+			for _, k := range []string{"d", "o"} {
+				b, fc, _, _ := fileTestBrowser(t)
+				opened, _ := stubOpen(t)
+				b.entries[1].Name = name
+				b.cursor = 1
+
+				b.Handle(key(t, k))
+
+				if len(fc.downloads) != 0 {
+					t.Fatalf("%q on %q downloaded to %v, want a refusal", k, name, fc.downloads)
+				}
+				if *opened != "" {
+					t.Fatalf("%q on %q launched the default app on %q", k, name, *opened)
+				}
+				if !b.statusErr {
+					t.Fatalf("%q on %q: status = %q, want an error", k, name, b.status)
+				}
+			}
+		})
+	}
+}
+
 // TestCursorStaysVisible is the invariant every motion must preserve.
 func TestCursorStaysVisible(t *testing.T) {
 	b, _ := newTestBrowser(100)

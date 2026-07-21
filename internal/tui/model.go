@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"hop/internal/config"
 	"hop/internal/filebrowser"
 	"hop/internal/keymap"
+	"hop/internal/sshx"
 	"hop/internal/store"
 )
 
@@ -97,6 +99,11 @@ type model struct {
 	// while it is up — and float over the screen rather than replacing it.
 	hostForm hostFormUI
 	confirm  confirmUI
+
+	// hostKey is the new-host-key confirmation card's state. It is modal like the
+	// others, and it stands in for what used to be a silent trust-on-first-use: an
+	// unknown key now pauses the dial here until the user approves the fingerprint.
+	hostKey hostKeyUI
 
 	// status is the message shown in the header. kind colors it; gen identifies
 	// it, so the timer that retires it cannot retire its successor. See setStatus.
@@ -234,6 +241,13 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) shellLanded(msg connectedMsg) (tea.Model, tea.Cmd) {
 	delete(m.connecting, msg.alias)
 	if msg.err != nil {
+		// A first-contact host key is no longer trusted silently: pause and ask,
+		// carrying the shell intent (S/alt+0 vs a first shell) into the retry.
+		var unknown *sshx.UnknownHostKeyError
+		if errors.As(msg.err, &unknown) {
+			m.openHostKeyConfirm(msg.alias, unknown, hostKeyShell, msg.extra)
+			return m, nil
+		}
 		m.setStatus(statusErr, "connect %s failed: %v", msg.alias, msg.err)
 		return m, nil
 	}
@@ -297,6 +311,11 @@ func (m *model) shellExited(msg shellExitedMsg) (tea.Model, tea.Cmd) {
 func (m *model) browserLanded(msg browserOpenedMsg) (tea.Model, tea.Cmd) {
 	delete(m.connecting, msg.alias)
 	if msg.err != nil {
+		var unknown *sshx.UnknownHostKeyError
+		if errors.As(msg.err, &unknown) {
+			m.openHostKeyConfirm(msg.alias, unknown, hostKeyBrowser, false)
+			return m, nil
+		}
 		m.setStatus(statusErr, "sftp %s failed: %v", msg.alias, msg.err)
 		return m, nil
 	}

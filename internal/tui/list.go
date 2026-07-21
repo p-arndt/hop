@@ -33,7 +33,7 @@ func (m *model) renderList(w, h int) string {
 	case len(m.hosts) == 0:
 		b.WriteString(m.renderEmptyList(innerW))
 	case len(m.filtered) == 0:
-		b.WriteString(faint.Render(truncate("no host matches "+m.filter, innerW)))
+		b.WriteString(faint.Render(truncate("no host matches "+stripControl(m.filter), innerW)))
 	default:
 		b.WriteString(m.renderRows(innerW, innerH))
 	}
@@ -69,7 +69,8 @@ func (m *model) listHeading() string {
 // filterPrompt is the "/…" line, with a caret while it has the keyboard and a
 // hint about the enter that hands it back to the list.
 func (m *model) filterPrompt() string {
-	prompt := accentText.Render("/") + m.filter
+	// Pasted filter text can carry escape sequences, so strip before it renders.
+	prompt := accentText.Render("/") + stripControl(m.filter)
 	if m.filtering {
 		return prompt + accentText.Render("▏")
 	}
@@ -134,11 +135,14 @@ func (m *model) renderRow(h store.Host, hits []int, selected bool, w int) string
 		alias = selectedAliasStyle
 	}
 
-	who := h.User
+	// Host fields can arrive from an untrusted SSH config (via hop import) or a
+	// paste into the form, so strip any escape sequences before they reach the
+	// terminal — the same defense as remote-derived strings elsewhere.
+	who := stripControl(h.User)
 	if who != "" {
 		who += "@"
 	}
-	who += h.HostName
+	who += stripControl(h.HostName)
 
 	// What is open on the host, when it is more than the dot can say.
 	badge := ""
@@ -151,9 +155,9 @@ func (m *model) renderRow(h store.Host, hits []int, selected bool, w int) string
 		}
 	}
 	if h.Group != "" {
-		badge += " " + faint.Render("["+h.Group+"]")
+		badge += " " + faint.Render("["+stripControl(h.Group)+"]")
 	} else if len(h.Tags) > 0 {
-		badge += " " + faint.Render("#"+h.Tags[0])
+		badge += " " + faint.Render("#"+stripControl(h.Tags[0]))
 	}
 
 	head := lead + m.dotFor(h.Alias) + " " + highlight(h.Alias, hits, alias, matchStyle)
@@ -183,8 +187,12 @@ func (m *model) dotFor(alias string) string {
 // highlight renders s in base, with the byte offsets in hits picked out in hit —
 // the characters the fuzzy filter matched on, so a surprising hit explains itself.
 func highlight(s string, hits []int, base, hit lipgloss.Style) string {
+	// The alias can come from an untrusted SSH config, so it gets the same
+	// control-character stripping as remote strings — done here, inside the loop,
+	// because hits are byte offsets into the original s and stripping first would
+	// misalign them.
 	if len(hits) == 0 {
-		return base.Render(s)
+		return base.Render(stripControl(s))
 	}
 	at := make(map[int]bool, len(hits))
 	for _, i := range hits {
@@ -193,6 +201,9 @@ func highlight(s string, hits []int, base, hit lipgloss.Style) string {
 
 	var b strings.Builder
 	for i, r := range s {
+		if r < 0x20 || (r >= 0x7f && r < 0xa0) {
+			continue
+		}
 		if at[i] {
 			b.WriteString(hit.Render(string(r)))
 		} else {
