@@ -1,0 +1,17 @@
+# The workflows pin third-party actions to commit SHAs (mutable tags can be
+# repointed under us). Dependabot keeps those pins from fossilizing by PRing
+# updated SHAs, and keeps the Go module graph current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"

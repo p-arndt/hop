@@ -1,0 +1,55 @@
+# git-cliff configuration — https://git-cliff.org
+#
+# Generates release notes from Conventional Commits (feat:, fix:, docs: …),
+# the same commit style already used in this repo. The release workflow runs
+# this via orhun/git-cliff-action to build each release's changelog body.
+
+[changelog]
+# Rendered with Tera templates. `--strip all` (used in CI) removes the header
+# and footer, leaving just the grouped commit list for the GitHub release body.
+header = """
+# Changelog\n
+All notable changes to this project are documented here.\n
+"""
+body = """
+{% if version %}\
+    ## {{ version | trim_start_matches(pat="v") }} — {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+    ## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | upper_first }}
+    {% for commit in commits %}
+        - {{ commit.message | upper_first }}{% if commit.remote.username %} by @{{ commit.remote.username }}{% endif %}\
+    {% endfor %}
+{% endfor %}\n
+"""
+trim = true
+footer = ""
+
+[git]
+# Only Conventional Commits are parsed; everything else is filtered out below.
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+
+commit_parsers = [
+    { message = "^feat", group = "🚀 Features" },
+    { message = "^fix", group = "🐛 Bug Fixes" },
+    { message = "^perf", group = "⚡ Performance" },
+    { message = "^refactor", group = "🚜 Refactor" },
+    { message = "^doc", group = "📚 Documentation" },
+    { message = "^test", group = "🧪 Testing" },
+    { message = "^security", group = "🔒 Security" },
+    { message = "^(build|ci)", group = "🛠️ Build & CI" },
+    { message = "^chore\\(release\\)", skip = true },
+    { message = "^chore|^style", group = "🧹 Miscellaneous" },
+    { message = "^release", skip = true },
+]
+
+# Skip the automated "release: vX.Y.Z" commit produced by scripts/release.mjs.
+commit_preprocessors = []
+filter_commits = false
+tag_pattern = "v[0-9]*"
+topo_order = false
+sort_commits = "oldest"

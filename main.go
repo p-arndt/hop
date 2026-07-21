@@ -10,12 +10,22 @@ import (
 	"strconv"
 	"strings"
 
+	"hop/internal/buildinfo"
 	"hop/internal/store"
 	"hop/internal/tui"
 )
 
 func main() {
 	args := os.Args[1:]
+
+	// Handle commands that don't need the store first.
+	if len(args) > 0 {
+		switch args[0] {
+		case "version", "--version", "-v":
+			fmt.Println("hop", buildinfo.String())
+			return
+		}
+	}
 
 	st, err := store.Open()
 	if err != nil {
@@ -149,5 +159,6 @@ usage:
   hop add <alias> <user@host[:port]> [port]
                                add or update a host
   hop list                     list stored hosts (alias, user@host:port)
-  hop hosts                    alias for list`)
+  hop hosts                    alias for list
+  hop version                  print the version and exit`)
 }

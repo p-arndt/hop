@@ -1,0 +1,11 @@
+# Built binaries
+/hop
+/hop.exe
+/dist/
+
+# Go
+*.test
+*.out
+
+# Local state / secrets
+.env
