@@ -30,9 +30,11 @@ A Windows-first TUI SSH/server manager with embedded terminal panes. Stack: Go, 
 
 ## 🖥️ Host management
 
-- [ ] **Add/edit host inside the TUI** (form): currently only `hop add` (CLI) + `hop import`.
-- [ ] **Groups/tags UI:** schema has `Group`/`Tags` but nothing sets them and the list doesn't section by group. Add grouping + tag filter.
-- [ ] Delete/pin host from the list.
+- [x] ~~**Add/edit host inside the TUI** (form)~~ — done: `a` adds, `e` edits the host under the cursor via a centered modal form (`internal/tui/hostform.go`). New `store.Add` (INSERT that fails on a taken alias) so the TUI can't silently overwrite a host added elsewhere; alias rename goes through `store.Rename`, preserving visit/frecency history.
+- [x] ~~Delete host from the list~~ — done: `x` deletes behind a confirmation modal (`internal/tui/confirm.go`); a live session is torn down first.
+- [ ] **Groups/tags UI:** the add/edit form now *sets* `Group`/`Tags`, but the list still doesn't section by group or filter by tag. Add grouping + tag filter.
+- [ ] Pin host to the top of the list.
+- [ ] Local file picker for the identity-file field (currently free-text; picker deferred — the SFTP `filebrowser` is remote-oriented, so a local picker needs a small local-fs adapter).
 - [ ] Re-import / sync `~/.ssh/config` from within the TUI.
 
 ## 🔐 Connection & auth
@@ -57,7 +59,8 @@ A Windows-first TUI SSH/server manager with embedded terminal panes. Stack: Go, 
 
 ## 🧪 Testing
 
-- [ ] Unit tests for `store` (import parsing, frecency ordering, upsert/touch), `action`. `store.OpenAt` takes a path, so a test can point at a temp db.
+- [ ] Unit tests for `store` (import parsing, frecency ordering) and `action`. `store.OpenAt` takes a path, so a test can point at a temp db. — upsert/touch/delete/add/rename now covered (`store_test.go`); import parsing + frecency ordering still untested.
+- [x] `tui` host management (`hostmgmt_test.go`): add/edit/delete flows driven by real keystrokes against a temp-file store — validation, rename-preserves-history, duplicate/empty/bad-port rejection, modal key-swallowing.
 - [x] `filebrowser` navigation: motions, up-a-directory keys, cursor-stays-visible invariant (`filebrowser_test.go`, via the new `filebrowser.Client` interface + a fake). Rendering still untested.
 - [ ] `keyToBytes` mapping table test in `terminal`.
 - [x] `tui` navigation-mode keys (`keys_test.go`). Mode *switches* (navigation ↔ terminal ↔ browsing) still untested — they need a fake pane/browser.

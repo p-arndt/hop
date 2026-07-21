@@ -23,6 +23,10 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case m.help:
 		return m.handleHelpKey(msg)
+	case m.confirm.open:
+		return m.handleConfirmKey(msg)
+	case m.hostForm.open:
+		return m.handleHostFormKey(msg)
 	case m.settings.open:
 		return m.handleSettingsKey(msg)
 	case m.editing && m.active != "":
@@ -114,6 +118,28 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.disconnect(h.Alias)
+
+	case "a":
+		// Add a host from scratch — the in-app twin of `hop add`, so a new server
+		// does not send you back to the command line.
+		m.openHostFormAdd()
+
+	case "e":
+		// Edit the host under the cursor: the same form, pre-filled.
+		h, ok := m.selectedHost()
+		if !ok {
+			return m, nil
+		}
+		m.openHostFormEdit(h)
+
+	case "x":
+		// Delete the host under the cursor — behind a confirmation, since there is no
+		// undo. 'x' rather than a second life for 'd', which already disconnects.
+		h, ok := m.selectedHost()
+		if !ok {
+			return m, nil
+		}
+		m.openConfirmDelete(h)
 	}
 
 	return m, nil

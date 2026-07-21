@@ -86,6 +86,12 @@ type model struct {
 	// settings is the settings popover's own state (cursor, text entry).
 	settings settingsUI
 
+	// hostForm is the add/edit host card's own state; confirm is the delete
+	// confirmation's. Like settings and help they are modal — each takes every key
+	// while it is up — and float over the screen rather than replacing it.
+	hostForm hostFormUI
+	confirm  confirmUI
+
 	// status is the message shown in the header. kind colors it; gen identifies
 	// it, so the timer that retires it cannot retire its successor. See setStatus.
 	status     string
@@ -377,17 +383,26 @@ func (m *model) withSpinner(cmd tea.Cmd) tea.Cmd {
 // last-connect shows up in the list's frecency order and in the details card
 // without a restart. A read failure leaves the list hop already has.
 func (m *model) reloadHosts() {
+	// Hold the cursor on the host it is on, even when the new order moved it.
+	alias := ""
+	if h, ok := m.selectedHost(); ok {
+		alias = h.Alias
+	}
+	m.reloadHostsSelecting(alias)
+}
+
+// reloadHostsSelecting re-reads the list and then parks the cursor on the host with
+// the given alias, or leaves it clamped in place when that alias is gone (a delete)
+// or filtered out. It is the shared body of reloadHosts and the one thing a save
+// needs on top of it: land the cursor on a host that was not selected a moment ago
+// — a brand-new one, or one whose alias just changed.
+func (m *model) reloadHostsSelecting(alias string) {
 	if m.st == nil {
 		return
 	}
 	hosts, err := m.st.Hosts()
 	if err != nil {
 		return
-	}
-	// Hold the cursor on the host it is on, even when the new order moved it.
-	alias := ""
-	if h, ok := m.selectedHost(); ok {
-		alias = h.Alias
 	}
 	m.hosts = hosts
 	m.applyFilter()

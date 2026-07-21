@@ -42,6 +42,10 @@ func (m *model) modalCard() string {
 	switch {
 	case m.help:
 		return m.renderHelp()
+	case m.confirm.open:
+		return m.renderConfirm()
+	case m.hostForm.open:
+		return m.renderHostForm()
 	case m.settings.open:
 		return m.renderSettings()
 	}
@@ -182,6 +186,12 @@ func (m *model) renderFooter() string {
 	case m.help:
 		hints = []string{keyHint("esc", "close")}
 
+	case m.confirm.open:
+		hints = []string{keyHint("y", "delete"), keyHint("n", "cancel")}
+
+	case m.hostForm.open:
+		hints = []string{keyHint("tab", "next"), keyHint("enter", "save"), keyHint("esc", "cancel"), keyHint("ctrl+u", "clear")}
+
 	case m.settings.open && m.settings.editing:
 		hints = []string{keyHint("enter", "save"), keyHint("esc", "cancel"), keyHint("ctrl+u", "clear")}
 
@@ -229,8 +239,8 @@ func (m *model) renderFooter() string {
 		// this line, so the footer keeps to the ones that are always true.
 		hints = []string{
 			keyHint("↑↓", "move"), keyHint("enter", "connect"), keyHint("f", "sftp"),
-			keyHint("d", "disconnect"), keyHint("/", "filter"), keyHint(",", "settings"),
-			keyHint("?", "keys"), keyHint("q", "quit"),
+			keyHint("a", "add"), keyHint("e", "edit"), keyHint("x", "delete"),
+			keyHint("/", "filter"), keyHint(",", "settings"), keyHint("?", "keys"), keyHint("q", "quit"),
 		}
 	}
 	return footerStyle.Render(truncate(strings.Join(hints, sep), max(m.width-2, 0)))

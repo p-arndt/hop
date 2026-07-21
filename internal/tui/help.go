@@ -27,6 +27,7 @@ func helpLeft(vim bool) []helpSection {
 	return []helpSection{
 		{"LIST", append(motionKeys(vim), [][2]string{
 			{"/", "filter the hosts"},
+			{"a", "add a new host"},
 			{"q", "quit hop"},
 		}...)},
 		{"HOST", [][2]string{
@@ -35,6 +36,8 @@ func helpLeft(vim bool) []helpSection {
 			{"s", "focus the host's shell"},
 			{"f", "sftp file browser"},
 			{"o", "open in VS Code Remote"},
+			{"e", "edit this host"},
+			{"x", "delete this host"},
 			{"d", "disconnect everything on it"},
 			{",", "settings"},
 		}},

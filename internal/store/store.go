@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -149,10 +150,70 @@ func (s *Store) Upsert(h Host) (int64, error) {
 	return rowID, nil
 }
 
+// Add inserts a new host, failing when the alias is already taken. Unlike Upsert
+// it never overwrites: it is the path for "create a host the user believes is new",
+// so a stale in-memory list cannot silently clobber a host that was added since —
+// from the CLI, say, while the TUI was open. The UNIQUE constraint on alias is the
+// real guarantee; the pre-check is only there to turn a driver-specific constraint
+// error into a message worth reading. Returns the new row id.
+func (s *Store) Add(h Host) (int64, error) {
+	var exists int
+	if err := s.db.QueryRow(`SELECT 1 FROM hosts WHERE alias = ?`, h.Alias).Scan(&exists); err == nil {
+		return 0, fmt.Errorf("host %q already exists", h.Alias)
+	} else if err != sql.ErrNoRows {
+		return 0, err
+	}
+
+	port := h.Port
+	if port == 0 {
+		port = 22
+	}
+
+	res, err := s.db.Exec(`
+		INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		h.Alias, h.HostName, h.User, port, h.IdentityFile, joinTags(h.Tags), h.Group, h.Visits, h.LastConnect,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
 // Delete removes the host with the given alias.
 func (s *Store) Delete(alias string) error {
 	_, err := s.db.Exec(`DELETE FROM hosts WHERE alias = ?`, alias)
 	return err
+}
+
+// Rename changes a host's alias from oldAlias to newAlias, preserving its visit
+// count and connect history (a plain Upsert of a new alias would start them from
+// zero). It is a no-op when the two are equal, and fails when newAlias is already
+// taken or oldAlias does not exist.
+func (s *Store) Rename(oldAlias, newAlias string) error {
+	if oldAlias == newAlias {
+		return nil
+	}
+
+	var exists int
+	if err := s.db.QueryRow(`SELECT 1 FROM hosts WHERE alias = ?`, newAlias).Scan(&exists); err == nil {
+		return fmt.Errorf("rename: host %q already exists", newAlias)
+	} else if err != sql.ErrNoRows {
+		return err
+	}
+
+	res, err := s.db.Exec(`UPDATE hosts SET alias = ? WHERE alias = ?`, newAlias, oldAlias)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("rename: no such host %q", oldAlias)
+	}
+	return nil
 }
 
 // Touch increments the visit count and records the current connect time.
