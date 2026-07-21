@@ -194,6 +194,7 @@ swallowed rather than forwarded: the browser has no use for it.
 | `alt+0` | open **another** shell on this host, and go to it |
 | `alt+→` / `alt+←` | next / previous shell on this host (wraps) |
 | `alt+1` … `alt+9` | jump straight to that shell |
+| `shift+↑` / `shift+pgup` | scroll back into the pane's history (see below) |
 | *everything else* | sent to the remote shell |
 
 ### Several shells on one host
@@ -217,6 +218,34 @@ last one exits, the connection is done and the host goes back to idle in the lis
 — unless its SFTP browser or an editor tab is still open on it, which keeps the
 connection alive. `d` still tears down the whole host at once: every shell, the
 browser and the editors.
+
+### Scrolling back through history
+
+`shift+↑` pauses the live shell and steps one line up into its scrollback;
+`shift+pgup` does it a page at a time. Both are deliberately chords a bare shell
+never sends, so they can be hop's without taking anything the shell wants — and
+both decline (falling through to the shell) when there is nothing to show: on the
+alt screen a full-screen program owns its own scrolling, and with nothing scrolled
+off there is no history to see. The footer advertises `shift+↑ scrollback` exactly
+when the key is live.
+
+Once paused, the keyboard drives the history viewport rather than the remote shell,
+and the mode chip reads `⇅ scrollback <offset>/<len>` so you can see where you are:
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓`, `j` / `k` | up / down one line |
+| `pgup` / `pgdn`, `ctrl+b` / `ctrl+f` | up / down a page |
+| `ctrl+u` / `ctrl+d` | up / down half a page |
+| `g` / `home` | jump to the oldest line |
+| `G` / `end` | back to the live bottom (and leave scrollback) |
+| `esc` / `q` / `enter` / `ctrl+o` / `←` | back to the live shell |
+| *anything else* | leave scrollback and type it at the prompt |
+
+Reaching the live bottom by scrolling down is itself a way out — the point of
+scrollback is to look at what went by, so arriving at the tail means you are done.
+`ctrl+o` here only leaves scrollback, back to the live shell; a second `ctrl+o` then
+leaves the pane, the consistent "back one level" the rest of hop keeps to.
 
 ### `left` at a bare prompt
 

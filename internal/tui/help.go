@@ -58,6 +58,7 @@ func helpRight(vim bool) []helpSection {
 			{"alt+0", "another shell, same host"},
 			{"alt+← →", "switch shell tab"},
 			{"alt+1…9", "jump to shell tab"},
+			{"shift+↑", "scroll back through history"},
 			{"…anything", "goes to the remote shell"},
 		}},
 		{"SFTP BROWSER", [][2]string{

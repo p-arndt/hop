@@ -48,6 +48,20 @@ type Pane struct {
 	// SSH write every time it repainted.
 	lineMu sync.Mutex
 	typed  int
+
+	// scrollOffset is how far the scrollback window is lifted off the live bottom,
+	// measured in lines: 0 is live (the current screen), N is scrolled N lines up
+	// into history. It is the one piece of pane state that carries NO mutex, and on
+	// purpose.
+	//
+	// Bubble Tea's Update and View both run on the single UI goroutine, and those are
+	// the only two places this field is ever touched — the scroll methods below are
+	// called from Update, ViewScrollback reads it from View. The output pump never so
+	// much as looks at it. So there is no second goroutine to race with, and the only
+	// shared thing the scroll methods reach through — the emulator — is a SafeEmulator,
+	// concurrency-safe in its own right. A mutex here would guard against a contender
+	// that does not exist.
+	scrollOffset int
 }
 
 // New creates an emulator sized w x h, binds it to sess, and starts the two
@@ -380,4 +394,137 @@ func keyToBytes(msg tea.KeyMsg) []byte {
 		return []byte(string(msg.Runes))
 	}
 	return nil
+}
+
+// clampOffset pulls scrollOffset back into the range history can actually
+// support, [0, ScrollbackLen()], and returns it. It is called at the top of every
+// scroll operation because the ceiling is not fixed: the output pump is pushing
+// lines into scrollback the whole time the user is reading it, so the top of the
+// window rises under our feet. An offset that was pinned to the oldest line a
+// moment ago is still the oldest line — clamping never has to lower it — but an
+// offset can never point above the buffer or below the live screen, and this is
+// where both ends are kept honest.
+func (p *Pane) clampOffset() int {
+	sbLen := p.emu.ScrollbackLen()
+	if p.scrollOffset > sbLen {
+		p.scrollOffset = sbLen
+	}
+	if p.scrollOffset < 0 {
+		p.scrollOffset = 0
+	}
+	return p.scrollOffset
+}
+
+// ScrollUp lifts the window n lines toward older output, stopping at the oldest
+// line scrollback still holds. A non-positive n is nothing to do, so it is left
+// alone. The clamp is against ScrollbackLen() read fresh, because more history may
+// have arrived since the last scroll and the ceiling only ever rises.
+func (p *Pane) ScrollUp(n int) {
+	if n <= 0 {
+		return
+	}
+	p.scrollOffset += n
+	p.clampOffset()
+}
+
+// ScrollDown lowers the window n lines back toward the live bottom, stopping at 0
+// — the live screen. A non-positive n is a no-op. Going below 0 has no meaning
+// (there is nothing newer than live), so the floor holds it there.
+func (p *Pane) ScrollDown(n int) {
+	if n <= 0 {
+		return
+	}
+	p.scrollOffset -= n
+	p.clampOffset()
+}
+
+// ScrollToTop lifts the window as far as history allows: the offset becomes
+// ScrollbackLen(), which puts the oldest line the buffer still holds at the top of
+// the window. Read fresh each time, since the buffer may have grown.
+func (p *Pane) ScrollToTop() {
+	p.scrollOffset = p.emu.ScrollbackLen()
+	p.clampOffset()
+}
+
+// ScrollToBottom drops the window back to live — offset 0, the current screen with
+// nothing lifted off it.
+func (p *Pane) ScrollToBottom() {
+	p.scrollOffset = 0
+}
+
+// ScrollOffset reports how far the window is lifted off the live bottom, in lines.
+// 0 means live.
+func (p *Pane) ScrollOffset() int {
+	return p.scrollOffset
+}
+
+// ScrollbackLen reports how many lines have scrolled off above the live screen and
+// are still held in the buffer — a pass-through to the emulator, which returns 0 on
+// the alt screen. It is the ceiling every scroll offset is clamped against.
+func (p *Pane) ScrollbackLen() int {
+	return p.emu.ScrollbackLen()
+}
+
+// AtBottom reports whether the window is live — offset 0, showing the current
+// screen. It is the tell the TUI uses to decide whether new output should keep the
+// view pinned to the bottom or leave a reader's scrolled-up position undisturbed.
+func (p *Pane) AtBottom() bool {
+	return p.scrollOffset == 0
+}
+
+// ViewScrollback renders the windowed view at the current scroll offset, exactly
+// emu.Height() lines tall so it slots into the layout in place of View() with no
+// change to the surrounding geometry. Unlike View() it lays down NO cursor: this is
+// history being read, not a live line being edited, and a cursor adrift in old
+// output would only mislead.
+//
+// The trick is to treat scrollback and the live screen as one tall virtual buffer:
+// the sbLen lines of history first, then the h lines of the current screen, indexed
+// 0 .. sbLen+h-1. The window is a height-h slice of that buffer whose top sits at
+// virtual index sbLen-offset — so at offset 0 the top is at sbLen, the window is
+// exactly the live screen, and this returns what View() would minus the cursor
+// (a property the tests pin down). Lift the offset and the same slice walks up into
+// history.
+//
+// Widths are left alone, as View() leaves them: lipgloss pads the lines out when it
+// draws the pane border, and pre-padding here would fight it.
+func (p *Pane) ViewScrollback() string {
+	h := p.emu.Height()
+	offset := p.clampOffset()
+	sbLen := p.emu.ScrollbackLen()
+
+	sb := p.emu.Scrollback()
+	if sb == nil {
+		sbLen = 0
+	}
+
+	// The live screen, split into rows. Render may hand back fewer than h lines; pad
+	// so the index arithmetic below can trust screen[0..h-1] to exist.
+	screen := strings.Split(p.emu.Render(), "\n")
+	for len(screen) < h {
+		screen = append(screen, "")
+	}
+
+	top := sbLen - offset
+	lines := make([]string, 0, h)
+	for i := 0; i < h; i++ {
+		vi := top + i
+		var line string
+		switch {
+		case vi < 0:
+			// Above the oldest line the buffer holds — only reachable if the buffer
+			// shrank under a stale offset; render it blank rather than out of range.
+			line = ""
+		case vi < sbLen:
+			if l := sb.Line(vi); l != nil {
+				line = l.Render()
+			}
+		default:
+			if si := vi - sbLen; si >= 0 && si < len(screen) {
+				line = screen[si]
+			}
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }

@@ -103,6 +103,11 @@ func (m *model) modeChip() string {
 		return chipStyle.Render("✎ " + s.editor().name)
 	case m.browsing:
 		return chipStyle.Render("▤ sftp")
+	case m.focused && m.scrolling && s != nil && s.shell() != nil:
+		// A distinct chip while paused in history: the offset and how far back the
+		// scrollback runs, so you can see where in it you are.
+		p := s.shell().pane
+		return accentText.Bold(true).Render(fmt.Sprintf("⇅ scrollback %d/%d", p.ScrollOffset(), p.ScrollbackLen()))
 	case m.focused:
 		chip := greenText.Bold(true).Render("● " + m.active)
 		if s != nil && len(s.shells) > 1 {
@@ -163,7 +168,13 @@ func (m *model) renderRight(h int) string {
 
 	// A live shell, with its strip of tabs once there is a second one to switch to.
 	case m.active != "" && s != nil && s.shell() != nil:
+		// In scrollback mode the pane shows a window onto its history rather than the
+		// live screen, but the same number of lines, so the tab strip and border are
+		// unaffected.
 		content := s.shell().pane.View()
+		if m.focused && m.scrolling {
+			content = s.shell().pane.ViewScrollback()
+		}
 		if len(s.shells) > 1 {
 			content = m.renderShellTabs(s) + "\n" + content
 		}
@@ -212,6 +223,12 @@ func (m *model) renderFooter() string {
 			keyHint("ctrl+o", "back"),
 		}
 
+	case m.scrolling && m.focused && m.active != "":
+		hints = []string{
+			keyHint("↑↓", "scroll"), keyHint("pgup/pgdn", "page"),
+			keyHint("g/G", "top/live"), keyHint("esc", "back to live"),
+		}
+
 	case m.focused && m.active != "":
 		// alt+0 is named even on a host with one shell — it is the key that *makes*
 		// the second one, so a footer that waited for a second shell to mention it
@@ -220,6 +237,12 @@ func (m *model) renderFooter() string {
 		s := m.sessions[m.active]
 		if s != nil && len(s.shells) > 1 {
 			hints = append(hints, keyHint("alt+←→", "shell"), keyHint("alt+1-9", "jump"))
+		}
+		// shift+↑ enters scrollback, but only where there is history to see and no
+		// full-screen program owns the screen — the same conditions the entry chord
+		// itself checks, so the hint never offers what the key would decline.
+		if s != nil && s.shell() != nil && !s.shell().pane.AltScreen() && s.shell().pane.ScrollbackLen() > 0 {
+			hints = append(hints, keyHint("shift+↑", "scrollback"))
 		}
 		// ← is hop's only while the shell has no use for it, and this line is the one
 		// place that can say *so it is, right now*: it appears at a bare prompt and

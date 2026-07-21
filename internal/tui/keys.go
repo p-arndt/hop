@@ -33,6 +33,8 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleEditorKey(msg)
 	case m.browsing && m.active != "":
 		return m.handleBrowserKey(msg)
+	case m.scrolling && m.focused && m.active != "":
+		return m.handleScrollbackKey(msg)
 	case m.focused && m.active != "":
 		return m.handleShellKey(msg)
 	case m.filtering:
@@ -329,6 +331,22 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.leavePane()
 			return m, nil
 		}
+
+	case "shift+up":
+		// Enter scrollback and step one line up. When there is nothing scrolled off
+		// (or a full-screen program owns the screen), enterScrollback declines and we
+		// do not return — the key falls through to the shell like any other.
+		if m.enterScrollback(s) {
+			s.shell().pane.ScrollUp(1)
+			return m, nil
+		}
+
+	case "shift+pgup":
+		// The same entry, a page at a time.
+		if m.enterScrollback(s) {
+			s.shell().pane.ScrollUp(m.scrollPage())
+			return m, nil
+		}
 	}
 
 	// alt+1 … alt+9 jump straight to a shell, ignoring one that is not open.
@@ -373,6 +391,110 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ← will actually do.
 func backsOut(sh *shellTab) bool {
 	return sh != nil && sh.pane.LineEmpty() && !sh.pane.AltScreen()
+}
+
+// ---- scrollback ----
+
+// enterScrollback puts the focused shell pane into scrollback mode, or reports
+// that there is nothing to scroll and leaves the mode untouched. It is the guard
+// the entry chords lean on: they only commit — and only swallow the key — when it
+// returns true.
+//
+// A full-screen program (vim/htop/less) owns its own scrolling and keeps no
+// scrollback here; and with nothing scrolled off there is nothing to show. In
+// either case the key is better spent on the shell.
+func (m *model) enterScrollback(s *session) bool {
+	if s == nil || s.shell() == nil {
+		return false
+	}
+	p := s.shell().pane
+	if p.AltScreen() || p.ScrollbackLen() == 0 {
+		return false
+	}
+	m.scrolling = true
+	m.clearStatus()
+	return true
+}
+
+// handleScrollbackKey drives the history viewport while a shell pane is scrolled
+// back. The motion keys move within the scrollback; the ways out (and any key the
+// viewport has no use for) snap back to the live bottom and hand the keyboard back
+// to the shell. Reaching the bottom by scrolling is itself a way out: the point of
+// scrollback is to look at what went by, so arriving at the live tail means you are
+// done looking.
+func (m *model) handleScrollbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	s := m.sessions[m.active]
+	if s == nil || s.shell() == nil {
+		// The session went away under us; there is nothing left to scroll.
+		m.scrolling = false
+		return m, nil
+	}
+	p := s.shell().pane
+
+	switch msg.String() {
+	case "up", "k", "shift+up":
+		p.ScrollUp(1)
+
+	case "down", "j", "shift+down":
+		p.ScrollDown(1)
+		if p.AtBottom() {
+			m.exitScrollback()
+		}
+
+	case "pgup", "ctrl+b", "shift+pgup":
+		p.ScrollUp(m.scrollPage())
+
+	case "pgdown", "ctrl+f", "shift+pgdown":
+		p.ScrollDown(m.scrollPage())
+		if p.AtBottom() {
+			m.exitScrollback()
+		}
+
+	case "ctrl+u":
+		p.ScrollUp(m.scrollHalf())
+
+	case "ctrl+d":
+		p.ScrollDown(m.scrollHalf())
+		if p.AtBottom() {
+			m.exitScrollback()
+		}
+
+	case "g", "home":
+		p.ScrollToTop()
+
+	case "G", "end":
+		p.ScrollToBottom()
+		m.exitScrollback()
+
+	case "q", "esc", "enter", "i", "ctrl+o", "left", "right":
+		// The deliberate ways out. ctrl+o here only leaves scrollback, back to the
+		// live shell — a second ctrl+o then leaves the pane, the consistent "back one
+		// level" the rest of hop keeps to. None of these reach the shell.
+		m.exitScrollback()
+
+	default:
+		// Any other key — a letter, most likely — means you are done reading and want
+		// to type: leave history and forward the key so it starts the line.
+		m.exitScrollback()
+		if s := m.sessions[m.active]; s != nil && s.shell() != nil {
+			s.shell().pane.SendKey(msg)
+		}
+	}
+	return m, nil
+}
+
+// scrollPage / scrollHalf are the page and half-page steps for scrollback mode,
+// tracking the pane height so they move by roughly what you can see.
+func (m *model) scrollPage() int { return max(m.paneH-1, 1) }
+func (m *model) scrollHalf() int { return max(m.paneH/2, 1) }
+
+// exitScrollback returns from scrollback mode to the live shell, snapping the
+// viewport back to the bottom so the next entry starts fresh at the prompt.
+func (m *model) exitScrollback() {
+	m.scrolling = false
+	if s := m.sessions[m.active]; s != nil && s.shell() != nil {
+		s.shell().pane.ScrollToBottom()
+	}
 }
 
 // ---- editor pane ----
@@ -453,6 +575,7 @@ func (m *model) escChord() bool {
 
 // leavePane returns from a focused terminal pane to navigation mode.
 func (m *model) leavePane() {
+	m.exitScrollback() // resets scrolling + the pane's offset while m.active is still set
 	m.focused = false
 	m.clearStatus()
 	m.lastEsc = time.Time{}
@@ -484,6 +607,7 @@ func (m *model) leaveAll() {
 	m.focused = false
 	m.browsing = false
 	m.editing = false
+	m.scrolling = false
 }
 
 // ---- key helpers ----

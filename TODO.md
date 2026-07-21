@@ -50,7 +50,7 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 - [x] Cursor visible (reverse-video overlay at `CursorPosition`); typing lag removed (event-driven redraw); visual pass (keycap pills, `HOSTS` section, 3-state status dots incl. yellow `◐` connecting, accent selection bar, status badges).
 - [x] **Settings popover:** `,` opens a floating card (`internal/tui/overlay.go` composites over the finished screen via `x/ansi`) over `internal/config` — editor, download dir, accent, open-with. Stored as JSON at `%AppData%\hop\config.json`, applied live on save.
 - [ ] Cursor: respect hidden state and cursor style (block/bar/underline); optional blink.
-- [ ] Scrollback UI: emulator keeps scrollback but there's no key to scroll up in a pane.
+- [x] Scrollback UI: `shift+↑` (one line) or `shift+pgup` (a page) pauses a focused shell into its history; `↑`/`↓` or `j`/`k` move a line, `pgup`/`pgdn` (or `ctrl+b`/`ctrl+f`) a page, `ctrl+u`/`ctrl+d` a half, `g`/`home` to the top, `G`/`end` back to live. `esc`/`q`/`ctrl+o`/`enter`/`←` (or scrolling back to the bottom) return to the live shell. Off on the alt screen and when there's no scrollback.
 - [ ] Mouse support (scroll/click) in panes and lists.
 - [ ] Narrow-terminal handling: header/footer truncation and min-size behavior.
 - [ ] Copy/paste into the remote shell.

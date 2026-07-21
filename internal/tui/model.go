@@ -73,6 +73,12 @@ type model struct {
 	// focused and browsing.
 	editing bool
 
+	// scrolling is true when the focused shell pane is in scrollback mode: keys drive
+	// the history viewport (see handleScrollbackKey) instead of going to the remote
+	// shell, and the pane renders ViewScrollback() rather than View(). Only meaningful
+	// while focused; entering requires a shell on the main screen with scrollback to show.
+	scrolling bool
+
 	// help is true while the keybinding card is up. Like the settings popover it
 	// is modal, and it floats over the screen rather than replacing it.
 	help bool
