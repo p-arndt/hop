@@ -48,7 +48,7 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 ## ⌨️ Terminal / UX polish
 
 - [x] Cursor visible (reverse-video overlay at `CursorPosition`); typing lag removed (event-driven redraw); visual pass (keycap pills, `HOSTS` section, 3-state status dots incl. yellow `◐` connecting, accent selection bar, status badges).
-- [x] **Settings popover:** `,` opens a floating card (`internal/tui/overlay.go` composites over the finished screen via `x/ansi`) over `internal/config` — editor, download dir, accent, open-with. Stored as JSON at `%AppData%\hop\config.json`, applied live on save.
+- [x] **Settings popover:** `,` opens a floating card (`internal/tui/overlay.go` composites over the finished screen via `x/ansi`) over `internal/config` — editor, download dir, accent, open-with. Stored as JSON at `<UserConfigDir>/hop/config.json` (`%AppData%\hop\` on Windows, `~/Library/Application Support/hop/` on macOS), applied live on save.
 - [ ] Cursor: respect hidden state and cursor style (block/bar/underline); optional blink.
 - [x] Scrollback UI: `shift+↑` (one line) or `shift+pgup` (a page) pauses a focused shell into its history; `↑`/`↓` or `j`/`k` move a line, `pgup`/`pgdn` (or `ctrl+b`/`ctrl+f`) a page, `ctrl+u`/`ctrl+d` a half, `g`/`home` to the top, `G`/`end` back to live. `esc`/`q`/`ctrl+o`/`enter`/`←` (or scrolling back to the bottom) return to the live shell. Off on the alt screen and when there's no scrollback.
 - [ ] Mouse support (scroll/click) in panes and lists.
@@ -59,7 +59,10 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 
 - [ ] Config file: keybindings and default user (accent/download dir/editor/open-with are done — see the settings popover).
 - [ ] Put `hop` on PATH; ship a build/install script; write a README.
-- [ ] Cross-platform (macOS/Linux) — currently Windows-first (Windows OpenSSH agent named pipe; agent access needs an OS abstraction).
+- [x] **Cross-platform build (macOS/Linux):** the agent transport is now behind a build-tagged `dialAgent` — `internal/sshx/agent_windows.go` (named pipe) and `agent_unix.go` (`$SSH_AUTH_SOCK` unix socket). `go build`/`vet`/`test` are green on darwin; `GOOS=windows`/`linux` cross-build clean. Config/known_hosts/download paths already used `os.UserConfigDir`/`UserHomeDir`.
+- [x] **Release/CI for all platforms:** CI tests on a windows/ubuntu/macos matrix; the release workflow gates on that matrix, then cross-compiles all six targets (windows/linux/darwin × amd64/arm64) from one Linux runner — `.zip` for Windows, `.tar.gz` elsewhere so the exec bit survives.
+- [x] **Universal `justfile`:** recipe bodies are plain commands that run under both `sh` and PowerShell; the binary suffix, VERSION read and build timestamp come from just's built-ins (`os_family()`, `read()`, `datetime_utc()`) instead of shell commands, and the two recipes that need real shell logic (`fmt-check`, `clean`) are split with `[unix]`/`[windows]` attributes. Needs just >= 1.39.
+- [ ] Cross-platform follow-ups: `action.NewTab` (wt.exe/pwsh) is Windows-only and currently unused; `filebrowser`'s executable-open guard is Windows-shaped and does nothing useful on Unix; `ci.yml` runs vet + test but not `just ci`, so `fmt-check` is never enforced.
 
 ## 🧪 Testing
 

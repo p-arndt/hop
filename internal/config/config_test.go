@@ -6,15 +6,24 @@ import (
 	"testing"
 )
 
-// isolate points os.UserConfigDir at a throwaway directory, so the tests never
-// touch the real config file. It covers both the Windows (%AppData%) and the
-// Unix (XDG_CONFIG_HOME) lookups.
+// isolate points os.UserConfigDir at a throwaway directory and returns the
+// directory the config file will actually land in, so the tests never touch the
+// real one. Each platform reads a different variable — %AppData% on Windows,
+// $XDG_CONFIG_HOME on Linux, $HOME/Library/Application Support on macOS (which
+// ignores XDG entirely) — so all three are redirected and the resulting
+// directory is derived from Path() rather than assumed.
 func isolate(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("AppData", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
-	return dir
+	t.Setenv("HOME", dir)
+
+	path, err := Path()
+	if err != nil {
+		t.Fatalf("Path: %v", err)
+	}
+	return filepath.Dir(path)
 }
 
 // A round trip through the file must return exactly what was saved.
@@ -56,7 +65,7 @@ func TestLoadMissingFileYieldsDefaults(t *testing.T) {
 // setting is recoverable; being locked out of your hosts is not.
 func TestLoadCorruptFileYieldsDefaults(t *testing.T) {
 	dir := isolate(t)
-	path := filepath.Join(dir, "hop", "config.json")
+	path := filepath.Join(dir, "config.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -73,7 +82,7 @@ func TestLoadCorruptFileYieldsDefaults(t *testing.T) {
 // inheriting Go's zero values (an empty accent would render as no colour at all).
 func TestLoadPartialFileFillsDefaults(t *testing.T) {
 	dir := isolate(t)
-	path := filepath.Join(dir, "hop", "config.json")
+	path := filepath.Join(dir, "config.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -101,7 +110,7 @@ func TestSaveLeavesNoTempFile(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	entries, err := os.ReadDir(filepath.Join(dir, "hop"))
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
 	}

@@ -13,9 +13,13 @@ import (
 // saving a setting cannot touch the real one.
 func settingsModel(t *testing.T) *model {
 	t.Helper()
+	// Redirect every variable os.UserConfigDir consults — %AppData% on Windows,
+	// $XDG_CONFIG_HOME on Linux, $HOME on macOS, which ignores XDG — or saving a
+	// setting here rewrites the developer's own config.
 	dir := t.TempDir()
 	t.Setenv("AppData", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
 
 	m := &model{
 		sessions: map[string]*session{},

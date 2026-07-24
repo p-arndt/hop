@@ -450,15 +450,15 @@ func TestExecutableName(t *testing.T) {
 		want bool
 	}{
 		{"evil.exe", true},
-		{"Evil.EXE", true},         // the deny-list is case-insensitive
-		{"note.pdf.hta", true},     // only the final extension counts
-		{"evil.exe .", true},       // trailing dot and space are stripped by Windows
+		{"Evil.EXE", true},     // the deny-list is case-insensitive
+		{"note.pdf.hta", true}, // only the final extension counts
+		{"evil.exe .", true},   // trailing dot and space are stripped by Windows
 		{"setup.MSI", true},
 		{"shortcut.lnk", true},
 		{"report.pdf", false},
 		{"main.go", false},
-		{"README", false},          // no extension at all
-		{"archive.tar.gz", false},  // .gz is not executable
+		{"README", false},         // no extension at all
+		{"archive.tar.gz", false}, // .gz is not executable
 	}
 	for _, tc := range cases {
 		if got := executableName(tc.name); got != tc.want {

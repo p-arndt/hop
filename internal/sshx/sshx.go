@@ -1,9 +1,10 @@
 // Package sshx implements the pure-Go SSH engine for hop.
 //
-// It authenticates exclusively through the Windows OpenSSH agent (named pipe
-// \\.\pipe\openssh-ssh-agent) and speaks SSH via golang.org/x/crypto/ssh.
-// Host-key verification uses a TOFU (trust-on-first-use) wrapper around the
-// user's ~/.ssh/known_hosts file.
+// It authenticates exclusively through the running OpenSSH agent — the named
+// pipe \\.\pipe\openssh-ssh-agent on Windows, the $SSH_AUTH_SOCK unix socket
+// everywhere else (see agent_windows.go / agent_unix.go) — and speaks SSH via
+// golang.org/x/crypto/ssh. Host-key verification uses a TOFU
+// (trust-on-first-use) wrapper around the user's ~/.ssh/known_hosts file.
 package sshx
 
 import (
@@ -18,16 +19,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Microsoft/go-winio"
 	"github.com/skeema/knownhosts"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
 	"hop/internal/store"
 )
-
-// agentPipe is the well-known named pipe exposed by the Windows OpenSSH agent.
-const agentPipe = `\\.\pipe\openssh-ssh-agent`
 
 // dialTimeout bounds the whole TCP+handshake for a connection attempt.
 const dialTimeout = 15 * time.Second
@@ -80,12 +77,14 @@ type Client struct {
 	NewHostKey string
 }
 
-// AgentAuth builds an ssh.AuthMethod backed by the Windows OpenSSH agent.
-// It returns a clear error if the agent pipe cannot be reached.
+// AgentAuth builds an ssh.AuthMethod backed by the platform's OpenSSH agent.
+// It returns a clear error if the agent cannot be reached — the transport
+// differs per platform, but the failure the user has to act on ("no agent") is
+// the same one either way.
 func AgentAuth() (ssh.AuthMethod, error) {
-	conn, err := winio.DialPipe(agentPipe, nil)
+	conn, err := dialAgent()
 	if err != nil {
-		return nil, fmt.Errorf("sshx: cannot reach OpenSSH agent at %s (is the ssh-agent service running?): %w", agentPipe, err)
+		return nil, fmt.Errorf("sshx: %w", err)
 	}
 	ag := agent.NewClient(conn)
 	return ssh.PublicKeysCallback(ag.Signers), nil

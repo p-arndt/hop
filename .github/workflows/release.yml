@@ -30,12 +30,41 @@ on:
         default: true
 
 jobs:
-  # hop is Windows-only (Windows named pipes), so the binaries must be built on
-  # a Windows runner — no cross-compile from Linux. This job resolves the
-  # version, builds both Windows arches, and uploads the archives as an
-  # artifact for the release job to publish.
+  # Nothing gets built or published from a commit that fails vet + tests — and
+  # the platform-specific halves (the agent transport, the local-open handler)
+  # are exactly what a single-OS run would miss, so all three are gated here
+  # rather than inside the build job.
+  test:
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+  # Every target is a static CGO_ENABLED=0 build, so all six cross-compile from
+  # one Linux runner — no per-OS build matrix, and no runner-to-runner drift in
+  # the archives. This job resolves the version, builds them, and uploads the
+  # archives as an artifact for the release job to publish.
   build:
-    runs-on: windows-latest
+    needs: test
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
       VERSION: ${{ steps.version.outputs.VERSION }}
@@ -98,49 +127,52 @@ jobs:
           echo "PRERELEASE=$PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "DRAFT=$DRAFT"       >> "$GITHUB_OUTPUT"
 
-      - name: Test
-        # Nothing gets built or published from a commit that fails vet + tests.
-        run: |
-          go vet ./...
-          go test ./...
-
-      - name: Build static binaries (Windows amd64 + arm64)
-        # CGO_ENABLED=0 links no libc -> fully static, portable binaries.
+      - name: Build static binaries (windows, linux, darwin — amd64 + arm64)
+        # CGO_ENABLED=0 links no libc -> fully static, portable binaries, and is
+        # what makes cross-compiling every target from this one runner possible.
         # -trimpath drops local paths; -s -w strips symbols/DWARF. Version
         # metadata is injected into internal/buildinfo via -X.
-        shell: pwsh
+        shell: bash
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          $commit = (git rev-parse --short HEAD).Trim()
-          $date = (Get-Date -AsUTC -Format o)
-          $ldflags = "-s -w " +
-            "-X hop/internal/buildinfo.Version=$env:VERSION " +
-            "-X hop/internal/buildinfo.Commit=$commit " +
-            "-X hop/internal/buildinfo.Date=$date"
+          set -euo pipefail
+          commit="$(git rev-parse --short HEAD)"
+          date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          ldflags="-s -w \
+            -X hop/internal/buildinfo.Version=$VERSION \
+            -X hop/internal/buildinfo.Commit=$commit \
+            -X hop/internal/buildinfo.Date=$date"
 
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $env:CGO_ENABLED = '0'
-          $env:GOOS = 'windows'
-          foreach ($arch in 'amd64', 'arm64') {
-            $env:GOARCH = $arch
-            Write-Host "-> building windows/$arch"
-            if (Test-Path stage) { Remove-Item -Recurse -Force stage }
-            New-Item -ItemType Directory -Force -Path stage | Out-Null
-            go build -trimpath -ldflags "$ldflags" -o stage/hop.exe .
-            if ($LASTEXITCODE -ne 0) { throw "build failed for windows/$arch" }
-            $name = "hop_${env:VERSION}_windows_$arch"
-            Compress-Archive -Path stage/hop.exe -DestinationPath "dist/$name.zip" -Force
-          }
+          mkdir -p dist
+          export CGO_ENABLED=0
+          for target in windows/amd64 windows/arm64 \
+                        linux/amd64 linux/arm64 \
+                        darwin/amd64 darwin/arm64; do
+            export GOOS="${target%/*}" GOARCH="${target#*/}"
+            echo "-> building $GOOS/$GOARCH"
+
+            rm -rf stage && mkdir -p stage
+            # Windows wants the .exe suffix; everything else must not have one,
+            # or the extracted binary is unrunnable without a rename.
+            bin="hop"
+            if [ "$GOOS" = "windows" ]; then bin="hop.exe"; fi
+            go build -trimpath -ldflags "$ldflags" -o "stage/$bin" .
+
+            # zip on Windows, tar.gz elsewhere: the tarball preserves the exec
+            # bit, which a zip would drop and leave users chmod-ing by hand.
+            name="hop_${VERSION}_${GOOS}_${GOARCH}"
+            if [ "$GOOS" = "windows" ]; then
+              (cd stage && zip -q "../dist/$name.zip" "$bin")
+            else
+              tar -czf "dist/$name.tar.gz" -C stage "$bin"
+            fi
+          done
+          rm -rf stage
 
           # Checksums over the archives (computed before the file itself exists).
-          $lines = Get-ChildItem dist -Filter *.zip | ForEach-Object {
-            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-            "$h  $($_.Name)"
-          }
-          Set-Content -Path "dist/hop_${env:VERSION}_checksums.txt" -Value $lines -NoNewline:$false
-          Get-ChildItem dist | Format-Table Name, Length
+          (cd dist && sha256sum *.zip *.tar.gz > "hop_${VERSION}_checksums.txt")
+          ls -l dist
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.4.3
@@ -150,9 +182,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Changelog generation (orhun/git-cliff-action) is a Docker action, which
-  # only runs on Linux — so publishing happens on ubuntu after downloading the
-  # Windows-built archives.
+  # Changelog generation (orhun/git-cliff-action) is a Docker action, which only
+  # runs on Linux — so publishing happens on ubuntu after downloading the
+  # archives the build job produced.
   release:
     needs: build
     runs-on: ubuntu-latest

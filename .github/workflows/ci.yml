@@ -13,9 +13,15 @@ concurrency:
 
 jobs:
   test:
-    # hop is Windows-only (it uses Windows named pipes for the SSH agent /
-    # terminal plumbing), so it only builds and tests on Windows.
-    runs-on: windows-latest
+    # The SSH agent transport is per-platform (a named pipe on Windows, the
+    # $SSH_AUTH_SOCK unix socket elsewhere), and so is the local-open handler,
+    # so each OS compiles a different half of the code — a single-OS run cannot
+    # tell whether the others still build.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
 
     steps:
