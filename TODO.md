@@ -42,6 +42,7 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 ## 🔐 Connection & auth
 
 - [x] **known_hosts:** an unknown key aborts the dial (`sshx.UnknownHostKeyError`, nothing appended) and the TUI shows a modal "NEW HOST KEY" card (`internal/tui/hostkey.go`) with the fingerprint; `y` retries via `sshx.ConnectTrusting` (appends only if the presented key matches the approved fingerprint), `n`/`esc` trusts nothing. A known-host mismatch stays a hard error.
+- [x] **Private-key auth (agent no longer required):** `internal/sshx/keys.go` loads the host's `IdentityFile` (with `~` expansion) or the default `~/.ssh/id_{ed25519,ecdsa,rsa,dsa}`, and `authMethods` merges those signers with the agent's into a **single** publickey method — the SSH client tries each method name only once, so a separate agent method would swallow the attempt. Fixes connecting on macOS, where launchd always exports `$SSH_AUTH_SOCK` but the agent holds no identities until `ssh-add`. Passphrase-protected and missing-`IdentityFile` keys are reported in the "no usable authentication" error.
 - [ ] Reconnect handling: detect a dropped session, mark it dead, offer reconnect (a dead pane just stops updating today).
 - [ ] Deferred (not needed for current setup): password auth, 2FA/OTP passthrough, ProxyJump/bastion, PuTTY session import.
 

@@ -1,10 +1,11 @@
 // Package sshx implements the pure-Go SSH engine for hop.
 //
-// It authenticates exclusively through the running OpenSSH agent — the named
+// It authenticates by public key, offering the running OpenSSH agent — the named
 // pipe \\.\pipe\openssh-ssh-agent on Windows, the $SSH_AUTH_SOCK unix socket
-// everywhere else (see agent_windows.go / agent_unix.go) — and speaks SSH via
-// golang.org/x/crypto/ssh. Host-key verification uses a TOFU
-// (trust-on-first-use) wrapper around the user's ~/.ssh/known_hosts file.
+// everywhere else (see agent_windows.go / agent_unix.go) — and private keys read
+// from disk (see keys.go), and speaks SSH via golang.org/x/crypto/ssh. Host-key
+// verification uses a TOFU (trust-on-first-use) wrapper around the user's
+// ~/.ssh/known_hosts file.
 package sshx
 
 import (
@@ -90,6 +91,68 @@ func AgentAuth() (ssh.AuthMethod, error) {
 	return ssh.PublicKeysCallback(ag.Signers), nil
 }
 
+// authMethods assembles the auth to offer for h from two sources: the OpenSSH
+// agent's identities, and private keys read from disk — the host's IdentityFile
+// if it names one, otherwise the default ~/.ssh keys.
+//
+// Neither source is required, only their union: a running agent that holds no
+// identities is the normal state on macOS (launchd always exports
+// $SSH_AUTH_SOCK), and an agent with the right key loaded makes the key files
+// irrelevant. Failing only when both come up empty is what makes hop connect
+// wherever plain `ssh` does.
+//
+// The two sets are merged into a *single* publickey method rather than offered
+// as two. The SSH client tries each method name at most once — a second
+// "publickey" entry is skipped outright — so agent-then-keys as separate methods
+// would let an empty agent swallow the attempt and never reach the key files.
+func authMethods(h store.Host) ([]ssh.AuthMethod, error) {
+	signers, agentErr := agentSigners()
+
+	keys, skipped := keySigners(h.IdentityFile)
+	signers = append(signers, keys...)
+
+	if len(signers) == 0 {
+		return nil, noAuthError(agentErr, skipped)
+	}
+	return []ssh.AuthMethod{ssh.PublicKeys(signers...)}, nil
+}
+
+// agentSigners returns the identities held by the OpenSSH agent. The connection
+// is deliberately left open: each signer signs over it, so closing it here would
+// break every signature it produces. It is released when the process exits.
+func agentSigners() ([]ssh.Signer, error) {
+	conn, err := dialAgent()
+	if err != nil {
+		return nil, fmt.Errorf("sshx: %w", err)
+	}
+	signers, err := agent.NewClient(conn).Signers()
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("sshx: read agent identities: %w", err)
+	}
+	return signers, nil
+}
+
+// noAuthError explains why nothing could be offered, naming both halves of the
+// failure — an unusable agent and any key file that was found but skipped —
+// since the fix ("add your key to the agent", "fix that path") depends on which
+// one the user actually meant to use.
+func noAuthError(agentErr error, skipped []string) error {
+	var b strings.Builder
+	b.WriteString("sshx: no usable authentication: ")
+	if agentErr != nil {
+		b.WriteString(strings.TrimPrefix(agentErr.Error(), "sshx: "))
+	} else {
+		b.WriteString("the ssh-agent holds no identities")
+	}
+	if len(skipped) > 0 {
+		b.WriteString("; skipped keys: " + strings.Join(skipped, ", "))
+	} else {
+		b.WriteString("; no usable private key found (try `ssh-add ~/.ssh/id_ed25519`)")
+	}
+	return errors.New(b.String())
+}
+
 // UnknownHostKeyError is returned by Connect when the host is met for the first
 // time and no fingerprint has been approved for it yet. It carries what the UI
 // needs to ask the user to trust the key, and nothing is written to known_hosts:
@@ -125,7 +188,7 @@ func ConnectTrusting(h store.Host, fingerprint string) (*Client, error) {
 // connect is the shared dial body. trustedFP is empty for a plain TOFU-guarded
 // dial and the user-approved fingerprint for a trusting retry.
 func connect(h store.Host, trustedFP string) (*Client, error) {
-	auth, err := AgentAuth()
+	auths, err := authMethods(h)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +212,7 @@ func connect(h store.Host, trustedFP string) (*Client, error) {
 	var newKey string
 	cfg := &ssh.ClientConfig{
 		User: username,
-		Auth: []ssh.AuthMethod{auth},
+		Auth: auths,
 		// Ask the server for the key types we already trust for this host.
 		// Without this the server may answer with a type we have no entry for
 		// (e.g. ecdsa when known_hosts holds ed25519), which knownhosts reports

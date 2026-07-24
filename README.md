@@ -53,7 +53,7 @@ disorienting thing about a TUI that embeds other people's programs.
 
 |  | |
 | --- | --- |
-| 🖥️ **Embedded SSH shells** | Real terminals in a pane — a pure-Go SSH client (`x/crypto/ssh`) feeding a real VT emulator (`x/vt`). Agent auth, resize, cursor, the lot. |
+| 🖥️ **Embedded SSH shells** | Real terminals in a pane — a pure-Go SSH client (`x/crypto/ssh`) feeding a real VT emulator (`x/vt`). Agent *or* private-key auth, resize, cursor, the lot. |
 | 🗂️ **Multiple shells per host** | `S` (or `alt+0`) opens another shell on a host you're already on — a second *channel*, no new handshake, no second auth. Tabs across the top, `alt+1…9` to jump. |
 | 📁 **SFTP file browser** | `f` browses the remote filesystem over the connection you already have. Download with `d`, open locally with `o`. |
 | ✎ **Remote editor tabs** | `enter` on a file runs `$EDITOR` **on the server** on a second channel and renders it in a tab. No download, no copy — `:w` writes the real file. |
