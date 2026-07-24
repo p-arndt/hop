@@ -62,6 +62,11 @@ type model struct {
 	// parsed, so the UI repaints event-driven (no polling ticker).
 	notify chan struct{}
 
+	// keycast is the on-screen trail of recent keys used when recording the demo.
+	// It holds nothing and draws nothing unless hop was built with `-tags hopdemo`
+	// (see keycast.go / keycast_off.go).
+	keycast keycastState
+
 	// active is the alias of the session shown/focused in the right pane
 	// ("" means navigation/details mode).
 	active string
@@ -243,6 +248,7 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		m.keycastRecord(msg.String())
 		return m.handleKey(msg)
 	}
 

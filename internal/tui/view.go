@@ -33,7 +33,9 @@ func (m *model) View() string {
 		x, y := centered(m.width, m.height, lipgloss.Width(card), lipgloss.Height(card))
 		screen = overlay(screen, card, x, y)
 	}
-	return screen
+	// Last, so the key trail floats over the cards too. A no-op in every build that
+	// is not the demo recording.
+	return m.keycastDraw(screen)
 }
 
 // modalCard is the popover currently up, or "" when there is none. Only one can

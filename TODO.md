@@ -28,7 +28,7 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 - [ ] Transfer progress + async transfers (currently synchronous → large files stall the UI).
 - [ ] Sort toggle (name/size/mtime) and show mtime column.
 - [ ] Confirm before overwriting an existing local download.
-- [ ] Live-verify the browser look with a real host (not yet screenshotted).
+- [x] Browser look verified end-to-end and screenshotted — `assets/screens/sftp.png`, recorded against the demo server (`just demo`). A live *real* host is still Patrick's side.
 
 ## 🖥️ Host management
 
@@ -59,6 +59,7 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 ## ⚙️ Config & distribution
 
 - [ ] Config file: keybindings and default user (accent/download dir/editor/open-with are done — see the settings popover).
+- [x] **Demo recording:** `just demo` (`scripts/demo.mjs`) records `assets/demo.gif` + `assets/screens/*.png` from `demo/hop.tape` with VHS. `tools/demoserver` is a loopback-only fake SSH host (canned shell, in-memory SFTP tree, fake vi, seeded host db, generated client/host keys) so the recording contains nothing real and anyone can re-run it. The keypress overlay is hop's own, behind `-tags hopdemo` (`internal/tui/keycast.go`), absent from released binaries.
 - [x] **README:** `README.md` — hero + ASCII screenshot of the two-pane layout, feature table, install (release archives + from source), quick start incl. the CLI subcommands, where `hop.db`/`config.json`/`known_hosts` live, a collapsed key reference per mode linking to [KEYBINDINGS.md](KEYBINDINGS.md), an architecture map of `internal/*`, the `just` recipes and release flow, and a roadmap pointing back here.
 - [ ] Put `hop` on PATH; ship a build/install script.
 - [x] **Cross-platform build (macOS/Linux):** the agent transport is now behind a build-tagged `dialAgent` — `internal/sshx/agent_windows.go` (named pipe) and `agent_unix.go` (`$SSH_AUTH_SOCK` unix socket). `go build`/`vet`/`test` are green on darwin; `GOOS=windows`/`linux` cross-build clean. Config/known_hosts/download paths already used `os.UserConfigDir`/`UserHomeDir`.

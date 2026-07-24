@@ -127,6 +127,19 @@ release BUMP="patch":
     node scripts/release.mjs {{BUMP}}
 
 # ---------------------------------------------------------------------------
+# Docs
+# ---------------------------------------------------------------------------
+
+# Re-records assets/demo.gif and assets/screens/*.png from demo/hop.tape. Needs
+# `vhs` (brew install vhs). Nothing real is recorded: the script points hop at a
+# throwaway HOME and a fake SSH server (tools/demoserver) that invents the hosts,
+# the files and the command output, so anyone can re-record it safely.
+
+# Record the README demo.
+demo:
+    node scripts/demo.mjs
+
+# ---------------------------------------------------------------------------
 # Housekeeping
 # ---------------------------------------------------------------------------
 

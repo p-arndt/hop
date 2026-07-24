@@ -27,27 +27,60 @@ host and everything you left behind is still exactly where you left it.
 
 ## 🎬 What it looks like
 
-```text
- hop  ssh manager › prod-web-1                      ● prod-web-1  shell 2/2   2 sessions   ✓ connected
+<p align="center">
+  <img src="./assets/demo.gif" alt="hop: filter the fleet, open a shell, open a second one, browse the files, edit one on the server" width="900">
+</p>
 
-╭─────────────────────────╮╭──────────────────────────────────────────────────────────────────────────╮
-│ HOSTS  6                ││ shell 1 │ shell 2                                                        │
-│                         ││                                                                          │
-│   ● prod-web-1  ×2 ▤    ││ deploy@prod-web-1:~$ systemctl status caddy                              │
-│ ▌ ● prod-db     [infra] ││ ● caddy.service - Caddy web server                                       │
-│   ◐ staging             ││      Loaded: loaded (/lib/systemd/system/caddy.service; enabled)         │
-│   ○ build-box   #ci     ││      Active: active (running) since Fri 2026-07-24 09:12:03 UTC          │
-│   ○ nas         [home]  ││    Main PID: 812 (caddy)                                                 │
-│   ○ router              ││                                                                          │
-│                         ││ deploy@prod-web-1:~$ █                                                   │
-╰─────────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
- ↑↓ move   ⏎ connect   S shell   f files   o code   / filter   a add   e edit   , settings   ? keys
-```
-
-`●` connected · `◐` connecting · `○` idle · `×2` two shells open · `▤` SFTP browser open
+<sub>Keys are shown bottom-right as they're pressed. `●` connected · `◐` connecting ·
+`○` idle · `×2` two shells open · `▤` SFTP browser open</sub>
 
 The header always tells you **where your keystrokes are going** — the single most
 disorienting thing about a TUI that embeds other people's programs.
+
+<details>
+<summary><b>Stills</b> — the host list, a shell, two shells, the file browser, a remote editor, settings, the keys card</summary>
+
+<p align="center">
+  <img src="./assets/screens/hosts.png" alt="The host list with the details card for the host under the cursor" width="800"><br>
+  <sub><b>The host list.</b> Status dot, group, and what `enter` would do to the host under the cursor.</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/screens/shell.png" alt="A live remote shell in a hop pane" width="800"><br>
+  <sub><b>A shell.</b> A real terminal in the pane; the footer shows the three ways back out.</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/screens/shells.png" alt="Two shells on one host, shown as a tab strip" width="800"><br>
+  <sub><b>Two shells, one connection.</b> `S` (or `alt+0`) opens another channel — no second handshake.</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/screens/sftp.png" alt="The SFTP file browser" width="800"><br>
+  <sub><b>The SFTP browser.</b> `f`, over the connection that's already open.</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/screens/editor.png" alt="A file open in a remote editor tab inside hop" width="800"><br>
+  <sub><b>A remote editor tab.</b> `enter` on a file runs the editor <i>on the server</i> — `:w` writes the real file.</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/screens/settings.png" alt="The settings popover" width="800"><br>
+  <sub><b>Settings.</b> `,` — the accent is a swatch strip that recolours hop as you walk it.</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/screens/keys.png" alt="The keys card listing every binding" width="800"><br>
+  <sub><b>Every key hop binds.</b> `?` — and it lists the keyboard you actually have, vim motions included only if you turned them on.</sub>
+</p>
+
+</details>
+
+<sub>Every host, file and command in the recording is invented — it runs against a
+throwaway SSH server (`tools/demoserver`) and a HOME of its own, so `just demo`
+re-records it on any machine without exposing anything. See
+[demo/hop.tape](demo/hop.tape).</sub>
 
 ## ✨ Features
 
@@ -202,11 +235,20 @@ just test       # go test ./...
 just vet
 just fmt        # gofmt -w .
 just ci         # fmt-check + vet + test — what CI should run
+just demo       # re-record assets/demo.gif + the stills (needs vhs)
 ```
 
 The `justfile` is deliberately universal: recipe bodies are plain commands that run
 under both `sh` and PowerShell, and the two that need real shell logic (`fmt-check`,
 `clean`) are split with `[unix]` / `[windows]` attributes.
+
+**The demo.** `just demo` records the GIF and the stills above. `scripts/demo.mjs`
+builds hop, points `HOME` at a throwaway directory with a seeded host database, and
+starts `tools/demoserver` — a loopback-only SSH server that invents everything on
+screen: a fake shell with a table of canned command output, an in-memory filesystem
+over SFTP, and a fake vi. The keypress overlay in the corner is hop's own, compiled
+in only under `-tags hopdemo` (`internal/tui/keycast.go`), so a released binary
+doesn't carry it.
 
 **Testing.** Headless tests drive the real Bubble Tea model with real keystrokes
 against in-process Go SSH/SFTP servers and temp-file stores — see
