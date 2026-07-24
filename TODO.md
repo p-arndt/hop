@@ -58,7 +58,8 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 ## ⚙️ Config & distribution
 
 - [ ] Config file: keybindings and default user (accent/download dir/editor/open-with are done — see the settings popover).
-- [ ] Put `hop` on PATH; ship a build/install script; write a README.
+- [x] **README:** `README.md` — hero + ASCII screenshot of the two-pane layout, feature table, install (release archives + from source), quick start incl. the CLI subcommands, where `hop.db`/`config.json`/`known_hosts` live, a collapsed key reference per mode linking to [KEYBINDINGS.md](KEYBINDINGS.md), an architecture map of `internal/*`, the `just` recipes and release flow, and a roadmap pointing back here.
+- [ ] Put `hop` on PATH; ship a build/install script.
 - [x] **Cross-platform build (macOS/Linux):** the agent transport is now behind a build-tagged `dialAgent` — `internal/sshx/agent_windows.go` (named pipe) and `agent_unix.go` (`$SSH_AUTH_SOCK` unix socket). `go build`/`vet`/`test` are green on darwin; `GOOS=windows`/`linux` cross-build clean. Config/known_hosts/download paths already used `os.UserConfigDir`/`UserHomeDir`.
 - [x] **Release/CI for all platforms:** CI tests on a windows/ubuntu/macos matrix; the release workflow gates on that matrix, then cross-compiles all six targets (windows/linux/darwin × amd64/arm64) from one Linux runner — `.zip` for Windows, `.tar.gz` elsewhere so the exec bit survives.
 - [x] **Universal `justfile`:** recipe bodies are plain commands that run under both `sh` and PowerShell; the binary suffix, VERSION read and build timestamp come from just's built-ins (`os_family()`, `read()`, `datetime_utc()`) instead of shell commands, and the two recipes that need real shell logic (`fmt-check`, `clean`) are split with `[unix]`/`[windows]` attributes. Needs just >= 1.39.
