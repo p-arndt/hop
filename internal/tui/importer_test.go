@@ -19,6 +19,17 @@ func writeSSHConfig(t *testing.T, body string) string {
 	return path
 }
 
+// setHome points os.UserHomeDir at a temp dir and returns it. It sets every
+// variable that call consults — $HOME on unix, %USERPROFILE% on Windows — because
+// setting only $HOME leaves the Windows runner reading the real profile.
+func setHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	return home
+}
+
 // setPath replaces whatever the card was pre-filled with, the way ctrl+u and
 // typing would.
 func setPath(m *model, path string) {
@@ -204,8 +215,7 @@ func TestExpandHome(t *testing.T) {
 
 // A path typed with a ~ imports the file it names.
 func TestImportExpandsHomePath(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := setHome(t)
 	if err := os.WriteFile(filepath.Join(home, "hosts.conf"), []byte("Host box\n  HostName box.example.com\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -223,8 +233,7 @@ func TestImportExpandsHomePath(t *testing.T) {
 // The card is pre-filled with the default config path, so the common case is one
 // keystroke.
 func TestOpenImportPrefillsDefaultPath(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := setHome(t)
 
 	m := hostMgmtModel(t)
 	m.openImport(true)
@@ -239,8 +248,7 @@ func TestOpenImportPrefillsDefaultPath(t *testing.T) {
 // haveSSHConfig is what decides whether a first run offers the import at all: a
 // real file yes, a missing one (or a directory) no.
 func TestHaveSSHConfig(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := setHome(t)
 	if haveSSHConfig() {
 		t.Error("offered an import with no config file")
 	}
