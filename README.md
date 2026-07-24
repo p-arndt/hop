@@ -1,12 +1,17 @@
 <div align="center">
+<p align="center">
+  <img src="./assets/logo.png" alt="hop Logo" width="400">
+</p>
 
-# 🐇 hop
+<h1 align="center">hop</h1>
 
-**An SSH connection manager that lives in your terminal — with the terminals inside it.**
+**Hop from server to server without ever leaving your terminal.**
 
-Pick a host, press `enter`, and you are in a shell. Press `f` and you are browsing its
-filesystem. Press `enter` on a file and you are editing it *on the server*, in a tab,
-next to the other tabs. Never leave the app, never re-authenticate, never lose your place.
+One keypress and you're in a shell. One more and you're browsing its files. One more and
+you're editing one *on the box* — in a tab, beside all the others. Then hop to the next
+host and everything you left behind is still exactly where you left it.
+
+*No new windows. No re-authenticating. No hunting for that one shell you had open.*
 
 [![CI](https://github.com/p-arndt/hop/actions/workflows/ci.yml/badge.svg)](https://github.com/p-arndt/hop/actions/workflows/ci.yml)
 [![Release](https://github.com/p-arndt/hop/actions/workflows/release.yml/badge.svg)](https://github.com/p-arndt/hop/actions/workflows/release.yml)
