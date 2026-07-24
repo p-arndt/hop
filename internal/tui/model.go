@@ -100,6 +100,11 @@ type model struct {
 	hostForm hostFormUI
 	confirm  confirmUI
 
+	// importer is the SSH-config import card's state. It is modal like the rest, and
+	// it is the one card hop opens by itself: a first run with no hosts comes up on
+	// it rather than on an empty list telling you to go and run `hop import`.
+	importer importUI
+
 	// hostKey is the new-host-key confirmation card's state. It is modal like the
 	// others, and it stands in for what used to be a silent trust-on-first-use: an
 	// unknown key now pauses the dial here until the user approves the fingerprint.
@@ -148,6 +153,14 @@ func Run(st *store.Store) error {
 		cfg:        cfg,
 	}
 	m.applyFilter()
+	// First run: an empty store almost always means the hosts are sitting in an
+	// OpenSSH config hop has not been pointed at yet, so offer the import here
+	// instead of sending the user back to the shell for `hop import`. The offer is
+	// only made when there is a config file to import — with nothing to read, the
+	// card would be a dead end and the empty list says what to do instead.
+	if len(hosts) == 0 && haveSSHConfig() {
+		m.openImport(true)
+	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err = p.Run()
 	return err

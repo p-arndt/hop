@@ -29,6 +29,8 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmKey(msg)
 	case m.hostForm.open:
 		return m.handleHostFormKey(msg)
+	case m.importer.open:
+		return m.handleImportKey(msg)
 	case m.settings.open:
 		return m.handleSettingsKey(msg)
 	case m.editing && m.active != "":
@@ -127,6 +129,12 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Add a host from scratch — the in-app twin of `hop add`, so a new server
 		// does not send you back to the command line.
 		m.openHostFormAdd()
+
+	case "i":
+		// Import (or re-import) an OpenSSH config — the in-app twin of `hop import`.
+		// It is an upsert per host, so it is as much "sync my ssh config" as it is a
+		// first-run step, which is why it stays bound once the list is full.
+		m.openImport(false)
 
 	case "e":
 		// Edit the host under the cursor: the same form, pre-filled.

@@ -37,7 +37,7 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 - [ ] **Groups/tags UI:** the form sets `Group`/`Tags`, but the list doesn't section by group or filter by tag yet.
 - [ ] Pin host to the top of the list.
 - [ ] Local file picker for the identity-file field (currently free-text; needs a local-fs adapter — `filebrowser` is remote-oriented).
-- [ ] Re-import / sync `~/.ssh/config` from within the TUI.
+- [x] **Re-import / sync `~/.ssh/config` from within the TUI:** `i` opens a one-field import card (`internal/tui/importer.go`) pre-filled with `~/.ssh/config`; `enter` upserts every non-wildcard host, `esc` closes. A first run (no hosts + a config on disk) opens it automatically, so nobody has to leave the TUI for `hop import`.
 
 ## 🔐 Connection & auth
 

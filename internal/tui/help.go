@@ -28,6 +28,7 @@ func helpLeft(vim bool) []helpSection {
 		{"LIST", append(motionKeys(vim), [][2]string{
 			{"/", "filter the hosts"},
 			{"a", "add a new host"},
+			{"i", "import an ssh config"},
 			{"q", "quit hop"},
 		}...)},
 		{"HOST", [][2]string{

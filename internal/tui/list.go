@@ -221,8 +221,10 @@ func (m *model) renderEmptyList(w int) string {
 	b.WriteString("\n\n")
 	b.WriteString(faint.Render(truncate("Import them from your", w)))
 	b.WriteString("\n")
-	b.WriteString(faint.Render(truncate("SSH config:", w)))
+	b.WriteString(faint.Render(truncate("SSH config, or add one:", w)))
 	b.WriteString("\n\n")
-	b.WriteString(truncate(accentText.Render("  hop import"), w))
+	b.WriteString(truncate("  "+keyHint("i", "import"), w))
+	b.WriteString("\n")
+	b.WriteString(truncate("  "+keyHint("a", "add a host"), w))
 	return b.String()
 }

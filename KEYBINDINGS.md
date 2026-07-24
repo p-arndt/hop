@@ -26,6 +26,10 @@ so does `left`).
 | `f` | open the SFTP browser |
 | `o` | open the host in VS Code Remote |
 | `d` | disconnect the session |
+| `a` | add a host |
+| `e` | edit the host under the cursor |
+| `x` | delete the host under the cursor (asks first) |
+| `i` | import hosts from an OpenSSH config (`~/.ssh/config` by default) |
 | `/` | filter hosts (`enter` applies, `esc` clears) |
 | `,` | settings |
 | `?` | the keys card |
@@ -51,6 +55,30 @@ descends into the thing under the cursor, `h`/`left` backs out of it.
 Because the host list does not scroll — every host is on screen — `H`/`M`/`L`
 coincide with `gg`, the midpoint, and `G`. They are bound anyway so the motions
 stay consistent with the browser.
+
+## Import — the SSH config card
+
+`i` opens the import card, a modal like the rest: one field, pre-filled with
+`~/.ssh/config`, so the usual answer is a single `enter`.
+
+| Key | Action |
+| --- | --- |
+| `enter` | import from the path shown |
+| `esc` | close, importing nothing |
+| `ctrl+u` | clear the path |
+| `backspace` / any text | edit the path (a leading `~` is expanded) |
+
+The **first run** opens this card by itself: with no hosts yet and an
+`~/.ssh/config` on disk, hop offers the import instead of showing an empty list and
+telling you to go back to the shell for `hop import`. `esc` skips it — an empty list
+is not an error, and `a` adds a host by hand.
+
+It stays bound once the list is full, because importing is a **sync**, not a
+one-time step: each host is upserted, so a re-import refreshes what the config
+knows (hostname, user, port, identity file) and leaves hosts hop added itself
+untouched. Wildcard patterns (`Host *`) are skipped.
+
+`hop import [path]` on the command line does exactly the same thing.
 
 ## Settings — the popover
 

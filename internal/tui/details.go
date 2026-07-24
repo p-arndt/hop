@@ -136,8 +136,8 @@ func (m *model) renderNoHost(w int) string {
 	if len(m.hosts) == 0 {
 		b.WriteString("  " + dimStyle.Render("No hosts yet. Import the ones you") + "\n")
 		b.WriteString("  " + dimStyle.Render("already have in ~/.ssh/config:") + "\n\n")
-		b.WriteString("  " + accentText.Render("hop import") + "\n\n")
-		b.WriteString("  " + faint.Render("…or add one: hop add <alias> <user@host>") + "\n")
+		b.WriteString("  " + keyHint("i", "import ~/.ssh/config") + "\n\n")
+		b.WriteString("  " + faint.Render("…or ") + keyHint("a", "add one by hand") + "\n")
 	} else {
 		b.WriteString("  " + dimStyle.Render("Select a host on the left.") + "\n\n")
 		b.WriteString("  " + keyHint("/", "filter the list") + "\n")
