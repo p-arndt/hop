@@ -9,3 +9,4 @@
 
 # Local state / secrets
 .env
+.DS_Store

@@ -9,6 +9,15 @@ import (
 	"testing"
 )
 
+// disableAgent makes dialAgent fail for the duration of the test. Tests that are
+// about the no-agent fallback live in platform-neutral files, so how an agent is
+// taken away — an unset $SSH_AUTH_SOCK here, an unserved pipe on Windows — is
+// kept behind this helper.
+func disableAgent(t *testing.T) {
+	t.Helper()
+	t.Setenv(agentSockEnv, "")
+}
+
 // With no agent advertised there is nothing to dial, and the error has to say so
 // in the user's terms: a bare "connection refused" for an empty path would send
 // them looking at the network instead of at their agent.

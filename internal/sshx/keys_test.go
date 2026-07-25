@@ -40,11 +40,15 @@ func writeKey(t *testing.T, path, passphrase string) {
 }
 
 // fakeHome points os.UserHomeDir at a temp dir for the duration of the test, so
-// the default-key lookup sees a controlled ~/.ssh instead of the real one.
+// the default-key lookup sees a controlled ~/.ssh instead of the real one. It
+// sets every variable that call consults — $HOME on unix, %USERPROFILE% on
+// Windows — because setting only $HOME leaves the Windows runner reading the
+// real profile, where the keys these tests write do not exist.
 func fakeHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	return home
 }
 
@@ -137,7 +141,7 @@ func TestKeyAuthReportsMissingIdentityFile(t *testing.T) {
 func TestAuthMethodsUsesKeysWithoutAgent(t *testing.T) {
 	home := fakeHome(t)
 	writeKey(t, filepath.Join(home, ".ssh", "id_ed25519"), "")
-	t.Setenv(agentSockEnv, filepath.Join(t.TempDir(), "no-such-agent.sock"))
+	disableAgent(t)
 
 	auths, err := authMethods(store.Host{HostName: "example.com"})
 	if err != nil {
@@ -152,7 +156,7 @@ func TestAuthMethodsUsesKeysWithoutAgent(t *testing.T) {
 // to say so in terms the user can act on.
 func TestAuthMethodsErrorsWithNoAgentAndNoKeys(t *testing.T) {
 	fakeHome(t)
-	t.Setenv(agentSockEnv, "")
+	disableAgent(t)
 
 	auths, err := authMethods(store.Host{HostName: "example.com"})
 	if err == nil {

@@ -10,7 +10,9 @@ import (
 )
 
 // agentPipe is the well-known named pipe exposed by the Windows OpenSSH agent.
-const agentPipe = `\\.\pipe\openssh-ssh-agent`
+// It is a var, not a const, so tests can point it at a pipe nobody serves: there
+// is no environment variable to unset here the way there is on unix.
+var agentPipe = `\\.\pipe\openssh-ssh-agent`
 
 // dialAgent connects to the Windows OpenSSH agent over its named pipe.
 func dialAgent() (net.Conn, error) {
