@@ -53,7 +53,6 @@ func helpRight(vim bool) []helpSection {
 
 	return []helpSection{
 		{"SHELL", [][2]string{
-			{"←", "back to hop (at a bare prompt)"},
 			{"ctrl+o", "back to hop"},
 			{"esc esc", "back to hop"},
 			{"alt+0", "another shell, same host"},

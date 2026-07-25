@@ -18,7 +18,7 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 
 - [x] **Shell tabs:** `S` in the host list — or `alt+0` from a focused pane — opens another shell on an already-connected host (second channel, no re-handshake), shown as a tab strip. `alt+←/→` cycle, `alt+1..9` jump. `exit` closes a tab; the last one ends the session unless a browser/editor still holds the connection.
 - [x] **Editor tabs:** `enter` on a file opens it in a *remote* editor (`${EDITOR:-vi}` over a second SSH channel on a pty), rendered in a hop pane with a tab strip. `alt+←/→` cycle, `alt+1..9` jump, `:q` closes a tab, `ctrl+o` back to the browser. No download — `:w` writes the real remote file. `sshx.Command` (pty + exec) is the primitive.
-- [x] **Vim motions + back/forward keys:** `gg`/`G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`, `ctrl+f`/`ctrl+b` in host list and browser. `enter`/`l`/`right` descends, `h`/`left` backs out; `left` at the browser top pops back to hop. Panes reserve `ctrl+o`, a 400 ms double-`esc`, and `left` *at a bare prompt only*; every other key goes to the remote shell.
+- [x] **Vim motions + back/forward keys:** `gg`/`G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`, `ctrl+f`/`ctrl+b` in host list and browser. `enter`/`l`/`right` descends, `h`/`left` backs out; `left` at the browser top pops back to hop. Panes reserve `ctrl+o` and a 400 ms double-`esc`; every other key — `left` included — goes to the remote shell.
 
 ## 📁 SFTP browser
 

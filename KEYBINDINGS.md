@@ -2,8 +2,7 @@
 
 hop has three input modes. The footer always shows the keys for the mode you are
 in, and every mode returns to navigation with `ctrl+o` (from a terminal pane or
-the file browser, `esc` `esc` also works; from a shell sitting at a bare prompt,
-so does `left`).
+the file browser, `esc` `esc` also works).
 
 | Mode | You are here when | Who owns your keystrokes |
 | --- | --- | --- |
@@ -216,7 +215,6 @@ swallowed rather than forwarded: the browser has no use for it.
 
 | Key | Action |
 | --- | --- |
-| `left` | back to hop — **only at a bare prompt** (see below) |
 | `ctrl+o` | back to hop |
 | `esc` `esc` | back to hop (two presses within 400 ms) |
 | `alt+0` | open **another** shell on this host, and go to it |
@@ -275,44 +273,22 @@ scrollback is to look at what went by, so arriving at the tail means you are don
 `ctrl+o` here only leaves scrollback, back to the live shell; a second `ctrl+o` then
 leaves the pane, the consistent "back one level" the rest of hop keeps to.
 
-### `left` at a bare prompt
+### Why `left` is not a way out
 
-`left` backs out of a host in the list and out of a directory in the browser, so it
-backs out of a shell too — and it does it **only where the shell has no use for
-it**: at a **bare input line**, with **no full-screen program** on the screen.
+`left` backs out of a host in the list and out of a directory in the browser, but
+inside a shell it is the **shell's key, always**. It moves the readline cursor back
+over a typo, it is what `alt+b`/`alt+f` word motions and every full-screen program
+(`vim`, `htop`, `less`) are built on, and hop taking it — even at what hop believes
+is an empty prompt — breaks editing on every server you connect to.
 
-That is not a compromise, it is the whole point: at a bare prompt `left` is already
-a no-op. There is nothing to the left of the prompt for the cursor to move over, so
-the shell does nothing with the key and hop can have it for free. The moment there
-is something to move over, the key is the shell's again:
+hop used to claim `left` at a bare prompt, on the theory that the key was a no-op
+there. It is not reliable: hop sees keystrokes going out and pixels coming back, not
+the buffer readline is holding, so anything it could not count (a `ctrl+w`, a
+tab-completion, a program that reads arrows inline) left it thinking the prompt was
+bare when it was not — and `left` ejected you out of the line you were editing.
 
-| The shell is… | `left` does |
-| --- | --- |
-| at a bare prompt | **back to hop** |
-| holding a half-typed command (`ls -l`) | moves the readline cursor, as always |
-| running `vim`, `htop`, `less`, `nano` (the alt screen) | goes to the program, as always |
-| back at a fresh prompt after `enter`, `ctrl+c` or `ctrl+u` | **back to hop** |
-
-The footer follows the same rule, so you never have to work out which of the two you
-are about to get: `←  back` appears in it exactly while the key is hop's, and
-disappears the moment you start typing.
-
-**How hop knows.** It counts what *it* typed — every rune it forwards adds to the
-line, `enter`/`ctrl+c`/`ctrl+u` empty it, `backspace` walks it back — and it asks the
-emulator whether a program has taken the alt screen. It never reads the line off the
-remote host, because it cannot: hop sees keystrokes going out and pixels coming back,
-not the buffer readline is holding. The count is therefore deliberately biased to
-**over**-count (a `ctrl+w`, a tab-completion, or text a program prints onto the line
-itself leaves it standing): being wrong means `left` goes to the shell, which is
-merely the old behaviour, rather than ejecting you out of a line you were editing.
-
-The one case it can still get wrong is a program that reads arrow keys *without*
-taking the alt screen (an inline `fzf --height`, say) at a moment when you have typed
-nothing: `left` leaves the pane instead of reaching it. Press `enter` or `s` to drop
-straight back in.
-
-`ctrl+o` — a chord no common shell binds — remains the unconditional way out, and
-works no matter what is on the line or what is running. `esc` `esc` is the fast one.
+`ctrl+o` — a chord no common shell binds — is the unconditional way out, and works no
+matter what is on the line or what is running. `esc` `esc` is the fast one.
 
 ### How double-esc works, and what it costs
 

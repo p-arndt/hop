@@ -208,7 +208,6 @@ Every mode returns to the host list with **`ctrl+o`**.
 | --- | --- |
 | `ctrl+o` | back to hop |
 | `esc` `esc` | back to hop (within 400 ms) |
-| `←` | back to hop — **only at a bare prompt**, where the shell has no use for the key |
 | `alt+0` | another shell on this host |
 | `alt+←` `alt+→` / `alt+1…9` | switch shells |
 | `shift+↑` / `shift+pgup` | into scrollback |

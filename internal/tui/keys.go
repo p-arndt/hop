@@ -292,9 +292,10 @@ func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleShellKey routes a key while a shell pane is focused. The remote shell owns
 // nearly every key, so hop reserves only ctrl+o, a double esc, alt+0 to open another
-// shell, alt+←/→ and alt+1..9 to switch between the ones already open — and ←, but
-// only where the shell has no use for it (see the left case). Everything else is
-// forwarded verbatim.
+// shell, and alt+←/→ and alt+1..9 to switch between the ones already open. Everything
+// else is forwarded verbatim — including ←, which the shell needs for readline (and
+// for the alt+b/alt+f word motions built on it) and full-screen programs need for
+// navigation. Leaving the pane is ctrl+o or a double esc.
 //
 // The alt chords are deliberately fewer than the editor's: readline binds the
 // alt+letters (alt+l downcases a word, alt+b walks one back), so alt+h/alt+l are
@@ -331,16 +332,6 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			s.activeSh = cycle(s.activeSh, -1, len(s.shells))
 		}
 		return m, nil
-
-	case "left":
-		// Back to the host list — the same key that backs out of a host in the list
-		// and out of a directory in the browser, so "left is back" holds everywhere
-		// hop is the one listening. Where the shell wants the key it does not get
-		// taken, and this falls through to forward it like any other.
-		if s != nil && backsOut(s.shell()) {
-			m.leavePane()
-			return m, nil
-		}
 
 	case "shift+up":
 		// Enter scrollback and step one line up. When there is nothing scrolled off
@@ -386,21 +377,6 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		s.shell().pane.SendKey(msg)
 	}
 	return m, nil
-}
-
-// backsOut reports whether ← is hop's to take from this shell rather than the
-// shell's to keep: it is hop's only where the shell has nothing for it to do — a bare
-// input line, and no full-screen program on the alt screen.
-//
-// At a bare prompt ← is already a no-op: there is nothing to the left of the prompt
-// for the cursor to move over, so taking the key costs the shell nothing. Over a
-// half-typed command it moves the readline cursor, and inside vim or htop it belongs
-// to the program — in both, it stays the shell's.
-//
-// The footer asks this too, on every frame, so what it offers is what the very next
-// ← will actually do.
-func backsOut(sh *shellTab) bool {
-	return sh != nil && sh.pane.LineEmpty() && !sh.pane.AltScreen()
 }
 
 // ---- scrollback ----
