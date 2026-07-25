@@ -15,6 +15,11 @@ type redrawMsg struct{}
 // an idle hop draws nothing it does not have to.
 type tickMsg time.Time
 
+// updateAvailableMsg carries the result of the startup update check: the newer
+// release's version, or "" when hop is current (or the check was disabled,
+// offline, or on a dev build).
+type updateAvailableMsg struct{ latest string }
+
 // statusExpiredMsg retires a status line after it has been on screen long enough.
 // gen is the status it was armed for, so a message that has since been replaced
 // does not take the new one down with it.

@@ -129,6 +129,23 @@ Expand-Archive hop_*_windows_amd64.zip -DestinationPath .
 
 Every release ships a `hop_<version>_checksums.txt` — verify with `sha256sum -c`.
 
+### Staying current
+
+```bash
+hop check-update   # is there a newer release?
+hop self-update    # download it, verify its checksum, swap this binary
+```
+
+`self-update` fetches the archive for *your* platform from the latest GitHub
+release, checks its SHA-256 against that release's `checksums.txt`, and replaces
+the running binary atomically — on Windows the old `hop.exe` is renamed aside and
+swept up the next time hop starts. Source builds (`version = dev`) are refused:
+there's nothing to compare them against.
+
+hop also checks once a day in the background and mentions a newer version in the
+footer and on the CLI. `HOP_NO_UPDATE_CHECK=1` turns that off; the two commands
+above still work.
+
 ### From source
 
 Needs [Go 1.26+](https://go.dev/dl/) (and optionally [`just`](https://github.com/casey/just) ≥ 1.39).
@@ -153,6 +170,8 @@ hop import              # sync hosts from ~/.ssh/config
 hop import path/to/cfg  # …or from somewhere else
 hop add web1 deploy@10.0.0.4:2222
 hop list                # alias  user@host:port
+hop check-update        # is a newer release out?
+hop self-update         # upgrade this binary in place
 hop version
 ```
 
@@ -165,6 +184,7 @@ That's the whole model.
 | --- | --- |
 | Host database | `<config dir>/hop/hop.db` — SQLite |
 | Settings | `<config dir>/hop/config.json` — plain JSON, hand-editable |
+| Update check cache | `<config dir>/hop/update-check.json` — last check + latest version seen |
 | Known hosts | your usual `~/.ssh/known_hosts` |
 
 `<config dir>` is `%AppData%\hop\` on Windows, `~/Library/Application Support/hop/`

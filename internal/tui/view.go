@@ -192,6 +192,17 @@ func (m *model) renderRight(h int) string {
 
 // ---- footer ----
 
+// updateHint is the footer's "a newer hop exists" line, or "" when there is
+// nothing to say. It names the command rather than a key: updating swaps the
+// running binary, which is not something a single keystroke should do by
+// accident mid-session.
+func (m *model) updateHint() string {
+	if m.updateLatest == "" {
+		return ""
+	}
+	return yellowText.Render("⬆ hop "+m.updateLatest+" available") + " " + dimStyle.Render("· hop self-update")
+}
+
 // renderFooter is the key legend for the mode you are in. It is the same list the
 // help card holds, cut down to the keys that are live right now — the card is
 // there for when that is not enough.
@@ -272,6 +283,11 @@ func (m *model) renderFooter() string {
 			keyHint("↑↓", "move"), keyHint("enter", "connect"), keyHint("f", "sftp"),
 			keyHint("a", "add"), keyHint("i", "import"), keyHint("e", "edit"), keyHint("x", "delete"),
 			keyHint("/", "filter"), keyHint(",", "settings"), keyHint("?", "keys"), keyHint("q", "quit"),
+		}
+		// News, not a key — so it goes first, where the truncation that trims a
+		// long legend on a narrow window can't be what drops it.
+		if h := m.updateHint(); h != "" {
+			hints = append([]string{h}, hints...)
 		}
 	}
 	return footerStyle.Render(truncate(strings.Join(hints, sep), max(m.width-2, 0)))

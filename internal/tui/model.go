@@ -90,6 +90,11 @@ type model struct {
 	// is modal, and it floats over the screen rather than replacing it.
 	help bool
 
+	// updateLatest is the newer release the startup check found, or "" — the
+	// footer mentions it in navigation mode. The check runs once, off the UI
+	// thread, and is cached on disk for a day (see internal/update).
+	updateLatest string
+
 	// nextEdID hands out editorTab ids; nextShID hands out shellTab ids.
 	nextEdID int
 	nextShID int
@@ -174,7 +179,9 @@ func Run(st *store.Store) error {
 func (m *model) Init() tea.Cmd {
 	// A single perpetual subscriber to pane output: it blocks until a live pane
 	// signals new output, emits a redraw, and re-arms (see the redrawMsg case).
-	return waitForOutput(m.notify)
+	// Alongside it, a one-shot update check — off the UI thread, so a slow or
+	// unreachable GitHub never delays the first paint.
+	return tea.Batch(waitForOutput(m.notify), updateCheckCmd())
 }
 
 // Update dispatches the message and then arms the timer for any status line the
@@ -213,6 +220,12 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tickCmd()
+
+	case updateAvailableMsg:
+		// Purely informational: it colors a footer hint and nothing else, so an
+		// empty version (no update, or the check failed) simply leaves it off.
+		m.updateLatest = msg.latest
+		return m, nil
 
 	case statusExpiredMsg:
 		// Only if it is still the message this timer was armed for.

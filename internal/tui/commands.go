@@ -6,11 +6,13 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"hop/internal/buildinfo"
 	"hop/internal/filebrowser"
 	"hop/internal/sftpx"
 	"hop/internal/sshx"
 	"hop/internal/store"
 	"hop/internal/terminal"
+	"hop/internal/update"
 )
 
 // waitForOutput blocks until a live pane signals new server output, then emits a
@@ -20,6 +22,16 @@ func waitForOutput(notify chan struct{}) tea.Cmd {
 	return func() tea.Msg {
 		<-notify
 		return redrawMsg{}
+	}
+}
+
+// updateCheckCmd asks internal/update whether a newer release exists. It runs
+// once at startup, off the UI thread — the lookup is cached on disk for a day,
+// and bounded by a short timeout, so at worst it costs a second of goroutine and
+// reports nothing.
+func updateCheckCmd() tea.Cmd {
+	return func() tea.Msg {
+		return updateAvailableMsg{latest: update.Refresh(buildinfo.Version)}
 	}
 }
 

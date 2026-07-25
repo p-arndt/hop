@@ -4,25 +4,40 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"hop/internal/buildinfo"
 	"hop/internal/store"
 	"hop/internal/tui"
+	"hop/internal/update"
 )
 
 func main() {
 	args := os.Args[1:]
+
+	// A previous self-update on Windows leaves the old binary beside the new one
+	// (a running .exe can be renamed but not deleted). Sweep it up now that it is
+	// no longer running.
+	update.CleanupLeftovers()
 
 	// Handle commands that don't need the store first.
 	if len(args) > 0 {
 		switch args[0] {
 		case "version", "--version", "-v":
 			fmt.Println("hop", buildinfo.String())
+			return
+		case "self-update":
+			cmdUpdate(false)
+			return
+		case "check-update":
+			cmdUpdate(true)
 			return
 		}
 	}
@@ -51,6 +66,43 @@ func main() {
 		cmdList(st)
 	default:
 		usage()
+	}
+
+	// A one-line hint on stderr — never stdout, so `hop list` stays pipeable.
+	// It reports the previous check and refreshes the cache for the next run;
+	// the TUI shows the same thing in its footer.
+	update.NotifyIfAvailable(os.Stderr, buildinfo.Version)
+}
+
+// updateTimeout bounds the whole check-download-verify-install cycle. Generous
+// compared to the passive notice, since the user explicitly asked for it.
+const updateTimeout = 60 * time.Second
+
+// cmdUpdate backs `hop self-update` and, with checkOnly, `hop check-update`:
+// the first replaces the running binary with the latest release once its
+// checksum verifies, the second only reports whether a newer one exists.
+func cmdUpdate(checkOnly bool) {
+	current := buildinfo.Version
+	client := update.NewClient(&http.Client{Timeout: updateTimeout})
+	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
+	defer cancel()
+
+	if !checkOnly {
+		fmt.Printf("Current version: %s. Checking for updates…\n", current)
+	}
+	res, err := client.SelfUpdate(ctx, current, checkOnly)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "hop:", err)
+		os.Exit(1)
+	}
+
+	switch {
+	case !update.IsNewer(res.Latest, res.Current):
+		fmt.Printf("You're on the latest version (%s).\n", res.Current)
+	case checkOnly:
+		fmt.Printf("A newer version is available: %s (you have %s). Run `hop self-update` to upgrade.\n", res.Latest, res.Current)
+	default:
+		fmt.Printf("Updated hop %s → %s.\n", res.Current, res.Latest)
 	}
 }
 
@@ -160,5 +212,9 @@ usage:
                                add or update a host
   hop list                     list stored hosts (alias, user@host:port)
   hop hosts                    alias for list
-  hop version                  print the version and exit`)
+  hop check-update             report whether a newer release is available
+  hop self-update              replace this binary with the latest release
+  hop version                  print the version and exit
+
+Set HOP_NO_UPDATE_CHECK=1 to silence the passive "newer version" notice.`)
 }
