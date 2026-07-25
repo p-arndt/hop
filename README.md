@@ -37,43 +37,52 @@ host and everything you left behind is still exactly where you left it.
 The header always tells you **where your keystrokes are going** — the single most
 disorienting thing about a TUI that embeds other people's programs.
 
-<details>
-<summary><b>Stills</b> — the host list, a shell, two shells, the file browser, a remote editor, settings, the keys card</summary>
-
-<p align="center">
-  <img src="./assets/screens/hosts.png" alt="The host list with the details card for the host under the cursor" width="800"><br>
-  <sub><b>The host list.</b> Status dot, group, and what `enter` would do to the host under the cursor.</sub>
-</p>
-
-<p align="center">
-  <img src="./assets/screens/shell.png" alt="A live remote shell in a hop pane" width="800"><br>
+<table>
+<tr>
+<td width="50%" valign="top">
+  <img src="./assets/screens/hosts.png" alt="The host list with the details card for the host under the cursor" width="100%"><br>
+  <sub><b>The host list.</b> Status dot, group, and what <code>enter</code> would do to the host under the cursor.</sub>
+</td>
+<td width="50%" valign="top">
+  <img src="./assets/screens/shell.png" alt="A live remote shell in a hop pane" width="100%"><br>
   <sub><b>A shell.</b> A real terminal in the pane; the footer shows the three ways back out.</sub>
-</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+  <img src="./assets/screens/sftp.png" alt="The SFTP file browser" width="100%"><br>
+  <sub><b>The SFTP browser.</b> <code>f</code>, over the connection that's already open.</sub>
+</td>
+<td width="50%" valign="top">
+  <img src="./assets/screens/editor.png" alt="A file open in a remote editor tab inside hop" width="100%"><br>
+  <sub><b>A remote editor tab.</b> <code>enter</code> on a file runs the editor <i>on the server</i> — <code>:w</code> writes the real file.</sub>
+</td>
+</tr>
+</table>
 
-<p align="center">
-  <img src="./assets/screens/shells.png" alt="Two shells on one host, shown as a tab strip" width="800"><br>
-  <sub><b>Two shells, one connection.</b> `S` (or `alt+0`) opens another channel — no second handshake.</sub>
-</p>
+<details>
+<summary><b>More stills</b> — two shells on one connection, settings, the keys card</summary>
+<br>
 
-<p align="center">
-  <img src="./assets/screens/sftp.png" alt="The SFTP file browser" width="800"><br>
-  <sub><b>The SFTP browser.</b> `f`, over the connection that's already open.</sub>
-</p>
-
-<p align="center">
-  <img src="./assets/screens/editor.png" alt="A file open in a remote editor tab inside hop" width="800"><br>
-  <sub><b>A remote editor tab.</b> `enter` on a file runs the editor <i>on the server</i> — `:w` writes the real file.</sub>
-</p>
-
-<p align="center">
-  <img src="./assets/screens/settings.png" alt="The settings popover" width="800"><br>
-  <sub><b>Settings.</b> `,` — the accent is a swatch strip that recolours hop as you walk it.</sub>
-</p>
-
-<p align="center">
-  <img src="./assets/screens/keys.png" alt="The keys card listing every binding" width="800"><br>
-  <sub><b>Every key hop binds.</b> `?` — and it lists the keyboard you actually have, vim motions included only if you turned them on.</sub>
-</p>
+<table>
+<tr>
+<td width="50%" valign="top">
+  <img src="./assets/screens/shells.png" alt="Two shells on one host, shown as a tab strip" width="100%"><br>
+  <sub><b>Two shells, one connection.</b> <code>S</code> (or <code>alt+0</code>) opens another channel — no second handshake.</sub>
+</td>
+<td width="50%" valign="top">
+  <img src="./assets/screens/settings.png" alt="The settings popover" width="100%"><br>
+  <sub><b>Settings.</b> <code>,</code> — the accent is a swatch strip that recolours hop as you walk it.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+  <img src="./assets/screens/keys.png" alt="The keys card listing every binding" width="100%"><br>
+  <sub><b>Every key hop binds.</b> <code>?</code> — and it lists the keyboard you actually have, vim motions included only if you turned them on.</sub>
+</td>
+<td width="50%"></td>
+</tr>
+</table>
 
 </details>
 
