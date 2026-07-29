@@ -88,14 +88,30 @@ func dialClient(h store.Host, trustedFP string, prompt sshx.Prompter) (*sshx.Cli
 
 // shellCmd opens another interactive shell over an already-established client —
 // the connection a browser-only session dialed, or the one the host's other
-// shells are already running on.
-func shellCmd(alias string, cli *sshx.Client, id, cols, rows int, notify chan struct{}) tea.Cmd {
+// shells are already running on. restore marks one being put back by a reconnect,
+// which lands without taking the keyboard.
+func shellCmd(alias string, cli *sshx.Client, id, cols, rows int, notify chan struct{}, restore bool) tea.Cmd {
 	return func() tea.Msg {
 		tab, err := newShell(cli, id, cols, rows, notify)
 		if err != nil {
-			return connectedMsg{alias: alias, err: err}
+			return connectedMsg{alias: alias, restore: restore, err: err}
 		}
-		return connectedMsg{alias: alias, tab: tab}
+		return connectedMsg{alias: alias, tab: tab, restore: restore}
+	}
+}
+
+// watchClientCmd parks on a connection's Lost channel and reports the drop once it
+// fires. It is armed the moment a client is attached to a session and lives as long
+// as the connection does: a dropped link has to announce itself, since nothing else
+// in hop is polling for one.
+//
+// A close from inside hop ('d', quit, a reconnect) fires it too. The model sorts
+// that out by identity — the message names the connection that died, and a session
+// that has since been torn down or re-dialed no longer holds it.
+func watchClientCmd(alias string, cli *sshx.Client) tea.Cmd {
+	return func() tea.Msg {
+		<-cli.Lost()
+		return sessionLostMsg{alias: alias, client: cli, err: cli.LostErr()}
 	}
 }
 
@@ -131,14 +147,19 @@ func waitShellCmd(alias string, id int, sess *sshx.Session) tea.Cmd {
 // openBrowserCmd opens an SFTP file browser for h off the UI thread. When
 // existing is non-nil its SSH connection is reused; otherwise a dedicated
 // connection is dialed (and reported back so it can later be closed).
-func openBrowserCmd(h store.Host, existing *sshx.Client, trustedFP string, prompt sshx.Prompter, opts filebrowser.Options, pw, ph int) tea.Cmd {
+//
+// startDir is where the browser opens, empty meaning the remote home — a reconnect
+// passes the directory the old browser was standing in, so coming back lands where
+// you left off. restore marks such a reattachment, which does not take the
+// keyboard.
+func openBrowserCmd(h store.Host, existing *sshx.Client, trustedFP string, prompt sshx.Prompter, opts filebrowser.Options, startDir string, pw, ph int, restore bool) tea.Cmd {
 	return func() tea.Msg {
 		cli := existing
 		var dialed *sshx.Client
 		if cli == nil {
 			c, err := dialClient(h, trustedFP, prompt)
 			if err != nil {
-				return browserOpenedMsg{alias: h.Alias, err: err}
+				return browserOpenedMsg{alias: h.Alias, restore: restore, err: err}
 			}
 			cli = c
 			dialed = c
@@ -149,19 +170,19 @@ func openBrowserCmd(h store.Host, existing *sshx.Client, trustedFP string, promp
 			if dialed != nil {
 				dialed.Close()
 			}
-			return browserOpenedMsg{alias: h.Alias, err: err}
+			return browserOpenedMsg{alias: h.Alias, restore: restore, err: err}
 		}
 
-		br, err := filebrowser.New(sc, "", opts, pw, ph)
+		br, err := filebrowser.New(sc, startDir, opts, pw, ph)
 		if err != nil {
 			sc.Close()
 			if dialed != nil {
 				dialed.Close()
 			}
-			return browserOpenedMsg{alias: h.Alias, err: err}
+			return browserOpenedMsg{alias: h.Alias, restore: restore, err: err}
 		}
 
-		return browserOpenedMsg{alias: h.Alias, browser: br, client: dialed}
+		return browserOpenedMsg{alias: h.Alias, browser: br, client: dialed, restore: restore}
 	}
 }
 

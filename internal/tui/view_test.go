@@ -49,6 +49,12 @@ func TestViewFitsTheWindow(t *testing.T) {
 			m.connecting["raspberrypi"] = true
 			m.setStatus(statusErr, "connect web1 failed: dial tcp: connection refused")
 		},
+		// A dropped session: the pane keeps its banner and its last screen, and both
+		// have to fit the window like everything else.
+		"dropped": func(m *model) {
+			m.sessions["web1"] = &session{dead: true, lostWhy: "ssh: unexpected packet in response to channel open"}
+			m.active, m.focused = "web1", true
+		},
 		"no hosts":          func(m *model) { m.hosts = nil; m.applyFilter() },
 		"sidebar collapsed": func(m *model) { m.toggleSidebar() },
 	}

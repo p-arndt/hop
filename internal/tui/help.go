@@ -41,6 +41,7 @@ func helpLeft(vim bool) []helpSection {
 			{"e", "edit this host"},
 			{"x", "delete this host"},
 			{"d", "disconnect everything on it"},
+			{"r", "reconnect a dropped session"},
 			{",", "settings"},
 		}},
 	}
@@ -69,6 +70,11 @@ func helpRight(vim bool) []helpSection {
 			{"o", "open the file locally"},
 			{"d", "download the file"},
 			{"r", "refresh"},
+			{"ctrl+o", "back to hop"},
+		}},
+		{"DROPPED SESSION", [][2]string{
+			{"r", "reconnect and reopen"},
+			{"d", "drop it"},
 			{"ctrl+o", "back to hop"},
 		}},
 		{"EDITOR", [][2]string{

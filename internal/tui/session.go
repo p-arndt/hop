@@ -29,6 +29,17 @@ type session struct {
 	// on its own SSH session, shown as tabs. activeEd indexes into it.
 	editors  []*editorTab
 	activeEd int
+
+	// dead is set once the connection under this session has dropped. Everything on
+	// it — shells, browser, editors — is finished, but the session is deliberately
+	// kept: the panes still hold the last screen the host drew, which is the thing
+	// you want to read when a link goes down, and the session is what 'r' reconnects.
+	// While it is set, no key reaches the remote and nothing here is torn down until
+	// the user reconnects or drops it.
+	dead bool
+	// lostWhy is what the transport reported when it went, for the banner. It is
+	// often empty (a clean close from the far end says nothing).
+	lostWhy string
 }
 
 // shellTab is one interactive shell: an SSH session on a pty, rendered through a
@@ -170,6 +181,12 @@ func (m *model) openShell(h store.Host, extra bool) tea.Cmd {
 	}
 
 	s := m.sessions[h.Alias]
+	if s != nil && s.dead {
+		// Nothing can be opened on a connection that is gone, and the shells it is
+		// still showing are pictures of one. Every way of asking for a shell here —
+		// enter, S, alt+0 — means "get me back on this host", so that is what it does.
+		return m.reconnect(h)
+	}
 	if s != nil && !extra && s.shell() != nil {
 		// Already has a shell: just focus it.
 		m.focusShell(h.Alias)
@@ -184,7 +201,7 @@ func (m *model) openShell(h store.Host, extra bool) tea.Cmd {
 		// The host is connected (a browser-only session, or one with shells
 		// already): open the new shell on the connection it holds.
 		cols, rows := m.shellSize(len(s.shells) + 1)
-		return m.withSpinner(shellCmd(h.Alias, s.client, m.nextShID, cols, rows, m.notify))
+		return m.withSpinner(shellCmd(h.Alias, s.client, m.nextShID, cols, rows, m.notify, false))
 	}
 	cols, rows := m.shellSize(1)
 	return m.withSpinner(connectCmd(h, "", m.prompter(h.Alias), extra, m.nextShID, cols, rows, m.notify))
@@ -223,15 +240,20 @@ func (m *model) focusShell(alias string) {
 func (m *model) openBrowser(h store.Host) tea.Cmd {
 	var existing *sshx.Client
 	if s := m.sessions[h.Alias]; s != nil {
+		if s.dead {
+			// Same as a shell: SFTP over a connection that is gone is not a browser,
+			// so 'f' on a dead session means reconnect it.
+			return m.reconnect(h)
+		}
 		existing = s.client
 	}
 	m.setStatus(statusInfo, "opening sftp %s…", h.Alias)
 	if existing == nil {
 		// A dial is about to happen, so the host earns a spinner in the list.
 		m.connecting[h.Alias] = true
-		return m.withSpinner(openBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), m.paneW, m.paneH))
+		return m.withSpinner(openBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), "", m.paneW, m.paneH, false))
 	}
-	return openBrowserCmd(h, existing, "", nil, m.browserOptions(), m.paneW, m.paneH)
+	return openBrowserCmd(h, existing, "", nil, m.browserOptions(), "", m.paneW, m.paneH, false)
 }
 
 // openBrowserTrusting retries a first-contact SFTP dial after the user approved
@@ -243,7 +265,7 @@ func (m *model) openBrowserTrusting(h store.Host, fingerprint string) tea.Cmd {
 	}
 	m.setStatus(statusInfo, "opening sftp %s…", h.Alias)
 	m.connecting[h.Alias] = true
-	return m.withSpinner(openBrowserCmd(h, nil, fingerprint, m.prompter(h.Alias), m.browserOptions(), m.paneW, m.paneH))
+	return m.withSpinner(openBrowserCmd(h, nil, fingerprint, m.prompter(h.Alias), m.browserOptions(), m.restoreDir(h.Alias), m.paneW, m.paneH, false))
 }
 
 // openFile opens the file the browser just activated in an editor tab. A file

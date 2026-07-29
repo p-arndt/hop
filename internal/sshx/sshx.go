@@ -88,6 +88,117 @@ type Client struct {
 	// contact (TOFU) during this dial, or "" when the host was already known.
 	// The UI shows it, so a silent first trust is at least a visible one.
 	NewHostKey string
+
+	// lost is closed once the transport under this client has gone — the server
+	// went away, the network dropped it, or it was closed from here. waitErr is
+	// why, written before the close and therefore safe to read after observing it
+	// (see LostErr). A zero Client has a nil channel, which never fires: it is not
+	// connected, so it cannot be lost.
+	lost    chan struct{}
+	waitErr error
+}
+
+// newClient wraps an established ssh.Client and starts the two goroutines that
+// watch the connection: one parked on Wait, which is what turns a dropped
+// transport into a closed Lost channel, and the keepalive below, which is what
+// makes a silently blackholed connection reach that Wait at all.
+func newClient(cl *ssh.Client) *Client {
+	c := &Client{ssh: cl, lost: make(chan struct{})}
+	go func() {
+		c.waitErr = cl.Wait()
+		close(c.lost)
+	}()
+	go c.keepalive()
+	return c
+}
+
+// Keepalive parameters, matching what plain ssh does with ServerAliveInterval /
+// ServerAliveCountMax set: probe the server every interval, and give up on it
+// after this many probes in a row go unanswered.
+//
+// Without them a connection that is blackholed rather than reset — a laptop
+// suspended, a VPN dropped, a NAT entry expired — is never noticed: nothing is
+// being written, so TCP has no reason to complain, and the shell just stops
+// updating forever. The probe is what makes the loss detectable at all, which is
+// what everything below the UI's reconnect offer stands on.
+const (
+	keepaliveInterval = 15 * time.Second
+	keepaliveTimeout  = 10 * time.Second
+	keepaliveMisses   = 3
+)
+
+// keepalive probes the server until it stops answering, then closes the
+// connection — which unblocks the Wait above and fires Lost. It returns as soon
+// as the connection is gone for any other reason.
+func (c *Client) keepalive() {
+	t := time.NewTicker(keepaliveInterval)
+	defer t.Stop()
+
+	misses := 0
+	for {
+		select {
+		case <-c.lost:
+			return
+		case <-t.C:
+		}
+		if c.ping() {
+			misses = 0
+			continue
+		}
+		if misses++; misses >= keepaliveMisses {
+			c.ssh.Close()
+			return
+		}
+	}
+}
+
+// ping sends OpenSSH's keepalive global request and reports whether the server
+// answered at all. A *failure* reply is an answer: the request type is only there
+// to be replied to, and every server that speaks SSH replies to an unknown one.
+// Only a transport error — or no reply inside keepaliveTimeout, which is the case
+// on a connection that is silently gone — counts as a miss.
+func (c *Client) ping() bool {
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := c.ssh.SendRequest("keepalive@openssh.com", true, nil)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		return err == nil
+	case <-time.After(keepaliveTimeout):
+		return false
+	}
+}
+
+// Lost is closed when the connection under this client has gone. Blocking on it
+// is how the UI learns a session died without polling; a zero Client's channel is
+// nil, so it blocks forever, which is the honest answer for a client that never
+// connected.
+func (c *Client) Lost() <-chan struct{} { return c.lost }
+
+// IsLost reports, without blocking, whether the connection has gone. It is the
+// question a shell's exit has to ask: a shell that ended because the transport
+// died is a dropped session, not somebody typing "exit".
+func (c *Client) IsLost() bool {
+	select {
+	case <-c.lost:
+		return true
+	default:
+		return false
+	}
+}
+
+// LostErr is why the connection went, or nil while it is still up. Reading
+// waitErr is safe only after the channel's close has been observed — which is
+// exactly what the select does — because that close is what publishes the write.
+func (c *Client) LostErr() error {
+	select {
+	case <-c.lost:
+		return c.waitErr
+	default:
+		return nil
+	}
 }
 
 // AgentAuth builds an ssh.AuthMethod backed by the platform's OpenSSH agent.
@@ -284,7 +395,7 @@ func ConnectAddr(addr string, cfg *ssh.ClientConfig) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sshx: dial %s: %w", addr, err)
 	}
-	return &Client{ssh: cl}, nil
+	return newClient(cl), nil
 }
 
 // Shell opens an interactive login shell with a pty of the given size.

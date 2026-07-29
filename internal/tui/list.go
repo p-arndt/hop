@@ -172,10 +172,14 @@ func (m *model) renderRow(h store.Host, hits []int, selected bool, w int) string
 	return truncate(head+tail+badge, w)
 }
 
-// dotFor is the host's connection state at a glance: green connected, a spinner
-// while it dials, a hollow dot when it is idle.
+// dotFor is the host's connection state at a glance: green connected, red for a
+// session whose connection dropped, a spinner while it dials, a hollow dot when it
+// is idle.
 func (m *model) dotFor(alias string) string {
-	if _, live := m.sessions[alias]; live {
+	if s, live := m.sessions[alias]; live {
+		if s.dead {
+			return deadDot
+		}
 		return connectedDot
 	}
 	if m.connecting[alias] {

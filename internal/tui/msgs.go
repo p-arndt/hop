@@ -37,7 +37,11 @@ type connectedMsg struct {
 	// new-host-key prompt, the retry knows whether it was for another shell (S /
 	// alt+0) or a host's first one. It is unused once the connect lands.
 	extra bool
-	err   error
+	// restore marks a shell being put back after a reconnect. Such a shell lands
+	// quietly: it takes neither the keyboard nor the status line, because the
+	// reconnect has already decided where the user should come back to.
+	restore bool
+	err     error
 }
 
 // authPromptMsg is a question a dial in flight needs answered before it can
@@ -65,7 +69,20 @@ type browserOpenedMsg struct {
 	alias   string
 	browser *filebrowser.Browser
 	client  *sshx.Client
+	// restore marks a browser being put back after a reconnect: it reattaches
+	// without taking the keyboard, for the reason connectedMsg.restore gives.
+	restore bool
 	err     error
+}
+
+// sessionLostMsg says the SSH connection under a session has gone — the server
+// went away, the link dropped, or the keepalives stopped being answered. client
+// identifies which connection died, because the message can arrive long after the
+// session it belonged to was replaced by a reconnect or torn down by hand.
+type sessionLostMsg struct {
+	alias  string
+	client *sshx.Client
+	err    error
 }
 
 // editorOpenedMsg is returned once a remote editor is running on its own SSH

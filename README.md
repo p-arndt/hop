@@ -102,6 +102,7 @@ re-records it on any machine without exposing anything. See
 | 📁 **SFTP file browser** | `f` browses the remote filesystem over the connection you already have. Download with `d`, open locally with `o`. |
 | ✎ **Remote editor tabs** | `enter` on a file runs `$EDITOR` **on the server** on a second channel and renders it in a tab. No download, no copy, and `:w` writes the real file. |
 | ⇅ **Scrollback** | `shift+↑` pauses a shell into its history with vim-ish paging. Declines politely when a full-screen program owns the screen. |
+| 🔁 **Reconnect after a drop** | A dropped link (suspended laptop, dead VPN, rebooted box) is *noticed* — keepalive probes, not silence — and the pane keeps the last screen the host drew instead of quietly freezing. `r` dials again and puts the session's shape back: the same shell tabs, the browser in the directory it was in. |
 | 🔐 **Honest host keys** | An unknown key **aborts the dial** and shows a fingerprint card. `y` trusts it and appends; `n` trusts nothing. A *mismatch* is always a hard error. |
 | 📥 **SSH config import** | `i` (or `hop import`) upserts every host from `~/.ssh/config`. It's a *sync*, not a one-shot: re-import refreshes, and hosts you added by hand are left alone. |
 | 🔎 **Fuzzy find** | `/` filters as you type, with the matched characters picked out so a surprising hit explains itself. |
@@ -215,6 +216,7 @@ Every mode returns to the host list with **`ctrl+o`**.
 | `f` | SFTP browser |
 | `o` | open in VS Code Remote |
 | `d` | disconnect |
+| `r` | reconnect a session whose connection dropped |
 | `a` `e` `x` | add / edit / delete a host |
 | `i` | import from an OpenSSH config |
 | `/` | fuzzy filter |
@@ -252,6 +254,20 @@ Every mode returns to the host list with **`ctrl+o`**.
 | `alt+←` `alt+→` / `alt+1…9` | switch editor tabs |
 | `:q` | close an editor tab |
 | `ctrl+o` | back one level |
+
+</details>
+
+<details>
+<summary><b>When a connection drops</b></summary>
+
+| Key | Action |
+| --- | --- |
+| `r` `enter` | reconnect and reopen what was open |
+| `d` `x` | drop the session — the host goes back to idle |
+| `ctrl+o` `esc` `q` | back to the host list, pane left on screen |
+
+The pane keeps the last screen the host drew, under a banner saying what happened.
+Nothing is forwarded to the far end, because there is no far end.
 
 </details>
 
@@ -324,7 +340,6 @@ Next up:
 - 💓 **Health panel**: per-host reachability, latency, uptime and disk
 - ⬆️ **Uploads & file ops** in the browser (`u`, `x`, `R`, `m`) with async transfer progress
 - 🏷️ **Groups & tags** in the list: section by group, filter by tag, pin favourites
-- 🔁 **Reconnect handling**: detect a dropped session and offer to redial
 - 🖱️ **Mouse support**, narrow-terminal layouts, copy/paste into panes
 
 The living version, with far more detail on each item, is [TODO.md](TODO.md).

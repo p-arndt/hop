@@ -58,6 +58,11 @@ type model struct {
 	// connecting holds aliases with an in-flight connect (for the spinner).
 	connecting map[string]bool
 
+	// pending holds, per alias, what a reconnect in flight has to put back once its
+	// new connection lands — the shell tabs and the browser a dropped session was
+	// holding. See reconnect.go.
+	pending map[string]reconnectPlan
+
 	// notify is signalled by live panes whenever new server output has been
 	// parsed, so the UI repaints event-driven (no polling ticker).
 	notify chan struct{}
@@ -173,6 +178,7 @@ func Run(st *store.Store) error {
 		hosts:      hosts,
 		sessions:   make(map[string]*session),
 		connecting: make(map[string]bool),
+		pending:    make(map[string]reconnectPlan),
 		highlights: make(map[int][]int),
 		notify:     make(chan struct{}, 1),
 		prompts:    make(chan authPromptMsg),
@@ -265,6 +271,9 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case shellExitedMsg:
 		return m.shellExited(msg)
 
+	case sessionLostMsg:
+		return m.sessionLost(msg)
+
 	case browserOpenedMsg:
 		return m.browserLanded(msg)
 
@@ -276,7 +285,16 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case editorExitedMsg:
 		s := m.sessions[msg.alias]
-		if s == nil || !s.dropEditor(msg.id) {
+		if s == nil {
+			return m, nil
+		}
+		// Like a shell's exit: on a connection that has gone, this is the channel being
+		// cut, not ":q". See shellExited.
+		if s.deadConnection() {
+			m.markDead(msg.alias, lostReason(s))
+			return m, nil
+		}
+		if !s.dropEditor(msg.id) {
 			return m, nil
 		}
 		// The last tab closing drops back where the file was opened from.
@@ -305,6 +323,11 @@ func (m *model) shellLanded(msg connectedMsg) (tea.Model, tea.Cmd) {
 			m.openHostKeyConfirm(msg.alias, unknown, hostKeyShell, msg.extra)
 			return m, nil
 		}
+		// The dial is over, so a reconnect's plan has nothing left to land on. Dropping
+		// it here keeps a failed reconnect from restoring tabs on some later, ordinary
+		// connect to the same host. (The host-key path above returns before this: that
+		// dial is about to be replayed, and the plan is what it replays with.)
+		m.dropPlan(msg.alias)
 		// Dismissing the authentication card already said so; repeating it as a
 		// connect failure would make the user's own choice look like a fault.
 		if errors.Is(msg.err, sshx.ErrAuthCanceled) {
@@ -328,22 +351,50 @@ func (m *model) shellLanded(msg connectedMsg) (tea.Model, tea.Cmd) {
 	m.st.Touch(msg.alias)
 	m.reloadHosts()
 
-	m.focusShell(msg.alias)
-	// First contact with this host: say which key was just trusted, so TOFU is
-	// at least visible — a fingerprint you can compare beats a silent accept.
-	if msg.client != nil && msg.client.NewHostKey != "" {
-		m.setStatus(statusWarn, "%s: new host key trusted (%s)", msg.alias, msg.client.NewHostKey)
-	} else {
-		m.setStatus(statusOK, "connected to %s", msg.alias)
+	cmds := []tea.Cmd{waitShellCmd(msg.alias, msg.tab.id, msg.tab.sess)}
+	if msg.client != nil {
+		// A new connection: watch it, so its loss is noticed rather than leaving a
+		// pane that has quietly stopped updating.
+		cmds = append(cmds, watchClientCmd(msg.alias, msg.client))
 	}
-	return m, waitShellCmd(msg.alias, msg.tab.id, msg.tab.sess)
+
+	// A shell a reconnect is putting back lands quietly: the reconnect has already
+	// decided where the keyboard goes, and its own status line says what came back.
+	if !msg.restore {
+		m.focusShell(msg.alias)
+		// First contact with this host: say which key was just trusted, so TOFU is
+		// at least visible — a fingerprint you can compare beats a silent accept.
+		if msg.client != nil && msg.client.NewHostKey != "" {
+			m.setStatus(statusWarn, "%s: new host key trusted (%s)", msg.alias, msg.client.NewHostKey)
+		} else {
+			m.setStatus(statusOK, "connected to %s", msg.alias)
+		}
+		if cmd := m.applyPlan(msg.alias); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	} else {
+		m.resizeShells(s)
+	}
+	return m, tea.Batch(cmds...)
 }
 
 // shellExited drops the tab of a shell that has ended, and decides what is left
 // of the session behind it.
 func (m *model) shellExited(msg shellExitedMsg) (tea.Model, tea.Cmd) {
 	s := m.sessions[msg.alias]
-	if s == nil || !s.dropShell(msg.id) {
+	if s == nil {
+		return m, nil
+	}
+	// A shell whose connection has already gone did not exit — it was cut off, along
+	// with every other channel on that connection. Treating it as an exit would drop
+	// the tab, and the last one would close the session and take the reconnect offer
+	// with it. So the loss is recorded instead, and the tabs stay as they were: the
+	// last screen the host drew, which is what you want to read when a link drops.
+	if s.deadConnection() {
+		m.markDead(msg.alias, lostReason(s))
+		return m, nil
+	}
+	if !s.dropShell(msg.id) {
 		return m, nil
 	}
 	m.resizeShells(s)
@@ -378,6 +429,7 @@ func (m *model) browserLanded(msg browserOpenedMsg) (tea.Model, tea.Cmd) {
 			m.openHostKeyConfirm(msg.alias, unknown, hostKeyBrowser, false)
 			return m, nil
 		}
+		m.dropPlan(msg.alias)
 		if errors.Is(msg.err, sshx.ErrAuthCanceled) {
 			return m, nil
 		}
@@ -399,17 +451,29 @@ func (m *model) browserLanded(msg browserOpenedMsg) (tea.Model, tea.Cmd) {
 	m.st.Touch(msg.alias)
 	m.reloadHosts()
 
-	m.active = msg.alias
-	m.browsing = true
-	m.focused = false
-	m.editing = false
-	if msg.client != nil && msg.client.NewHostKey != "" {
-		m.setStatus(statusWarn, "%s: new host key trusted (%s)", msg.alias, msg.client.NewHostKey)
-	} else {
-		m.setStatus(statusOK, "sftp %s", msg.alias)
+	var cmds []tea.Cmd
+	if msg.client != nil {
+		cmds = append(cmds, watchClientCmd(msg.alias, msg.client))
+	}
+
+	// A browser a reconnect is reattaching goes back on the session without taking
+	// the keyboard — the shell the reconnect landed first still has it.
+	if !msg.restore {
+		m.active = msg.alias
+		m.browsing = true
+		m.focused = false
+		m.editing = false
+		if msg.client != nil && msg.client.NewHostKey != "" {
+			m.setStatus(statusWarn, "%s: new host key trusted (%s)", msg.alias, msg.client.NewHostKey)
+		} else {
+			m.setStatus(statusOK, "sftp %s", msg.alias)
+		}
+		if cmd := m.applyPlan(msg.alias); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	msg.browser.Resize(m.paneW, m.paneH)
-	return m, nil
+	return m, tea.Batch(cmds...)
 }
 
 // editorLanded shows a newly-started remote editor as a tab.

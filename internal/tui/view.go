@@ -95,6 +95,8 @@ func (m *model) renderHeader() string {
 func (m *model) breadcrumb() string {
 	s := m.sessions[m.active]
 	switch {
+	case s != nil && s.dead && m.active != "":
+		return "ssh manager › " + m.active + " › disconnected"
 	case m.editing && s != nil && s.editor() != nil:
 		return "ssh manager › " + m.active + " › " + s.editor().name
 	case m.browsing && m.active != "":
@@ -113,6 +115,10 @@ func (m *model) modeChip() string {
 	switch {
 	case m.active == "":
 		return ""
+	case s != nil && s.dead:
+		// The chip's job is to say where the keystrokes are going. On a dropped session
+		// they are going nowhere, and that is the most important thing on the screen.
+		return redText.Bold(true).Render("✗ " + m.active + " lost")
 	case m.editing && s != nil && s.editor() != nil:
 		return chipStyle.Render("✎ " + s.editor().name)
 	case m.browsing:
@@ -171,6 +177,14 @@ func (m *model) renderRight(h int) string {
 		return style.Width(m.paneW).Height(innerH).Render(fitLines(content, innerH))
 	}
 
+	// A session whose connection dropped keeps its pane: the last screen the host
+	// drew, under a banner saying so. The border is drawn inactive even while the
+	// pane technically holds the keyboard, because what it holds it no longer
+	// forwards — the accent would promise a live shell.
+	if s != nil && s.dead && m.active != "" {
+		return pane(false, m.deadBanner(s)+"\n"+m.deadContent(s))
+	}
+
 	switch {
 	// Editing: a tab strip over the open editor's screen.
 	case m.editing && s != nil && s.editor() != nil:
@@ -196,6 +210,43 @@ func (m *model) renderRight(h int) string {
 	}
 
 	return pane(false, m.renderDetails(m.paneW))
+}
+
+// deadBanner is the line across the top of a dropped session's pane: that the
+// connection is gone, why when the transport said, and the two keys that answer it.
+// It is on the pane rather than only in the status line because the status line
+// expires after a few seconds and a dropped connection does not.
+func (m *model) deadBanner(s *session) string {
+	head := redText.Bold(true).Render("⚠ connection lost")
+	if s.lostWhy != "" {
+		// The reason comes off the wire, so it is stripped like any remote string.
+		head += faint.Render(" · " + stripControl(s.lostWhy))
+	}
+	keys := keyHint("r", "reconnect") + "  " + keyHint("d", "drop")
+	gap := max(m.paneW-lipgloss.Width(head)-lipgloss.Width(keys), 1)
+	return truncate(head+strings.Repeat(" ", gap)+keys, m.paneW)
+}
+
+// deadContent is the frozen screen shown under the banner: whichever view the
+// session was showing when its connection went. It mirrors the live cases in
+// renderRight, with one addition — a session that has been left with nothing but a
+// dead connection (every shell and tab already gone) still has a pane to fill.
+func (m *model) deadContent(s *session) string {
+	switch {
+	case m.editing && s.editor() != nil:
+		return m.renderEditorTabs(s) + "\n" + s.editor().pane.View()
+	case m.browsing && s.browser != nil:
+		return s.browser.View()
+	case s.shell() != nil:
+		content := s.shell().pane.View()
+		if len(s.shells) > 1 {
+			content = m.renderShellTabs(s) + "\n" + content
+		}
+		return content
+	case s.browser != nil:
+		return s.browser.View()
+	}
+	return "\n" + dimStyle.Render("  Nothing is left open on this connection.")
 }
 
 // ---- footer ----
@@ -257,6 +308,15 @@ func (m *model) renderFooter() string {
 	case m.settings.open:
 		hints = []string{keyHint("↑↓", "move"), keyHint("enter", "edit"), keyHint("r", "reset"), keyHint("esc", "close")}
 
+	// Above the three pane modes, the way handleKey routes the keys: a dead pane has
+	// its own small keyboard, and a legend still offering alt+←→ would be listing
+	// keys that do nothing.
+	case m.active != "" && (m.focused || m.browsing || m.editing) && m.activeDead():
+		hints = []string{
+			keyHint("r", "reconnect"), keyHint("d", "drop session"),
+			keyHint("ctrl+o", "back"), m.sidebarHint(),
+		}
+
 	case m.editing && m.active != "":
 		hints = []string{
 			keyHint("alt+←→", "tab"), keyHint("alt+1-9", "jump"),
@@ -305,6 +365,13 @@ func (m *model) renderFooter() string {
 			keyHint("↑↓", "move"), keyHint("enter", "connect"), keyHint("f", "sftp"),
 			keyHint("a", "add"), keyHint("i", "import"), keyHint("e", "edit"), keyHint("x", "delete"),
 			keyHint("/", "filter"), keyHint(",", "settings"), keyHint("?", "keys"), keyHint("q", "quit"),
+		}
+		// 'r' is bound in the list at all times, but it is only worth a slot in the
+		// legend when there is a dropped session under the cursor to spend it on.
+		if h, ok := m.selectedHost(); ok {
+			if s := m.sessions[h.Alias]; s != nil && s.dead {
+				hints = append([]string{keyHint("r", "reconnect")}, hints...)
+			}
 		}
 		// Collapsed, the way back is the only key that matters — so it goes first,
 		// where a narrow window's truncation cannot be what drops it.

@@ -70,6 +70,13 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch {
+	// A pane whose connection has dropped is showing a picture, not a program: it
+	// takes the reconnect key and the ways out, and forwards nothing. This sits above
+	// the three pane handlers rather than inside each of them, because a dead
+	// connection kills the shell, the browser and the editors at once.
+	case m.active != "" && (m.focused || m.browsing || m.editing) && m.activeDead():
+		return m.handleDeadPaneKey(msg)
+
 	case m.editing && m.active != "":
 		return m.handleEditorKey(msg)
 	case m.browsing && m.active != "":
@@ -133,11 +140,24 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		if s, live := m.sessions[h.Alias]; live && s.shell() != nil {
+		s, live := m.sessions[h.Alias]
+		switch {
+		case live && s.dead:
+			// The shell is there to focus, but nothing is on the other end of it. What
+			// "focus the shell" means on a dropped session is: get the shell back.
+			return m, m.reconnect(h)
+		case live && s.shell() != nil:
 			m.focusShell(h.Alias)
 			return m, nil
 		}
 		m.setStatus(statusWarn, "no live session for %s", h.Alias)
+
+	case "r":
+		// Reconnect a session whose connection dropped, putting back the shells and the
+		// browser it was holding. It is bound in the list as well as in the dead pane
+		// itself, because a drop you notice by the red dot in the sidebar is as likely
+		// as one you notice by the pane going still.
+		return m, m.reconnectSelected()
 
 	case "f":
 		h, ok := m.selectedHost()

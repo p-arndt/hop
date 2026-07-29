@@ -91,6 +91,8 @@ func (m *model) renderDetails(w int) string {
 // connected.
 func (m *model) hostBadge(h store.Host) string {
 	switch {
+	case m.sessions[h.Alias] != nil && m.sessions[h.Alias].dead:
+		return deadDot + " " + redText.Render("connection lost")
 	case m.sessions[h.Alias] != nil:
 		return connectedDot + " " + greenText.Render("connected")
 	case m.connecting[h.Alias]:
@@ -113,7 +115,12 @@ func (m *model) actionGrid(h store.Host, w int) string {
 		{"f", "sftp browser"},
 	}
 	right := [][2]string{{"o", "open in vs code"}}
-	if live && s.shell() != nil {
+	switch {
+	case live && s.dead:
+		// The one key that matters on a dropped session goes where "focus shell" would
+		// have been: focusing a shell with nothing behind it is not on offer.
+		right = append(right, [2]string{"r", "reconnect"})
+	case live && s.shell() != nil:
 		right = append(right, [2]string{"s", "focus shell"})
 	}
 	if live {

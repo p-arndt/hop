@@ -82,9 +82,12 @@ var (
 	tabActive   = lipgloss.NewStyle().Bold(true).Foreground(colInk).Background(accent).Padding(0, 1)
 	tabInactive = lipgloss.NewStyle().Foreground(colDim).Background(colSurface).Padding(0, 1)
 
-	// Status dots.
+	// Status dots. The dead one is a filled dot like the connected one, in red: it
+	// is a host hop is still holding something for, unlike an idle one, and the
+	// shape says so before the color does.
 	connectedDot = greenText.Render("●")
 	idleDot      = faint.Render("○")
+	deadDot      = redText.Render("●")
 
 	// Modal cards.
 	cardBox = lipgloss.NewStyle().

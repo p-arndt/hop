@@ -25,6 +25,7 @@ the file browser, `esc` `esc` also works).
 | `f` | open the SFTP browser |
 | `o` | open the host in VS Code Remote |
 | `d` | disconnect the session |
+| `r` | reconnect a session whose connection dropped, reopening what it held |
 | `a` | add a host |
 | `e` | edit the host under the cursor |
 | `x` | delete the host under the cursor (asks first) |
@@ -132,6 +133,45 @@ channels on it. You are asked once per host, per hop run.
 
 Two hosts connecting at once each get their turn — the second card comes up when
 the first is answered.
+
+## When a connection drops — the reconnect keys
+
+Links go down: a laptop suspends, a VPN drops, a server reboots under you. hop
+notices, says so, and keeps the pane.
+
+The session is marked **dead** rather than closed. Its dot in the host list turns
+red, the details card reads *connection lost*, and the pane keeps the last screen
+the host drew — the command that was running, whatever the server printed on its way
+out — under a banner naming the reason. Nothing is torn down, because the useful
+thing to do next is read that screen and then get back on the host.
+
+A dead pane forwards nothing to the far end (there is nothing there), so it has its
+own small keyboard:
+
+| Key | Action |
+| --- | --- |
+| `r` / `enter` | reconnect: dial again and reopen what was open |
+| `d` / `x` | drop the session — the pane goes, the host is idle again |
+| `ctrl+o` / `esc` / `q` | back to the host list, leaving the pane on screen |
+
+`r` is bound in the host list too (as are `enter`, `s`, `S` and `f` on a dropped
+host, all of which mean "get me back on this one"), because a drop you notice by the
+red dot in the sidebar is as likely as one you notice by the pane going still.
+
+**What comes back.** A reconnect is a fresh connection, so the *processes* are gone
+for good — what is restored is the shape of the session: as many shell tabs as you
+had, and the SFTP browser in the directory it was standing in. Whichever half you
+were in when the link dropped is dialed first, so you come back where you were.
+Editor tabs are **not** reopened: an editor holds a buffer, and quietly reopening the
+file on a fresh pty would look like nothing had been lost. The status line says how
+many were left behind.
+
+**How the drop is detected.** Two ways, whichever gets there first. A connection that
+is closed or reset ends the SSH transport, which hop is watching. A connection that
+is merely *blackholed* — the suspended laptop — ends nothing at all, so hop also
+sends OpenSSH's keepalive probe every 15 seconds and gives up on the connection after
+three go unanswered, the same shape as `ServerAliveInterval` / `ServerAliveCountMax`
+in plain ssh. Without the probe such a session simply stops updating forever.
 
 ## Settings — the popover
 
