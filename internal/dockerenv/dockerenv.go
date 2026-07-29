@@ -2,11 +2,17 @@
 // in Docker.
 //
 // It exists so that more than one package can test against the same real server
-// without each of them re-implementing the container plumbing. Today that server
-// is an Ubuntu box running OpenSSH and pam_google_authenticator (see
-// testdata/twofactor): internal/sshx uses it to prove the SSH engine answers a
-// real two-factor challenge, and internal/tui uses it to prove the card a user
-// actually types into produces a real connected session.
+// without each of them re-implementing the container plumbing. There are two:
+//
+//   - StartTwoFactor: an Ubuntu box running OpenSSH and pam_google_authenticator
+//     (see testdata/twofactor). internal/sshx uses it to prove the SSH engine
+//     answers a real two-factor challenge, and internal/tui uses it to prove the
+//     card a user actually types into produces a real connected session.
+//   - StartShellHost: an Ubuntu box with one account per login shell — bash, zsh,
+//     fish (see testdata/shellhost and shellhost.go). internal/tui uses it to
+//     prove hop's working-directory tracking works against real shells: the prompt
+//     hook installs, the shells emit OSC 7 because of it, and a `cd` moves what
+//     they report.
 //
 // Nothing here runs unless a test asks for it. The tests that do are opt-in on
 // HOP_DOCKER_E2E, because Docker is not on every machine and the image takes a
@@ -86,7 +92,7 @@ func Enabled() bool { return os.Getenv(EnvVar) != "" }
 // Call Stop when done — typically from TestMain, since the container is worth
 // sharing across a package's tests.
 func StartTwoFactor() (*TwoFactor, error) {
-	dir, err := buildDir()
+	dir, err := buildDir("twofactor")
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +132,7 @@ func StartTwoFactor() (*TwoFactor, error) {
 		inside int
 		out    *int
 	}{{2222, &s.CodePort}, {2223, &s.KeyPort}, {2224, &s.PasswordPort}, {2225, &s.EitherPort}} {
-		p, err := publishedPort(m.inside)
+		p, err := publishedPort(container, m.inside)
 		if err != nil {
 			s.Stop()
 			return nil, err
@@ -134,7 +140,7 @@ func StartTwoFactor() (*TwoFactor, error) {
 		*m.out = p
 	}
 
-	if err := waitForSSH(s.CodePort, s.KeyPort, s.PasswordPort, s.EitherPort); err != nil {
+	if err := waitForSSH(container, s.CodePort, s.KeyPort, s.PasswordPort, s.EitherPort); err != nil {
 		s.Stop()
 		return nil, err
 	}
@@ -157,14 +163,14 @@ func (s *TwoFactor) Logs() string {
 	return string(out)
 }
 
-// buildDir locates testdata/twofactor relative to this source file, so it does
-// not matter which package's directory the test happens to run in.
-func buildDir() (string, error) {
+// buildDir locates testdata/<name> relative to this source file, so it does not
+// matter which package's directory the test happens to run in.
+func buildDir(name string) (string, error) {
 	_, self, _, ok := runtime.Caller(0)
 	if !ok {
 		return "", errors.New("dockerenv: cannot locate the package source")
 	}
-	dir := filepath.Join(filepath.Dir(self), "testdata", "twofactor")
+	dir := filepath.Join(filepath.Dir(self), "testdata", name)
 	if _, err := os.Stat(filepath.Join(dir, "Dockerfile")); err != nil {
 		return "", fmt.Errorf("dockerenv: %w", err)
 	}
@@ -172,7 +178,7 @@ func buildDir() (string, error) {
 }
 
 // publishedPort asks Docker which loopback port a container port landed on.
-func publishedPort(inside int) (int, error) {
+func publishedPort(container string, inside int) (int, error) {
 	out, err := exec.Command("docker", "port", container, strconv.Itoa(inside)).Output()
 	if err != nil {
 		return 0, fmt.Errorf("dockerenv: docker port %d: %w", inside, err)
@@ -192,7 +198,7 @@ func publishedPort(inside int) (int, error) {
 // connections whether or not anything inside is listening yet, so a connect test
 // passes against an empty container — and the dial that follows dies with
 // "handshake failed: EOF".
-func waitForSSH(ports ...int) error {
+func waitForSSH(container string, ports ...int) error {
 	deadline := time.Now().Add(90 * time.Second)
 	for _, p := range ports {
 		for {

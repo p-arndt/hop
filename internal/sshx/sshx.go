@@ -410,6 +410,49 @@ func (c *Client) Command(cmd string, cols, rows int) (*Session, error) {
 	return c.startPTY(cols, rows, func(s *ssh.Session) error { return s.Start(cmd) })
 }
 
+// Output runs cmd on a channel of its own — no pty, nothing interactive — and
+// returns what it wrote to stdout. It is for the small questions hop asks a host
+// about itself, where the answer is a line of text rather than a session: which
+// login shell the account has, and anything else of that shape.
+//
+// stderr is discarded. A command that fails is an error here, and what it
+// complained about on the way out is not something the caller can act on; the
+// callers of this treat "no answer" and "a bad answer" the same way.
+func (c *Client) Output(cmd string) (string, error) {
+	sess, err := c.ssh.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("sshx: new session: %w", err)
+	}
+	defer sess.Close()
+
+	// Bounded, because the questions asked here reach parts of a host that hang: a
+	// `getent passwd` on a box whose NSS talks to an unreachable LDAP or sssd never
+	// returns, and an unbounded wait would strand this channel and the caller's
+	// goroutine for the life of the process. Closing the session is what unblocks the
+	// read, so the timer closes it and Output returns the error that comes of it.
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		t := time.NewTimer(outputTimeout)
+		defer t.Stop()
+		select {
+		case <-done:
+		case <-t.C:
+			sess.Close()
+		}
+	}()
+
+	out, err := sess.Output(cmd)
+	if err != nil {
+		return "", fmt.Errorf("sshx: run %q: %w", cmd, err)
+	}
+	return string(out), nil
+}
+
+// outputTimeout bounds a single Output call. Generous for a question a healthy host
+// answers instantly, short enough that an unhealthy one is not waited on.
+const outputTimeout = 10 * time.Second
+
 // startPTY opens a session, requests a pty, wires the three std streams (stdout
 // and stderr merged into one ordered stream), and hands the prepared session to
 // start — which either opens a shell or launches a command on it.

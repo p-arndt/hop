@@ -37,7 +37,7 @@ func helpLeft(vim bool) []helpSection {
 			{"S", "another shell, same connection"},
 			{"s", "focus the host's shell"},
 			{"f", "sftp file browser"},
-			{"o", "open in VS Code Remote"},
+			{"o", "open in VS Code Remote (its shell's dir)"},
 			{"e", "edit this host"},
 			{"x", "delete this host"},
 			{"d", "disconnect everything on it"},
@@ -60,6 +60,7 @@ func helpRight(vim bool) []helpSection {
 			{"alt+0", "another shell, same host"},
 			{"alt+← →", "switch shell tab"},
 			{"alt+1…9", "jump to shell tab"},
+			{"ctrl+o ctrl+o", "this dir in VS Code"},
 			{"shift+↑", "scroll back through history"},
 			{"ctrl+b", "hide / show the sidebar"},
 			{"…anything", "goes to the remote shell"},
@@ -108,7 +109,7 @@ func motionKeys(vim bool) [][2]string {
 // Help card geometry. helpKeyW is wide enough for the longest key hop names, and
 // helpColW for the longest thing it says about one.
 const (
-	helpKeyW   = 12
+	helpKeyW   = 13 // "ctrl+o ctrl+o", the widest key name hop has
 	helpColW   = 42
 	helpGutter = 4
 )

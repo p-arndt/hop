@@ -101,6 +101,7 @@ re-records it on any machine without exposing anything. See
 | 🗂️ **Multiple shells per host** | `S` (or `alt+0`) opens another shell on a host you're already on. It's a second *channel*, so no new handshake and no second auth. Tabs across the top, `alt+1…9` to jump. |
 | 📁 **SFTP file browser** | `f` browses the remote filesystem over the connection you already have. Download with `d`, open locally with `o`. |
 | ✎ **Remote editor tabs** | `enter` on a file runs `$EDITOR` **on the server** on a second channel and renders it in a tab. No download, no copy, and `:w` writes the real file. |
+| 📂 **VS Code where you are** | `ctrl+o` `ctrl+o` in a shell (or `o` in the list) opens VS Code Remote on the directory the shell is standing in, not the one you log in to. hop tracks it over OSC 7, installing the prompt hook into bash/zsh itself and wiping the line it typed, so the pane looks untouched. |
 | ⇅ **Scrollback** | `shift+↑` pauses a shell into its history with vim-ish paging. Declines politely when a full-screen program owns the screen. |
 | 🔁 **Reconnect after a drop** | A dropped link (suspended laptop, dead VPN, rebooted box) is *noticed* — keepalive probes, not silence — and the pane keeps the last screen the host drew instead of quietly freezing. `r` dials again and puts the session's shape back: the same shell tabs, the browser in the directory it was in. |
 | 🔐 **Honest host keys** | An unknown key **aborts the dial** and shows a fingerprint card. `y` trusts it and appends; `n` trusts nothing. A *mismatch* is always a hard error. |
@@ -214,7 +215,7 @@ Every mode returns to the host list with **`ctrl+o`**.
 | `enter` `→` | connect, or focus the shell already open |
 | `s` / `S` | focus this host's session / open **another** shell on it |
 | `f` | SFTP browser |
-| `o` | open in VS Code Remote |
+| `o` | open in VS Code Remote, in the directory this host's shell is in |
 | `d` | disconnect |
 | `r` | reconnect a session whose connection dropped |
 | `a` `e` `x` | add / edit / delete a host |
@@ -235,9 +236,22 @@ Every mode returns to the host list with **`ctrl+o`**.
 | `esc` `esc` | back to hop (within 400 ms) |
 | `alt+0` | another shell on this host |
 | `alt+←` `alt+→` / `alt+1…9` | switch shells |
+| `ctrl+o` `ctrl+o` | open **this directory** in VS Code Remote (out of the pane, then open) |
 | `shift+↑` / `shift+pgup` | into scrollback |
 | `ctrl+b` | hide the sidebar — the shell takes the whole window |
 | *everything else* | goes to the remote shell |
+
+`ctrl+o` `ctrl+o` opens VS Code Remote on the directory the shell is standing in —
+`cd` somewhere, `ctrl+o` out of the pane, `ctrl+o` again. (Only a chord because the
+remote shell owns every plain key, and a control byte is the one thing every terminal
+sends without configuration.) hop learns that directory over **OSC 7**, the escape
+sequence terminals use for it, installing the prompt hook itself for **bash** and
+**zsh**: one line typed at the first prompt and then wiped from the pane, so the
+session looks untouched. Nothing is typed into a shell that already emits OSC 7, or
+while a full-screen program owns the screen (vim, tmux, a `ForceCommand`), and the
+erase is declined if anything but hop's own line is on the rows. Anywhere hop cannot
+learn a directory the key still opens the host in its default directory, and says so.
+See [KEYBINDINGS.md](KEYBINDINGS.md).
 
 </details>
 

@@ -6,7 +6,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"hop/internal/action"
 	"hop/internal/keymap"
 )
 
@@ -122,6 +121,15 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.help = true
 		m.clearStatus()
 
+	case "ctrl+o":
+		// The second half of the chord the pane armed on its way out: ctrl+o ctrl+o
+		// opens VS Code Remote on the directory the shell you just left was standing in.
+		// A ctrl+o that arrives on its own — nothing was left, or the window has passed
+		// — does nothing, which is what it did before.
+		if alias, ok := m.vscodeChord(); ok {
+			m.openVSCodeAt(alias)
+		}
+
 	case "esc":
 		// The one way back that is not a motion: esc is the browser's double-tap
 		// chord, so the keymap leaves it to the mode that owns it.
@@ -171,11 +179,10 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		if err := action.OpenVSCodeRemote(h.Alias, ""); err != nil {
-			m.setStatus(statusErr, "vscode: %v", err)
-		} else {
-			m.setStatus(statusOK, "opening VS Code remote → %s", h.Alias)
-		}
+		// In the directory the host's shell is standing in, when it has one — the
+		// list is where you land after ctrl+o, so 'o' here still means "open what I
+		// was just looking at".
+		m.openVSCodeAt(h.Alias)
 
 	case "d":
 		h, ok := m.selectedHost()
@@ -358,7 +365,13 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "ctrl+o":
+		// Leave the pane, and arm the second half of the "vs code here" chord: another
+		// ctrl+o now opens VS Code on the directory this shell is in. It is a chord
+		// rather than a key of its own because the shell owns every plain key, and the
+		// alt namespace in here is tab selection — see handleNavKey for the other half.
+		alias := m.active
 		m.leavePane()
+		m.armVSCodeChord(alias)
 		return m, nil
 
 	case "alt+0":
@@ -617,6 +630,23 @@ func (m *model) leavePane() {
 	m.focused = false
 	m.clearStatus()
 	m.lastEsc = time.Time{}
+}
+
+// armVSCodeChord remembers that a shell pane was just left with ctrl+o, so a second
+// ctrl+o — in the list, where the first one lands — opens VS Code on the directory
+// that shell was standing in. See handleNavKey.
+func (m *model) armVSCodeChord(alias string) {
+	m.leftPane, m.leftPaneAlias = time.Now(), alias
+}
+
+// vscodeChord reports whether this ctrl+o completes the chord: it is the second one,
+// inside the window, and the shell it was armed for is still there to be asked. The
+// arm is spent either way, so a third press is not a third open.
+func (m *model) vscodeChord() (string, bool) {
+	alias := m.leftPaneAlias
+	armed := !m.leftPane.IsZero() && time.Since(m.leftPane) <= doubleEscWindow
+	m.leftPane, m.leftPaneAlias = time.Time{}, ""
+	return alias, armed && alias != ""
 }
 
 // leaveBrowser returns from the file browser to navigation mode.

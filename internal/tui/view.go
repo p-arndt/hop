@@ -343,6 +343,12 @@ func (m *model) renderFooter() string {
 		// would only ever tell you what you had already worked out.
 		hints = []string{keyHint("ctrl+o", "back"), keyHint("esc esc", "back"), keyHint("alt+0", "new shell")}
 		s := m.sessions[m.active]
+		// The chord is only named where it would do the thing it says: with a directory
+		// to hand. Without one a second ctrl+o still opens VS Code, but on the host's
+		// default directory, and a footer promising "this dir" for that would be lying.
+		if m.shellCwd(m.active) != "" {
+			hints = append(hints, keyHint("ctrl+o ctrl+o", "vs code here"))
+		}
 		if s != nil && len(s.shells) > 1 {
 			hints = append(hints, keyHint("alt+←→", "shell"), keyHint("alt+1-9", "jump"))
 		}

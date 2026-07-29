@@ -51,6 +51,30 @@ type Pane struct {
 	// concurrency-safe in its own right. A mutex here would guard against a contender
 	// that does not exist.
 	scrollOffset int
+
+	// cwd is the remote shell's working directory as last reported over OSC 7, and
+	// cwdMu guards it: it is written by the output pump and read by the UI. osc is
+	// the scanner that produces it, touched by the pump alone. See cwd.go.
+	cwd   string
+	cwdMu sync.Mutex
+	osc   oscScanner
+
+	// firstOutput is closed once the pane has parsed its first chunk of server
+	// output — the tell that the far end has started talking, which is what the
+	// shell-integration injection waits for before typing into it.
+	firstOutput chan struct{}
+
+	// onOutput is the repaint callback New was given, kept so the changes hop makes
+	// to the screen itself — erasing the line the shell integration typed — reach the
+	// UI as promptly as the server's own output does.
+	onOutput func()
+
+	// closed is closed by Close, and is what the shell-integration goroutine watches
+	// to give up. That goroutine outlives nothing else here: it sleeps in seconds
+	// while it waits for a prompt, so a tab closed underneath it would otherwise
+	// still write to the emulator afterwards — which Close's contract forbids.
+	closed    chan struct{}
+	closeOnce sync.Once
 }
 
 // New creates an emulator sized w x h, binds it to sess, and starts the two
@@ -71,17 +95,33 @@ type Pane struct {
 // Both goroutines run until their streams close (session teardown / Close).
 func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 	emu := vt.NewSafeEmulator(w, h)
-	p := &Pane{emu: emu, sess: sess}
+	p := &Pane{
+		emu: emu, sess: sess,
+		firstOutput: make(chan struct{}),
+		closed:      make(chan struct{}),
+		onOutput:    onOutput,
+	}
 
 	// Remote/server output -> emulator parser: update the rendered screen. We
 	// read in a loop (instead of io.Copy) so we can notify the UI right after
 	// each chunk is parsed — event-driven repaints instead of polling.
 	go func() {
+		first := true
 		buf := make([]byte, 32*1024)
 		for {
 			n, err := sess.Stdout.Read(buf)
 			if n > 0 {
 				_, _ = emu.Write(buf[:n])
+				// The same bytes, watched for the one sequence that reports the remote
+				// shell's directory (see cwd.go). It is a scan, not a second parse: the
+				// emulator above remains the only thing interpreting the stream.
+				if dir, ok := p.osc.feed(buf[:n]); ok {
+					p.setCwd(dir)
+				}
+				if first {
+					first = false
+					close(p.firstOutput)
+				}
 				if onOutput != nil {
 					onOutput()
 				}
@@ -248,6 +288,11 @@ func (p *Pane) Resize(w, h int) {
 // The fallback keeps the old behaviour if vt ever stops handing back a Closer: a
 // benign race beats a stranded goroutine holding a dead session open.
 func (p *Pane) Close() error {
+	// First, so anything still working on this pane — the shell-integration goroutine,
+	// which may be parked for seconds waiting on a prompt — gives up before the
+	// emulator underneath it goes.
+	p.closeOnce.Do(func() { close(p.closed) })
+
 	var emuErr error
 	if pipe, ok := p.emu.InputPipe().(io.Closer); ok {
 		emuErr = pipe.Close()
@@ -271,6 +316,20 @@ func (p *Pane) Close() error {
 //	home -> ESC[H; end -> ESC[F; delete -> ESC[3~; pgup -> ESC[5~; pgdown -> ESC[6~;
 //	ctrl+<letter> -> the corresponding control byte (ctrl+c -> 0x03, ctrl+d -> 0x04, ...).
 func keyToBytes(msg tea.KeyMsg) []byte {
+	b := keyBytes(msg)
+	// A meta-modified key is that key's bytes behind an ESC, which is how a terminal
+	// sends alt+<key> and how readline (alt+b, alt+f) and vim (<esc>o typed fast enough
+	// to arrive as one event) read it back. Without the prefix, a forwarded alt chord
+	// reaches the remote as the bare key — 'o' inserting a line vim is still in insert
+	// mode for, rather than the <esc> that was pressed.
+	if msg.Alt && len(b) > 0 && msg.Type != tea.KeyEsc {
+		return append([]byte{0x1b}, b...)
+	}
+	return b
+}
+
+// keyBytes is keyToBytes without the meta prefix: the bytes for the key itself.
+func keyBytes(msg tea.KeyMsg) []byte {
 	switch msg.Type {
 	case tea.KeyRunes:
 		return []byte(string(msg.Runes))

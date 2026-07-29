@@ -11,6 +11,7 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 
 - [x] **Phase 1 — MVP:** SQLite host store, `~/.ssh/config` import, embedded SSH terminal panes (agent auth, VT emulator, keystrokes, resize), multi-session with `ctrl+o` to leave a pane, VS Code Remote open (`o`), fuzzy search (`/`).
 - [x] **Phase 2 — SFTP browser:** `internal/sftpx` (List/Download/Upload/Mkdir/Remove/Rename over the same SSH conn) + `internal/filebrowser` TUI. `f` opens it; navigate, `o` opens locally, `d` downloads → `~/Downloads`, `h`/`backspace` up, `r` refresh.
+- [x] **Working directory → VS Code:** shell panes track the remote cwd over OSC 7 (`internal/terminal/cwd.go`), installing a one-line prompt hook into bash/zsh over a second channel (skipped for other shells and for shells already emitting OSC 7), then erasing the echoed line from the emulator so the pane looks untouched. `alt+o` in a pane — and `o` in the host list — opens VS Code Remote on that directory, falling back to the host's default directory when none is known. End-to-end against real bash/zsh/fish in Docker (`internal/dockerenv/testdata/shellhost`).
 - [ ] **Phase 3 — Tunnels / port-forwarding:** define local/remote forwards per host, start/stop with a key, show status in the dashboard. (`ssh.Client` supports `Dial`/`Listen`; reuse the existing connection.)
 - [ ] **Phase 4 — Status/health panel:** per-host reachability + latency, `uptime`/disk via a background `session.Run`, shown like VS Code's connection status.
 

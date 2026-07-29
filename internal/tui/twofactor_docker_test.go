@@ -40,6 +40,9 @@ func TestMain(m *testing.M) {
 	server = s
 	code := m.Run()
 	server.Stop()
+	// The shell host is started lazily, by the tests in vscode_docker_test.go that
+	// need it; this is where it goes if any of them did.
+	stopShellHost()
 	os.Exit(code)
 }
 

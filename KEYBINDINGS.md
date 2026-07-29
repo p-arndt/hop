@@ -23,7 +23,7 @@ the file browser, `esc` `esc` also works).
 | `s` | focus the existing session for this host |
 | `S` | open **another** shell on this host, alongside the ones already open |
 | `f` | open the SFTP browser |
-| `o` | open the host in VS Code Remote |
+| `o` | open the host in VS Code Remote, in the directory its shell is standing in |
 | `d` | disconnect the session |
 | `r` | reconnect a session whose connection dropped, reopening what it held |
 | `a` | add a host |
@@ -316,9 +316,68 @@ swallowed rather than forwarded: the browser has no use for it.
 | `alt+0` | open **another** shell on this host, and go to it |
 | `alt+→` / `alt+←` | next / previous shell on this host (wraps) |
 | `alt+1` … `alt+9` | jump straight to that shell |
+| `ctrl+o` `ctrl+o` | open **this directory** in VS Code Remote |
 | `shift+↑` / `shift+pgup` | scroll back into the pane's history (see below) |
 | `ctrl+b` | hide / show the sidebar — the pane takes the whole window |
 | *everything else* | sent to the remote shell |
+
+### VS Code Remote, where you actually are — `ctrl+o` `ctrl+o`
+
+`code --remote ssh-remote+host` on its own lands in whatever directory the host
+logs you into, which is rarely the one you were working in. `ctrl+o` `ctrl+o` from a
+shell pane (or `o` in the host list, which asks that host's shell the same question)
+opens VS Code on the directory the shell is standing in — `cd` somewhere, `ctrl+o` out
+of the pane, `ctrl+o` again, and the editor opens there.
+
+It is a chord rather than a key because of the two rules above it: the remote shell
+owns every plain key, and hop's own bindings are control chords — the only thing every
+terminal sends without being configured to. The first `ctrl+o` is the ordinary way out
+of a pane, so the chord costs nothing that was not already pressed; the second one has
+to arrive within 400 ms, the same window as `esc` `esc`, and on its own does nothing.
+
+`alt+o` is deliberately *not* bound. The alt namespace in a pane is tab selection, and
+a terminal sends `alt+o` as `esc` then `o` — vim's "leave insert mode, open a line
+below" — so it belongs to the program in the pane.
+
+hop learns the directory the way every terminal emulator does: **OSC 7**, an escape
+sequence the shell emits from its prompt hook carrying its cwd. Most shells send
+none by default, so hop installs the hook itself — one line, typed into the prompt
+once when the shell opens, and then deleted from the pane again as soon as it has
+run: the emulator is in hop's own process, so the rows the shell echoed it into are
+hop's to take back. What you are left looking at is the login banner and a prompt.
+
+The hook is only sent to **bash** and **zsh** — anything else would answer it with
+a parse error — and not at all to a shell that already emits OSC 7 because your own
+rc-file does it, nor while a full-screen program owns the screen. That last one
+matters on a host whose login files end in something like `exec tmux attach`, or an
+sshd with a `ForceCommand`: the account's shell is bash, but bash is not what is on
+the other end, and a shell command typed into vim would edit a file. Behind a
+full-screen program the directory simply stays unknown.
+
+Erasing is equally cautious: hop reads the rows back before deleting them, and if
+anything but its own line is on them — a slow dynamic MOTD still printing, a
+background job's output — the line is left where it is. A visible line is a blemish;
+deleting the host's own output would be a defect.
+
+### macOS: the `alt` keys need one setting
+
+On macOS, `Option`+letter types a *character* (`ø`, `é`, `∑`) instead of sending the
+ESC-prefixed meta key hop reads — so **every** `alt+…` binding above (`alt+0`,
+`alt+1…9`, `alt+←/→`) does nothing until the terminal is told otherwise:
+
+- **Terminal.app** — Settings → Profiles → Keyboard → *Use Option as Meta key*
+- **iTerm2** — Settings → Profiles → Keys → Left Option key: *Esc+*
+- **Ghostty** — `macos-option-as-alt = true`
+- **WezTerm** — `send_composed_key_when_left_alt_is_pressed = false`
+- **VS Code's terminal** — `"terminal.integrated.macOptionIsMeta": true`
+
+Nothing hop *reserves* needs this — `ctrl+o`, `ctrl+b`, `esc` `esc` and the chord above
+are control bytes and arrive everywhere. It is only the tab keys, which is why they are
+the only thing in the alt namespace.
+
+Anywhere hop cannot learn a directory — fish, a shell with no prompt hook, a host
+with no shell open at all — the key still opens VS Code on the host, in its default
+directory, and the status line says so.
 
 ### Several shells on one host
 

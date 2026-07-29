@@ -121,7 +121,13 @@ func newShell(cli *sshx.Client, id, cols, rows int, notify chan struct{}) (*shel
 	if err != nil {
 		return nil, err
 	}
-	return &shellTab{id: id, pane: terminal.New(sess, cols, rows, wake(notify)), sess: sess}, nil
+	pane := terminal.New(sess, cols, rows, wake(notify))
+	// Ask the shell to report where it stands, so the VS Code binding can open the
+	// directory you are in rather than the one you log in to. It is best effort and
+	// asynchronous — nothing here waits on it, and a shell it cannot be installed
+	// into is a shell whose cwd stays unknown.
+	pane.TrackCwd(cli)
+	return &shellTab{id: id, pane: pane, sess: sess}, nil
 }
 
 // wake returns the callback a pane calls when it has parsed new output. It is

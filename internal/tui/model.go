@@ -49,6 +49,13 @@ type model struct {
 	// pending.
 	lastEsc time.Time
 
+	// leftPane is when a shell pane was last left with ctrl+o, and leftPaneAlias is
+	// whose it was. A second ctrl+o inside doubleEscWindow opens VS Code on the
+	// directory that shell was standing in — the "vs code here" chord. Zero means
+	// there is no half-typed chord waiting.
+	leftPane      time.Time
+	leftPaneAlias string
+
 	// filter input state.
 	filtering bool
 	filter    string
