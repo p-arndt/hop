@@ -74,18 +74,9 @@ func TestNavVimMotions(t *testing.T) {
 	}{
 		{"j moves down", []string{"j"}, 1},
 		{"k clamps at top", []string{"k", "k"}, 0},
-		{"j clamps at bottom", []string{"G", "j"}, 29},
-		{"G jumps to last", []string{"G"}, 29},
-		{"gg jumps to first", []string{"G", "g", "g"}, 0},
-		{"lone g is inert", []string{"j", "j", "g"}, 2},
-		{"g then other key cancels", []string{"G", "g", "j", "g"}, 29},
-		{"H jumps to first", []string{"G", "H"}, 0},
-		{"L jumps to last", []string{"L"}, 29},
-		{"M jumps to middle", []string{"M"}, 15},
-		{"ctrl+d half page", []string{"ctrl+d"}, 7},
-		{"ctrl+u half page back", []string{"G", "ctrl+u"}, 22},
-		{"ctrl+f full page", []string{"ctrl+f"}, 15},
-		{"ctrl+b full page back", []string{"G", "ctrl+b"}, 14},
+		{"j clamps at bottom", []string{"pgdown", "pgdown", "j"}, 29},
+		{"pgdown pages", []string{"pgdown"}, 15},
+		{"pgup pages back", []string{"pgdown", "pgdown", "pgup"}, 14},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -103,7 +94,7 @@ func TestNavVimMotions(t *testing.T) {
 // With the setting off, every vim motion is inert: the letters are not bound to
 // anything, so a user who never asked for vim cannot move (or leave) by typing one.
 func TestNavVimMotionsOffByDefault(t *testing.T) {
-	for _, k := range []string{"j", "k", "G", "H", "M", "L", "ctrl+d", "ctrl+u", "ctrl+f", "ctrl+b"} {
+	for _, k := range []string{"j", "k", "G", "H", "M", "L", "ctrl+d", "ctrl+u", "ctrl+f"} {
 		t.Run(k, func(t *testing.T) {
 			m := newNavModel(30)
 			m.cfg.VimKeys = false
@@ -164,9 +155,47 @@ func TestNavPlainKeysWorkWithoutVim(t *testing.T) {
 	}
 }
 
+// The jumps and the ctrl chords are the browser's keyboard, not the list's: in a
+// list that fits on screen they landed a keypress from where j and k already were,
+// and the letters are worth more as commands. Vim keys on or off, they must not
+// move the cursor here.
+func TestNavJumpKeysAreUnbound(t *testing.T) {
+	for _, k := range []string{"G", "H", "M", "L", "ctrl+d", "ctrl+u", "ctrl+f"} {
+		t.Run(k, func(t *testing.T) {
+			m := newNavModel(30)
+			m.cursor = 5
+
+			m.handleKey(key(t, k))
+
+			if m.cursor != 5 {
+				t.Fatalf("%q moved the cursor to %d; it is the browser's key, not the list's", k, m.cursor)
+			}
+		})
+	}
+}
+
+// "gg" is not bound in the list either — and the first g must not arm a chord that
+// swallows the key after it.
+func TestNavHasNoGChord(t *testing.T) {
+	m := newNavModel(30)
+	m.cursor = 5
+
+	m.handleKey(key(t, "g"))
+	m.handleKey(key(t, "g"))
+	if m.cursor != 5 {
+		t.Fatalf("gg moved the cursor to %d", m.cursor)
+	}
+
+	m.handleKey(key(t, "g"))
+	m.handleKey(key(t, "j"))
+	if m.cursor != 6 {
+		t.Fatalf("cursor = %d; the j after a g was swallowed by a chord that is not bound", m.cursor)
+	}
+}
+
 // An empty host list must not drive the cursor negative.
 func TestNavMotionsOnEmptyList(t *testing.T) {
-	for _, k := range []string{"G", "L", "M", "j", "ctrl+d", "ctrl+f"} {
+	for _, k := range []string{"j", "k", "pgdown", "pgup"} {
 		t.Run(k, func(t *testing.T) {
 			m := newNavModel(0)
 			m.handleKey(key(t, k))
@@ -356,24 +385,21 @@ func newBrowseModel() *model {
 	return &model{active: "web1", browsing: true, sessions: map[string]*session{}, height: 20}
 }
 
-// A "g" typed into the filter is literal text, not the start of a "gg" motion — so
-// it must not leave a chord armed for the next "g" to complete once the filter is
-// applied and the list has the keyboard back.
-func TestFilterSwallowsG(t *testing.T) {
-	m := newNavModel(30)
+// A letter typed into the filter is literal text: the filter owns every rune while
+// it has the keyboard, motion key or not.
+func TestFilterSwallowsMotionLetters(t *testing.T) {
+	m := viewModel(120, 34)
 	m.filtering = true
-	m.cursor = 5
+	m.filter = "web"
+	m.applyFilter()
+	before := m.cursor
 
-	m.handleKey(key(t, "g"))
-	if m.filter != "g" {
-		t.Fatalf("filter = %q, want %q", m.filter, "g")
+	m.handleKey(key(t, "j"))
+
+	if m.filter != "webj" {
+		t.Fatalf("filter = %q, want %q — the j went to the list instead of the filter", m.filter, "webj")
 	}
-
-	m.handleKey(key(t, "enter")) // apply the filter, back to the list
-	m.cursor = 5                 // applyFilter may have clamped it
-	m.handleKey(key(t, "g"))
-
-	if m.cursor != 5 {
-		t.Fatalf("cursor = %d; the g typed into the filter armed a gg the list completed", m.cursor)
+	if m.cursor != before {
+		t.Fatalf("cursor = %d, want %d", m.cursor, before)
 	}
 }

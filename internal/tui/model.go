@@ -86,6 +86,11 @@ type model struct {
 	// while focused; entering requires a shell on the main screen with scrollback to show.
 	scrolling bool
 
+	// sidebarHidden is true while the host list is collapsed (ctrl+b), giving the
+	// right pane the whole window. It is deliberately session-only and not a
+	// setting: hop opens on its host list, which is where you start from.
+	sidebarHidden bool
+
 	// help is true while the keybinding card is up. Like the settings popover it
 	// is modal, and it floats over the screen rather than replacing it.
 	help bool

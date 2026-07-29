@@ -17,10 +17,13 @@ func (m *model) View() string {
 	}
 
 	bodyH := m.bodyHeight()
-	body := lipgloss.JoinHorizontal(lipgloss.Top,
-		m.renderList(m.listWidth(), bodyH),
-		m.renderRight(bodyH),
-	)
+	// Collapsed, the sidebar is not drawn narrow — it is not drawn: the pane already
+	// has the columns (see listWidth), and a zero-width box would still cost the two
+	// its border takes.
+	body := m.renderRight(bodyH)
+	if w := m.listWidth(); w > 0 {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderList(w, bodyH), body)
+	}
 
 	screen := lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), body, m.renderFooter())
 
@@ -203,6 +206,16 @@ func (m *model) updateHint() string {
 	return yellowText.Render("⬆ hop "+m.updateLatest+" available") + " " + dimStyle.Render("· hop self-update")
 }
 
+// sidebarHint is the footer's ctrl+b entry. It names the outcome rather than the
+// toggle — "hide hosts" or "show hosts" — because a legend that only says "sidebar"
+// leaves you to guess which way the key goes.
+func (m *model) sidebarHint() string {
+	if m.sidebarHidden {
+		return keyHint("ctrl+b", "show hosts")
+	}
+	return keyHint("ctrl+b", "hide hosts")
+}
+
 // renderFooter is the key legend for the mode you are in. It is the same list the
 // help card holds, cut down to the keys that are live right now — the card is
 // there for when that is not enough.
@@ -239,7 +252,7 @@ func (m *model) renderFooter() string {
 	case m.editing && m.active != "":
 		hints = []string{
 			keyHint("alt+←→", "tab"), keyHint("alt+1-9", "jump"),
-			keyHint(":q", "close"), keyHint("ctrl+o", "browser"),
+			keyHint(":q", "close"), keyHint("ctrl+o", "browser"), m.sidebarHint(),
 			dimStyle.Render("keys →") + " " + greenText.Render("editor"),
 		}
 
@@ -247,7 +260,7 @@ func (m *model) renderFooter() string {
 		hints = []string{
 			keyHint("↑↓", "move"), keyHint("enter", "edit"), keyHint("o", "open local"),
 			keyHint("d", "download"), keyHint("←", "up"), keyHint("r", "refresh"),
-			keyHint("ctrl+o", "back"),
+			keyHint("ctrl+o", "back"), m.sidebarHint(),
 		}
 
 	case m.scrolling && m.focused && m.active != "":
@@ -271,6 +284,7 @@ func (m *model) renderFooter() string {
 		if s != nil && s.shell() != nil && !s.shell().pane.AltScreen() && s.shell().pane.ScrollbackLen() > 0 {
 			hints = append(hints, keyHint("shift+↑", "scrollback"))
 		}
+		hints = append(hints, m.sidebarHint())
 		hints = append(hints, dimStyle.Render("keys →")+" "+greenText.Render(m.active))
 
 	case m.filtering:
@@ -283,6 +297,13 @@ func (m *model) renderFooter() string {
 			keyHint("↑↓", "move"), keyHint("enter", "connect"), keyHint("f", "sftp"),
 			keyHint("a", "add"), keyHint("i", "import"), keyHint("e", "edit"), keyHint("x", "delete"),
 			keyHint("/", "filter"), keyHint(",", "settings"), keyHint("?", "keys"), keyHint("q", "quit"),
+		}
+		// Collapsed, the way back is the only key that matters — so it goes first,
+		// where a narrow window's truncation cannot be what drops it.
+		if m.sidebarHidden {
+			hints = append([]string{m.sidebarHint()}, hints...)
+		} else {
+			hints = append(hints, m.sidebarHint())
 		}
 		// News, not a key — so it goes first, where the truncation that trims a
 		// long legend on a narrow window can't be what drops it.

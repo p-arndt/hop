@@ -49,7 +49,8 @@ func TestViewFitsTheWindow(t *testing.T) {
 			m.connecting["raspberrypi"] = true
 			m.setStatus(statusErr, "connect web1 failed: dial tcp: connection refused")
 		},
-		"no hosts": func(m *model) { m.hosts = nil; m.applyFilter() },
+		"no hosts":          func(m *model) { m.hosts = nil; m.applyFilter() },
+		"sidebar collapsed": func(m *model) { m.toggleSidebar() },
 	}
 
 	for name, setup := range modes {

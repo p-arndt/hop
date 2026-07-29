@@ -32,6 +32,7 @@ the file browser, `esc` `esc` also works).
 | `/` | filter hosts (`enter` applies, `esc` clears) |
 | `,` | settings |
 | `?` | the keys card |
+| `ctrl+b` | hide / show the sidebar |
 | `q` / `ctrl+c` | quit |
 
 With **vim keys** turned on (`,` → *Vim keys*, off by default), these are bound as
@@ -40,20 +41,35 @@ well:
 | Key | Action |
 | --- | --- |
 | `j` / `k` | move down / up |
-| `gg` | jump to first host |
-| `G` | jump to last host |
-| `H` / `M` / `L` | jump to first / middle / last host |
-| `ctrl+d` / `ctrl+u` | half a page down / up |
-| `ctrl+f` / `ctrl+b` | a full page down / up |
 | `l` | connect — as `enter` does |
 | `h` | back — as `esc` does |
 
 Forward and back then use the same keys as the browser: `enter`/`l`/`right`
 descends into the thing under the cursor, `h`/`left` backs out of it.
 
-Because the host list does not scroll — every host is on screen — `H`/`M`/`L`
-coincide with `gg`, the midpoint, and `G`. They are bound anyway so the motions
-stay consistent with the browser.
+The list binds the **step** keys and nothing more. The jumps and the ctrl chords —
+`gg`, `G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`/`ctrl+f` — belong to the file browser,
+which walks directories that actually run past a screen. The host list does not
+scroll (every host is on screen), so each of them landed a `j` or two from where
+the cursor already was, and those letters are worth more to the list as commands.
+Paging is `pgdn`/`pgup`.
+
+## The sidebar — `ctrl+b`
+
+`ctrl+b` hides the host list and gives the whole window to the pane; `ctrl+b` again
+brings it back. It is bound in **every** mode except while a card is up — from a
+focused shell, from the browser, from an editor tab — because the moment you want
+the columns is the moment you are reading something wide on the far side of them.
+The terminals reflow to the new width immediately, both ways.
+
+Two consequences worth knowing:
+
+- It resets on restart. hop opens on its host list, which is where you start from,
+  so the collapse is a session thing rather than a setting.
+- hop holds `ctrl+b` in a shell pane, so a **remote tmux never sees its prefix**.
+  That is the usual deal between a multiplexer and the one above it — `ctrl+o`
+  still leaves the pane, and no other key is taken. It is also why `ctrl+b` is no
+  longer bound as a page-up anywhere: paging back is `pgup`.
 
 ## Import — the SSH config card
 
@@ -141,10 +157,12 @@ actually have rather than the one hop could give you.
 | `left` / `backspace` | up one directory |
 | `r` | refresh the listing |
 | `,` | settings |
+| `ctrl+b` | hide / show the sidebar |
 | `ctrl+o` | back to hop |
 | `esc` `esc` | back to hop (two presses within 400 ms) |
 
-With **vim keys** turned on:
+With **vim keys** turned on — the browser keeps the *whole* motion set, the host
+list only the step keys:
 
 | Key | Action |
 | --- | --- |
@@ -153,7 +171,7 @@ With **vim keys** turned on:
 | `G` | jump to last entry |
 | `H` / `M` / `L` | jump to top / middle / bottom **of the visible window** |
 | `ctrl+d` / `ctrl+u` | half a page down / up |
-| `ctrl+f` / `ctrl+b` | a full page down / up |
+| `ctrl+f` | a full page down (`pgup` pages back — `ctrl+b` is the sidebar) |
 | `l` | enter a directory / open a file — as `enter` does |
 | `h` | up one directory — as `left` does |
 
@@ -221,6 +239,7 @@ swallowed rather than forwarded: the browser has no use for it.
 | `alt+→` / `alt+←` | next / previous shell on this host (wraps) |
 | `alt+1` … `alt+9` | jump straight to that shell |
 | `shift+↑` / `shift+pgup` | scroll back into the pane's history (see below) |
+| `ctrl+b` | hide / show the sidebar — the pane takes the whole window |
 | *everything else* | sent to the remote shell |
 
 ### Several shells on one host
@@ -238,6 +257,10 @@ word, `alt+l` downcases one), and taking them would break the shell. The
 alt+**digits** are the one exception hop makes, and `alt+0` is why the new-shell
 key is a digit rather than the more memorable `alt+n`: it costs the remote shell
 nothing that `alt+1`…`alt+9` has not already cost it.
+
+The other key hop keeps from the shell is `ctrl+b`, the sidebar toggle — the same
+key tmux and screen use for "this one is for the multiplexer". A remote tmux
+therefore never sees its prefix through hop; nothing else is taken.
 
 Type `exit` to close a shell: its tab goes away, the rest keep running. When the
 last one exits, the connection is done and the host goes back to idle in the list
@@ -261,7 +284,7 @@ and the mode chip reads `⇅ scrollback <offset>/<len>` so you can see where you
 | Key | Action |
 | --- | --- |
 | `↑` / `↓`, `j` / `k` | up / down one line |
-| `pgup` / `pgdn`, `ctrl+b` / `ctrl+f` | up / down a page |
+| `pgup` / `pgdn`, `ctrl+f` | up / down a page (`ctrl+b` is the sidebar) |
 | `ctrl+u` / `ctrl+d` | up / down half a page |
 | `g` / `home` | jump to the oldest line |
 | `G` / `end` | back to the live bottom (and leave scrollback) |
@@ -315,11 +338,16 @@ never fires by accident.
 
 - **They are off until you turn them on**, in the settings popover (`,` → *Vim
   keys*). Off, they are not bound to anything else either: a stray `l` in the host
-  list does nothing at all. `pgdn`/`pgup` are *not* part of the switch — they mean
-  what `ctrl+f`/`ctrl+b` mean, but they are not vim, so turning vim off never costs
-  you a way to page.
-- **`gg` is a real two-key motion.** A lone `g` arms it; the next `g` jumps to
-  the top. Any other key in between cancels it, so `g` `j` is just a `j`.
+  list does nothing at all. `pgdn`/`pgup` are *not* part of the switch — they page
+  without being vim, so turning vim off never costs you a way to page.
+- **The two views bind different amounts of the keyboard**, never different
+  meanings. The browser has all of it; the host list has the step keys, `hjkl` and
+  the page keys. A key the list binds does there what it does in the browser.
+- **`gg` is a real two-key motion** — in the browser. A lone `g` arms it; the next
+  `g` jumps to the top. Any other key in between cancels it, so `g` `j` is just a
+  `j`. In the host list it is not bound, and a `g` there arms nothing.
+- **`ctrl+b` is not a motion anywhere.** It is the sidebar toggle in every mode, so
+  paging back is `pgup` (and `ctrl+f`'s partner is missing on purpose).
 - **Half and full pages are viewport-relative**, matching vim: `ctrl+d` moves by
   half the visible rows, `ctrl+f` by all of them. Both are clamped to at least
   one row, so they still work in a very short terminal.
@@ -334,16 +362,18 @@ never fires by accident.
 
 The host list and the file browser move on the same keys, so they do not each spell
 that keyboard out. `internal/keymap` holds it: one table, one row per key, saying
-what the key *means* (a `Motion`) and whether the vim setting owns it. Both views
-resolve keys through it and act on the motion they get back — what a key means is
-decided in one place, what it does is decided by the view, which is the only part
-that knows how tall it is or what is under the cursor.
+what the key *means* (a `Motion`), whether the vim setting owns it, and whether the
+host list binds it as well as the browser. Both views resolve keys through it —
+passing `keymap.Full` or `keymap.List` — and act on the motion they get back: what a
+key means is decided in one place, what it does is decided by the view, which is the
+only part that knows how tall it is or what is under the cursor.
 
 So:
 
 | To add… | Touch |
 | --- | --- |
-| a motion key, in both views at once | the `bindings` table in `internal/keymap` |
+| a motion key, in one or both views | the `bindings` table in `internal/keymap` (the `list` column is the split) |
+| a key hop holds in *every* mode | `toggleSidebarKey`'s branch in `handleKey`, `internal/tui/keys.go` |
 | what a motion *does* to the list | `model.move` in `internal/tui/keys.go` |
 | what a motion *does* to the browser | `Browser.move` in `internal/filebrowser` |
 | a command key (`d`, `o`, `r`, `f`, …) | the command switch in whichever view owns it |

@@ -29,6 +29,7 @@ func helpLeft(vim bool) []helpSection {
 			{"/", "filter the hosts"},
 			{"a", "add a new host"},
 			{"i", "import an ssh config"},
+			{"ctrl+b", "hide / show the sidebar"},
 			{"q", "quit hop"},
 		}...)},
 		{"HOST", [][2]string{
@@ -59,6 +60,7 @@ func helpRight(vim bool) []helpSection {
 			{"alt+← →", "switch shell tab"},
 			{"alt+1…9", "jump to shell tab"},
 			{"shift+↑", "scroll back through history"},
+			{"ctrl+b", "hide / show the sidebar"},
 			{"…anything", "goes to the remote shell"},
 		}},
 		{"SFTP BROWSER", [][2]string{
@@ -79,22 +81,21 @@ func helpRight(vim bool) []helpSection {
 	}
 }
 
-// motionKeys is how the list moves: the vim motions when they are switched on, and
-// the plain ones plus a pointer at the switch when they are not.
+// motionKeys is how the list moves: the vim step keys when they are switched on,
+// and the plain ones plus a pointer at the switch when they are not. The list's
+// keyboard is the smaller of the two — the jumps and ctrl chords belong to the
+// browser (see keymap.Scope), and the card shows what you are actually holding.
 func motionKeys(vim bool) [][2]string {
 	if vim {
 		return [][2]string{
 			{"↑ ↓ / j k", "move"},
-			{"gg / G", "top / bottom"},
-			{"H M L", "high / mid / low in view"},
-			{"ctrl+d / u", "half page"},
-			{"ctrl+f / b", "full page"},
+			{"pgup / pgdn", "page"},
 		}
 	}
 	return [][2]string{
 		{"↑ ↓", "move"},
 		{"pgup / pgdn", "page"},
-		{"j k h l …", "vim keys: off — , to turn on"},
+		{"j k h l", "vim keys: off — , to turn on"},
 	}
 }
 

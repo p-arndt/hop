@@ -16,9 +16,22 @@ import (
 // (say, in vim) stay independent.
 const doubleEscWindow = 400 * time.Millisecond
 
+// toggleSidebarKey collapses the host list and brings it back. The mnemonic key
+// would be alt+b (sideBar), but a terminal only sends alt+letter as a meta escape
+// when it is configured to — on macOS it is not, by default, so the key arrives as a
+// plain "b" hop never sees. ctrl+b is sent as a control byte by every terminal there
+// is, and it is the same key tmux and screen use for "talk to the multiplexer, not
+// to the program inside it", which is exactly what this is.
+//
+// The price is that a remote tmux never sees its prefix while hop holds it. That is
+// the deal every multiplexer makes with the one above it; ctrl+o still leaves the
+// pane, and nothing else is taken.
+const toggleSidebarKey = "ctrl+b"
+
 // handleKey routes a key to whichever mode currently owns the keyboard. The order
-// is the order of modality: the modal cards take everything, then the panes that
-// forward to a remote program, then the filter, then plain navigation.
+// is the order of modality: the modal cards take everything, then the sidebar
+// toggle, then the panes that forward to a remote program, then the filter, then
+// plain navigation.
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case m.help:
@@ -33,6 +46,22 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleImportKey(msg)
 	case m.settings.open:
 		return m.handleSettingsKey(msg)
+	}
+
+	// The one binding hop holds in every mode below the cards. It is layout, not
+	// navigation: it belongs to the window rather than to whatever owns the keyboard,
+	// so it is answered here instead of being repeated in four handlers — and it is
+	// reserved from the remote program the same way ctrl+o is. A card is the
+	// exception: the sidebar is behind it, and each card takes every key while it
+	// is up.
+	if msg.String() == toggleSidebarKey {
+		m.toggleSidebar()
+		// Any key that is not an esc breaks a half-typed double-esc, this one included.
+		m.lastEsc = time.Time{}
+		return m, nil
+	}
+
+	switch {
 	case m.editing && m.active != "":
 		return m.handleEditorKey(msg)
 	case m.browsing && m.active != "":
@@ -54,8 +83,10 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// The motions first, resolved through the shared keymap — which is also what
 	// drops the vim keys when the setting is off, so this switch never learns they
-	// exist. What is left below is the list's own keyboard: the commands.
-	if mo := m.keys.Motion(key, m.cfg.VimKeys); mo != keymap.None {
+	// exist. Scope List asks for the list's share of that keyboard: the step and page
+	// keys, without the jumps and ctrl chords the browser keeps. What is left below is
+	// the list's own keyboard: the commands.
+	if mo := m.keys.Motion(keymap.List, key, m.cfg.VimKeys); mo != keymap.None {
 		return m.move(mo)
 	}
 
@@ -159,26 +190,16 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // move applies a motion to the host list.
 //
-// The list does not scroll — every host is on screen — so the screen-relative
-// motions land on the same rows as the absolute ones. They are honoured anyway,
-// rather than dropped, so that H/M/L mean in the list what they mean in the browser
-// and a habit formed in one still works in the other.
+// Only the motions Scope List binds can arrive here: step, page and in/out. The
+// jumps (gg/G/H/M/L) and the ctrl chords are the browser's — the list does not
+// scroll, every host being on screen, so they landed a keypress or two from where
+// j and k already were, and the letters are worth more to the list as commands.
 func (m *model) move(mo keymap.Motion) (tea.Model, tea.Cmd) {
 	switch mo {
 	case keymap.Up:
 		m.cursor--
 	case keymap.Down:
 		m.cursor++
-	case keymap.Top, keymap.ScreenTop:
-		m.cursor = 0
-	case keymap.Bottom, keymap.ScreenBot:
-		m.cursor = len(m.filtered) - 1
-	case keymap.ScreenMid:
-		m.cursor = len(m.filtered) / 2
-	case keymap.HalfDown:
-		m.cursor += m.halfPage()
-	case keymap.HalfUp:
-		m.cursor -= m.halfPage()
 	case keymap.PageDown:
 		m.cursor += m.listRows()
 	case keymap.PageUp:
@@ -292,7 +313,8 @@ func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleShellKey routes a key while a shell pane is focused. The remote shell owns
 // nearly every key, so hop reserves only ctrl+o, a double esc, alt+0 to open another
-// shell, and alt+←/→ and alt+1..9 to switch between the ones already open. Everything
+// shell, alt+←/→ and alt+1..9 to switch between the ones already open, and ctrl+b for
+// the sidebar (taken before this, in handleKey). Everything
 // else is forwarded verbatim — including ←, which the shell needs for readline (and
 // for the alt+b/alt+f word motions built on it) and full-screen programs need for
 // navigation. Leaving the pane is ctrl+o or a double esc.
@@ -427,7 +449,9 @@ func (m *model) handleScrollbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.exitScrollback()
 		}
 
-	case "pgup", "ctrl+b", "shift+pgup":
+	case "pgup", "shift+pgup":
+		// No ctrl+b partner for the ctrl+f below: it is the sidebar toggle in every
+		// mode, and handleKey takes it before scrollback ever sees it.
 		p.ScrollUp(m.scrollPage())
 
 	case "pgdown", "ctrl+f", "shift+pgdown":

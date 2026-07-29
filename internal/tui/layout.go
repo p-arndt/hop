@@ -24,9 +24,25 @@ func (m *model) bodyHeight() int {
 	return max(m.height-chromeRows, 3)
 }
 
-// listWidth is the outer width of the host list, borders included.
+// listWidth is the outer width of the host list, borders included, or 0 while the
+// sidebar is collapsed — which is the whole of what collapsing means: every other
+// size in here is derived from this one, so the panes take the freed columns
+// without knowing the sidebar exists.
 func (m *model) listWidth() int {
+	if m.sidebarHidden {
+		return 0
+	}
 	return clamp(sidebarWidth, 16, max(m.width/2, 16))
+}
+
+// toggleSidebar hides or restores the host list and re-lays out everything the
+// change resizes. The remote programs are told their new size here rather than on
+// the next window event, so a full-screen editor reflows the moment the columns
+// arrive instead of when the window next changes.
+func (m *model) toggleSidebar() {
+	m.sidebarHidden = !m.sidebarHidden
+	m.recomputeLayout()
+	m.resizeAll()
 }
 
 // editorSize is the terminal size an editor pane gets: the right pane, less the
@@ -82,9 +98,4 @@ func (m *model) listRows() int {
 		r--
 	}
 	return max(r, 1)
-}
-
-// halfPage is the ctrl+d/ctrl+u step: half a viewport, but never zero.
-func (m *model) halfPage() int {
-	return max(m.listRows()/2, 1)
 }

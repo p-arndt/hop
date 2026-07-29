@@ -172,7 +172,7 @@ func (b *Browser) load(dir string) {
 func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 	key := msg.String()
 
-	if mo := b.keys.Motion(key, b.opts.VimKeys); mo != keymap.None {
+	if mo := b.keys.Motion(keymap.Full, key, b.opts.VimKeys); mo != keymap.None {
 		return b.move(mo)
 	}
 

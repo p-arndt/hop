@@ -18,7 +18,7 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 
 - [x] **Shell tabs:** `S` in the host list — or `alt+0` from a focused pane — opens another shell on an already-connected host (second channel, no re-handshake), shown as a tab strip. `alt+←/→` cycle, `alt+1..9` jump. `exit` closes a tab; the last one ends the session unless a browser/editor still holds the connection.
 - [x] **Editor tabs:** `enter` on a file opens it in a *remote* editor (`${EDITOR:-vi}` over a second SSH channel on a pty), rendered in a hop pane with a tab strip. `alt+←/→` cycle, `alt+1..9` jump, `:q` closes a tab, `ctrl+o` back to the browser. No download — `:w` writes the real remote file. `sshx.Command` (pty + exec) is the primitive.
-- [x] **Vim motions + back/forward keys:** `gg`/`G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`, `ctrl+f`/`ctrl+b` in host list and browser. `enter`/`l`/`right` descends, `h`/`left` backs out; `left` at the browser top pops back to hop. Panes reserve `ctrl+o` and a 400 ms double-`esc`; every other key — `left` included — goes to the remote shell.
+- [x] **Vim motions + back/forward keys:** `gg`/`G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`, `ctrl+f` in the browser; the host list keeps only `hjkl` + the page keys (see the keymap-scope entry under UX polish). `enter`/`l`/`right` descends, `h`/`left` backs out; `left` at the browser top pops back to hop. Panes reserve `ctrl+o` and a 400 ms double-`esc`; every other key — `left` included — goes to the remote shell.
 
 ## 📁 SFTP browser
 
@@ -51,7 +51,9 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 - [x] Cursor visible (reverse-video overlay at `CursorPosition`); typing lag removed (event-driven redraw); visual pass (keycap pills, `HOSTS` section, 3-state status dots incl. yellow `◐` connecting, accent selection bar, status badges).
 - [x] **Settings popover:** `,` opens a floating card (`internal/tui/overlay.go` composites over the finished screen via `x/ansi`) over `internal/config` — editor, download dir, accent, open-with. Stored as JSON at `<UserConfigDir>/hop/config.json` (`%AppData%\hop\` on Windows, `~/Library/Application Support/hop/` on macOS), applied live on save.
 - [ ] Cursor: respect hidden state and cursor style (block/bar/underline); optional blink.
-- [x] Scrollback UI: `shift+↑` (one line) or `shift+pgup` (a page) pauses a focused shell into its history; `↑`/`↓` or `j`/`k` move a line, `pgup`/`pgdn` (or `ctrl+b`/`ctrl+f`) a page, `ctrl+u`/`ctrl+d` a half, `g`/`home` to the top, `G`/`end` back to live. `esc`/`q`/`ctrl+o`/`enter`/`←` (or scrolling back to the bottom) return to the live shell. Off on the alt screen and when there's no scrollback.
+- [x] Scrollback UI: `shift+↑` (one line) or `shift+pgup` (a page) pauses a focused shell into its history; `↑`/`↓` or `j`/`k` move a line, `pgup`/`pgdn` (or `ctrl+f`) a page, `ctrl+u`/`ctrl+d` a half, `g`/`home` to the top, `G`/`end` back to live. `esc`/`q`/`ctrl+o`/`enter`/`←` (or scrolling back to the bottom) return to the live shell. Off on the alt screen and when there's no scrollback.
+- [x] **Collapsible sidebar:** `ctrl+b` hides the host list and gives the whole window to the pane, `ctrl+b` again brings it back (`model.sidebarHidden` → `listWidth() == 0`, everything else derives from it; every shell/browser/editor is resized on the toggle). Bound in every mode below the modal cards — the point of it is a focused shell — and answered once in `handleKey` rather than in four handlers. Session-only, no setting: hop opens on its host list. The costs, taken deliberately: a remote tmux never sees its `ctrl+b` prefix through hop, and `ctrl+b` is no longer a page-up motion anywhere (`pgup` is).
+- [x] **Host list keymap trimmed to the step keys:** `keymap.Scope` splits the shared motion table — the SFTP browser keeps all of it (`gg`/`G`/`H`/`M`/`L`/`ctrl+d`/`ctrl+u`/`ctrl+f`), the host list keeps `hjkl`, the arrows, `pgup`/`pgdn` and `enter`. The list doesn't scroll, so the jumps landed a `j` or two from the cursor while holding nine keys hostage in the one view with commands to spend them on. Same meanings in both views, just fewer of them in the list.
 - [ ] Mouse support (scroll/click) in panes and lists.
 - [ ] Narrow-terminal handling: header/footer truncation and min-size behavior.
 - [ ] Copy/paste into the remote shell.
@@ -84,6 +86,5 @@ See also: [KEYBINDINGS.md](KEYBINDINGS.md).
 ## 📝 Known limitations / notes
 
 - Auto-tracked "recent directories" in the sidebar was built then removed — the sidebar is a host list; dirs shouldn't appear implicitly. **Don't reintroduce implicit tracking.**
-- Local `sshd` can't be started here without admin → live verification of real remote sessions is manual (Patrick's side); headless tests use in-process Go SSH/SFTP servers.
 - `x/vt` is an untagged dep (pinned to a pseudo-version) — watch for breaking changes on update.
 - SFTP ops are synchronous (acceptable for MVP; see async item above).

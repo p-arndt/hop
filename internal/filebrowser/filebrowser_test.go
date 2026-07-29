@@ -118,7 +118,6 @@ func TestVimMotions(t *testing.T) {
 		{"ctrl+d half page", []string{"ctrl+d"}, 30, 5},
 		{"ctrl+u half page back", []string{"G", "ctrl+u"}, 30, 24},
 		{"ctrl+f full page", []string{"ctrl+f"}, 30, 10},
-		{"ctrl+b full page back", []string{"G", "ctrl+b"}, 30, 19},
 		{"G on empty list stays 0", []string{"G"}, 0, 0},
 		{"gg on empty list stays 0", []string{"g", "g"}, 0, 0},
 	}
@@ -138,7 +137,7 @@ func TestVimMotions(t *testing.T) {
 // With the setting off the vim motions are not bound, so "h" is not a way out of a
 // directory and "j" is not a way down a list. The arrows and backspace still are.
 func TestVimMotionsOffByDefault(t *testing.T) {
-	for _, k := range []string{"j", "k", "g", "G", "H", "M", "L", "ctrl+d", "ctrl+u", "ctrl+f", "ctrl+b"} {
+	for _, k := range []string{"j", "k", "g", "G", "H", "M", "L", "ctrl+d", "ctrl+u", "ctrl+f"} {
 		t.Run(k, func(t *testing.T) {
 			b, _ := newTestBrowser(30)
 			b.opts.VimKeys = false

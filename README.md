@@ -218,6 +218,7 @@ Every mode returns to the host list with **`ctrl+o`**.
 | `i` | import from an OpenSSH config |
 | `/` | fuzzy filter |
 | `,` `?` | settings / keys card |
+| `ctrl+b` | hide / show the sidebar |
 | `q` `ctrl+c` | quit |
 
 </details>
@@ -232,6 +233,7 @@ Every mode returns to the host list with **`ctrl+o`**.
 | `alt+0` | another shell on this host |
 | `alt+←` `alt+→` / `alt+1…9` | switch shells |
 | `shift+↑` / `shift+pgup` | into scrollback |
+| `ctrl+b` | hide the sidebar — the shell takes the whole window |
 | *everything else* | goes to the remote shell |
 
 </details>
@@ -245,6 +247,7 @@ Every mode returns to the host list with **`ctrl+o`**.
 | `o` / `d` | open in the local desktop app / download |
 | `←` `backspace` | up one directory |
 | `r` | refresh |
+| `ctrl+b` | hide / show the sidebar |
 | `alt+←` `alt+→` / `alt+1…9` | switch editor tabs |
 | `:q` | close an editor tab |
 | `ctrl+o` | back one level |
