@@ -8,7 +8,7 @@
 **Hop from server to server without ever leaving your terminal.**
 
 One keypress and you're in a shell. One more and you're browsing its files. One more and
-you're editing one *on the box* — in a tab, beside all the others. Then hop to the next
+you're editing one *on the box*, in a tab, beside all the others. Then hop to the next
 host and everything you left behind is still exactly where you left it.
 
 *No new windows. No re-authenticating. No hunting for that one shell you had open.*
@@ -34,8 +34,9 @@ host and everything you left behind is still exactly where you left it.
 <sub>Keys are shown bottom-right as they're pressed. `●` connected · `◐` connecting ·
 `○` idle · `×2` two shells open · `▤` SFTP browser open</sub>
 
-The header always tells you **where your keystrokes are going** — the single most
-disorienting thing about a TUI that embeds other people's programs.
+The header always tells you **where your keystrokes are going**. That's the single most
+disorienting thing about a TUI that embeds other people's programs, so it gets permanent
+screen space.
 
 <table>
 <tr>
@@ -55,30 +56,30 @@ disorienting thing about a TUI that embeds other people's programs.
 </td>
 <td width="50%" valign="top">
   <img src="./assets/screens/editor.png" alt="A file open in a remote editor tab inside hop" width="100%"><br>
-  <sub><b>A remote editor tab.</b> <code>enter</code> on a file runs the editor <i>on the server</i> — <code>:w</code> writes the real file.</sub>
+  <sub><b>A remote editor tab.</b> <code>enter</code> on a file runs the editor <i>on the server</i>, so <code>:w</code> writes the real file.</sub>
 </td>
 </tr>
 </table>
 
 <details>
-<summary><b>More stills</b> — two shells on one connection, settings, the keys card</summary>
+<summary><b>More stills</b>: two shells on one connection, settings, the keys card</summary>
 <br>
 
 <table>
 <tr>
 <td width="50%" valign="top">
   <img src="./assets/screens/shells.png" alt="Two shells on one host, shown as a tab strip" width="100%"><br>
-  <sub><b>Two shells, one connection.</b> <code>S</code> (or <code>alt+0</code>) opens another channel — no second handshake.</sub>
+  <sub><b>Two shells, one connection.</b> <code>S</code> (or <code>alt+0</code>) opens another channel, no second handshake.</sub>
 </td>
 <td width="50%" valign="top">
   <img src="./assets/screens/settings.png" alt="The settings popover" width="100%"><br>
-  <sub><b>Settings.</b> <code>,</code> — the accent is a swatch strip that recolours hop as you walk it.</sub>
+  <sub><b>Settings.</b> <code>,</code>. The accent is a swatch strip that recolours hop as you walk it.</sub>
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
   <img src="./assets/screens/keys.png" alt="The keys card listing every binding" width="100%"><br>
-  <sub><b>Every key hop binds.</b> <code>?</code> — and it lists the keyboard you actually have, vim motions included only if you turned them on.</sub>
+  <sub><b>Every key hop binds.</b> <code>?</code>. It lists the keyboard you actually have, with vim motions included only if you turned them on.</sub>
 </td>
 <td width="50%"></td>
 </tr>
@@ -86,8 +87,8 @@ disorienting thing about a TUI that embeds other people's programs.
 
 </details>
 
-<sub>Every host, file and command in the recording is invented — it runs against a
-throwaway SSH server (`tools/demoserver`) and a HOME of its own, so `just demo`
+<sub>Every host, file and command in the recording is invented. It runs against a
+throwaway SSH server (`tools/demoserver`) with a HOME of its own, so `just demo`
 re-records it on any machine without exposing anything. See
 [demo/hop.tape](demo/hop.tape).</sub>
 
@@ -95,18 +96,18 @@ re-records it on any machine without exposing anything. See
 
 |  | |
 | --- | --- |
-| 🖥️ **Embedded SSH shells** | Real terminals in a pane — a pure-Go SSH client (`x/crypto/ssh`) feeding a real VT emulator (`x/vt`). Agent *or* private-key auth, resize, cursor, the lot. |
-| 🗂️ **Multiple shells per host** | `S` (or `alt+0`) opens another shell on a host you're already on — a second *channel*, no new handshake, no second auth. Tabs across the top, `alt+1…9` to jump. |
+| 🖥️ **Embedded SSH shells** | Real terminals in a pane: a pure-Go SSH client (`x/crypto/ssh`) feeding a real VT emulator (`x/vt`). Agent *or* private-key auth, resize, cursor, the lot. |
+| 🗂️ **Multiple shells per host** | `S` (or `alt+0`) opens another shell on a host you're already on. It's a second *channel*, so no new handshake and no second auth. Tabs across the top, `alt+1…9` to jump. |
 | 📁 **SFTP file browser** | `f` browses the remote filesystem over the connection you already have. Download with `d`, open locally with `o`. |
-| ✎ **Remote editor tabs** | `enter` on a file runs `$EDITOR` **on the server** on a second channel and renders it in a tab. No download, no copy — `:w` writes the real file. |
+| ✎ **Remote editor tabs** | `enter` on a file runs `$EDITOR` **on the server** on a second channel and renders it in a tab. No download, no copy, and `:w` writes the real file. |
 | ⇅ **Scrollback** | `shift+↑` pauses a shell into its history with vim-ish paging. Declines politely when a full-screen program owns the screen. |
 | 🔐 **Honest host keys** | An unknown key **aborts the dial** and shows a fingerprint card. `y` trusts it and appends; `n` trusts nothing. A *mismatch* is always a hard error. |
 | 📥 **SSH config import** | `i` (or `hop import`) upserts every host from `~/.ssh/config`. It's a *sync*, not a one-shot: re-import refreshes, and hosts you added by hand are left alone. |
 | 🔎 **Fuzzy find** | `/` filters as you type, with the matched characters picked out so a surprising hit explains itself. |
-| ⚙️ **Live settings** | `,` opens a popover — editor, download dir, accent colour (a swatch strip you *see*, not a number you look up), open-with, vim keys. Applied on the spot. |
+| ⚙️ **Live settings** | `,` opens a popover for editor, download dir, accent colour (a swatch strip you *see*, not a number you look up), open-with and vim keys. Applied on the spot. |
 | 🎯 **Frecency ordering** | The hosts you actually use float to the top. |
 | 🪟 **Cross-platform** | Static, dependency-free binaries for Windows, macOS and Linux (amd64 + arm64). No cgo, no libc, no runtime. |
-| ⌨️ **Opt-in vim keys** | Off by default — because `h`/`l` meaning "out of" and "into" a host is a surprise to anyone who didn't ask for it. Flip one switch and the motions appear everywhere at once. |
+| ⌨️ **Opt-in vim keys** | Off by default, because `h`/`l` meaning "out of" and "into" a host is a surprise to anyone who didn't ask for it. Flip one switch and the motions appear everywhere at once. |
 
 ## 📦 Install
 
@@ -127,7 +128,7 @@ Expand-Archive hop_*_windows_amd64.zip -DestinationPath .
 # then move hop.exe onto your PATH
 ```
 
-Every release ships a `hop_<version>_checksums.txt` — verify with `sha256sum -c`.
+Every release ships a `hop_<version>_checksums.txt`, so you can verify with `sha256sum -c`.
 
 ### Staying current
 
@@ -138,7 +139,7 @@ hop self-update    # download it, verify its checksum, swap this binary
 
 `self-update` fetches the archive for *your* platform from the latest GitHub
 release, checks its SHA-256 against that release's `checksums.txt`, and replaces
-the running binary atomically — on Windows the old `hop.exe` is renamed aside and
+the running binary atomically. On Windows the old `hop.exe` is renamed aside and
 swept up the next time hop starts. Source builds (`version = dev`) are refused:
 there's nothing to compare them against.
 
@@ -162,7 +163,7 @@ just build-release  # stripped + version-stamped
 hop            # launch the TUI
 ```
 
-On a first run with no hosts, hop offers to import `~/.ssh/config` for you — one
+On a first run with no hosts, hop offers to import `~/.ssh/config` for you: one
 `enter` and your list is full. There's a CLI too, for when you're already in a shell:
 
 ```bash
@@ -182,9 +183,9 @@ That's the whole model.
 
 | | Path |
 | --- | --- |
-| Host database | `<config dir>/hop/hop.db` — SQLite |
-| Settings | `<config dir>/hop/config.json` — plain JSON, hand-editable |
-| Update check cache | `<config dir>/hop/update-check.json` — last check + latest version seen |
+| Host database | `<config dir>/hop/hop.db` (SQLite) |
+| Settings | `<config dir>/hop/config.json` (plain JSON, hand-editable) |
+| Update check cache | `<config dir>/hop/update-check.json` (last check + latest version seen) |
 | Known hosts | your usual `~/.ssh/known_hosts` |
 
 `<config dir>` is `%AppData%\hop\` on Windows, `~/Library/Application Support/hop/`
@@ -250,7 +251,7 @@ Every mode returns to the host list with **`ctrl+o`**.
 
 </details>
 
-📖 **[KEYBINDINGS.md](KEYBINDINGS.md)** is the full reference — including the vim
+📖 **[KEYBINDINGS.md](KEYBINDINGS.md)** is the full reference, including the vim
 motions, the settings popover, and *why* each reserved chord is reserved.
 
 ## 🛠️ Development
@@ -262,7 +263,7 @@ just build      # dev binary
 just test       # go test ./...
 just vet
 just fmt        # gofmt -w .
-just ci         # fmt-check + vet + test — what CI should run
+just ci         # fmt-check + vet + test (what CI runs)
 just demo       # re-record assets/demo.gif + the stills (needs vhs)
 ```
 
@@ -272,14 +273,14 @@ under both `sh` and PowerShell, and the two that need real shell logic (`fmt-che
 
 **The demo.** `just demo` records the GIF and the stills above. `scripts/demo.mjs`
 builds hop, points `HOME` at a throwaway directory with a seeded host database, and
-starts `tools/demoserver` — a loopback-only SSH server that invents everything on
+starts `tools/demoserver`, a loopback-only SSH server that invents everything on
 screen: a fake shell with a table of canned command output, an in-memory filesystem
 over SFTP, and a fake vi. The keypress overlay in the corner is hop's own, compiled
 in only under `-tags hopdemo` (`internal/tui/keycast.go`), so a released binary
 doesn't carry it.
 
 **Testing.** Headless tests drive the real Bubble Tea model with real keystrokes
-against in-process Go SSH/SFTP servers and temp-file stores — see
+against in-process Go SSH/SFTP servers and temp-file stores. See
 `internal/tui/hostmgmt_test.go`, `TestEmbeddedRoundTrip`, `TestSFTPRoundTrip`.
 CI runs vet + test + build on a Windows / Linux / macOS matrix, because the agent
 transport and the local-open handler are per-platform: a single-OS run can't tell
@@ -294,8 +295,8 @@ just release minor    # or major, or an explicit 1.0.0
 
 The tag push triggers the release workflow: it gates on the three-OS test matrix,
 then cross-compiles all six targets (windows/linux/darwin × amd64/arm64) from one
-Linux runner — `.zip` for Windows, `.tar.gz` elsewhere so the exec bit survives —
-with checksums and a git-cliff changelog.
+Linux runner, with checksums and a git-cliff changelog. Windows gets a `.zip`,
+everything else a `.tar.gz` so the exec bit survives.
 
 ## 🗺️ Roadmap
 
@@ -305,11 +306,11 @@ live settings · cross-platform releases.
 
 Next up:
 
-- 🔌 **Tunnels / port forwarding** — local and remote forwards per host, on the connection hop already holds
-- 💓 **Health panel** — per-host reachability, latency, uptime and disk
+- 🔌 **Tunnels / port forwarding**: local and remote forwards per host, on the connection hop already holds
+- 💓 **Health panel**: per-host reachability, latency, uptime and disk
 - ⬆️ **Uploads & file ops** in the browser (`u`, `x`, `R`, `m`) with async transfer progress
-- 🏷️ **Groups & tags** in the list — section by group, filter by tag, pin favourites
-- 🔁 **Reconnect handling** — detect a dropped session and offer to redial
+- 🏷️ **Groups & tags** in the list: section by group, filter by tag, pin favourites
+- 🔁 **Reconnect handling**: detect a dropped session and offer to redial
 - 🖱️ **Mouse support**, narrow-terminal layouts, copy/paste into panes
 
 The living version, with far more detail on each item, is [TODO.md](TODO.md).
