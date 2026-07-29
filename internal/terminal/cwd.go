@@ -70,6 +70,17 @@ type oscScanner struct {
 	// over is set when the current payload outgrew maxOSCPayload, so the rest of
 	// it is consumed and discarded rather than buffered.
 	over bool
+	// ris is set when a full terminal reset (RIS, ESC c — what `reset` and `tput
+	// reset` send) went past, and cleared by tookReset.
+	//
+	// It is the one sequence in here that has nothing to do with OSC 7, and it is
+	// watched here because this is the only ANSI-aware pass hop makes over the stream
+	// besides the emulator's own — and because the emulator will not say: its
+	// fullReset rewrites the whole mode map directly, without the EnableMode /
+	// DisableMode callbacks that every other mode change comes through. Anything
+	// shadowing those modes (see mouseState) would otherwise still believe whatever
+	// the program before the reset had asked for.
+	ris bool
 }
 
 type oscState int
@@ -103,6 +114,10 @@ func (s *oscScanner) feed(b []byte) (string, bool) {
 				s.over = false
 			case 0x1b:
 				// ESC ESC: still waiting on the byte that says what this is.
+			case 'c':
+				// RIS, a full terminal reset — see ris.
+				s.ris = true
+				s.state = oscGround
 			default:
 				s.state = oscGround
 			}
@@ -145,6 +160,15 @@ func (s *oscScanner) feed(b []byte) (string, bool) {
 		}
 	}
 	return dir, found
+}
+
+// tookReset reports whether a full reset went past since it was last asked, and
+// clears the flag. The cwd is deliberately not cleared with it: RIS resets the
+// terminal, not the shell, which is standing where it always was.
+func (s *oscScanner) tookReset() bool {
+	took := s.ris
+	s.ris = false
+	return took
 }
 
 // push appends a payload byte, marking the payload over-long once it passes the

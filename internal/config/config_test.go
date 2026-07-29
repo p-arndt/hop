@@ -120,3 +120,29 @@ func TestSaveLeavesNoTempFile(t *testing.T) {
 		}
 	}
 }
+
+// Mouse is the one field whose default is not its zero value, which is only safe
+// because Load starts from Default() and unmarshals over it: a config written before
+// hop had the setting — or any file that simply omits the key — comes back with the
+// mouse on, and only a file that says otherwise switches it off.
+func TestLoadMouseDefaultsOn(t *testing.T) {
+	dir := isolate(t)
+	path := filepath.Join(dir, "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"editor":"nano"}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !Load().Mouse {
+		t.Fatal("a config with no mouse key loaded with the mouse off, want on")
+	}
+
+	if err := os.WriteFile(path, []byte(`{"mouse":false}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if Load().Mouse {
+		t.Fatal(`a config saying "mouse": false loaded with the mouse on`)
+	}
+}

@@ -80,12 +80,7 @@ func (m *model) filterPrompt() string {
 // renderRows draws the visible slice of the filtered list, scrolled so the cursor
 // is always on screen, with a scrollbar when there is more list than window.
 func (m *model) renderRows(w, h int) string {
-	// Scroll window: keep the cursor inside it, and prefer to show it with the
-	// list scrolled as little as possible.
-	start := 0
-	if m.cursor >= h {
-		start = m.cursor - h + 1
-	}
+	start := m.listStart(h)
 	end := min(start+h, len(m.filtered))
 
 	// The scrollbar earns its column only when the list actually overflows.
@@ -105,6 +100,17 @@ func (m *model) renderRows(w, h int) string {
 		lines = append(lines, row)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// listStart is the first filtered index drawn in an h-row viewport: the scroll
+// window keeps the cursor inside it, and scrolls the list as little as it can to
+// do so. It is shared with the mouse, which has to run the same arithmetic
+// backwards to say which host a clicked row is (see listRowAt).
+func (m *model) listStart(h int) int {
+	if m.cursor >= h {
+		return m.cursor - h + 1
+	}
+	return 0
 }
 
 // scrollbarCell is the character on row i of an h-row viewport: a bright thumb

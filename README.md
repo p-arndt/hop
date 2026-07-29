@@ -107,6 +107,7 @@ re-records it on any machine without exposing anything. See
 | 🔐 **Honest host keys** | An unknown key **aborts the dial** and shows a fingerprint card. `y` trusts it and appends; `n` trusts nothing. A *mismatch* is always a hard error. |
 | 📥 **SSH config import** | `i` (or `hop import`) upserts every host from `~/.ssh/config`. It's a *sync*, not a one-shot: re-import refreshes, and hosts you added by hand are left alone. |
 | 🔎 **Fuzzy find** | `/` filters as you type, with the matched characters picked out so a surprising hit explains itself. |
+| 🖱️ **Mouse** | Wheel and click in the list, the browser and the panes: the wheel scrolls a shell's history, a double-click connects, a click on a tab switches to it. Every gesture is a key you already have, and a remote program that asked for the mouse (vim's `set mouse=a`, `htop`) gets the pointer verbatim. `,` → *Mouse* → off hands click-and-drag selection back to your terminal. |
 | ⚙️ **Live settings** | `,` opens a popover for editor, download dir, accent colour (a swatch strip you *see*, not a number you look up), open-with and vim keys. Applied on the spot. |
 | 🎯 **Frecency ordering** | The hosts you actually use float to the top. |
 | 🪟 **Cross-platform** | Static, dependency-free binaries for Windows, macOS and Linux (amd64 + arm64). No cgo, no libc, no runtime. |
@@ -354,7 +355,7 @@ Next up:
 - 💓 **Health panel**: per-host reachability, latency, uptime and disk
 - ⬆️ **Uploads & file ops** in the browser (`u`, `x`, `R`, `m`) with async transfer progress
 - 🏷️ **Groups & tags** in the list: section by group, filter by tag, pin favourites
-- 🖱️ **Mouse support**, narrow-terminal layouts, copy/paste into panes
+- 📐 Narrow-terminal layouts, copy/paste into panes
 
 The living version, with far more detail on each item, is [TODO.md](TODO.md).
 

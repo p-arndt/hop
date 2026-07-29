@@ -37,6 +37,17 @@ type Config struct {
 	// unbound, so navigation is the arrows, enter and esc: hop asks for vim rather
 	// than assuming it.
 	VimKeys bool `json:"vimKeys"`
+
+	// Mouse turns on mouse reporting: the wheel and clicks in the host list, the
+	// browser and the panes, and the pointer forwarded to a remote program that has
+	// asked for it. It defaults to *on* — the one field here whose zero value is not
+	// its default, which is safe because Load starts from Default() and unmarshals
+	// over it, so only a file that says "mouse": false switches it off.
+	//
+	// It is worth switching off: while hop is reporting the mouse, the terminal's own
+	// click-and-drag selection is hop's instead, so copying text out of a pane needs
+	// the terminal's bypass modifier (shift, or alt on macOS) — or this, set to off.
+	Mouse bool `json:"mouse"`
 }
 
 // DefaultAccent is hop's pink.
@@ -47,6 +58,7 @@ func Default() Config {
 	return Config{
 		DownloadDir: defaultDownloadDir(),
 		Accent:      DefaultAccent,
+		Mouse:       true,
 	}
 }
 

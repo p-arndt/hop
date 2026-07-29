@@ -56,6 +56,14 @@ type model struct {
 	leftPane      time.Time
 	leftPaneAlias string
 
+	// lastClick is when the most recent click landed, and lastClickZone/lastClickID are
+	// what it landed on — the region, and the index of the host or entry inside it. A
+	// second click on the same thing inside doubleClickWindow means "open this" — the
+	// pointer's enter. Zero means there is no half-made double waiting. See clickChord.
+	lastClick     time.Time
+	lastClickZone zone
+	lastClickID   int
+
 	// filter input state.
 	filtering bool
 	filter    string
@@ -118,6 +126,11 @@ type model struct {
 
 	// cfg is the user's settings, as loaded at startup and edited in the popover.
 	cfg config.Config
+	// mouseOn is what hop has last asked the *terminal* for, which is not the same
+	// as cfg.Mouse until Init has run: reporting is switched on by a sequence sent to
+	// the user's terminal, so the setting and the state of the world are tracked
+	// separately and reconciled in applyMouse.
+	mouseOn bool
 	// settings is the settings popover's own state (cursor, text entry).
 	settings settingsUI
 
@@ -212,7 +225,10 @@ func (m *model) Init() tea.Cmd {
 	// asking for a 2FA code blocks until it is received), and a one-shot update
 	// check — off the UI thread, so a slow or unreachable GitHub never delays the
 	// first paint.
-	return tea.Batch(waitForOutput(m.notify), waitAuthPrompt(m.prompts), updateCheckCmd())
+	//
+	// The mouse is switched on here rather than as a program option, so that the one
+	// path — applyMouse — decides it at startup and on every later settings change.
+	return tea.Batch(waitForOutput(m.notify), waitAuthPrompt(m.prompts), updateCheckCmd(), m.applyMouse())
 }
 
 // Update dispatches the message and then arms the timer for any status line the
@@ -313,6 +329,9 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		m.keycastRecord(msg.String())
 		return m.handleKey(msg)
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 	}
 
 	return m, nil

@@ -195,6 +195,55 @@ func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
+// ---- mouse ----
+//
+// The browser exposes the three things a pointer needs — which entry a view row
+// holds, how to stand on one, and how to open the one you are standing on — rather
+// than a Handle-shaped method taking mouse events. Where the wheel and a click
+// should land, and what counts as a double-click, is the enclosing model's
+// business (it owns the pane's borders and the clock); which row is which is the
+// browser's, because it drew them.
+
+// entryRows is the view row the first entry is drawn on: the path header and the
+// rule above it. It is what RowAt subtracts, and it mirrors View.
+const entryRows = 2
+
+// RowAt maps a view row — 0 is the browser's own top line, the path header — to
+// the entry drawn there. It reports false for a row holding no entry: the header,
+// the rule, the status line, or the blank space under a short listing.
+func (b *Browser) RowAt(y int) (int, bool) {
+	row := y - entryRows
+	if row < 0 || row >= b.contentRows() {
+		return 0, false
+	}
+	i := b.scroll + row
+	if i < 0 || i >= len(b.entries) {
+		return 0, false
+	}
+	return i, true
+}
+
+// Select stands the cursor on entry i, as a click on its row does. An index out of
+// range is clamped rather than refused, which is what every other move here does.
+func (b *Browser) Select(i int) {
+	b.cursor = i
+	b.clampScroll()
+}
+
+// Activate opens the entry under the cursor: descend into a directory, or ask the
+// model to open a file in an editor. It is what enter does, exported for the
+// double-click that means the same thing.
+func (b *Browser) Activate() tea.Cmd { return b.activate() }
+
+// Scroll moves the cursor n rows, negative for up — one notch of the wheel. The
+// cursor moves rather than the window alone, because the cursor is what every
+// other key here acts on: a wheel that slid the listing out from under it would
+// leave "d" downloading a file that is no longer on screen.
+func (b *Browser) Scroll(n int) {
+	b.cursor += n
+	b.clampScroll()
+}
+
 // move applies a motion to the listing. Unlike the host list, the browser scrolls,
 // so the screen-relative motions (H/M/L) land inside the visible window while Top
 // and Bottom address the directory.

@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 
 	"hop/internal/sshx"
@@ -51,6 +52,11 @@ type Pane struct {
 	// concurrency-safe in its own right. A mutex here would guard against a contender
 	// that does not exist.
 	scrollOffset int
+
+	// mouse is the mouse reporting the far end has asked for, tracked through the
+	// emulator's mode callbacks. It is what decides whether a wheel event over this
+	// pane belongs to the remote program or to hop's own scrollback. See mouse.go.
+	mouse mouseState
 
 	// cwd is the remote shell's working directory as last reported over OSC 7, and
 	// cwdMu guards it: it is written by the output pump and read by the UI. osc is
@@ -102,6 +108,14 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 		onOutput:    onOutput,
 	}
 
+	// Watch the mode changes the remote program makes, for the one thing hop needs
+	// to know about them: whether it has asked for the mouse (see mouse.go). Wired
+	// before the pumps start, so nothing is parsed while the callbacks are being set.
+	emu.SetCallbacks(vt.Callbacks{
+		EnableMode:  func(mode ansi.Mode) { p.mouse.setMode(mode, true) },
+		DisableMode: func(mode ansi.Mode) { p.mouse.setMode(mode, false) },
+	})
+
 	// Remote/server output -> emulator parser: update the rendered screen. We
 	// read in a loop (instead of io.Copy) so we can notify the UI right after
 	// each chunk is parsed — event-driven repaints instead of polling.
@@ -117,6 +131,12 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 				// emulator above remains the only thing interpreting the stream.
 				if dir, ok := p.osc.feed(buf[:n]); ok {
 					p.setCwd(dir)
+				}
+				// A full reset takes every mode with it, mouse reporting included — and
+				// the emulator makes that change without a callback, so the scan above is
+				// the only warning hop gets. See oscScanner.ris.
+				if p.osc.tookReset() {
+					p.mouse.clear()
 				}
 				if first {
 					first = false

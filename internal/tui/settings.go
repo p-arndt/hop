@@ -132,6 +132,13 @@ var settingsFields = []settingsField{
 		get:   func(c config.Config) string { return onOff(c.VimKeys) },
 		set:   func(c *config.Config, v string) { c.VimKeys = v == on },
 	},
+	{
+		label: "Mouse",
+		kind:  fieldToggle,
+		desc:  "Wheel and click in the list, the browser and the panes. Off: your terminal keeps its own selection.",
+		get:   func(c config.Config) string { return onOff(c.Mouse) },
+		set:   func(c *config.Config, v string) { c.Mouse = v == on },
+	},
 }
 
 // settingsUI is the popover's own state. The values it edits live in model.cfg;
@@ -172,8 +179,9 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			f.set(&m.cfg, strings.TrimSpace(m.settings.buf))
 			m.settings.editing = false
-			m.applySettings()
+			cmd := m.applySettings()
 			m.saveSettings()
+			return m, cmd
 		case "esc":
 			// Abandon the edit, keep the popover open.
 			m.settings.editing = false
@@ -212,25 +220,24 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.clampSettings()
 
 	case "left", "h":
-		m.adjust(f, -1)
+		return m, m.adjust(f, -1)
 
 	case "right", "l":
-		m.adjust(f, 1)
+		return m, m.adjust(f, 1)
 
 	case "enter", "i":
 		if f.kind == fieldToggle {
 			// There is nothing to type on a switch, so the key that would open the
 			// buffer flips it instead — the obvious thing to happen when you press
 			// enter on something that has two states.
-			m.adjust(f, 1)
-			return m, nil
+			return m, m.adjust(f, 1)
 		}
 		m.settings.editing = true
 		m.settings.buf = f.get(m.cfg)
 
 	case "r":
 		// Reset this field to its default — the way back out of a bad value.
-		m.commit(f, f.get(config.Default()))
+		return m, m.commit(f, f.get(config.Default()))
 	}
 	return m, nil
 }
@@ -241,22 +248,24 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 //
 // It applies as it goes, with nothing to confirm — a colour is judged by seeing it
 // and a binding by living with it for a keystroke, and the same key walks back.
-func (m *model) adjust(f settingsField, delta int) {
+func (m *model) adjust(f settingsField, delta int) tea.Cmd {
 	switch f.kind {
 	case fieldColor:
-		m.commit(f, nextSwatch(f.swatches, f.get(m.cfg), delta))
+		return m.commit(f, nextSwatch(f.swatches, f.get(m.cfg), delta))
 	case fieldToggle:
-		m.commit(f, onOff(f.get(m.cfg) != on))
+		return m.commit(f, onOff(f.get(m.cfg) != on))
 	}
+	return nil
 }
 
 // commit writes a value to the config, applies it to everything already running and
 // saves it. Every way of changing a setting — typing one, walking one, resetting one
 // — ends here, so none of them can be the one that forgets to persist.
-func (m *model) commit(f settingsField, v string) {
+func (m *model) commit(f settingsField, v string) tea.Cmd {
 	f.set(&m.cfg, v)
-	m.applySettings()
+	cmd := m.applySettings()
 	m.saveSettings()
+	return cmd
 }
 
 // nextSwatch is the colour delta steps along the palette from current, wrapping at
@@ -289,7 +298,11 @@ func (m *model) clampSettings() {
 // applySettings pushes the current config into everything already running, so a
 // change takes effect on the spot rather than on the next launch: the palette is
 // restyled, and every live browser picks up the new directories.
-func (m *model) applySettings() {
+//
+// The mouse is the one setting hop cannot apply by itself — reporting is switched on
+// in the *user's* terminal, which only Bubble Tea can address — so it comes back as
+// a command for the caller to return.
+func (m *model) applySettings() tea.Cmd {
 	setAccent(m.cfg.Accent)
 
 	opts := m.browserOptions()
@@ -298,6 +311,24 @@ func (m *model) applySettings() {
 			s.browser.SetOptions(opts)
 		}
 	}
+	return m.applyMouse()
+}
+
+// applyMouse brings the terminal's mouse reporting in line with the setting, and
+// returns nothing when it already is: mouseOn is what hop last asked the terminal
+// for, so a settings edit that did not touch this field sends no sequence.
+func (m *model) applyMouse() tea.Cmd {
+	if m.cfg.Mouse == m.mouseOn {
+		return nil
+	}
+	m.mouseOn = m.cfg.Mouse
+	if m.mouseOn {
+		// Cell motion, not all motion: drag is reported (a remote program's visual
+		// select needs it) while a pointer merely crossing the window is not, which
+		// would be a stream of events nothing here reads.
+		return tea.EnableMouseCellMotion
+	}
+	return tea.DisableMouse
 }
 
 // browserOptions is the slice of the config the file browser cares about.
@@ -331,6 +362,18 @@ const (
 	settingsDescH = 2
 )
 
+// settingsChrome is what the card costs before any field is drawn: its border and
+// the row of padding inside it top and bottom, the title and the blank under it,
+// then the rule, a blank, and the hint line.
+const settingsChrome = 2 + 2 + 2 + 1 + 1 + 1
+
+// settingsFullH is how tall the card stands with a blank line between its fields —
+// the height a window has to have before it can afford that air. settingsMinH is how
+// tall it stands packed, which is the smallest it gets: a window shorter than this
+// has its bottom rows cut off by the overlay. See renderSettings.
+func settingsFullH() int { return settingsChrome + settingsDescH + 3*len(settingsFields) }
+func settingsMinH() int  { return settingsChrome + settingsDescH + 2*len(settingsFields) }
+
 // settingsInnerW is the width available to a rendered row: the box minus its
 // border and padding. Every line is held to it, because a modal that wraps spills
 // outside its own frame — and the box itself is held to the window, because a
@@ -353,6 +396,20 @@ func (m *model) renderSettings() string {
 	b.WriteString(titleStyle.Render("SETTINGS"))
 	b.WriteString("\n\n")
 
+	// The fields are spaced apart where there is room and packed where there is not.
+	// What has to survive a short window is the whole card — every field, the
+	// selected one's explanation, and the key hints at its foot — so the air between
+	// rows is what gives way, rather than the bottom of the card being cut off.
+	//
+	// Packed is as small as the card goes: settingsMinH rows. Below that the overlay
+	// drops its bottom lines, hints included, and the honest answer is a taller
+	// window — there is nothing left to give that is not one of the things listed
+	// above. settingsMinH is where the test pins it.
+	gap := "\n\n"
+	if m.height < settingsFullH() {
+		gap = "\n"
+	}
+
 	for i, f := range settingsFields {
 		selected := i == m.settings.cursor
 
@@ -363,7 +420,7 @@ func (m *model) renderSettings() string {
 		b.WriteString(truncate(bar+label, w))
 		b.WriteString("\n")
 		b.WriteString(m.renderSettingsValue(f, selected, w))
-		b.WriteString("\n\n")
+		b.WriteString(gap)
 	}
 
 	b.WriteString(rule(w))

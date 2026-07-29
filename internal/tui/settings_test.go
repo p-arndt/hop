@@ -349,3 +349,25 @@ func TestOverlayClipsAtBottom(t *testing.T) {
 		t.Fatalf("line 1 = %q, want the visible row of the box spliced in", lines[1])
 	}
 }
+
+// The card has to fit the window it floats over: a modal whose bottom rows are cut
+// off loses its hint line, which is where the keys that work it are named. The
+// spacing between fields is what gives way on a short window (see renderSettings),
+// so the card fits every window from settingsMinH rows up — which has to include 24,
+// the standard terminal, with every field, the explanation and the hints on screen.
+//
+// Below settingsMinH it does not fit, and there is nothing left to drop that is not
+// one of those three things. The test says so rather than passing over it, so a
+// seventh field cannot quietly raise the floor past a window people actually use.
+func TestSettingsCardFitsTheWindow(t *testing.T) {
+	if settingsMinH() > 24 {
+		t.Fatalf("the packed card needs %d rows; it must fit a standard 24-row terminal", settingsMinH())
+	}
+	for h := settingsMinH(); h <= settingsFullH()+8; h++ {
+		m := &model{height: h, width: 100, cfg: config.Default()}
+		m.openSettings()
+		if got := lipgloss.Height(m.renderSettings()); got > h {
+			t.Errorf("a %d-row window got a %d-line card", h, got)
+		}
+	}
+}

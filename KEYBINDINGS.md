@@ -216,12 +216,47 @@ hop starts on defaults rather than refusing to start.
 | Accent color | picked from the swatch strip with `←`/`→`, or typed | `212`, hop's pink |
 | Open with | the local command `o` opens a file with, e.g. `code -n` | the OS default app |
 | Vim keys | the vim motions in the list and the browser — a switch, `←`/`→` or `enter` | **off** — the arrows, `enter` and `esc` are all of navigation |
+| Mouse | wheel and click in the list, the browser and the panes — a switch | **on** — off hands click-and-drag back to your terminal |
 
 **Vim keys are opt-in.** They are a dozen plain letters, and hop holding `h` and `l`
 for "out of" and "into a host" is a surprise to anyone who did not ask for it — so
 it asks. Turn the switch on and the motions below appear in the host list, in the
 file browser, and in the keys card (`?`), which always lists the keyboard you
 actually have rather than the one hop could give you.
+
+## The mouse
+
+The pointer never does anything the keyboard cannot: every gesture is an existing
+binding reached by pointing at the thing instead of naming it. Nothing is mouse-only,
+so a terminal with reporting switched off — or a link that eats the reports — loses
+no capability.
+
+| Gesture | Where | What it does |
+| --- | --- | --- |
+| wheel | the host list | moves the selection, one host a notch (the list does not scroll) |
+| wheel | a shell pane | pauses into its scrollback, three lines a notch — the `shift+↑` you already have. Scrolling back to the live bottom returns to the shell |
+| wheel | the SFTP browser | moves the cursor three entries a notch |
+| click | the host list | stands on that host — and, from a pane, hands the keyboard back, as `ctrl+o` does |
+| click | a pane the list has the keyboard in | takes it: the pointer's `s` (a shell) or `f` (a browser) |
+| click | a tab strip | switches to that shell or file tab |
+| double-click | a host, or an entry in the browser | opens it — `enter`, by pointing |
+
+A remote program that has asked for the mouse gets the pointer **verbatim**: vim with
+`set mouse=a`, `htop`, `less`. hop honours that ask the way it honours a key — the
+wheel over such a program is the program's, not hop's scrollback. Nothing is
+forwarded to a program that never asked, and nothing is forwarded to a pane whose
+connection has dropped: that pane is a picture of a shell, and it answers `r`, `d`
+and `ctrl+o` only.
+
+The cards (`?`, `,`, the host form, the confirmations, the 2FA prompt) are
+keyboard-only. They are modal and small, their keys are named along their foot, and a
+click that fell through one onto the list behind it would be exactly the trap hop's
+modal ordering exists to prevent.
+
+**The cost, and the way out.** While hop is reporting the mouse, your terminal's own
+click-and-drag selection belongs to hop, so copying text out of a pane needs the
+terminal's bypass modifier — `shift` in most, `alt`/`option` on macOS. If you would
+rather keep the selection, `,` → **Mouse** → off, and it applies on the spot.
 
 ## Browsing — the SFTP file browser
 

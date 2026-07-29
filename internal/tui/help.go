@@ -44,6 +44,16 @@ func helpLeft(vim bool) []helpSection {
 			{"r", "reconnect a dropped session"},
 			{",", "settings"},
 		}},
+		// The pointer does nothing the keyboard cannot, so it is one short section
+		// rather than a column of its own: what is listed here is which key each
+		// gesture stands in for.
+		{"MOUSE", [][2]string{
+			{"wheel", "move / scroll what you point at"},
+			{"click", "select it, or take the keyboard"},
+			{"double-click", "open it — as enter"},
+			{"click a tab", "switch shell / file tab"},
+			{",", "Mouse: off keeps terminal select"},
+		}},
 	}
 }
 
