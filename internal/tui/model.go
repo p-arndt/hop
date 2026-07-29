@@ -125,6 +125,16 @@ type model struct {
 	// unknown key now pauses the dial here until the user approves the fingerprint.
 	hostKey hostKeyUI
 
+	// auth is the interactive-authentication card's state — the 2FA verification
+	// code or password a dial is waiting on. It is modal like the rest, but unlike
+	// the host-key card it holds a dial *open* rather than replaying it, so it must
+	// always answer (see authprompt.go). prompts is the channel dials ask over, with
+	// one permanently-armed receiver; authQueue holds challenges from other hosts
+	// that arrived while the card was busy.
+	auth      authUI
+	prompts   chan authPromptMsg
+	authQueue []authPromptMsg
+
 	// status is the message shown in the header. kind colors it; gen identifies
 	// it, so the timer that retires it cannot retire its successor. See setStatus.
 	status     string
@@ -165,6 +175,7 @@ func Run(st *store.Store) error {
 		connecting: make(map[string]bool),
 		highlights: make(map[int][]int),
 		notify:     make(chan struct{}, 1),
+		prompts:    make(chan authPromptMsg),
 		cfg:        cfg,
 	}
 	m.applyFilter()
@@ -184,9 +195,11 @@ func Run(st *store.Store) error {
 func (m *model) Init() tea.Cmd {
 	// A single perpetual subscriber to pane output: it blocks until a live pane
 	// signals new output, emits a redraw, and re-arms (see the redrawMsg case).
-	// Alongside it, a one-shot update check — off the UI thread, so a slow or
-	// unreachable GitHub never delays the first paint.
-	return tea.Batch(waitForOutput(m.notify), updateCheckCmd())
+	// Alongside it, a permanent subscriber to authentication challenges (a dial
+	// asking for a 2FA code blocks until it is received), and a one-shot update
+	// check — off the UI thread, so a slow or unreachable GitHub never delays the
+	// first paint.
+	return tea.Batch(waitForOutput(m.notify), waitAuthPrompt(m.prompts), updateCheckCmd())
 }
 
 // Update dispatches the message and then arms the timer for any status line the
@@ -239,6 +252,13 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case authPromptMsg:
+		// Re-arm the single challenge subscriber before anything else: the card
+		// this opens can queue behind another one, and a second host's dial must
+		// not be left with nobody listening.
+		m.openAuthPrompt(msg)
+		return m, waitAuthPrompt(m.prompts)
+
 	case connectedMsg:
 		return m.shellLanded(msg)
 
@@ -283,6 +303,11 @@ func (m *model) shellLanded(msg connectedMsg) (tea.Model, tea.Cmd) {
 		var unknown *sshx.UnknownHostKeyError
 		if errors.As(msg.err, &unknown) {
 			m.openHostKeyConfirm(msg.alias, unknown, hostKeyShell, msg.extra)
+			return m, nil
+		}
+		// Dismissing the authentication card already said so; repeating it as a
+		// connect failure would make the user's own choice look like a fault.
+		if errors.Is(msg.err, sshx.ErrAuthCanceled) {
 			return m, nil
 		}
 		m.setStatus(statusErr, "connect %s failed: %v", msg.alias, msg.err)
@@ -351,6 +376,9 @@ func (m *model) browserLanded(msg browserOpenedMsg) (tea.Model, tea.Cmd) {
 		var unknown *sshx.UnknownHostKeyError
 		if errors.As(msg.err, &unknown) {
 			m.openHostKeyConfirm(msg.alias, unknown, hostKeyBrowser, false)
+			return m, nil
+		}
+		if errors.Is(msg.err, sshx.ErrAuthCanceled) {
 			return m, nil
 		}
 		m.setStatus(statusErr, "sftp %s failed: %v", msg.alias, msg.err)

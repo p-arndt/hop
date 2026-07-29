@@ -143,7 +143,7 @@ func TestAuthMethodsUsesKeysWithoutAgent(t *testing.T) {
 	writeKey(t, filepath.Join(home, ".ssh", "id_ed25519"), "")
 	disableAgent(t)
 
-	auths, err := authMethods(store.Host{HostName: "example.com"})
+	auths, err := authMethods(store.Host{HostName: "example.com"}, nil)
 	if err != nil {
 		t.Fatalf("authMethods: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestAuthMethodsErrorsWithNoAgentAndNoKeys(t *testing.T) {
 	fakeHome(t)
 	disableAgent(t)
 
-	auths, err := authMethods(store.Host{HostName: "example.com"})
+	auths, err := authMethods(store.Host{HostName: "example.com"}, nil)
 	if err == nil {
 		t.Fatalf("authMethods succeeded with no agent and no keys (got %d methods)", len(auths))
 	}

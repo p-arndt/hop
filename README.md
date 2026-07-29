@@ -97,6 +97,7 @@ re-records it on any machine without exposing anything. See
 |  | |
 | --- | --- |
 | 🖥️ **Embedded SSH shells** | Real terminals in a pane: a pure-Go SSH client (`x/crypto/ssh`) feeding a real VT emulator (`x/vt`). Agent *or* private-key auth, resize, cursor, the lot. |
+| 🔑 **2FA and passwords** | A host that wants a verification code (`pam_google_authenticator`) or a password gets a card, right when it asks. The dial waits in the handshake rather than restarting — a one-time code is only good once. Nothing is stored; one prompt per host, since every extra shell rides the same connection. |
 | 🗂️ **Multiple shells per host** | `S` (or `alt+0`) opens another shell on a host you're already on. It's a second *channel*, so no new handshake and no second auth. Tabs across the top, `alt+1…9` to jump. |
 | 📁 **SFTP file browser** | `f` browses the remote filesystem over the connection you already have. Download with `d`, open locally with `o`. |
 | ✎ **Remote editor tabs** | `enter` on a file runs `$EDITOR` **on the server** on a second channel and renders it in a tab. No download, no copy, and `:w` writes the real file. |
@@ -264,6 +265,7 @@ just            # list recipes
 just run list   # go run . list
 just build      # dev binary
 just test       # go test ./...
+just test-e2e   # + the Docker 2FA end-to-end tests (needs Docker)
 just vet
 just fmt        # gofmt -w .
 just ci         # fmt-check + vet + test (what CI runs)
@@ -285,6 +287,19 @@ doesn't carry it.
 **Testing.** Headless tests drive the real Bubble Tea model with real keystrokes
 against in-process Go SSH/SFTP servers and temp-file stores. See
 `internal/tui/hostmgmt_test.go`, `TestEmbeddedRoundTrip`, `TestSFTPRoundTrip`.
+
+**The 2FA end-to-end tests.** An in-process Go SSH server answers whatever you
+tell it to, which is no way to find out whether hop can log into a box with
+two-factor authentication. So `internal/dockerenv` brings up an Ubuntu container
+running the real `openssh-server` and the real `libpam-google-authenticator`,
+configured the way the guides say, listening four times: the code alone, the
+hardened `publickey,keyboard-interactive`, password-then-code, and both methods
+offered as alternatives. The tests compute TOTP codes the way a phone does and
+log in — `internal/sshx` through the SSH engine, `internal/tui` by typing into
+the actual card. Negative controls (a wrong code, a ten-minute-old code) are part
+of the suite, because a container that accepted anything would make every other
+test here pass while proving nothing. Opt in with `just test-e2e`; without
+`HOP_DOCKER_E2E=1` they skip, so CI and a laptop without Docker are unaffected.
 CI runs vet + test + build on a Windows / Linux / macOS matrix, because the agent
 transport and the local-open handler are per-platform: a single-OS run can't tell
 whether the others still compile.
@@ -302,10 +317,6 @@ Linux runner, with checksums and a git-cliff changelog. Windows gets a `.zip`,
 everything else a `.tar.gz` so the exec bit survives.
 
 ## 🗺️ Roadmap
-
-Done: embedded shells · multi-shell tabs · SFTP browser · remote editor tabs ·
-scrollback · host management · host-key confirmation · SSH config import ·
-live settings · cross-platform releases.
 
 Next up:
 

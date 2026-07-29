@@ -78,6 +78,13 @@ build-release:
 test:
     go test ./...
 
+# Run the test suite including the Docker-backed end-to-end tests: a real Ubuntu
+# sshd with a real pam_google_authenticator, dialled by hop's own SSH engine and
+# by its authentication card (see internal/dockerenv). Needs a running Docker;
+# the image takes about a minute to build the first time.
+test-e2e:
+    HOP_DOCKER_E2E=1 go test ./... -count=1
+
 # Vet for suspicious constructs.
 vet:
     go vet ./...

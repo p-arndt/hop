@@ -6,6 +6,12 @@
 // from disk (see keys.go), and speaks SSH via golang.org/x/crypto/ssh. Host-key
 // verification uses a TOFU (trust-on-first-use) wrapper around the user's
 // ~/.ssh/known_hosts file.
+//
+// When the caller supplies a Prompter (see prompt.go), keys are followed by the
+// interactive methods — keyboard-interactive and password — which is what a host
+// running two-factor auth asks its verification code over. Those questions are
+// answered inside the handshake rather than by retrying the dial, because a
+// one-time code cannot be replayed.
 package sshx
 
 import (
@@ -27,7 +33,13 @@ import (
 	"hop/internal/store"
 )
 
-// dialTimeout bounds the whole TCP+handshake for a connection attempt.
+// dialTimeout bounds the TCP connect for a connection attempt — an unreachable
+// host fails here rather than hanging. It deliberately does not bound the
+// handshake (ssh.ClientConfig.Timeout does not either): an interactive
+// authentication is part of the handshake, and a clock running while the user
+// reads a code off their phone would time out the dials most in need of
+// patience. A prompt the user walks away from is ended by dismissing it, which
+// is what makes the Prompter's cancel the way out.
 const dialTimeout = 15 * time.Second
 
 // Session wraps an interactive SSH shell session. Stdin accepts bytes to send
@@ -91,9 +103,9 @@ func AgentAuth() (ssh.AuthMethod, error) {
 	return ssh.PublicKeysCallback(ag.Signers), nil
 }
 
-// authMethods assembles the auth to offer for h from two sources: the OpenSSH
-// agent's identities, and private keys read from disk — the host's IdentityFile
-// if it names one, otherwise the default ~/.ssh keys.
+// authMethods assembles the auth to offer for h. Public keys come from two
+// sources: the OpenSSH agent's identities, and private keys read from disk — the
+// host's IdentityFile if it names one, otherwise the default ~/.ssh keys.
 //
 // Neither source is required, only their union: a running agent that holds no
 // identities is the normal state on macOS (launchd always exports
@@ -105,16 +117,44 @@ func AgentAuth() (ssh.AuthMethod, error) {
 // as two. The SSH client tries each method name at most once — a second
 // "publickey" entry is skipped outright — so agent-then-keys as separate methods
 // would let an empty agent swallow the attempt and never reach the key files.
-func authMethods(h store.Host) ([]ssh.AuthMethod, error) {
+//
+// With a prompter, the interactive methods follow the keys, in the order plain
+// ssh prefers them. keyboard-interactive is what a host running
+// pam_google_authenticator asks its verification code over; a hardened
+// `AuthenticationMethods publickey,keyboard-interactive` server answers the
+// public key with a *partial* success and then requires it, which the client
+// handles by carrying on down this list. Both are wrapped in
+// ssh.RetryableAuthMethod so a mistyped code is another prompt rather than a
+// failed dial — the retry stays inside the one handshake, which matters because
+// a fresh dial would need a fresh code.
+//
+// A prompter also makes "no keys at all" survivable: interactive auth is a way
+// in on its own, so the no-auth error is only reached when there is nothing left
+// to offer.
+func authMethods(h store.Host, p Prompter) ([]ssh.AuthMethod, error) {
 	signers, agentErr := agentSigners()
 
 	keys, skipped := keySigners(h.IdentityFile)
 	signers = append(signers, keys...)
 
-	if len(signers) == 0 {
+	var methods []ssh.AuthMethod
+	if len(signers) > 0 {
+		methods = append(methods, ssh.PublicKeys(signers...))
+	}
+	if p != nil {
+		// One wrapper shared by both methods, so a cancel on either ends the dial
+		// rather than moving the user on to the other one.
+		sticky := &stickyCancel{p: p}
+		methods = append(methods,
+			ssh.RetryableAuthMethod(ssh.KeyboardInteractive(keyboardInteractive(sticky)), authRetries),
+			ssh.RetryableAuthMethod(ssh.PasswordCallback(passwordCallback(sticky)), authRetries),
+		)
+	}
+
+	if len(methods) == 0 {
 		return nil, noAuthError(agentErr, skipped)
 	}
-	return []ssh.AuthMethod{ssh.PublicKeys(signers...)}, nil
+	return methods, nil
 }
 
 // agentSigners returns the identities held by the OpenSSH agent. The connection
@@ -136,7 +176,9 @@ func agentSigners() ([]ssh.Signer, error) {
 // noAuthError explains why nothing could be offered, naming both halves of the
 // failure — an unusable agent and any key file that was found but skipped —
 // since the fix ("add your key to the agent", "fix that path") depends on which
-// one the user actually meant to use.
+// one the user actually meant to use. It is only reached without a prompter: a
+// caller that can ask the user something always has an interactive method left
+// to try, so an empty agent is no longer a dead end there.
 func noAuthError(agentErr error, skipped []string) error {
 	var b strings.Builder
 	b.WriteString("sshx: no usable authentication: ")
@@ -172,8 +214,13 @@ func (e *UnknownHostKeyError) Error() string {
 // host aborts the dial with an error that unwraps to *UnknownHostKeyError, and
 // appends nothing to known_hosts — the caller decides whether to trust the key
 // and retries through ConnectTrusting.
-func Connect(h store.Host) (*Client, error) {
-	return connect(h, "")
+//
+// p answers whatever the server asks interactively (a 2FA verification code, a
+// password). It is called from inside the handshake, so it blocks the dial while
+// the user types. A nil p offers public keys only, which is what a caller with
+// no way to ask a human should pass.
+func Connect(h store.Host, p Prompter) (*Client, error) {
+	return connect(h, "", p)
 }
 
 // ConnectTrusting dials h like Connect, but when the host is unknown and the
@@ -181,14 +228,14 @@ func Connect(h store.Host) (*Client, error) {
 // known_hosts and accepted. A presented key that does not match fingerprint is
 // refused: it means the key changed between the prompt that produced fingerprint
 // and this retry, which is exactly the swap the confirmation was there to catch.
-func ConnectTrusting(h store.Host, fingerprint string) (*Client, error) {
-	return connect(h, fingerprint)
+func ConnectTrusting(h store.Host, fingerprint string, p Prompter) (*Client, error) {
+	return connect(h, fingerprint, p)
 }
 
 // connect is the shared dial body. trustedFP is empty for a plain TOFU-guarded
 // dial and the user-approved fingerprint for a trusting retry.
-func connect(h store.Host, trustedFP string) (*Client, error) {
-	auths, err := authMethods(h)
+func connect(h store.Host, trustedFP string, p Prompter) (*Client, error) {
+	auths, err := authMethods(h, p)
 	if err != nil {
 		return nil, err
 	}

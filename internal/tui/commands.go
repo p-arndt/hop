@@ -59,9 +59,11 @@ func expireStatusCmd(gen int) tea.Cmd {
 // wake the UI for an immediate repaint. trustedFP is empty for a plain dial and
 // the user-approved fingerprint when retrying after a new-host-key prompt; extra
 // is echoed back on the message so that prompt's retry keeps the shell intent.
-func connectCmd(h store.Host, trustedFP string, extra bool, id, cols, rows int, notify chan struct{}) tea.Cmd {
+// prompt answers anything the server asks interactively (a 2FA code, a password)
+// by way of the UI, from inside the handshake.
+func connectCmd(h store.Host, trustedFP string, prompt sshx.Prompter, extra bool, id, cols, rows int, notify chan struct{}) tea.Cmd {
 	return func() tea.Msg {
-		cli, err := dialClient(h, trustedFP)
+		cli, err := dialClient(h, trustedFP, prompt)
 		if err != nil {
 			return connectedMsg{alias: h.Alias, extra: extra, err: err}
 		}
@@ -77,11 +79,11 @@ func connectCmd(h store.Host, trustedFP string, extra bool, id, cols, rows int, 
 // dialClient dials h, trusting the given fingerprint (one the user just approved
 // in the host-key card) when it is non-empty, and doing a plain TOFU-guarded dial
 // otherwise.
-func dialClient(h store.Host, trustedFP string) (*sshx.Client, error) {
+func dialClient(h store.Host, trustedFP string, prompt sshx.Prompter) (*sshx.Client, error) {
 	if trustedFP != "" {
-		return sshx.ConnectTrusting(h, trustedFP)
+		return sshx.ConnectTrusting(h, trustedFP, prompt)
 	}
-	return sshx.Connect(h)
+	return sshx.Connect(h, prompt)
 }
 
 // shellCmd opens another interactive shell over an already-established client —
@@ -129,12 +131,12 @@ func waitShellCmd(alias string, id int, sess *sshx.Session) tea.Cmd {
 // openBrowserCmd opens an SFTP file browser for h off the UI thread. When
 // existing is non-nil its SSH connection is reused; otherwise a dedicated
 // connection is dialed (and reported back so it can later be closed).
-func openBrowserCmd(h store.Host, existing *sshx.Client, trustedFP string, opts filebrowser.Options, pw, ph int) tea.Cmd {
+func openBrowserCmd(h store.Host, existing *sshx.Client, trustedFP string, prompt sshx.Prompter, opts filebrowser.Options, pw, ph int) tea.Cmd {
 	return func() tea.Msg {
 		cli := existing
 		var dialed *sshx.Client
 		if cli == nil {
-			c, err := dialClient(h, trustedFP)
+			c, err := dialClient(h, trustedFP, prompt)
 			if err != nil {
 				return browserOpenedMsg{alias: h.Alias, err: err}
 			}

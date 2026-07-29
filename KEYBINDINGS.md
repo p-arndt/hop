@@ -95,6 +95,44 @@ untouched. Wildcard patterns (`Host *`) are skipped.
 
 `hop import [path]` on the command line does exactly the same thing.
 
+## Authentication — the 2FA / password card
+
+Some hosts want more than your key. A server running `pam_google_authenticator`
+asks for a verification code; one with `PasswordAuthentication yes` asks for a
+password. Either way hop shows a card with the server's own prompt on it, at the
+moment the server asks.
+
+| Key | Action |
+| --- | --- |
+| `enter` | submit — or, on a round with several questions, move to the next one |
+| `esc` | cancel; the connect is abandoned |
+| `tab` / `shift+tab` | move between fields when the server asked more than one thing |
+| `ctrl+u` | clear the field |
+| `backspace` / any text | type the answer |
+
+What you type is **masked** unless the server says it may be echoed, which for a
+code or a password it does not.
+
+This card is more modal than the others: a dial is parked *inside the SSH
+handshake* waiting for it, so it takes every key and it always answers — submit or
+cancel. That is also why it cannot work the way the host-key card does, closing
+the connection and dialling again with your answer: a one-time code is valid for
+about thirty seconds, cannot be used twice, and PAM rate-limits attempts, so a
+replayed dial would burn a code every time. The question is answered in place
+instead.
+
+A wrong code re-prompts on the same connection rather than failing the dial (three
+attempts, which is what the server's own rate limit allows). Cancelling once ends
+the attempt outright — it does not move you on to the next method the server
+offers.
+
+Nothing is stored, and nothing needs to be: hop holds **one connection per host**,
+and every extra shell (`S`), the SFTP browser (`f`) and every editor tab are
+channels on it. You are asked once per host, per hop run.
+
+Two hosts connecting at once each get their turn — the second card comes up when
+the first is answered.
+
 ## Settings — the popover
 
 `,` opens the settings card, floating over whatever is on screen (it works from the

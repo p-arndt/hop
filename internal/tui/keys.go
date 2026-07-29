@@ -34,6 +34,14 @@ const toggleSidebarKey = "ctrl+b"
 // plain navigation.
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
+	case m.auth.open:
+		// First, above even the help card: this one has a dial parked on it inside
+		// the SSH handshake, so it is the most modal thing hop has. The order
+		// matters — '?' is bound in navigation mode and a dial takes long enough to
+		// press it, so a help card opened while connecting would otherwise be
+		// drawn over the challenge that arrives next, leaving the dial waiting on
+		// a card nobody can see or reach until the code has expired.
+		return m.handleAuthKey(msg)
 	case m.help:
 		return m.handleHelpKey(msg)
 	case m.hostKey.open:

@@ -187,7 +187,7 @@ func (m *model) openShell(h store.Host, extra bool) tea.Cmd {
 		return m.withSpinner(shellCmd(h.Alias, s.client, m.nextShID, cols, rows, m.notify))
 	}
 	cols, rows := m.shellSize(1)
-	return m.withSpinner(connectCmd(h, "", extra, m.nextShID, cols, rows, m.notify))
+	return m.withSpinner(connectCmd(h, "", m.prompter(h.Alias), extra, m.nextShID, cols, rows, m.notify))
 }
 
 // openShellTrusting retries a first-contact shell dial after the user approved
@@ -202,7 +202,7 @@ func (m *model) openShellTrusting(h store.Host, extra bool, fingerprint string) 
 	m.setStatus(statusInfo, "connecting to %s…", h.Alias)
 	m.connecting[h.Alias] = true
 	cols, rows := m.shellSize(1)
-	return m.withSpinner(connectCmd(h, fingerprint, extra, m.nextShID, cols, rows, m.notify))
+	return m.withSpinner(connectCmd(h, fingerprint, m.prompter(h.Alias), extra, m.nextShID, cols, rows, m.notify))
 }
 
 // focusShell hands the keyboard to the host's visible shell pane.
@@ -229,9 +229,9 @@ func (m *model) openBrowser(h store.Host) tea.Cmd {
 	if existing == nil {
 		// A dial is about to happen, so the host earns a spinner in the list.
 		m.connecting[h.Alias] = true
-		return m.withSpinner(openBrowserCmd(h, nil, "", m.browserOptions(), m.paneW, m.paneH))
+		return m.withSpinner(openBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), m.paneW, m.paneH))
 	}
-	return openBrowserCmd(h, existing, "", m.browserOptions(), m.paneW, m.paneH)
+	return openBrowserCmd(h, existing, "", nil, m.browserOptions(), m.paneW, m.paneH)
 }
 
 // openBrowserTrusting retries a first-contact SFTP dial after the user approved
@@ -243,7 +243,7 @@ func (m *model) openBrowserTrusting(h store.Host, fingerprint string) tea.Cmd {
 	}
 	m.setStatus(statusInfo, "opening sftp %s…", h.Alias)
 	m.connecting[h.Alias] = true
-	return m.withSpinner(openBrowserCmd(h, nil, fingerprint, m.browserOptions(), m.paneW, m.paneH))
+	return m.withSpinner(openBrowserCmd(h, nil, fingerprint, m.prompter(h.Alias), m.browserOptions(), m.paneW, m.paneH))
 }
 
 // openFile opens the file the browser just activated in an editor tab. A file

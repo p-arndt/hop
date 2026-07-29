@@ -40,6 +40,17 @@ type connectedMsg struct {
 	err   error
 }
 
+// authPromptMsg is a question a dial in flight needs answered before it can
+// finish: a two-factor verification code, a password, whatever the remote PAM
+// stack asks. It is the only message that carries a channel back to its sender —
+// the dial is parked on reply inside the SSH handshake, so exactly one value has
+// to be sent on it or the connect never lands. See authprompt.go.
+type authPromptMsg struct {
+	alias string
+	ch    sshx.Challenge
+	reply chan authReply
+}
+
 // shellExitedMsg fires when a remote shell ends ("exit"), so its tab can be
 // dropped instead of lingering as a dead pane.
 type shellExitedMsg struct {

@@ -45,6 +45,11 @@ func (m *model) View() string {
 // be open: each of them takes every key while it is.
 func (m *model) modalCard() string {
 	switch {
+	// Before the help card, for the reason handleKey gives: a dial is parked on
+	// this one, and it must not be hidden behind a card the user opened while
+	// waiting for the connect.
+	case m.auth.open:
+		return m.renderAuth()
 	case m.help:
 		return m.renderHelp()
 	case m.hostKey.open:
@@ -224,6 +229,9 @@ func (m *model) renderFooter() string {
 
 	var hints []string
 	switch {
+	case m.auth.open:
+		hints = []string{keyHint("enter", "submit"), keyHint("esc", "cancel"), keyHint("ctrl+u", "clear")}
+
 	case m.help:
 		hints = []string{keyHint("esc", "close")}
 
