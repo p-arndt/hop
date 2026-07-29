@@ -1,0 +1,1524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hop — documentation</title>
+<meta name="description" content="hop: hop from server to server without ever leaving your terminal. Install, keys, settings and internals.">
+<link rel="icon" href="assets/logo.png">
+<script>
+  // Applied before first paint: otherwise a saved light/dark choice lands after
+  // the stylesheet has already painted the system theme, and the page flashes.
+  (function () {
+    try {
+      var t = localStorage.getItem('hop-docs-theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  })();
+</script>
+<style>
+  /* ---- tokens -------------------------------------------------------- */
+  :root {
+    --ground:      #fbf7fa;
+    --panel:       #ffffff;
+    --panel-2:     #f4eef3;
+    --line:        #e6dde4;
+    --line-strong: #d5c8d2;
+    --ink:         #1e1922;
+    --ink-soft:    #574c5c;
+    --ink-faint:   #6f6475;
+    --accent:      #b4218a;
+    --accent-soft: #f6e3f1;
+    --accent-line: #e8bfdd;
+    --term-bg:     #201a26;
+    --term-ink:    #efe6ee;
+    --ok:          #1f7a4d;
+    --warn:        #9a6200;
+    --shadow:      0 1px 2px rgba(30,25,34,.06), 0 8px 24px -12px rgba(30,25,34,.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground:      #15111a;
+      --panel:       #1c1723;
+      --panel-2:     #241d2c;
+      --line:        #2f2739;
+      --line-strong: #40354c;
+      --ink:         #efe8f1;
+      --ink-soft:    #b6a9bd;
+      --ink-faint:   #8a7c92;
+      --accent:      #ff87d7;
+      --accent-soft: #2c1f30;
+      --accent-line: #4a3149;
+      --term-bg:     #100d14;
+      --term-ink:    #efe6ee;
+      --ok:          #63d69c;
+      --warn:        #e0aa4a;
+      --shadow:      0 1px 2px rgba(0,0,0,.4), 0 12px 32px -16px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground:#fbf7fa; --panel:#ffffff; --panel-2:#f4eef3; --line:#e6dde4; --line-strong:#d5c8d2;
+    --ink:#1e1922; --ink-soft:#574c5c; --ink-faint:#6f6475;
+    --accent:#b4218a; --accent-soft:#f6e3f1; --accent-line:#e8bfdd;
+    --term-bg:#201a26; --term-ink:#efe6ee; --ok:#1f7a4d; --warn:#9a6200;
+    --shadow:0 1px 2px rgba(30,25,34,.06), 0 8px 24px -12px rgba(30,25,34,.18);
+  }
+  :root[data-theme="dark"] {
+    --ground:#15111a; --panel:#1c1723; --panel-2:#241d2c; --line:#2f2739; --line-strong:#40354c;
+    --ink:#efe8f1; --ink-soft:#b6a9bd; --ink-faint:#8a7c92;
+    --accent:#ff87d7; --accent-soft:#2c1f30; --accent-line:#4a3149;
+    --term-bg:#100d14; --term-ink:#efe6ee; --ok:#63d69c; --warn:#e0aa4a;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px -16px rgba(0,0,0,.7);
+  }
+
+  .skip {
+    position: absolute; left: -9999px; top: .5rem;
+    background: var(--panel); color: var(--ink); border: 1px solid var(--accent);
+    border-radius: .4rem; padding: .5rem .8rem; z-index: 10; text-decoration: none;
+  }
+  .skip:focus { left: .5rem; }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 2rem; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { animation: none !important; transition: none !important; }
+  }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono, code, kbd, pre, th.k, .keytable td:first-child {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  /* ---- shell layout --------------------------------------------------- */
+  .wrap {
+    display: grid;
+    grid-template-columns: 15.5rem minmax(0, 1fr);
+    gap: 3.5rem;
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 1.75rem 6rem;
+  }
+  @media (max-width: 62rem) {
+    .wrap { grid-template-columns: minmax(0,1fr); gap: 0; }
+    .sidebar {
+      position: static; height: auto; padding: 1.5rem 0 1.25rem;
+      border-right: 0; border-bottom: 1px solid var(--line);
+      flex-direction: row; flex-wrap: wrap; align-items: center; gap: 1rem;
+    }
+    /* the 25-item list would otherwise fill the whole first screen */
+    .sidebar nav {
+      flex: 1 0 100%; order: 3;
+      max-height: 45vh; overflow-y: auto;
+      border: 1px solid var(--line); border-radius: .5rem;
+      background: var(--panel); padding: .5rem .4rem;
+    }
+    .themebtn { margin-left: auto; }
+  }
+
+  /* ---- sidebar -------------------------------------------------------- */
+  .sidebar {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    height: 100dvh;
+    padding: 2.25rem 1.25rem 1.25rem 0;
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    min-height: 0;
+  }
+  /* only the link list scrolls, so the theme button never falls below the fold */
+  .sidebar nav { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+  .brand { display: flex; align-items: center; gap: .6rem; text-decoration: none; color: inherit; }
+  .brand img { width: 4rem; height: 4rem; object-fit: contain; flex: none; }
+  .brand b { font-size: 1.25rem; letter-spacing: -.02em; }
+  .brand span { color: var(--ink-faint); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; }
+
+  nav ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .1rem; }
+  nav a {
+    display: block;
+    padding: .3rem .6rem;
+    border-radius: .3rem;
+    color: var(--ink-soft);
+    text-decoration: none;
+    font-size: .875rem;
+    border-left: 2px solid transparent;
+  }
+  nav a:hover { color: var(--ink); background: var(--panel-2); }
+  nav a.on { color: var(--accent); border-left-color: var(--accent); background: var(--accent-soft); }
+  nav .grp {
+    font-size: .68rem; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--ink-faint); margin: 1.1rem 0 .35rem .6rem;
+  }
+  nav ol li:first-child .grp { margin-top: 0; }
+
+  .themebtn {
+    flex: none;
+    align-self: flex-start;
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    color: var(--ink-soft);
+    border-radius: .4rem;
+    padding: .35rem .7rem;
+    font: inherit;
+    font-size: .8rem;
+    cursor: pointer;
+  }
+  .themebtn:hover { color: var(--ink); border-color: var(--accent-line); }
+
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: .2rem;
+  }
+
+  /* ---- content -------------------------------------------------------- */
+  main { padding-top: 2.25rem; min-width: 0; }
+  section { scroll-margin-top: 1.5rem; }
+  section + section { margin-top: 4rem; }
+
+  h1 {
+    font-size: clamp(2.4rem, 5vw, 3.4rem);
+    line-height: 1.04;
+    letter-spacing: -.035em;
+    margin: 0 0 .6rem;
+    text-wrap: balance;
+  }
+  h2 {
+    font-size: 1.6rem; letter-spacing: -.02em; margin: 0 0 .9rem;
+    padding-bottom: .5rem; border-bottom: 1px solid var(--line);
+    text-wrap: balance;
+  }
+  h3 { font-size: 1.05rem; letter-spacing: -.01em; margin: 2rem 0 .5rem; }
+  h4 { font-size: .95rem; margin: 1.4rem 0 .4rem; color: var(--ink-soft); }
+  p, li { max-width: 66ch; }
+  p { margin: 0 0 1rem; }
+  main ul { padding-left: 1.15rem; margin: 0 0 1rem; }
+  main li { margin-bottom: .35rem; }
+  a { color: var(--accent); text-underline-offset: .18em; }
+
+  .eyebrow {
+    font-size: .7rem; text-transform: uppercase; letter-spacing: .16em;
+    color: var(--accent); margin: 0 0 .7rem;
+  }
+  .lede { font-size: 1.15rem; color: var(--ink-soft); max-width: 58ch; }
+
+  /* ---- hero ----------------------------------------------------------- */
+  .hero { padding-bottom: 2.5rem; border-bottom: 1px solid var(--line); }
+  .badges { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1.25rem 0 1.75rem; }
+  .badge {
+    font-size: .72rem; letter-spacing: .04em;
+    border: 1px solid var(--line-strong); border-radius: 999px;
+    padding: .18rem .6rem; color: var(--ink-soft); background: var(--panel);
+    text-decoration: none;
+  }
+  .badge:hover { border-color: var(--accent-line); color: var(--accent); }
+
+
+  /* ---- code ----------------------------------------------------------- */
+  pre {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: .5rem;
+    padding: .9rem 1rem;
+    overflow-x: auto;
+    font-size: .84rem;
+    line-height: 1.7;
+    margin: 0 0 1rem;
+  }
+  pre code { background: none; padding: 0; border: 0; font-size: inherit; }
+  code {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: .28rem;
+    padding: .04em .32em;
+    font-size: .875em;
+  }
+  pre .c { color: var(--ink-faint); }
+
+  kbd {
+    display: inline-block;
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    border-bottom-width: 2px;
+    border-radius: .3rem;
+    padding: .05em .4em;
+    font-size: .8em;
+    line-height: 1.5;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  /* ---- tables --------------------------------------------------------- */
+  .tablewrap { overflow-x: auto; margin: 0 0 1.25rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel); }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: .55rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  thead th {
+    font-size: .68rem; text-transform: uppercase; letter-spacing: .11em;
+    color: var(--ink-faint); font-weight: 600; background: var(--panel-2);
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: var(--accent-soft); }
+  .keytable td:first-child { white-space: nowrap; width: 1%; }
+  td .path { font-variant-numeric: tabular-nums; }
+
+  /* ---- feature grid --------------------------------------------------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: .9rem; margin-bottom: 1.25rem; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: .5rem;
+    padding: .95rem 1.05rem;
+  }
+  .card h4 { margin: 0 0 .3rem; color: var(--ink); font-size: .95rem; }
+  .card p { margin: 0; font-size: .875rem; color: var(--ink-soft); max-width: none; }
+
+  /* ---- mode strip ----------------------------------------------------- */
+  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .9rem; margin-bottom: 1.5rem; }
+  .mode {
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: .5rem; background: var(--panel); padding: .9rem 1rem;
+  }
+  .mode b { display: block; font-size: .95rem; }
+  .mode span { font-size: .82rem; color: var(--ink-soft); }
+  .mode .who { display: block; margin-top: .4rem; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); }
+  .modelinks {
+    list-style: none; margin: .7rem 0 0; padding: .6rem 0 0;
+    border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: .15rem;
+  }
+  .modelinks li { margin: 0; }
+  .modelinks a { font-size: .84rem; text-decoration: none; }
+  .modelinks a::before { content: "→ "; color: var(--ink-faint); }
+  .modelinks a:hover { text-decoration: underline; }
+
+  /* ---- section label -------------------------------------------------- */
+  .sectlabel {
+    font-size: .68rem; text-transform: uppercase; letter-spacing: .13em;
+    color: var(--ink-faint); margin: 0 0 .35rem;
+  }
+  .sectlabel::before {
+    content: ""; display: inline-block; width: .45rem; height: .45rem;
+    border-radius: 999px; background: var(--accent); margin-right: .45rem;
+    vertical-align: .06em;
+  }
+
+  /* ---- rationale (collapsed by default, so tables stay the spine) ----- */
+  details.why {
+    border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-2);
+    padding: .55rem .9rem; margin: 0 0 .7rem;
+  }
+  details.why[open] { padding-bottom: .9rem; background: var(--panel); }
+  details.why > summary {
+    font-size: .87rem; font-weight: 600; color: var(--ink-soft);
+    list-style: none; display: flex; align-items: center; gap: .45rem;
+  }
+  details.why > summary::-webkit-details-marker { display: none; }
+  details.why > summary::before {
+    content: "▸"; color: var(--accent); font-size: .8em; flex: none;
+  }
+  details.why[open] > summary { color: var(--ink); margin-bottom: .2rem; }
+  details.why[open] > summary::before { content: "▾"; }
+  details.why > summary:hover { color: var(--ink); }
+  details.why > *:not(summary) { margin-top: .7rem; }
+  details.why > *:last-child { margin-bottom: 0; }
+
+  /* ---- shots ---------------------------------------------------------- */
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1.1rem; margin-bottom: 1.25rem; }
+  figure { margin: 0; }
+  figure img { width: 100%; max-width: 100%; height: auto; display: block; border: 1px solid var(--line-strong); border-radius: .5rem; background: var(--term-bg); }
+  figcaption { font-size: .8rem; color: var(--ink-soft); margin-top: .45rem; }
+  .full img { width: 100%; }
+
+  /* ---- callouts ------------------------------------------------------- */
+  .note {
+    border: 1px solid var(--accent-line);
+    background: var(--accent-soft);
+    border-radius: .5rem;
+    padding: .85rem 1rem;
+    margin: 0 0 1.25rem;
+    font-size: .9rem;
+  }
+  .note p { margin: 0; max-width: 62ch; }
+  .note b { color: var(--accent); }
+
+  details {
+    border: 1px solid var(--line); border-radius: .5rem;
+    background: var(--panel); padding: .6rem .9rem; margin-bottom: .7rem;
+  }
+  details[open] { padding-bottom: .9rem; }
+  summary { cursor: pointer; font-size: .92rem; font-weight: 600; }
+  details > *:not(summary) { margin-top: .8rem; }
+
+  .status { display: inline-block; font-size: .7rem; letter-spacing: .08em; text-transform: uppercase;
+            border-radius: 999px; padding: .1rem .55rem; border: 1px solid currentColor; }
+  .status.done { color: var(--ok); }
+  .status.next { color: var(--warn); }
+
+  /* ---- ask-the-docs assistant ---------------------------------------- */
+  .askbtn {
+    position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 20;
+    display: flex; align-items: center; gap: .45rem;
+    background: var(--accent); color: var(--panel);
+    border: 0; border-radius: 999px; padding: .6rem 1rem;
+    font: inherit; font-size: .875rem; font-weight: 600;
+    box-shadow: var(--shadow); cursor: pointer;
+  }
+  .askbtn:hover { filter: brightness(1.08); }
+  .askbtn[hidden] { display: none; }
+
+  .askpanel {
+    position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 21;
+    width: min(26rem, calc(100vw - 2.5rem));
+    max-height: min(34rem, calc(100dvh - 2.5rem));
+    display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--line-strong);
+    border-radius: .7rem; box-shadow: var(--shadow); overflow: hidden;
+  }
+  .askpanel[hidden] { display: none; }
+  .askhead {
+    display: flex; align-items: center; gap: .5rem;
+    padding: .7rem .85rem; border-bottom: 1px solid var(--line);
+    background: var(--panel-2); flex: none;
+  }
+  .askhead b { font-size: .9rem; }
+  .askhead .sub { font-size: .72rem; color: var(--ink-faint); }
+  .askclose {
+    margin-left: auto; background: none; border: 0; color: var(--ink-faint);
+    font: inherit; font-size: 1.1rem; line-height: 1; cursor: pointer; padding: .2rem .3rem;
+  }
+  .askclose:hover { color: var(--ink); }
+
+  .askbody { flex: 1 1 auto; overflow-y: auto; padding: .85rem; min-height: 0; }
+  .askintro { font-size: .85rem; color: var(--ink-soft); }
+  .askintro p { max-width: none; margin: 0 0 .7rem; }
+  .askload {
+    background: var(--accent); color: var(--panel); border: 0; border-radius: .4rem;
+    padding: .5rem .9rem; font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer;
+  }
+  .askload:disabled { opacity: .6; cursor: default; }
+  .askbar { height: .3rem; border-radius: 999px; background: var(--panel-2); overflow: hidden; margin: .7rem 0 .35rem; }
+  .askbar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .askstat { font-size: .75rem; color: var(--ink-faint); }
+
+  .msg { font-size: .87rem; margin-bottom: .8rem; }
+  .msg .who { font-size: .68rem; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-faint); display: block; margin-bottom: .2rem; }
+  .msg.you .bubble { background: var(--panel-2); border: 1px solid var(--line); border-radius: .45rem; padding: .45rem .65rem; }
+  .msg p { max-width: none; margin: 0 0 .5rem; }
+  .msg p:last-child { margin-bottom: 0; }
+
+  .askform { display: flex; gap: .45rem; padding: .7rem .85rem; border-top: 1px solid var(--line); flex: none; background: var(--panel-2); }
+  .askform input {
+    flex: 1; min-width: 0; font: inherit; font-size: .85rem;
+    background: var(--panel); color: var(--ink);
+    border: 1px solid var(--line-strong); border-radius: .4rem; padding: .4rem .6rem;
+  }
+  .askform button {
+    background: var(--accent); color: var(--panel); border: 0; border-radius: .4rem;
+    padding: .4rem .8rem; font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer;
+  }
+  .askform button:disabled { opacity: .5; cursor: default; }
+  .asknote { font-size: .72rem; color: var(--ink-faint); padding: 0 .85rem .6rem; background: var(--panel-2); flex: none; }
+  @media print { .askbtn, .askpanel { display: none !important; } }
+
+  footer {
+    margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--line);
+    font-size: .85rem; color: var(--ink-faint);
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#top">Skip to content</a>
+<div class="wrap">
+
+  <aside class="sidebar">
+    <a class="brand" href="#top">
+      <img src="assets/logo.png" alt="" width="610" height="498">
+      <span style="display:flex;flex-direction:column;line-height:1.1">
+        <span>documentation</span>
+      </span>
+    </a>
+
+    <nav aria-label="Sections">
+      <ol>
+        <li><div class="grp">Start</div></li>
+        <li><a href="#what">What hop is</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#update">Staying current</a></li>
+        <li><a href="#quickstart">Quick start</a></li>
+        <li><a href="#cli">CLI</a></li>
+        <li><a href="#files">Where things live</a></li>
+
+        <li><div class="grp">The three modes</div></li>
+        <li><a href="#modes">How they fit together</a></li>
+
+        <li><div class="grp">Navigation mode</div></li>
+        <li><a href="#hostlist">Host list</a></li>
+        <li><a href="#import">SSH config import</a></li>
+        <li><a href="#hostkeys">Host keys</a></li>
+
+        <li><div class="grp">Terminal mode</div></li>
+        <li><a href="#terminal">Shells</a></li>
+        <li><a href="#scrollback">Scrollback</a></li>
+
+        <li><div class="grp">Browsing mode</div></li>
+        <li><a href="#browser">File browser</a></li>
+        <li><a href="#editor">Editor tabs</a></li>
+
+        <li><div class="grp">Every mode</div></li>
+        <li><a href="#sidebar">Sidebar</a></li>
+        <li><a href="#settings">Settings</a></li>
+        <li><a href="#vim">Vim keys</a></li>
+
+        <li><div class="grp">Project</div></li>
+        <li><a href="#dev">Development</a></li>
+        <li><a href="#internals">Where a binding lives</a></li>
+        <li><a href="#roadmap">Roadmap</a></li>
+      </ol>
+    </nav>
+
+    <button class="themebtn" id="theme" type="button" aria-live="polite">Theme: system</button>
+  </aside>
+
+  <main id="top">
+
+    <header class="hero">
+      <p class="eyebrow">SSH launcher · terminal UI · single binary</p>
+      <h1>Hop from server to server without ever leaving your terminal.</h1>
+      <p class="lede">One keypress and you're in a shell. One more and you're browsing its files.
+        One more and you're editing one <em>on the box</em>, in a tab, beside all the others.
+        Then hop to the next host and everything you left behind is still exactly where you left it.</p>
+
+      <div class="badges">
+        <a class="badge" href="https://github.com/p-arndt/hop">github.com/p-arndt/hop</a>
+        <span class="badge">Go 1.26</span>
+        <span class="badge">windows · macOS · linux</span>
+        <span class="badge">amd64 + arm64</span>
+        <span class="badge">no cgo, no runtime</span>
+      </div>
+
+      <figure class="full">
+        <img src="assets/demo.gif" width="1500" height="800" decoding="async"
+             alt="Recording: filtering the fleet, opening a shell, opening a second one, browsing files, editing one on the server">
+        <figcaption>Filtering the fleet, opening a shell, opening a second one on the same connection,
+          browsing its files, editing one on the server. Every host, file and command is invented — it
+          runs against a throwaway SSH server (<code>tools/demoserver</code>) with a HOME of its own.</figcaption>
+      </figure>
+    </header>
+
+    <section id="what">
+      <h2>What hop is</h2>
+      <p>hop is a terminal UI over your SSH fleet. It holds one connection per host and opens
+        everything else as extra channels on that same connection: more shells, an SFTP browser,
+        an editor running on the remote box. Nothing is a new window, nothing re-authenticates,
+        and leaving a pane never tears down what's inside it.</p>
+      <div class="shots">
+        <figure>
+          <img src="assets/screens/hosts.png" alt="The hop host list with a details card for the host under the cursor" width="1500" height="800" loading="lazy" decoding="async">
+          <figcaption><b>The host list.</b> Status dot, group, and what <kbd>enter</kbd> would do to the host under the cursor.</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/screens/shell.png" alt="A live remote shell inside a hop pane" width="1500" height="800" loading="lazy" decoding="async">
+          <figcaption><b>A shell.</b> A real terminal in the pane; the footer shows the three ways back out.</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/screens/sftp.png" alt="The SFTP file browser inside hop" width="1500" height="800" loading="lazy" decoding="async">
+          <figcaption><b>The SFTP browser.</b> <kbd>f</kbd>, over the connection that's already open.</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/screens/editor.png" alt="A file open in a remote editor tab inside hop" width="1500" height="800" loading="lazy" decoding="async">
+          <figcaption><b>A remote editor tab.</b> <kbd>enter</kbd> on a file runs the editor <em>on the server</em>, so <code>:w</code> writes the real file.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="features">
+      <h2>Features</h2>
+      <div class="grid">
+        <div class="card"><h4>Embedded SSH shells</h4><p>Real terminals in a pane: a pure-Go SSH client (<code>x/crypto/ssh</code>) feeding a real VT emulator (<code>x/vt</code>). Agent or private-key auth, resize, cursor, the lot.</p></div>
+        <div class="card"><h4>Multiple shells per host</h4><p><kbd>S</kbd> (or <kbd>alt+0</kbd>) opens another shell on a host you're already on — a second channel, so no new handshake and no second auth.</p></div>
+        <div class="card"><h4>SFTP file browser</h4><p><kbd>f</kbd> browses the remote filesystem over the connection you already have. Download with <kbd>d</kbd>, open locally with <kbd>o</kbd>.</p></div>
+        <div class="card"><h4>Remote editor tabs</h4><p><kbd>enter</kbd> on a file runs <code>$EDITOR</code> on the server on a second channel and renders it in a tab. No download, no copy.</p></div>
+        <div class="card"><h4>Scrollback</h4><p><kbd>shift+↑</kbd> pauses a shell into its history with vim-ish paging. Declines politely when a full-screen program owns the screen.</p></div>
+        <div class="card"><h4>Honest host keys</h4><p>An unknown key aborts the dial and shows a fingerprint card. A mismatch is always a hard error.</p></div>
+        <div class="card"><h4>SSH config import</h4><p><kbd>i</kbd> upserts every host from <code>~/.ssh/config</code>. It's a sync, not a one-shot — hosts you added by hand are left alone.</p></div>
+        <div class="card"><h4>Fuzzy find</h4><p><kbd>/</kbd> filters as you type, with the matched characters picked out so a surprising hit explains itself.</p></div>
+        <div class="card"><h4>Live settings</h4><p><kbd>,</kbd> opens a popover for editor, download dir, accent colour, open-with and vim keys. Applied on the spot.</p></div>
+        <div class="card"><h4>Frecency ordering</h4><p>The hosts you actually use float to the top of the list.</p></div>
+        <div class="card"><h4>Cross-platform</h4><p>Static, dependency-free binaries for Windows, macOS and Linux (amd64 + arm64). No cgo, no libc, no runtime.</p></div>
+        <div class="card"><h4>Opt-in vim keys</h4><p>Off by default, because <kbd>h</kbd>/<kbd>l</kbd> meaning "out of" and "into" a host surprises anyone who didn't ask for it.</p></div>
+      </div>
+    </section>
+
+    <section id="install">
+      <h2>Install</h2>
+      <h3>Download a binary</h3>
+      <p>Grab the archive for your platform from the
+        <a href="https://github.com/p-arndt/hop/releases/latest">latest release</a> and put
+        <code>hop</code> somewhere on your <code>PATH</code>.</p>
+<pre><code><span class="c"># macOS / Linux</span>
+tar -xzf hop_*_darwin_arm64.tar.gz
+sudo mv hop /usr/local/bin/</code></pre>
+<pre><code><span class="c"># Windows</span>
+Expand-Archive hop_*_windows_amd64.zip -DestinationPath .
+<span class="c"># then move hop.exe onto your PATH</span></code></pre>
+      <p>Every release ships a <code>hop_&lt;version&gt;_checksums.txt</code>, so you can verify with
+        <code>sha256sum -c</code>.</p>
+
+      <h3>From source</h3>
+      <p>Needs <a href="https://go.dev/dl/">Go 1.26+</a> and optionally
+        <a href="https://github.com/casey/just"><code>just</code></a> ≥ 1.39.</p>
+<pre><code>git clone https://github.com/p-arndt/hop.git &amp;&amp; cd hop
+just build          <span class="c"># -> ./hop   (or: go build -o hop .)</span>
+just build-release  <span class="c"># stripped + version-stamped</span></code></pre>
+    </section>
+
+    <section id="update">
+      <h2>Staying current</h2>
+<pre><code>hop check-update   <span class="c"># is there a newer release?</span>
+hop self-update    <span class="c"># download it, verify its checksum, swap this binary</span></code></pre>
+      <p><code>self-update</code> fetches the archive for <em>your</em> platform from the latest GitHub
+        release, checks its SHA-256 against that release's <code>checksums.txt</code>, and replaces the
+        running binary atomically. On Windows the old <code>hop.exe</code> is renamed aside and swept up
+        the next time hop starts. Source builds (<code>version = dev</code>) are refused: there's nothing
+        to compare them against.</p>
+      <div class="note"><p>hop also checks once a day in the background and mentions a newer version in
+        the footer and on the CLI. <b>HOP_NO_UPDATE_CHECK=1</b> turns that off; the two commands above
+        still work.</p></div>
+    </section>
+
+    <section id="quickstart">
+      <h2>Quick start</h2>
+<pre><code>hop            <span class="c"># launch the TUI</span></code></pre>
+      <p>On a first run with no hosts, hop offers to import <code>~/.ssh/config</code> for you: one
+        <kbd>enter</kbd> and your list is full. Then, in the TUI: <kbd>↑</kbd>/<kbd>↓</kbd> to move,
+        <kbd>enter</kbd> to connect, <kbd>ctrl+o</kbd> to come back out. That's the whole model.</p>
+    </section>
+
+    <section id="cli">
+      <h2>CLI</h2>
+      <p>For when you're already in a shell.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th class="k">Command</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>hop</code></td><td>launch the TUI</td></tr>
+            <tr><td><code>hop import [path]</code></td><td>sync hosts from <code>~/.ssh/config</code>, or from another file</td></tr>
+            <tr><td><code>hop add web1 deploy@10.0.0.4:2222</code></td><td>add a host by alias and target</td></tr>
+            <tr><td><code>hop list</code></td><td>print <code>alias  user@host:port</code></td></tr>
+            <tr><td><code>hop check-update</code></td><td>is a newer release out?</td></tr>
+            <tr><td><code>hop self-update</code></td><td>upgrade this binary in place</td></tr>
+            <tr><td><code>hop version</code></td><td>print the version</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="files">
+      <h2>Where things live</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>What</th><th>Path</th></tr></thead>
+          <tbody>
+            <tr><td>Host database</td><td class="path"><code>&lt;config dir&gt;/hop/hop.db</code> (SQLite)</td></tr>
+            <tr><td>Settings</td><td class="path"><code>&lt;config dir&gt;/hop/config.json</code> (plain JSON, hand-editable)</td></tr>
+            <tr><td>Update check cache</td><td class="path"><code>&lt;config dir&gt;/hop/update-check.json</code></td></tr>
+            <tr><td>Known hosts</td><td class="path">your usual <code>~/.ssh/known_hosts</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Platform</th><th>&lt;config dir&gt;</th></tr></thead>
+          <tbody>
+            <tr><td>Windows</td><td class="path"><code>%AppData%\hop\</code></td></tr>
+            <tr><td>macOS</td><td class="path"><code>~/Library/Application Support/hop/</code></td></tr>
+            <tr><td>Linux</td><td class="path"><code>~/.config/hop/</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>A missing or malformed config file starts hop on defaults rather than refusing to start.</p>
+    </section>
+
+    <section id="modes">
+      <h2>The three modes</h2>
+      <p>The footer always shows the keys for the mode you're in, and every mode returns to the host
+        list with <kbd>ctrl+o</kbd> — from a terminal pane or the file browser,
+        <kbd>esc</kbd> <kbd>esc</kbd> also works.</p>
+      <div class="modes">
+        <div class="mode">
+          <b>Navigation</b>
+          <span>the host list is focused — the default</span>
+          <span class="who">keys go to hop</span>
+          <ul class="modelinks">
+            <li><a href="#hostlist">Host list</a></li>
+            <li><a href="#import">SSH config import</a></li>
+            <li><a href="#hostkeys">Host keys</a></li>
+          </ul>
+        </div>
+        <div class="mode">
+          <b>Terminal</b>
+          <span>you connected with <kbd>enter</kbd> or <kbd>s</kbd></span>
+          <span class="who">keys go to the remote shell</span>
+          <ul class="modelinks">
+            <li><a href="#terminal">Shells</a></li>
+            <li><a href="#scrollback">Scrollback</a></li>
+          </ul>
+        </div>
+        <div class="mode">
+          <b>Browsing</b>
+          <span>you opened the SFTP browser with <kbd>f</kbd></span>
+          <span class="who">keys go to hop</span>
+          <ul class="modelinks">
+            <li><a href="#browser">File browser</a></li>
+            <li><a href="#editor">Editor tabs</a></li>
+          </ul>
+        </div>
+      </div>
+      <p>Three things sit <b>outside</b> the modes because they work in all of them: the
+        <a href="#sidebar">sidebar toggle</a>, the <a href="#settings">settings popover</a>, and the
+        optional <a href="#vim">vim keys</a>.</p>
+    </section>
+
+    <section id="hostlist">
+      <p class="sectlabel">Navigation mode</p>
+      <h2>Navigation — the host list</h2>
+      <div class="tablewrap">
+        <table class="keytable">
+          <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>↓</kbd> <kbd>↑</kbd></td><td>move</td></tr>
+            <tr><td><kbd>pgdn</kbd> <kbd>pgup</kbd></td><td>a full page down / up</td></tr>
+            <tr><td><kbd>enter</kbd> <kbd>→</kbd></td><td>connect (opens a terminal pane), or focus the shell already open</td></tr>
+            <tr><td><kbd>esc</kbd> <kbd>←</kbd></td><td>back — leave the details view</td></tr>
+            <tr><td><kbd>s</kbd></td><td>focus the existing session for this host</td></tr>
+            <tr><td><kbd>S</kbd></td><td>open <b>another</b> shell on this host, alongside the ones already open</td></tr>
+            <tr><td><kbd>f</kbd></td><td>open the SFTP browser</td></tr>
+            <tr><td><kbd>o</kbd></td><td>open the host in VS Code Remote</td></tr>
+            <tr><td><kbd>d</kbd></td><td>disconnect the session</td></tr>
+            <tr><td><kbd>a</kbd> <kbd>e</kbd> <kbd>x</kbd></td><td>add / edit / delete a host (delete asks first)</td></tr>
+            <tr><td><kbd>i</kbd></td><td>import hosts from an OpenSSH config</td></tr>
+            <tr><td><kbd>/</kbd></td><td>filter hosts (<kbd>enter</kbd> applies, <kbd>esc</kbd> clears)</td></tr>
+            <tr><td><kbd>,</kbd> <kbd>?</kbd></td><td>settings / the keys card</td></tr>
+            <tr><td><kbd>ctrl+b</kbd></td><td>hide / show the sidebar</td></tr>
+            <tr><td><kbd>q</kbd> <kbd>ctrl+c</kbd></td><td>quit</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <details class="why">
+        <summary>Why the jump keys belong to the browser, not the list</summary>
+        <p>The list binds the <b>step</b> keys and nothing more. The jumps and the ctrl chords —
+          <kbd>gg</kbd>, <kbd>G</kbd>, <kbd>H</kbd>/<kbd>M</kbd>/<kbd>L</kbd>,
+          <kbd>ctrl+d</kbd>/<kbd>ctrl+u</kbd>/<kbd>ctrl+f</kbd> — belong to the file browser, which walks
+          directories that actually run past a screen. The host list does not scroll, so each of them
+          landed a <kbd>j</kbd> or two from where the cursor already was, and those letters are worth
+          more to the list as commands. Paging is <kbd>pgdn</kbd>/<kbd>pgup</kbd>.</p>
+      </details>
+      <figure style="max-width:34rem">
+        <img src="assets/screens/keys.png" alt="The keys card listing every binding hop binds" width="1500" height="800" loading="lazy" decoding="async">
+        <figcaption><b>Every key hop binds</b> — <kbd>?</kbd>. It lists the keyboard you actually have,
+          with vim motions included only if you turned them on.</figcaption>
+      </figure>
+    </section>
+
+    <section id="import">
+      <p class="sectlabel">Navigation mode</p>
+      <h2>Import — the SSH config card</h2>
+      <p><kbd>i</kbd> opens the import card, a modal like the rest: one field, pre-filled with
+        <code>~/.ssh/config</code>, so the usual answer is a single <kbd>enter</kbd>.</p>
+      <div class="tablewrap">
+        <table class="keytable">
+          <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>enter</kbd></td><td>import from the path shown</td></tr>
+            <tr><td><kbd>esc</kbd></td><td>close, importing nothing</td></tr>
+            <tr><td><kbd>ctrl+u</kbd></td><td>clear the path</td></tr>
+            <tr><td><kbd>backspace</kbd> / text</td><td>edit the path (a leading <code>~</code> is expanded)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The <b>first run</b> opens this card by itself: with no hosts yet and an <code>~/.ssh/config</code>
+        on disk, hop offers the import instead of showing an empty list. <kbd>esc</kbd> skips it — an empty
+        list is not an error, and <kbd>a</kbd> adds a host by hand.</p>
+      <p>It stays bound once the list is full, because importing is a <b>sync</b>, not a one-time step:
+        each host is upserted, so a re-import refreshes what the config knows (hostname, user, port,
+        identity file) and leaves hosts hop added itself untouched. Wildcard patterns
+        (<code>Host *</code>) are skipped. <code>hop import [path]</code> does exactly the same thing.</p>
+    </section>
+
+    <section id="hostkeys">
+      <p class="sectlabel">Navigation mode</p>
+      <h2>Host keys</h2>
+      <p>An unknown host key <b>aborts the dial</b> and shows a fingerprint card. <kbd>y</kbd> trusts it and
+        appends it to your usual <code>~/.ssh/known_hosts</code>; <kbd>n</kbd> trusts nothing. A
+        <em>mismatch</em> — a key that changed on a host you already know — is always a hard error, never a
+        prompt.</p>
+    </section>
+
+    <section id="terminal">
+      <p class="sectlabel">Terminal mode</p>
+      <h2>Terminal — a live shell on a remote host</h2>
+      <div class="tablewrap">
+        <table class="keytable">
+          <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>ctrl+o</kbd></td><td>back to hop</td></tr>
+            <tr><td><kbd>esc</kbd> <kbd>esc</kbd></td><td>back to hop (two presses within 400 ms)</td></tr>
+            <tr><td><kbd>alt+0</kbd></td><td>open <b>another</b> shell on this host, and go to it</td></tr>
+            <tr><td><kbd>alt+→</kbd> <kbd>alt+←</kbd></td><td>next / previous shell on this host (wraps)</td></tr>
+            <tr><td><kbd>alt+1</kbd> … <kbd>alt+9</kbd></td><td>jump straight to that shell</td></tr>
+            <tr><td><kbd>shift+↑</kbd> <kbd>shift+pgup</kbd></td><td>scroll back into the pane's history</td></tr>
+            <tr><td><kbd>ctrl+b</kbd></td><td>hide / show the sidebar — the pane takes the whole window</td></tr>
+            <tr><td><em>everything else</em></td><td>sent to the remote shell</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Several shells on one host</h3>
+      <div class="shots" style="grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)">
+        <div>
+          <p><kbd>S</kbd> in the host list, or <kbd>alt+0</kbd> from inside the pane, opens another shell on
+            a host you are already connected to. It is a second <b>channel</b> on the connection hop already
+            holds — no new handshake, no second authentication — and it appears as a tab strip above the
+            pane, which shows up only once there is a second shell to switch to. The new shell arrives
+            focused.</p>
+          <p>Unlike the editor, the alt+<b>letters</b> are <em>not</em> bound here: readline owns them
+            (<kbd>alt+b</kbd> walks back a word, <kbd>alt+l</kbd> downcases one). The alt+<b>digits</b> are
+            the one exception hop makes, and <kbd>alt+0</kbd> is why the new-shell key is a digit rather
+            than the more memorable <kbd>alt+n</kbd>.</p>
+        </div>
+        <figure>
+          <img src="assets/screens/shells.png" alt="Two shells on one host shown as a tab strip" width="1500" height="800" loading="lazy" decoding="async">
+          <figcaption>Two shells, one connection — no second handshake.</figcaption>
+        </figure>
+      </div>
+      <p>Type <code>exit</code> to close a shell: its tab goes away, the rest keep running. When the last
+        one exits, the connection is done and the host goes back to idle in the list — unless its SFTP
+        browser or an editor tab is still open on it, which keeps the connection alive. <kbd>d</kbd> still
+        tears down the whole host at once.</p>
+
+      <details class="why">
+        <summary>Why <kbd>←</kbd> is not a way out</summary>
+      <p><kbd>←</kbd> backs out of a host in the list and out of a directory in the browser, but inside a
+        shell it is the <b>shell's key, always</b>. It moves the readline cursor back over a typo, it is
+        what word motions and every full-screen program are built on, and hop taking it — even at what hop
+        believes is an empty prompt — breaks editing on every server you connect to. hop sees keystrokes
+        going out and pixels coming back, not the buffer readline is holding, so anything it could not
+        count left it thinking the prompt was bare when it was not.</p>
+      </details>
+
+      <details class="why">
+        <summary>How double-esc works, and what it costs</summary>
+      <p>A lone <kbd>esc</kbd> <b>is still forwarded to the shell.</b> hop cannot know a second
+        <kbd>esc</kbd> is coming without swallowing the first one and waiting out the timer, which would
+        put a 400 ms lag on every <kbd>esc</kbd> you press in vim. So the rule is:</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>You press</th><th>The shell receives</th><th>hop does</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>esc</kbd></td><td><kbd>esc</kbd></td><td>arms the window</td></tr>
+            <tr><td><kbd>esc</kbd> <kbd>esc</kbd> (fast)</td><td><kbd>esc</kbd></td><td>leaves the pane on the second</td></tr>
+            <tr><td><kbd>esc</kbd> … pause … <kbd>esc</kbd></td><td><kbd>esc</kbd> <kbd>esc</kbd></td><td>nothing</td></tr>
+            <tr><td><kbd>esc</kbd> <kbd>j</kbd> <kbd>esc</kbd></td><td><kbd>esc</kbd> <kbd>j</kbd> <kbd>esc</kbd></td><td>nothing — any key breaks the chord</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note"><p><b>The trade-off:</b> if you mash <kbd>esc</kbd> twice quickly in vim, you will
+        land back in the host list. The shell will have seen one of those escapes, which in normal mode is
+        a harmless no-op, so nothing is lost — press <kbd>enter</kbd> or <kbd>s</kbd> to drop straight back
+        into the session. If that bothers you, <kbd>ctrl+o</kbd> never fires by accident.</p></div>
+      </details>
+    </section>
+
+    <section id="scrollback">
+      <p class="sectlabel">Terminal mode</p>
+      <h2>Scrolling back through history</h2>
+      <p><kbd>shift+↑</kbd> pauses the live shell and steps one line up into its scrollback;
+        <kbd>shift+pgup</kbd> does it a page at a time. Both are deliberately chords a bare shell never
+        sends, and both decline (falling through to the shell) when there is nothing to show: on the alt
+        screen a full-screen program owns its own scrolling. The footer advertises
+        <kbd>shift+↑ scrollback</kbd> exactly when the key is live.</p>
+      <p>Once paused, the keyboard drives the history viewport rather than the remote shell, and the mode
+        chip reads <code>⇅ scrollback &lt;offset&gt;/&lt;len&gt;</code>.</p>
+      <div class="tablewrap">
+        <table class="keytable">
+          <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>j</kbd> <kbd>k</kbd></td><td>up / down one line</td></tr>
+            <tr><td><kbd>pgup</kbd> <kbd>pgdn</kbd> <kbd>ctrl+f</kbd></td><td>up / down a page (<kbd>ctrl+b</kbd> is the sidebar)</td></tr>
+            <tr><td><kbd>ctrl+u</kbd> <kbd>ctrl+d</kbd></td><td>up / down half a page</td></tr>
+            <tr><td><kbd>g</kbd> <kbd>home</kbd></td><td>jump to the oldest line</td></tr>
+            <tr><td><kbd>G</kbd> <kbd>end</kbd></td><td>back to the live bottom (and leave scrollback)</td></tr>
+            <tr><td><kbd>esc</kbd> <kbd>q</kbd> <kbd>enter</kbd> <kbd>ctrl+o</kbd> <kbd>←</kbd></td><td>back to the live shell</td></tr>
+            <tr><td><em>anything else</em></td><td>leave scrollback and type it at the prompt</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <details class="why">
+        <summary>Why arriving at the bottom exits, and what <kbd>ctrl+o</kbd> does here</summary>
+        <p>Reaching the live bottom by scrolling down is itself a way out — the point of scrollback is to
+          look at what went by, so arriving at the tail means you are done. <kbd>ctrl+o</kbd> here only
+          leaves scrollback; a second <kbd>ctrl+o</kbd> then leaves the pane, the consistent "back one
+          level" the rest of hop keeps to.</p>
+      </details>
+    </section>
+
+    <section id="browser">
+      <p class="sectlabel">Browsing mode</p>
+      <h2>Browsing — the SFTP file browser</h2>
+      <div class="tablewrap">
+        <table class="keytable">
+          <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>↓</kbd> <kbd>↑</kbd></td><td>move</td></tr>
+            <tr><td><kbd>pgdn</kbd> <kbd>pgup</kbd></td><td>a full page down / up</td></tr>
+            <tr><td><kbd>enter</kbd> <kbd>→</kbd></td><td>enter a directory, or open a file in an editor tab</td></tr>
+            <tr><td><kbd>o</kbd></td><td>open the file in the local OS default app (GUI)</td></tr>
+            <tr><td><kbd>d</kbd></td><td>download the file to <code>~/Downloads</code></td></tr>
+            <tr><td><kbd>←</kbd> <kbd>backspace</kbd></td><td>up one directory</td></tr>
+            <tr><td><kbd>r</kbd></td><td>refresh the listing</td></tr>
+            <tr><td><kbd>,</kbd></td><td>settings</td></tr>
+            <tr><td><kbd>ctrl+b</kbd></td><td>hide / show the sidebar</td></tr>
+            <tr><td><kbd>ctrl+o</kbd></td><td>back to hop</td></tr>
+            <tr><td><kbd>esc</kbd> <kbd>esc</kbd></td><td>back to hop (two presses within 400 ms)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <details class="why">
+        <summary>Why <kbd>←</kbd> never leaves the browser</summary>
+      <p><kbd>←</kbd> is pure motion: it walks up the directory tree and stops at <code>/</code>. It never
+        leaves the browser, because the directory you open in is usually your home directory — so a
+        <kbd>←</kbd> there would drop you back to hop exactly when you meant to go up to
+        <code>/home</code>. Leaving is always explicit: <kbd>ctrl+o</kbd>, or <kbd>esc</kbd> <kbd>esc</kbd>
+        within 400 ms. Unlike in a pane, a lone <kbd>esc</kbd> here is swallowed rather than forwarded.</p>
+      </details>
+    </section>
+
+    <section id="editor">
+      <p class="sectlabel">Browsing mode</p>
+      <h2>Editing — editor tabs</h2>
+      <p><kbd>enter</kbd> on a file opens it in an editor <b>inside hop</b>, in the same right-hand pane the
+        browser lives in, with a tab strip above it listing every open file.</p>
+      <div class="tablewrap">
+        <table class="keytable">
+          <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>alt+→</kbd> <kbd>alt+l</kbd></td><td>next tab (wraps)</td></tr>
+            <tr><td><kbd>alt+←</kbd> <kbd>alt+h</kbd></td><td>previous tab (wraps)</td></tr>
+            <tr><td><kbd>alt+1</kbd> … <kbd>alt+9</kbd></td><td>jump straight to that tab</td></tr>
+            <tr><td><code>:q</code></td><td>quit the editor — closes the tab</td></tr>
+            <tr><td><kbd>ctrl+o</kbd></td><td>back to the file browser</td></tr>
+            <tr><td><kbd>esc</kbd> <kbd>esc</kbd></td><td>back to the file browser (within 400 ms)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Every other key goes to the editor — it is a full-screen terminal program and owns its own keymap.
+        Only alt combinations are reserved, because neither vim nor nano binds them.</p>
+
+      <h3>How it works</h3>
+      <p>The editor runs <b>on the remote host</b>, not locally: hop opens a second SSH channel on the
+        connection it already has and runs <code>${EDITOR:-vi} &lt;file&gt;</code> on a pty, then renders
+        that pty in a pane exactly as it renders a remote shell. There is no download and no copy — you
+        are editing the real file, and <code>:w</code> writes straight back to the server.</p>
+      <p>If the remote <code>$EDITOR</code> is unset (it usually is over SSH, since the rc-file that sets
+        it is never sourced for a non-interactive command), hop probes the remote <code>PATH</code> for
+        <code>nvim</code>, <code>vim</code>, <code>vi</code>, then <code>nano</code>, falling back to
+        <code>vi</code> — POSIX requires it to exist.</p>
+      <p>Tabs are independent editor processes, so leaving with <kbd>ctrl+o</kbd> keeps them all running:
+        come back and every file is where you left it, cursor included.</p>
+
+      <h3>Editing locally instead</h3>
+      <p><kbd>o</kbd> is the escape hatch for files a terminal editor is no good for — a PDF, an image. It
+        downloads the file to a scratch directory under the system temp dir and hands that copy to the
+        desktop (<code>start</code> on Windows, <code>open</code> on macOS, <code>xdg-open</code>
+        elsewhere), returning immediately so hop stays usable. Unlike <kbd>enter</kbd>, this edits a
+        <em>local copy</em>: nothing is written back to the remote host.</p>
+    </section>
+
+    <section id="sidebar">
+      <p class="sectlabel">Every mode</p>
+      <h2>The sidebar — <kbd>ctrl+b</kbd></h2>
+      <p><kbd>ctrl+b</kbd> hides the host list and gives the whole window to the pane; <kbd>ctrl+b</kbd>
+        again brings it back. It is bound in <b>every</b> mode except while a card is up — from a focused
+        shell, from the browser, from an editor tab — because the moment you want the columns is the
+        moment you are reading something wide on the far side of them. The terminals reflow to the new
+        width immediately, both ways.</p>
+      <details class="why">
+        <summary>What it costs a remote tmux, and why it resets on restart</summary>
+        <ul>
+          <li><b>It resets on restart.</b> hop opens on its host list, so the collapse is a session thing
+            rather than a setting.</li>
+          <li><b>A remote tmux never sees its prefix.</b> That is the usual deal between a multiplexer and
+            the one above it — <kbd>ctrl+o</kbd> still leaves the pane, and no other key is taken. It is
+            also why <kbd>ctrl+b</kbd> is no longer a page-up anywhere: paging back is <kbd>pgup</kbd>.</li>
+        </ul>
+      </details>
+    </section>
+
+    <section id="settings">
+      <p class="sectlabel">Every mode</p>
+      <h2>Settings — the popover</h2>
+      <p><kbd>,</kbd> opens the settings card, floating over whatever is on screen. It works from the host
+        list and from the file browser; a terminal pane and an editor own every key, so it is not reachable
+        from those. It is modal: while it is up, keys go to it.</p>
+      <div class="shots" style="grid-template-columns:minmax(0,1fr) minmax(0,1.1fr)">
+        <div class="tablewrap" style="margin:0">
+          <table class="keytable">
+            <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>move between settings</td></tr>
+              <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>pick a colour (accent), or flip a switch</td></tr>
+              <tr><td><kbd>enter</kbd> <kbd>i</kbd></td><td>edit the selected setting — or flip it, if it is a switch</td></tr>
+              <tr><td><kbd>enter</kbd></td><td>save (while editing)</td></tr>
+              <tr><td><kbd>esc</kbd></td><td>cancel the edit</td></tr>
+              <tr><td><kbd>ctrl+u</kbd></td><td>clear the value</td></tr>
+              <tr><td><kbd>r</kbd></td><td>reset the setting to its default</td></tr>
+              <tr><td><kbd>esc</kbd> <kbd>q</kbd> <kbd>,</kbd></td><td>close</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figure>
+          <img src="assets/screens/settings.png" alt="The hop settings popover with the accent colour swatch strip" width="1500" height="800" loading="lazy" decoding="async">
+          <figcaption>The accent is a swatch strip that recolours hop as you walk it.</figcaption>
+        </figure>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Setting</th><th>What it is</th><th>Blank means</th></tr></thead>
+          <tbody>
+            <tr><td>Editor</td><td>the command <kbd>enter</kbd> runs on the remote host, e.g. <code>nvim</code>, <code>vim -R</code></td><td>auto: remote <code>$EDITOR</code>, else probe for nvim/vim/vi/nano</td></tr>
+            <tr><td>Download dir</td><td>where <kbd>d</kbd> puts a file</td><td><code>~/Downloads</code></td></tr>
+            <tr><td>Accent colour</td><td>picked from the swatch strip with <kbd>←</kbd>/<kbd>→</kbd>, or typed</td><td><code>212</code>, hop's pink</td></tr>
+            <tr><td>Open with</td><td>the local command <kbd>o</kbd> opens a file with, e.g. <code>code -n</code></td><td>the OS default app</td></tr>
+            <tr><td>Vim keys</td><td>the vim motions in the list and the browser — a switch</td><td><b>off</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <details class="why">
+        <summary>The swatch picker, and when a setting is written</summary>
+      <p>The accent is a <b>swatch picker</b>, not a number to be looked up: <kbd>←</kbd>/<kbd>→</kbd> walk
+        a palette of twelve colours — pink, magenta, red, orange, yellow, green, teal, cyan, blue, indigo,
+        purple, gray — each drawn in the colour it actually is, and each applied to hop the instant you
+        land on it. <kbd>enter</kbd> still opens text entry if you want a specific 256-code or a
+        <code>#hex</code>, and a value that isn't in the palette gets its own swatch on the strip.</p>
+      <p>Settings are written to <code>config.json</code> the moment you save one, and applied on the spot.
+        Turning vim keys off from this very card cannot strand you: the arrows and <kbd>enter</kbd> drive
+        every row and are never gated. While you are <em>typing</em> a value the gate is off —
+        <kbd>h</kbd> is then a letter of the value, not a motion.</p>
+      </details>
+    </section>
+
+    <section id="vim">
+      <p class="sectlabel">Every mode</p>
+      <h2>Vim keys</h2>
+      <p><b>Off until you turn them on</b>, in the settings popover (<kbd>,</kbd> → <em>Vim keys</em>). Off,
+        they are not bound to anything else either: a stray <kbd>l</kbd> in the host list does nothing at
+        all. <kbd>pgdn</kbd>/<kbd>pgup</kbd> are <em>not</em> part of the switch — they page without being
+        vim, so turning vim off never costs you a way to page.</p>
+      <div class="shots" style="grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))">
+        <div>
+          <h4>The host list — step keys only</h4>
+          <div class="tablewrap" style="margin:0">
+            <table class="keytable">
+              <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
+              <tbody>
+                <tr><td><kbd>j</kbd> <kbd>k</kbd></td><td>move down / up</td></tr>
+                <tr><td><kbd>l</kbd></td><td>connect — as <kbd>enter</kbd> does</td></tr>
+                <tr><td><kbd>h</kbd></td><td>back — as <kbd>esc</kbd> does</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <h4>The browser — the whole motion set</h4>
+          <div class="tablewrap" style="margin:0">
+            <table class="keytable">
+              <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
+              <tbody>
+                <tr><td><kbd>j</kbd> <kbd>k</kbd></td><td>move down / up</td></tr>
+                <tr><td><kbd>gg</kbd> / <kbd>G</kbd></td><td>first / last entry</td></tr>
+                <tr><td><kbd>H</kbd> <kbd>M</kbd> <kbd>L</kbd></td><td>top / middle / bottom <b>of the visible window</b></td></tr>
+                <tr><td><kbd>ctrl+d</kbd> <kbd>ctrl+u</kbd></td><td>half a page down / up</td></tr>
+                <tr><td><kbd>ctrl+f</kbd></td><td>a full page down (<kbd>pgup</kbd> pages back)</td></tr>
+                <tr><td><kbd>l</kbd> / <kbd>h</kbd></td><td>enter a directory / up one directory</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <details class="why">
+        <summary>The rules the two sets follow</summary>
+      <ul>
+        <li><b>The two views bind different amounts of the keyboard</b>, never different meanings. A key the
+          list binds does there what it does in the browser.</li>
+        <li><b><kbd>gg</kbd> is a real two-key motion</b> — in the browser. A lone <kbd>g</kbd> arms it; any
+          other key in between cancels it. In the host list it is not bound.</li>
+        <li><b><kbd>ctrl+b</kbd> is not a motion anywhere.</b> It is the sidebar toggle in every mode.</li>
+        <li><b>Half and full pages are viewport-relative</b>, matching vim, and clamped to at least one row
+          so they still work in a very short terminal.</li>
+        <li><b>The cursor never leaves the visible window.</b> Every motion re-clamps the scroll offset;
+          <code>TestCursorStaysVisible</code> pins that invariant.</li>
+        <li>Motions are inert on an empty listing rather than driving the cursor negative.</li>
+      </ul>
+      </details>
+    </section>
+
+    <section id="dev">
+      <h2>Development</h2>
+<pre><code>just            <span class="c"># list recipes</span>
+just run list   <span class="c"># go run . list</span>
+just build      <span class="c"># dev binary</span>
+just test       <span class="c"># go test ./...</span>
+just vet
+just fmt        <span class="c"># gofmt -w .</span>
+just ci         <span class="c"># fmt-check + vet + test (what CI runs)</span>
+just demo       <span class="c"># re-record assets/demo.gif + the stills (needs vhs)</span></code></pre>
+      <p>The <code>justfile</code> is deliberately universal: recipe bodies are plain commands that run under
+        both <code>sh</code> and PowerShell, and the two that need real shell logic
+        (<code>fmt-check</code>, <code>clean</code>) are split with <code>[unix]</code> /
+        <code>[windows]</code> attributes.</p>
+
+      <details>
+        <summary>The demo</summary>
+        <p><code>just demo</code> records the GIF and the stills on this page. <code>scripts/demo.mjs</code>
+          builds hop, points <code>HOME</code> at a throwaway directory with a seeded host database, and
+          starts <code>tools/demoserver</code>, a loopback-only SSH server that invents everything on screen:
+          a fake shell with a table of canned command output, an in-memory filesystem over SFTP, and a fake
+          vi. The keypress overlay in the corner is hop's own, compiled in only under
+          <code>-tags hopdemo</code> (<code>internal/tui/keycast.go</code>), so a released binary doesn't
+          carry it.</p>
+      </details>
+      <details>
+        <summary>Testing</summary>
+        <p>Headless tests drive the real Bubble Tea model with real keystrokes against in-process Go SSH/SFTP
+          servers and temp-file stores. See <code>internal/tui/hostmgmt_test.go</code>,
+          <code>TestEmbeddedRoundTrip</code>, <code>TestSFTPRoundTrip</code>. CI runs vet + test + build on a
+          Windows / Linux / macOS matrix, because the agent transport and the local-open handler are
+          per-platform: a single-OS run can't tell whether the others still compile.</p>
+      </details>
+      <details>
+        <summary>Releasing</summary>
+<pre style="margin-bottom:0"><code>just release          <span class="c"># patch bump: stamps VERSION, commits, tags, pushes</span>
+just release minor    <span class="c"># or major, or an explicit 1.0.0</span></code></pre>
+        <p>The tag push triggers the release workflow: it gates on the three-OS test matrix, then
+          cross-compiles all six targets (windows/linux/darwin × amd64/arm64) from one Linux runner, with
+          checksums and a git-cliff changelog. Windows gets a <code>.zip</code>, everything else a
+          <code>.tar.gz</code> so the exec bit survives.</p>
+      </details>
+    </section>
+
+    <section id="internals">
+      <h2>Where a binding lives</h2>
+      <p>The host list and the file browser move on the same keys, so they do not each spell that keyboard
+        out. <code>internal/keymap</code> holds it: one table, one row per key, saying what the key
+        <em>means</em> (a <code>Motion</code>), whether the vim setting owns it, and whether the host list
+        binds it as well as the browser. Both views resolve keys through it — passing
+        <code>keymap.Full</code> or <code>keymap.List</code> — and act on the motion they get back.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>To add…</th><th>Touch</th></tr></thead>
+          <tbody>
+            <tr><td>a motion key, in one or both views</td><td>the <code>bindings</code> table in <code>internal/keymap</code> (the <code>list</code> column is the split)</td></tr>
+            <tr><td>a key hop holds in <em>every</em> mode</td><td><code>toggleSidebarKey</code>'s branch in <code>handleKey</code>, <code>internal/tui/keys.go</code></td></tr>
+            <tr><td>what a motion <em>does</em> to the list</td><td><code>model.move</code> in <code>internal/tui/keys.go</code></td></tr>
+            <tr><td>what a motion <em>does</em> to the browser</td><td><code>Browser.move</code> in <code>internal/filebrowser</code></td></tr>
+            <tr><td>a command key (<kbd>d</kbd>, <kbd>o</kbd>, <kbd>r</kbd>, <kbd>f</kbd>, …)</td><td>the command switch in whichever view owns it</td></tr>
+            <tr><td>a setting</td><td>the <code>settingsFields</code> table in <code>internal/tui/settings.go</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>A mode with no motions of its own — the settings popover — asks <code>keymap.Vim(key)</code>
+        instead, the same table answering the narrower question: <em>is this a key the vim setting owns?</em>
+        That is why turning the setting off is one fact in the config rather than a flag threaded through
+        three switch statements.</p>
+    </section>
+
+    <section id="roadmap">
+      <h2>Roadmap</h2>
+      <p><span class="status done">shipped</span> embedded shells · multi-shell tabs · SFTP browser ·
+        remote editor tabs · scrollback · host management · host-key confirmation · SSH config import ·
+        live settings · cross-platform releases.</p>
+      <p><span class="status next">next up</span></p>
+      <div class="grid">
+        <div class="card"><h4>Tunnels / port forwarding</h4><p>Local and remote forwards per host, on the connection hop already holds.</p></div>
+        <div class="card"><h4>Health panel</h4><p>Per-host reachability, latency, uptime and disk.</p></div>
+        <div class="card"><h4>Uploads &amp; file ops</h4><p><kbd>u</kbd>, <kbd>x</kbd>, <kbd>R</kbd>, <kbd>m</kbd> in the browser, with async transfer progress.</p></div>
+        <div class="card"><h4>Groups &amp; tags</h4><p>Section by group, filter by tag, pin favourites.</p></div>
+        <div class="card"><h4>Reconnect handling</h4><p>Detect a dropped session and offer to redial.</p></div>
+        <div class="card"><h4>Mouse support</h4><p>Narrow-terminal layouts and copy/paste into panes.</p></div>
+      </div>
+      <p>The living version, with far more detail on each item, is <a href="TODO.md">TODO.md</a>.</p>
+    </section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <footer>
+      <p>Built with
+        <a href="https://github.com/charmbracelet/bubbletea">Bubble Tea</a> ·
+        <a href="https://github.com/charmbracelet/lipgloss">Lip Gloss</a> ·
+        <a href="https://github.com/charmbracelet/x">x/vt</a> ·
+        <a href="https://pkg.go.dev/golang.org/x/crypto/ssh">x/crypto/ssh</a> ·
+        <a href="https://github.com/pkg/sftp">pkg/sftp</a> ·
+        <a href="https://gitlab.com/cznic/sqlite">modernc.org/sqlite</a> ·
+        <a href="https://github.com/sahilm/fuzzy">sahilm/fuzzy</a> ·
+        <a href="https://github.com/skeema/knownhosts">skeema/knownhosts</a>.</p>
+      <p>Full keyboard reference: <a href="KEYBINDINGS.md">KEYBINDINGS.md</a> ·
+        Source: <a href="https://github.com/p-arndt/hop">github.com/p-arndt/hop</a> ·
+        Made for people with too many servers and not enough terminals.</p>
+    </footer>
+
+  </main>
+</div>
+
+<button class="askbtn" id="askbtn" type="button" aria-expanded="false" aria-controls="askpanel" hidden>
+  Ask the docs
+</button>
+
+<aside class="askpanel" id="askpanel" role="dialog" aria-label="Ask the docs" hidden>
+  <div class="askhead">
+    <span>
+      <b>Ask the docs</b><br>
+      <span class="sub">runs in your browser · nothing is sent anywhere</span>
+    </span>
+    <button class="askclose" id="askclose" type="button" aria-label="Close">×</button>
+  </div>
+
+  <div class="askbody" id="askbody">
+    <div class="askintro" id="askintro">
+      <p>A small language model (Qwen3.5-0.8B) runs <b>locally</b>, answering only from this page's own
+        key tables and text. Your question never leaves the browser.</p>
+      <p>It downloads the model first — roughly <b>600 MB</b>, cached by the browser afterwards —
+        and needs around <b>2 GB</b> of GPU memory while running.</p>
+      <button class="askload" id="askload" type="button">Download the model &amp; start</button>
+      <div class="askbar" id="askbar" hidden><i id="askbarfill"></i></div>
+      <div class="askstat" id="askstat"></div>
+    </div>
+  </div>
+
+  <form class="askform" id="askform" hidden>
+    <input id="askinput" type="text" placeholder="How do I open a second shell?" autocomplete="off">
+    <button type="submit" id="asksend">Ask</button>
+  </form>
+  <div class="asknote" id="asknote" hidden>A 0.8B model still gets things wrong — check anything
+    surprising against the page itself.</div>
+</aside>
+
+<script type="module">
+  // Optional, strictly opt-in in-browser assistant. Nothing here loads — not even
+  // the library — until the user clicks, so the page costs exactly as much as it
+  // did before for everyone who never opens it.
+  const MODEL = "Qwen3.5-0.8B-q4f16_1-MLC";
+  const WEBLLM = "https://esm.run/@mlc-ai/web-llm@0.2.84";
+
+  // WebLLM's prebuilt entry for every model overrides context_window_size to 4096,
+  // but that is a default, not a ceiling: chatOpts (the 3rd CreateMLCEngine arg) is
+  // merged over it, and Qwen3.5 is trained far beyond 8k. Asking for 8192 lets the
+  // whole page fit instead of a trimmed reference. It costs KV-cache memory, and if
+  // the prebuilt wasm refuses it we fall back to 4096 + the compact reference.
+  const WANT_CTX = 8192;
+
+  // Two reference builds. Which one is used depends on the context we actually get.
+  const REF = {
+    rich:    { skip: ['features', 'roadmap'], allParagraphs: true,  pLen: 400 },
+    compact: { skip: ['features', 'roadmap', 'internals'], allParagraphs: false, pLen: 200 },
+  };
+
+  // Built from THIS page at runtime — the docs are the single source of truth, so a
+  // binding can never drift out of sync with what the assistant says.
+  //
+  // Table cells are read individually and joined with " — ". Plain textContent would
+  // fuse them into "ctrl+oback to hop", which is unusable for the model.
+  //
+  // <details class="why"> essays are always skipped: they explain rationale, not
+  // "which key does X", and they are over a third of the page's text.
+  function buildReference({ skip, allParagraphs, pLen }) {
+    const clean = (el) => (el.textContent || '').replace(/\s+/g, ' ').trim();
+    const skipSet = new Set(skip);
+    const out = [];
+    for (const sec of document.querySelectorAll('section[id]')) {
+      if (skipSet.has(sec.id)) continue;
+      const why = (el) => el.closest('details.why');
+      const h2 = sec.querySelector('h2');
+      out.push('## ' + (h2 ? clean(h2) : sec.id));
+
+      for (const tr of sec.querySelectorAll('tr')) {
+        if (why(tr)) continue;
+        const cells = Array.from(tr.children).map(clean).filter(Boolean);
+        if (!cells.length) continue;
+        if (['key', 'command'].includes(cells[0].toLowerCase())) continue;   // header row
+        out.push(cells.join(' — '));
+      }
+      for (const h3 of sec.querySelectorAll('h3')) if (!why(h3)) out.push('# ' + clean(h3));
+
+      const ps = Array.from(sec.querySelectorAll('p')).filter((p) => !why(p) && clean(p).length > 20);
+      for (const p of (allParagraphs ? ps : ps.slice(0, 1))) out.push(clean(p).slice(0, pLen));
+      if (allParagraphs) {
+        for (const li of sec.querySelectorAll('li')) if (!why(li)) out.push('- ' + clean(li).slice(0, pLen));
+      }
+      for (const pre of sec.querySelectorAll('pre')) if (!why(pre)) out.push(clean(pre).slice(0, 150));
+    }
+    return out.join('\n');
+  }
+
+  function buildSystem(reference) {
+    return [
+      'You are the assistant for the hop documentation. hop is an SSH terminal UI (a TUI).',
+      '',
+      'Rules:',
+      '- Answer ONLY from the reference below. Never invent a key, command or path.',
+      '- Answer in 2 to 3 complete sentences. Name the exact key or command, and say what it does.',
+      '- Prefer the in-app key binding. Mention the "hop ..." command line only if the question is',
+      '  about the terminal/CLI, or as a brief second option.',
+      '- A line like "f — open the SFTP browser" means: the key is f, the action is what follows.',
+      '- If the reference does not cover it, say so plainly and suggest reading the page.',
+      '',
+      '=== hop reference ===',
+      reference,
+    ].join('\n');
+  }
+
+  // A couple of worked examples: a 0.8B model copies format far more reliably than it
+  // follows described format, and these demonstrate the two rules it broke most often —
+  // answer with the in-app key, and finish the sentence.
+  const FEWSHOT = [
+    { role: 'user', content: 'How do I open the file browser?' },
+    { role: 'assistant', content:
+        'Press f in the host list to open the SFTP browser on the selected host. It runs over the ' +
+        'connection hop already has, so there is no second login.' },
+    { role: 'user', content: 'How do I disconnect?' },
+    { role: 'assistant', content:
+        'Press d in the host list to disconnect that host’s session. From inside a shell, ctrl+o ' +
+        'returns you to the host list first.' },
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const btn = $('askbtn'), panel = $('askpanel'), body = $('askbody'), intro = $('askintro');
+  const form = $('askform'), input = $('askinput'), send = $('asksend'), note = $('asknote');
+  const bar = $('askbar'), fill = $('askbarfill'), stat = $('askstat'), load = $('askload');
+
+  // WebGPU only. Rather than show a button that dead-ends, say why up front.
+  if (!navigator.gpu) {
+    btn.hidden = false;
+    btn.textContent = 'Ask the docs (needs WebGPU)';
+    btn.addEventListener('click', () => {
+      open();
+      intro.innerHTML = '<p>This assistant needs <b>WebGPU</b>, which this browser does not expose. ' +
+        'Chrome and Edge have it; Safari from 26; Firefox is still partial on some platforms.</p>' +
+        '<p>Everything it could tell you is on this page — the sidebar is the fastest way in.</p>';
+    });
+  } else {
+    btn.hidden = false;
+    btn.addEventListener('click', () => (panel.hidden ? open() : close()));
+  }
+  $('askclose').addEventListener('click', close);
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && !panel.hidden) close(); });
+
+  function open() { panel.hidden = false; btn.hidden = true; btn.setAttribute('aria-expanded', 'true'); }
+  function close() { panel.hidden = true; btn.hidden = false; btn.setAttribute('aria-expanded', 'false'); }
+
+  let engine = null, busy = false, SYSTEM = '', HISTORY = 1;
+  const turns = [];   // user/assistant only
+
+  load.addEventListener('click', async () => {
+    load.disabled = true; bar.hidden = false; stat.textContent = 'fetching the library…';
+    const onProgress = ({ text, progress }) => {
+      fill.style.width = Math.round((progress || 0) * 100) + '%';
+      stat.textContent = text || '';
+    };
+    try {
+      const webllm = await import(WEBLLM);
+      let ctx = WANT_CTX;
+      try {
+        engine = await webllm.CreateMLCEngine(
+          MODEL, { initProgressCallback: onProgress }, { context_window_size: WANT_CTX });
+      } catch (wide) {
+        // the prebuilt wasm would not take a larger window — take the default instead
+        console.warn('hop docs: ' + WANT_CTX + ' context refused, falling back to 4096', wide);
+        ctx = 4096;
+        engine = await webllm.CreateMLCEngine(MODEL, { initProgressCallback: onProgress });
+      }
+      SYSTEM = buildSystem(buildReference(ctx >= 8192 ? REF.rich : REF.compact));
+      HISTORY = ctx >= 8192 ? 3 : 1;
+
+      intro.remove();
+      form.hidden = false; note.hidden = false;
+      input.focus();
+      say('assistant', 'Ready. Ask me about hop — keys, install, settings, how a mode works.');
+    } catch (err) {
+      bar.hidden = true; stat.textContent = ''; load.disabled = false;
+      const msg = err && err.message ? err.message : String(err);
+      const p = document.createElement('p');
+      // the model needs the shader-f16 WebGPU feature, which navigator.gpu alone doesn't promise
+      p.textContent = /f16|feature/i.test(msg)
+        ? "This GPU doesn't expose the shader-f16 feature the model needs. " + msg
+        : 'Could not start the model: ' + msg;
+      intro.appendChild(p);
+    }
+  });
+
+  // enable_thinking:false should stop Qwen emitting a reasoning block, but one must
+  // never reach the bubble if it does. Handles the three shapes that occur mid-stream:
+  // a closed block, a block still open, and a tag arriving one character at a time.
+  const visible = (raw) => raw
+    .replace(/<think>[\s\S]*?(?:<\/think>|$)/g, '')
+    .replace(/<\/?think>/g, '')
+    .replace(/<[a-z\/]{0,6}$/i, '')
+    .trim();
+
+  function say(who, text) {
+    const el = document.createElement('div');
+    el.className = 'msg ' + (who === 'you' ? 'you' : 'bot');
+    const label = document.createElement('span');
+    label.className = 'who';
+    label.textContent = who === 'you' ? 'you' : 'hop docs';
+    el.appendChild(label);
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+    el.appendChild(bubble);
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+    return bubble;
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = input.value.trim();
+    if (!q || busy || !engine) return;
+    busy = true; send.disabled = true; input.value = '';
+    say('you', q);
+    const bubble = say('assistant', '…');
+
+    try {
+      const stream = await engine.chat.completions.create({
+        stream: true,
+        temperature: 0.1,
+        max_tokens: 220,
+        extra_body: { enable_thinking: false },
+        messages: [
+          { role: 'system', content: SYSTEM },
+          ...FEWSHOT,
+          ...turns.slice(-HISTORY * 2),
+          { role: 'user', content: q },
+        ],
+      });
+      let raw = '';
+      for await (const chunk of stream) {
+        raw += chunk.choices[0]?.delta?.content || '';
+        bubble.textContent = visible(raw) || 'thinking…';
+        body.scrollTop = body.scrollHeight;
+      }
+      const out = visible(raw);
+      bubble.textContent = out || "I couldn't answer that from the page.";
+      turns.push({ role: 'user', content: q }, { role: 'assistant', content: out });
+    } catch (err) {
+      bubble.textContent = 'That failed: ' + (err && err.message ? err.message : String(err));
+    }
+    busy = false; send.disabled = false; input.focus();
+    body.scrollTop = body.scrollHeight;
+  });
+</script>
+
+<script>
+  // Theme toggle: system -> light -> dark -> system
+  (function () {
+    var btn = document.getElementById('theme');
+    var order = ['system', 'light', 'dark'];
+    var saved = localStorage.getItem('hop-docs-theme') || 'system';
+    function apply(t) {
+      if (t === 'system') document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', t);
+      btn.textContent = 'Theme: ' + t;
+      localStorage.setItem('hop-docs-theme', t);
+    }
+    apply(saved);
+    btn.addEventListener('click', function () {
+      saved = order[(order.indexOf(saved) + 1) % order.length];
+      apply(saved);
+    });
+  })();
+
+  // Highlight the section currently in view in the sidebar.
+  //
+  // Not an IntersectionObserver: several sections are in view at once, so
+  // reacting per-entry made whichever one happened to fire last win, and
+  // scrolling up left the highlight behind. Instead, on each scroll pick the
+  // last section whose top has passed the reading line — one deterministic
+  // answer, correct in both directions.
+  (function () {
+    var nav = document.querySelector('.sidebar nav');
+    var links = Array.prototype.slice.call(document.querySelectorAll('nav a'));
+    var sections = Array.prototype.slice.call(document.querySelectorAll('section[id]'));
+    if (!sections.length) return;
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+    var current = null;
+
+    function update() {
+      var line = window.innerHeight * 0.3;
+      var pick = sections[0];
+      for (var i = 0; i < sections.length; i++) {
+        if (sections[i].getBoundingClientRect().top <= line) pick = sections[i];
+      }
+      // the last section can be too short to ever reach the line
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 2) {
+        pick = sections[sections.length - 1];
+      }
+      if (pick === current) return;
+      current = pick;
+      links.forEach(function (a) { a.classList.remove('on'); a.removeAttribute('aria-current'); });
+      var a = byId[pick.id];
+      if (!a) return;
+      a.classList.add('on');
+      a.setAttribute('aria-current', 'true');
+      // keep the active link visible when the nav itself is scrollable
+      if (nav && nav.scrollHeight > nav.clientHeight) {
+        var nb = nav.getBoundingClientRect(), ab = a.getBoundingClientRect();
+        if (ab.top < nb.top || ab.bottom > nb.bottom) {
+          nav.scrollTop += ab.top - nb.top - nb.height / 2 + ab.height / 2;
+        }
+      }
+    }
+
+    var queued = false;
+    function onScroll() {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(function () { queued = false; update(); });
+    }
+    addEventListener('scroll', onScroll, { passive: true });
+    addEventListener('resize', onScroll);
+    update();
+  })();
+</script>
+</body>
+</html>
