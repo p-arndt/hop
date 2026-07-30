@@ -62,3 +62,47 @@ func TestKeyToBytesPrefixesAltWithEsc(t *testing.T) {
 		}
 	}
 }
+
+// A ctrl- or shift-modified cursor key carries its modifier inside the sequence
+// (ESC[1;5D), not behind an ESC. These used to fall through keyToBytes as nil —
+// ctrl+left/right, the word-wise motion every shell binds, reached the remote as
+// nothing at all.
+func TestKeyToBytesModifiedCursorKeys(t *testing.T) {
+	cases := []struct {
+		name string
+		msg  tea.KeyMsg
+		want string
+	}{
+		{"ctrl+left", tea.KeyMsg{Type: tea.KeyCtrlLeft}, "\x1b[1;5D"},
+		{"ctrl+right", tea.KeyMsg{Type: tea.KeyCtrlRight}, "\x1b[1;5C"},
+		{"ctrl+up", tea.KeyMsg{Type: tea.KeyCtrlUp}, "\x1b[1;5A"},
+		{"ctrl+down", tea.KeyMsg{Type: tea.KeyCtrlDown}, "\x1b[1;5B"},
+		{"ctrl+home", tea.KeyMsg{Type: tea.KeyCtrlHome}, "\x1b[1;5H"},
+		{"ctrl+end", tea.KeyMsg{Type: tea.KeyCtrlEnd}, "\x1b[1;5F"},
+		{"shift+left", tea.KeyMsg{Type: tea.KeyShiftLeft}, "\x1b[1;2D"},
+		{"shift+right", tea.KeyMsg{Type: tea.KeyShiftRight}, "\x1b[1;2C"},
+		{"shift+up", tea.KeyMsg{Type: tea.KeyShiftUp}, "\x1b[1;2A"},
+		{"shift+end", tea.KeyMsg{Type: tea.KeyShiftEnd}, "\x1b[1;2F"},
+		{"ctrl+shift+left", tea.KeyMsg{Type: tea.KeyCtrlShiftLeft}, "\x1b[1;6D"},
+		{"ctrl+shift+home", tea.KeyMsg{Type: tea.KeyCtrlShiftHome}, "\x1b[1;6H"},
+		{"shift+down", tea.KeyMsg{Type: tea.KeyShiftDown}, "\x1b[1;2B"},
+		{"ctrl+shift+up", tea.KeyMsg{Type: tea.KeyCtrlShiftUp}, "\x1b[1;6A"},
+		{"ctrl+shift+right", tea.KeyMsg{Type: tea.KeyCtrlShiftRight}, "\x1b[1;6C"},
+		{"ctrl+shift+end", tea.KeyMsg{Type: tea.KeyCtrlShiftEnd}, "\x1b[1;6F"},
+		{"ctrl+pgup", tea.KeyMsg{Type: tea.KeyCtrlPgUp}, "\x1b[5;5~"},
+		{"ctrl+pgdown", tea.KeyMsg{Type: tea.KeyCtrlPgDown}, "\x1b[6;5~"},
+		// alt on top of one of these is a bit in the same parameter, not an ESC prefix.
+		{"ctrl+alt+left", tea.KeyMsg{Type: tea.KeyCtrlLeft, Alt: true}, "\x1b[1;7D"},
+		// The unmodified keys are unchanged.
+		{"left", tea.KeyMsg{Type: tea.KeyLeft}, "\x1b[D"},
+		{"pgup", tea.KeyMsg{Type: tea.KeyPgUp}, "\x1b[5~"},
+		// The other keys whose String() matches no branch and used to drop to nil.
+		{"shift+tab", tea.KeyMsg{Type: tea.KeyShiftTab}, "\x1b[Z"},
+		{"insert", tea.KeyMsg{Type: tea.KeyInsert}, "\x1b[2~"},
+	}
+	for _, c := range cases {
+		if got := string(keyToBytes(c.msg)); got != c.want {
+			t.Errorf("%s: keyToBytes = %q, want %q", c.name, got, c.want)
+		}
+	}
+}

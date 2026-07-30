@@ -4,6 +4,7 @@
 package terminal
 
 import (
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -336,6 +337,15 @@ func (p *Pane) Close() error {
 //	home -> ESC[H; end -> ESC[F; delete -> ESC[3~; pgup -> ESC[5~; pgdown -> ESC[6~;
 //	ctrl+<letter> -> the corresponding control byte (ctrl+c -> 0x03, ctrl+d -> 0x04, ...).
 func keyToBytes(msg tea.KeyMsg) []byte {
+	// A modified cursor key is not "the key behind an ESC": xterm encodes the
+	// modifier *inside* the sequence (ESC[1;5D for ctrl+left), which is what
+	// readline reads as backward-word and what every editor binds. Handled before
+	// the meta prefix below, because the modifier goes in the parameter, not in
+	// front of the sequence.
+	if b, ok := modifiedKeyBytes(msg); ok {
+		return b
+	}
+
 	b := keyBytes(msg)
 	// A meta-modified key is that key's bytes behind an ESC, which is how a terminal
 	// sends alt+<key> and how readline (alt+b, alt+f) and vim (<esc>o typed fast enough
@@ -346,6 +356,79 @@ func keyToBytes(msg tea.KeyMsg) []byte {
 		return append([]byte{0x1b}, b...)
 	}
 	return b
+}
+
+// modifiedKeyBytes maps a cursor/navigation key carrying a ctrl and/or shift
+// modifier to its xterm sequence, and reports whether the event was one.
+//
+// The encoding is CSI 1 ; <mod> <final> for the arrows and home/end, and
+// CSI <n> ; <mod> ~ for the tilde-terminated keys (pgup/pgdown), where <mod> is
+// 1 + a bitmask: shift 1, alt 2, ctrl 4. So ctrl+left is ESC[1;5D, shift+right
+// ESC[1;2C, ctrl+shift+left ESC[1;6D, ctrl+alt+left ESC[1;7D.
+//
+// Without this, ctrl+left fell through keyBytes' ctrl+<letter> branch ("left" is
+// not one letter) and off the end of the function as nil, so nothing at all
+// reached the remote and word-wise motion looked dead inside a pane.
+func modifiedKeyBytes(msg tea.KeyMsg) ([]byte, bool) {
+	var final byte // 'A'/'B'/'C'/'D'/'H'/'F', or 0 for a tilde key
+	var tilde int  // the CSI parameter of a tilde key (5 pgup, 6 pgdown)
+	var mods int   // shift 1, alt 2, ctrl 4
+
+	switch msg.Type {
+	case tea.KeyCtrlUp:
+		final, mods = 'A', 4
+	case tea.KeyCtrlDown:
+		final, mods = 'B', 4
+	case tea.KeyCtrlRight:
+		final, mods = 'C', 4
+	case tea.KeyCtrlLeft:
+		final, mods = 'D', 4
+	case tea.KeyCtrlHome:
+		final, mods = 'H', 4
+	case tea.KeyCtrlEnd:
+		final, mods = 'F', 4
+	case tea.KeyShiftUp:
+		final, mods = 'A', 1
+	case tea.KeyShiftDown:
+		final, mods = 'B', 1
+	case tea.KeyShiftRight:
+		final, mods = 'C', 1
+	case tea.KeyShiftLeft:
+		final, mods = 'D', 1
+	case tea.KeyShiftHome:
+		final, mods = 'H', 1
+	case tea.KeyShiftEnd:
+		final, mods = 'F', 1
+	case tea.KeyCtrlShiftUp:
+		final, mods = 'A', 5
+	case tea.KeyCtrlShiftDown:
+		final, mods = 'B', 5
+	case tea.KeyCtrlShiftRight:
+		final, mods = 'C', 5
+	case tea.KeyCtrlShiftLeft:
+		final, mods = 'D', 5
+	case tea.KeyCtrlShiftHome:
+		final, mods = 'H', 5
+	case tea.KeyCtrlShiftEnd:
+		final, mods = 'F', 5
+	case tea.KeyCtrlPgUp:
+		tilde, mods = 5, 4
+	case tea.KeyCtrlPgDown:
+		tilde, mods = 6, 4
+	default:
+		return nil, false
+	}
+
+	// alt on top of one of these is another bit in the same parameter, not the ESC
+	// prefix a plain alt+<key> gets.
+	if msg.Alt {
+		mods |= 2
+	}
+
+	if final != 0 {
+		return []byte(fmt.Sprintf("\x1b[1;%d%c", mods+1, final)), true
+	}
+	return []byte(fmt.Sprintf("\x1b[%d;%d~", tilde, mods+1)), true
 }
 
 // keyBytes is keyToBytes without the meta prefix: the bytes for the key itself.
@@ -381,6 +464,13 @@ func keyBytes(msg tea.KeyMsg) []byte {
 		return []byte("\x1b[5~")
 	case tea.KeyPgDown:
 		return []byte("\x1b[6~")
+	case tea.KeyShiftTab:
+		// CSI Z (back-tab): zsh's menu-complete walks backwards on it, and vim
+		// binds it. Its String() is "shift+tab", which matches no branch below, so
+		// without this case it was silently dropped like ctrl+left was.
+		return []byte("\x1b[Z")
+	case tea.KeyInsert:
+		return []byte("\x1b[2~")
 	}
 
 	// Ctrl combinations (and anything else) are detected via the canonical
