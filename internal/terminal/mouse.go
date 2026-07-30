@@ -189,7 +189,9 @@ func mouseBytes(msg tea.MouseMsg, x, y int, level tracking, sgr bool) []byte {
 
 	// X10 encoding carries each coordinate in one byte offset by 33, so a cell past
 	// column or row x10Max cannot be addressed at all. Dropping the report is what
-	// xterm does; the alternative is to name a different cell than the one clicked.
+	// xterm does; the alternative is to name a different cell than the one clicked,
+	// which is worse than saying nothing — the program would act on a cell nobody
+	// pointed at.
 	if x > x10Max || y > x10Max {
 		return nil
 	}
@@ -200,9 +202,9 @@ func mouseBytes(msg tea.MouseMsg, x, y int, level tracking, sgr bool) []byte {
 	}
 	b := ansi.EncodeMouseButton(button, motion, msg.Shift, msg.Alt, msg.Ctrl)
 	// The button field carries the modifier bits, so a wheel event with all of them
-	// set overflows into the top half of the byte just as a far-right column does —
-	// and is dropped for the same reason. See x10Max.
-	if int(b)+x10Offset > 0x7e {
+	// set overflows past the last byte a report may carry, just as a far-right column
+	// does — and is dropped for the same reason. See x10Max.
+	if int(b)+x10Offset > x10Last {
 		return nil
 	}
 	// The three bytes are written here rather than by ansi.MouseX10, which builds them
@@ -213,20 +215,29 @@ func mouseBytes(msg tea.MouseMsg, x, y int, level tracking, sgr bool) []byte {
 }
 
 // x10Offset is the bias every field of an X10 mouse report carries, so that no byte
-// of it can be a control character; x10Max is the last cell one can therefore name.
+// of it can be a control character; x10Last is the last byte one may therefore
+// hold, and x10Max the last cell one can name.
 //
-// The ceiling is 126 rather than the 222 the byte would hold, and that is a
-// deliberate refusal to send a byte with its top bit set. Such a report is what
-// xterm sends, but the far end of an SSH session is a *UTF-8* pty: a lone 0x9f is
-// not a character there, and a program that does not recognise the report — a shell
-// that has been left in mouse mode by something that exited without switching it
-// off — swallows the "ESC [ M" it does understand and takes the remaining bytes as
-// input, which is a raw undecodable byte typed onto somebody's command line. The
-// column past 126 goes unreported instead, in the encoding nobody has used since
-// SGR (which hop prefers, and every program that asks for the mouse today sets).
+// The ceiling is xterm's: 0xff, so the encoding runs to column 222. It used to stop
+// at 0x7e, refusing to write a byte with its top bit set — the reasoning being that
+// the far end of an SSH session is a *UTF-8* pty, so a program that is not decoding
+// the report (a shell left in mouse mode by something that exited without switching
+// it off) takes the trailing bytes as input, and a raw 0x9f is not a character
+// there. That trade was the wrong way round. The cost fell on every program that
+// asks for the mouse *without* SGR — older vim, mc, plenty of ncurses — which lost
+// every click past column 94, reachable on any wide pane with the sidebar hidden;
+// the benefit was that junk typed onto a command line by a stale mouse mode is
+// decodable junk rather than undecodable junk. A program that *is* decoding reads
+// raw bytes and wants exactly what xterm sends, and hop's own terminal would have
+// sent the same byte in the same situation.
+//
+// The stale mode itself is what is worth preventing, and that is handled where it
+// happens: the modes go with the alt screen they were set on, and with a RIS. See
+// terminal.go.
 const (
 	x10Offset = 32
-	x10Max    = 126 - x10Offset - 1
+	x10Last   = 0xff
+	x10Max    = x10Last - x10Offset - 1
 )
 
 // isWheel reports whether b is one of the four wheel directions. Bubble Tea has

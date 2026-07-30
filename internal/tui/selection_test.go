@@ -228,3 +228,33 @@ func TestReleaseWithoutAButtonStillCopies(t *testing.T) {
 		t.Fatal("the drag outlived a release that did not name its button")
 	}
 }
+
+// A drag that runs off the pane still ends when the button comes up. Releasing
+// over the sidebar never reaches the pane's selection code, and a drag left live
+// there would make the *next* release over the pane — one whose press hop never saw
+// — finish a gesture nobody was making, copying a span anchored where the
+// abandoned drag started.
+func TestDragReleasedOutsideThePaneEnds(t *testing.T) {
+	m, copied := selModel(t, "sudo apt update\r\n", "sudo apt update")
+
+	events := dragEvents(0, 0, 14, 0)
+	m.handleMouse(events[0]) // press, in the pane
+	m.handleMouse(events[1]) // drag across the line
+	// ...and the button comes up over the sidebar.
+	m.handleMouse(tea.MouseMsg{X: 4, Y: 5, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+
+	if m.sel.dragging {
+		t.Fatal("a drag released outside the pane is still live")
+	}
+	if copied() != "sudo apt update" {
+		t.Fatalf("clipboard = %q, want the drag to have copied what it covered", copied())
+	}
+
+	// And a stray release over the pane now copies nothing, rather than finishing
+	// the drag that was abandoned above.
+	m.clipWrite = func(text string) error {
+		t.Fatalf("a release with no press behind it copied %q", text)
+		return nil
+	}
+	m.handleMouse(tea.MouseMsg{X: 40, Y: 6, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+}

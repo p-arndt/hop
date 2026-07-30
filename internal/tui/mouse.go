@@ -75,6 +75,23 @@ func (m *model) zoneAt(x, y int) zone {
 // order of modality handleKey uses: a card takes everything (by swallowing it), then
 // the two boxes of the body.
 func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	model, cmd := m.routeMouse(msg)
+
+	// A button that came up ends the drag it started, wherever it came up. The
+	// gesture that ran off the edge of the pane — over the sidebar, the footer, a
+	// card, or into a remote program that asked for the mouse mid-drag — never
+	// reaches mouseSelect, and a drag left live would make the *next* release over
+	// the pane finish a gesture nobody was making, copying a span anchored where the
+	// abandoned one started. A drag still live here is one nothing claimed, so it is
+	// ended where the pointer last was.
+	if msg.Action == tea.MouseActionRelease && m.sel.dragging {
+		m.endSelection(m.dragView())
+	}
+	return model, cmd
+}
+
+// routeMouse hands the event to whichever region it landed in.
+func (m *model) routeMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if m.modalCard() != "" {
 		return m, nil
 	}
@@ -85,6 +102,22 @@ func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m.mousePane(msg)
 	}
 	return m, nil
+}
+
+// dragView is what a drag in progress is selecting out of: the focused shell's
+// live screen, or its history while the pane is paused in it — the same choice
+// mouseShell makes. An empty view is a session that has gone since the button went
+// down, which copies nothing and simply drops the selection.
+func (m *model) dragView() string {
+	s := m.sessions[m.active]
+	if s == nil || s.shell() == nil {
+		return ""
+	}
+	p := s.shell().pane
+	if m.scrolling {
+		return p.ViewScrollback()
+	}
+	return p.View()
 }
 
 // clickChord reports whether this click completes a double-click on the same thing

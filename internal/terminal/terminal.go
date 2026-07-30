@@ -140,6 +140,28 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 			p.mouse.setMode(mode, false)
 			p.paste.setMode(mode, false)
 		},
+		// Leaving the alt screen ends the full-screen program that owned it, and hop
+		// stops believing whatever that program asked for. It is meant to say so
+		// itself — the modes go off before the screen is handed back — but a program
+		// that was killed, or that restored the screen and nothing else, never does,
+		// and the shell underneath it is then left "asking" for the mouse it knows
+		// nothing about. Every drag over that shell would be encoded and typed into
+		// it. So the ask is dropped with the screen it was made on, which is also
+		// what the modes mean: they belong to the program, and the program is gone.
+		//
+		// This is a callback rather than a check after the chunk is parsed, because
+		// the modes the *next* program sets are in that same chunk: quitting vim over
+		// SSH arrives as one read of vim's teardown followed by the shell's prompt,
+		// and readline announces bracketed paste (?2004h) before every line it reads.
+		// Clearing afterwards threw that announcement away and left hop pasting
+		// unbracketed into a shell that would run each line of it.
+		AltScreen: func(on bool) {
+			if on {
+				return
+			}
+			p.mouse.clear()
+			p.paste.clear()
+		},
 	})
 
 	// Remote/server output -> emulator parser: update the rendered screen. We
@@ -147,28 +169,15 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 	// each chunk is parsed — event-driven repaints instead of polling.
 	go func() {
 		first := true
-		wasAlt := false
 		buf := make([]byte, 32*1024)
 		for {
 			n, err := sess.Stdout.Read(buf)
 			if n > 0 {
+				// Parsing is what fires the mode and alt-screen callbacks wired above, in
+				// the order the bytes arrived — which is the only order in which a chunk
+				// holding both a program's exit and the next prompt's asks can be read
+				// correctly.
 				_, _ = emu.Write(buf[:n])
-				// Leaving the alt screen ends the full-screen program that owned it, and
-				// hop stops believing whatever that program asked for. It is meant to say
-				// so itself — the modes go off before the screen is handed back — but a
-				// program that was killed, or that restored the screen and nothing else,
-				// never does, and the shell underneath it is then left "asking" for the
-				// mouse it knows nothing about. Every drag over that shell would be
-				// encoded and typed into it. So the ask is dropped with the screen it was
-				// made on, which is also what the modes mean: they belong to the program,
-				// and the program is gone.
-				if alt := emu.IsAltScreen(); alt != wasAlt {
-					wasAlt = alt
-					if !alt {
-						p.mouse.clear()
-						p.paste.clear()
-					}
-				}
 				// The same bytes, watched for the one sequence that reports the remote
 				// shell's directory (see cwd.go). It is a scan, not a second parse: the
 				// emulator above remains the only thing interpreting the stream.

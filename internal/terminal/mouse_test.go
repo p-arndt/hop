@@ -117,13 +117,21 @@ func TestMouseBytes(t *testing.T) {
 		{"hover under 1003", hover, 1, 1, trackAll, true, "\x1b[<35;2;2M"},
 		{"x10 press", press(0, 0), 0, 0, trackPress, false, "\x1b[M\x20\x21\x21"},
 		{"x10 release is button 3", release, 0, 0, trackRelease, false, "\x1b[M\x23\x21\x21"},
-		{"x10 at the last ASCII-addressable column", press(0, 0), 93, 0, trackPress, false, "\x1b[M\x20\x7e\x21"},
+		{"x10 at the last ASCII column", press(0, 0), 93, 0, trackPress, false, "\x1b[M\x20\x7e\x21"},
 		{"x10 the same for a row", press(0, 0), 0, 93, trackPress, false, "\x1b[M\x20\x21\x7e"},
-		// Past that the coordinate byte has its top bit set, which is not a character
-		// on a UTF-8 pty — hop refuses to write one rather than send xterm's report.
-		{"x10 stops at the top bit, column", press(0, 0), 94, 0, trackPress, false, ""},
-		{"x10 stops at the top bit, row", press(0, 0), 0, 94, trackPress, false, ""},
-		{"x10 will not overflow the button field either", wheelAllMods, 0, 0, trackPress, false, ""},
+		// Past that the coordinate byte has its top bit set, which is what xterm sends
+		// and what a program decoding the report reads — raw bytes, not text. A wide
+		// pane (the sidebar hidden) reaches these columns, and a program that asked for
+		// the mouse without SGR has no other way to be told about them.
+		{"x10 past the top bit, column", press(0, 0), 94, 0, trackPress, false, "\x1b[M\x20\x7f\x21"},
+		{"x10 past the top bit, row", press(0, 0), 0, 200, trackPress, false, "\x1b[M\x20\x21\xe9"},
+		{"x10 at the last cell it can name", press(0, 0), 222, 0, trackPress, false, "\x1b[M\x20\xff\x21"},
+		// And past *that* the byte would wrap onto a different cell, so nothing is sent:
+		// naming the wrong cell is worse than saying nothing.
+		{"x10 stops where the byte runs out", press(0, 0), 223, 0, trackPress, false, ""},
+		// The modifier bits live in the button field, so a wheel with all of them set
+		// is a high byte too — and the same answer: it is what a decoder expects.
+		{"x10 carries the modifier bits in the button field", wheelAllMods, 0, 0, trackPress, false, "\x1b[M\x9d\x21\x21"},
 		{"sgr can", press(0, 0), 300, 0, trackPress, true, "\x1b[<0;301;1M"},
 		{"negative cells are not events", press(0, 0), -1, 0, trackRelease, true, ""},
 	}
@@ -281,5 +289,31 @@ func TestInlineMouseSurvives(t *testing.T) {
 	}
 	if !p.MouseEnabled() {
 		t.Fatal("an inline program's mouse was dropped without it leaving anything")
+	}
+}
+
+// The exit and what comes after it arrive together: over SSH, vim's teardown and
+// the shell's next prompt are one read, and readline announces bracketed paste
+// before every line it reads. The asks that follow the exit are the *shell's*, and
+// they must survive it — dropping the modes after the whole chunk was parsed
+// discarded them, and hop then pasted unbracketed into a shell that runs each line
+// of what it is given.
+func TestAltScreenExitKeepsWhatFollowsInTheSameChunk(t *testing.T) {
+	out, w := io.Pipe()
+	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
+	defer p.Close()
+
+	go io.WriteString(w, "\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?2004h")
+	if !waitFor(func() bool { return p.MouseEnabled() && p.BracketedPaste() }) {
+		t.Fatal("the program's asks were not noticed")
+	}
+
+	// One write: the program's exit, then the prompt readline draws under it.
+	go io.WriteString(w, "\x1b[?1049l\x1b[?2004h$ ")
+	if !waitFor(func() bool { return !p.MouseEnabled() }) {
+		t.Fatal("the mouse outlived the program that asked for it")
+	}
+	if !p.BracketedPaste() {
+		t.Fatal("the shell's bracketed paste was dropped with the program that exited above it")
 	}
 }
