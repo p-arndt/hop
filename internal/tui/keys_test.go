@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"hop/internal/config"
+	"hop/internal/store"
 )
 
 // key builds the tea.KeyMsg whose String() is name.
@@ -59,11 +61,15 @@ func key(t *testing.T, name string) tea.KeyMsg {
 // list and a viewport where listRows() == 15. The vim motions are switched on:
 // they are what most of these tests are about, and they are off by default.
 func newNavModel(n int) *model {
-	filtered := make([]int, n)
-	for i := range filtered {
-		filtered[i] = i
+	hosts := make([]store.Host, n)
+	for i := range hosts {
+		hosts[i] = store.Host{Alias: fmt.Sprintf("h%d", i), HostName: "example.test"}
 	}
-	return &model{filtered: filtered, height: 20, cfg: config.Config{VimKeys: true}}
+	m := &model{hosts: hosts, height: 20, cfg: config.Config{VimKeys: true}}
+	// applyFilter is what fills the filtered list *and* the drawn rows the paging
+	// arithmetic is measured in; with no filter it is every host, in order.
+	m.applyFilter()
+	return m
 }
 
 func TestNavVimMotions(t *testing.T) {

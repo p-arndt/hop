@@ -160,16 +160,16 @@ func (m *model) clickList(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 // listRowAt maps a screen row to an index into m.filtered, or false when the row
-// holds no host: the sidebar's border, its HOSTS heading, the filter prompt, or the
-// blank space under a short list.
+// holds no host: the sidebar's border, its HOSTS heading, a PINNED / HOSTS section
+// heading, the filter prompt, or the blank space under a short list.
 //
 // It runs renderList's bookkeeping backwards — the header row, the box's top
-// border, the heading, and the filter prompt when there is one — and then the same
-// scroll window renderRows draws with, so the host that answers is the host under
-// the pointer.
+// border, the heading (when the sections have not taken it), and the filter prompt
+// when there is one — and then the same scroll window renderRows draws with, so the
+// host that answers is the host under the pointer.
 func (m *model) listRowAt(y int) (int, bool) {
 	// The screen's header row, then the sidebar's top border, then its heading.
-	first := 3
+	first := 2 + m.listTitleRows()
 	if m.filtering || m.filter != "" {
 		first++
 	}
@@ -178,10 +178,13 @@ func (m *model) listRowAt(y int) (int, bool) {
 		return 0, false
 	}
 	i := m.listStart(rows) + (y - first)
-	if i < 0 || i >= len(m.filtered) {
+	if i < 0 || i >= len(m.rows) {
 		return 0, false
 	}
-	return i, true
+	if m.rows[i].heading != "" {
+		return 0, false
+	}
+	return m.rows[i].fi, true
 }
 
 // backToList hands the keyboard back to the host list from whichever pane holds it

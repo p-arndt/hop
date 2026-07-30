@@ -379,11 +379,16 @@ func (m *model) renderFooter() string {
 		hints = []string{
 			keyHint("↑↓", "move"), keyHint("enter", "connect"), keyHint("f", "sftp"),
 			keyHint("a", "add"), keyHint("i", "import"), keyHint("e", "edit"), keyHint("x", "delete"),
+			keyHint("p", "pin"),
 			keyHint("/", "filter"), keyHint(",", "settings"), keyHint("?", "keys"), keyHint("q", "quit"),
 		}
 		// 'r' is bound in the list at all times, but it is only worth a slot in the
 		// legend when there is a dropped session under the cursor to spend it on.
+		// Same for the reorder keys, which do something only on a pinned host.
 		if h, ok := m.selectedHost(); ok {
+			if h.Pinned {
+				hints = append([]string{keyHint("shift+jk", "reorder")}, hints...)
+			}
 			if s := m.sessions[h.Alias]; s != nil && s.dead {
 				hints = append([]string{keyHint("r", "reconnect")}, hints...)
 			}

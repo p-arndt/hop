@@ -29,6 +29,8 @@ the file browser, `esc` `esc` also works).
 | `a` | add a host |
 | `e` | edit the host under the cursor |
 | `x` | delete the host under the cursor (asks first) |
+| `p` | pin the host to the **PINNED** section at the top of the list, or unpin it |
+| `shift+k` / `shift+j` | move a pinned host up / down inside that section |
 | `i` | import hosts from an OpenSSH config (`~/.ssh/config` by default) |
 | `/` | filter hosts (`enter` applies, `esc` clears) |
 | `,` | settings |
@@ -55,6 +57,25 @@ which walks directories that actually run past a screen. The host list does not
 scroll (every host is on screen), so each of them landed a `j` or two from where
 the cursor already was, and those letters are worth more to the list as commands.
 Paging is `pgdn`/`pgup`.
+
+### Pinned hosts
+
+The list is ordered by frecency — the hosts you connect to most, first. `p` takes
+one host out of that order and puts it in a **PINNED** section above the rest,
+where it stays whatever the visit counts do. Pinning is stored in the database, so
+it survives a restart.
+
+`shift+k` and `shift+j` move the pinned host under the cursor up and down inside
+the section: the pinned order is yours, not a second frecency. On a host that is
+not pinned they say so rather than moving it — pin it first. They are shifted `j`/`k`
+rather than an `alt` chord, because `alt` chords never reach hop on a default macOS
+terminal.
+
+A new pin goes to the **bottom** of the section, so pinning something else never
+reshuffles the order you set. Filtering with `/` keeps the sections — a pin outranks
+a match score — and a section with no matches left in it drops its heading, so a
+filter never draws an empty block. With nothing pinned the sidebar looks exactly as
+it did: one `HOSTS` title and the list under it.
 
 ## The sidebar — `ctrl+b`
 

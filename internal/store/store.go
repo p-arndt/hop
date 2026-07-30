@@ -25,6 +25,11 @@ type Host struct {
 	Group        string
 	Visits       int
 	LastConnect  int64
+	// Pinned lifts a host out of the frecency order into the PINNED section at the
+	// top of the list; PinOrder is its place inside that section, 1-based and dense
+	// (see renumberPins). PinOrder is meaningless — and zero — on an unpinned host.
+	Pinned   bool
+	PinOrder int
 }
 
 // Store wraps the SQLite database holding hosts.
@@ -43,8 +48,59 @@ CREATE TABLE IF NOT EXISTS hosts (
 	tags          TEXT,
 	grp           TEXT,
 	visits        INTEGER DEFAULT 0,
-	last_connect  INTEGER DEFAULT 0
+	last_connect  INTEGER DEFAULT 0,
+	pinned        INTEGER DEFAULT 0,
+	pin_order     INTEGER DEFAULT 0
 );`
+
+// addedColumns are the columns that arrived after the first release. CREATE TABLE
+// IF NOT EXISTS is a no-op on a database that already has the table, so a schema
+// that only grows there is a schema no existing install ever gets — hence the
+// ALTER pass in migrate.
+var addedColumns = []struct{ name, ddl string }{
+	{"pinned", `ALTER TABLE hosts ADD COLUMN pinned INTEGER DEFAULT 0`},
+	{"pin_order", `ALTER TABLE hosts ADD COLUMN pin_order INTEGER DEFAULT 0`},
+}
+
+// migrate adds any column in addedColumns the table does not have yet. It asks
+// PRAGMA table_info rather than running the ALTERs and swallowing the duplicate
+// column error, which is a driver-specific string and would hide real failures.
+func migrate(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(hosts)`)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var (
+			cid       int
+			name, typ string
+			notNull   int
+			dflt      sql.NullString
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, c := range addedColumns {
+		if have[c.name] {
+			continue
+		}
+		if _, err := db.Exec(c.ddl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // Open opens (creating if needed) the hop database at
 // <UserConfigDir>/hop/hop.db and ensures the schema exists.
@@ -71,6 +127,10 @@ func OpenAt(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	// Drop the table behind the withdrawn "recent directories" feature, so a
 	// database written by an older build does not keep its browsing history.
 	if _, err := db.Exec(`DROP TABLE IF EXISTS dirs`); err != nil {
@@ -85,12 +145,14 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// Hosts returns all hosts sorted by Visits desc then LastConnect desc.
+// Hosts returns all hosts: the pinned ones first in the order the user put them
+// in, then the rest sorted by Visits desc then LastConnect desc.
 func (s *Store) Hosts() ([]Host, error) {
 	rows, err := s.db.Query(`
-		SELECT id, alias, hostname, user, port, identity_file, tags, grp, visits, last_connect
+		SELECT id, alias, hostname, user, port, identity_file, tags, grp, visits, last_connect,
+		       pinned, pin_order
 		FROM hosts
-		ORDER BY visits DESC, last_connect DESC`)
+		ORDER BY pinned DESC, pin_order ASC, visits DESC, last_connect DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -105,6 +167,7 @@ func (s *Store) Hosts() ([]Host, error) {
 		if err := rows.Scan(
 			&h.ID, &h.Alias, &h.HostName, &h.User, &h.Port,
 			&h.IdentityFile, &tags, &h.Group, &h.Visits, &h.LastConnect,
+			&h.Pinned, &h.PinOrder,
 		); err != nil {
 			return nil, err
 		}
@@ -180,10 +243,22 @@ func (s *Store) Add(h Host) (int64, error) {
 	return res.LastInsertId()
 }
 
-// Delete removes the host with the given alias.
+// Delete removes the host with the given alias, closing the hole a pinned host
+// leaves behind in the pin order.
 func (s *Store) Delete(alias string) error {
-	_, err := s.db.Exec(`DELETE FROM hosts WHERE alias = ?`, alias)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM hosts WHERE alias = ?`, alias); err != nil {
+		return err
+	}
+	if err := renumberPins(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Rename changes a host's alias from oldAlias to newAlias, preserving its visit
@@ -212,6 +287,151 @@ func (s *Store) Rename(oldAlias, newAlias string) error {
 	}
 	if n == 0 {
 		return fmt.Errorf("rename: no such host %q", oldAlias)
+	}
+	return nil
+}
+
+// SetPinned pins or unpins a host. A newly pinned host goes to the *end* of the
+// pinned section — pinning is "keep this one where I can find it", not "make this
+// the first thing", and a pin that reshuffled the section every time would fight
+// the manual order the user set with MovePin. It fails when there is no such host.
+func (s *Store) SetPinned(alias string, pinned bool) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var (
+		id  int64
+		was bool
+	)
+	if err := tx.QueryRow(`SELECT id, pinned FROM hosts WHERE alias = ?`, alias).Scan(&id, &was); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("pin: no such host %q", alias)
+		}
+		return err
+	}
+	if was == pinned {
+		return nil
+	}
+
+	if pinned {
+		var next int
+		if err := tx.QueryRow(`SELECT COALESCE(MAX(pin_order), 0) + 1 FROM hosts WHERE pinned = 1`).Scan(&next); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE hosts SET pinned = 1, pin_order = ? WHERE id = ?`, next, id); err != nil {
+			return err
+		}
+	} else if _, err := tx.Exec(`UPDATE hosts SET pinned = 0, pin_order = 0 WHERE id = ?`, id); err != nil {
+		return err
+	}
+
+	if err := renumberPins(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// MovePin moves a pinned host delta places within the pinned section — -1 is up,
+// +1 is down — and reports whether it actually moved. An unpinned host, or one
+// already at the end it is being pushed against, is a no-op rather than an error:
+// it is a held-down key hitting the edge of the list, which the caller shows as
+// nothing happening.
+func (s *Store) MovePin(alias string, delta int) (bool, error) {
+	if delta == 0 {
+		return false, nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	// The section in the order it is drawn in, so "up" here is up on screen.
+	rows, err := tx.Query(`SELECT id, alias FROM hosts WHERE pinned = 1 ORDER BY pin_order ASC, visits DESC, last_connect DESC`)
+	if err != nil {
+		return false, err
+	}
+	var (
+		ids []int64
+		at  = -1
+	)
+	for rows.Next() {
+		var (
+			id int64
+			a  string
+		)
+		if err := rows.Scan(&id, &a); err != nil {
+			rows.Close()
+			return false, err
+		}
+		if a == alias {
+			at = len(ids)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return false, err
+	}
+	rows.Close()
+
+	if at < 0 {
+		return false, nil
+	}
+	to := at + delta
+	if to < 0 || to >= len(ids) {
+		return false, nil
+	}
+
+	id := ids[at]
+	ids = append(ids[:at], ids[at+1:]...)
+	ids = append(ids[:to], append([]int64{id}, ids[to:]...)...)
+
+	if err := writePinOrder(tx, ids); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// renumberPins rewrites pin_order as 1..n over the pinned hosts in their current
+// order, so a delete or an unpin cannot leave a hole for MovePin's arithmetic to
+// trip over. A host pinned before this column existed sorts by frecency, which is
+// the order it was already in.
+func renumberPins(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT id FROM hosts WHERE pinned = 1 ORDER BY pin_order ASC, visits DESC, last_connect DESC`)
+	if err != nil {
+		return err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	return writePinOrder(tx, ids)
+}
+
+// writePinOrder stamps ids with pin_order 1..n, in the order given.
+func writePinOrder(tx *sql.Tx, ids []int64) error {
+	for i, id := range ids {
+		if _, err := tx.Exec(`UPDATE hosts SET pin_order = ? WHERE id = ?`, i+1, id); err != nil {
+			return err
+		}
 	}
 	return nil
 }

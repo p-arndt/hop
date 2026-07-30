@@ -18,9 +18,14 @@ func (m *model) renderList(w, h int) string {
 
 	var b strings.Builder
 
-	b.WriteString(truncate(m.listHeading(), innerW))
-	b.WriteString("\n")
-	innerH--
+	// With something pinned the sidebar carries its own PINNED / HOSTS headings
+	// inside the scrolling rows, and a second, fixed "HOSTS" title above them would
+	// say the same word twice about two different things.
+	if !m.hasSections() {
+		b.WriteString(truncate(m.listHeading(), innerW))
+		b.WriteString("\n")
+		innerH--
+	}
 
 	if m.filtering || m.filter != "" {
 		b.WriteString(truncate(m.filterPrompt(), innerW))
@@ -77,14 +82,29 @@ func (m *model) filterPrompt() string {
 	return prompt + faint.Render("  esc to clear")
 }
 
-// renderRows draws the visible slice of the filtered list, scrolled so the cursor
-// is always on screen, with a scrollbar when there is more list than window.
+// listRow is one drawn row of the sidebar: either a section heading, or a host.
+// Only the host rows can be selected — the cursor indexes m.filtered, and fi is
+// where in it this row's host is.
+type listRow struct {
+	// heading is "PINNED" or "HOSTS" on a section row, and empty on a host row.
+	heading string
+	// count is the hosts under this heading right now, and total how many there
+	// are with the filter off — the "3/8" a filtered section shows.
+	count int
+	total int
+	// fi indexes m.filtered, on a host row.
+	fi int
+}
+
+// renderRows draws the visible slice of the list, headings included, scrolled so
+// the cursor is always on screen, with a scrollbar when there is more list than
+// window.
 func (m *model) renderRows(w, h int) string {
 	start := m.listStart(h)
-	end := min(start+h, len(m.filtered))
+	end := min(start+h, len(m.rows))
 
 	// The scrollbar earns its column only when the list actually overflows.
-	bar := len(m.filtered) > h
+	bar := len(m.rows) > h
 	roww := w
 	if bar {
 		roww = w - 1
@@ -92,8 +112,14 @@ func (m *model) renderRows(w, h int) string {
 
 	lines := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
-		idx := m.filtered[i]
-		row := m.renderRow(m.hosts[idx], m.highlights[idx], i == m.cursor, roww)
+		r := m.rows[i]
+		var row string
+		if r.heading != "" {
+			row = truncate(m.sectionHeading(r), roww)
+		} else {
+			idx := m.filtered[r.fi]
+			row = m.renderRow(m.hosts[idx], m.highlights[idx], r.fi == m.cursor, roww)
+		}
 		if bar {
 			row = padTo(row, roww) + m.scrollbarCell(i-start, h)
 		}
@@ -102,13 +128,24 @@ func (m *model) renderRows(w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
-// listStart is the first filtered index drawn in an h-row viewport: the scroll
-// window keeps the cursor inside it, and scrolls the list as little as it can to
-// do so. It is shared with the mouse, which has to run the same arithmetic
-// backwards to say which host a clicked row is (see listRowAt).
+// sectionHeading is a PINNED / HOSTS row: the same capped title as the sidebar's
+// own, with the section's share of the hosts after it — "3/8" while a filter is
+// hiding some of them.
+func (m *model) sectionHeading(r listRow) string {
+	title := sectionCap.Render(r.heading)
+	if m.filter != "" && r.count != r.total {
+		return title + faint.Render(fmt.Sprintf("  %d/%d", r.count, r.total))
+	}
+	return title + faint.Render(fmt.Sprintf("  %d", r.count))
+}
+
+// listStart is the first row drawn in an h-row viewport: the scroll window keeps
+// the cursor inside it, and scrolls the list as little as it can to do so. It is
+// shared with the mouse, which has to run the same arithmetic backwards to say
+// which host a clicked row is (see listRowAt).
 func (m *model) listStart(h int) int {
-	if m.cursor >= h {
-		return m.cursor - h + 1
+	if row := m.cursorRow(); row >= h {
+		return row - h + 1
 	}
 	return 0
 }
@@ -116,12 +153,12 @@ func (m *model) listStart(h int) int {
 // scrollbarCell is the character on row i of an h-row viewport: a bright thumb
 // where the cursor sits proportionally in the whole list, a faint track elsewhere.
 func (m *model) scrollbarCell(i, h int) string {
-	n := len(m.filtered)
+	n := len(m.rows)
 	// The thumb is one cell — the list is a list of hosts, not a document, so where
 	// you are matters and how much is on screen does not.
 	thumb := 0
 	if n > 1 {
-		thumb = m.cursor * (h - 1) / (n - 1)
+		thumb = m.cursorRow() * (h - 1) / (n - 1)
 	}
 	if i == thumb {
 		return accentText.Render("┃")

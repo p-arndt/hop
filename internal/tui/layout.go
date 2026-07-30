@@ -88,14 +88,23 @@ func (m *model) resizeAll() {
 	}
 }
 
-// listRows approximates the host rows visible in the list pane, which is the
-// step ctrl+f/ctrl+b move by. It mirrors renderList's bookkeeping: the body loses
-// the header and footer, the border takes two more, then the HOSTS title and
-// (when present) the filter prompt.
+// listRows approximates the rows visible in the list pane, which is the step
+// pgup/pgdn move by. It mirrors renderList's bookkeeping: the body loses the
+// header and footer, the border takes two more, then the HOSTS title (unless the
+// sections have replaced it) and (when present) the filter prompt.
 func (m *model) listRows() int {
-	r := m.height - 5
+	r := m.height - 4 - m.listTitleRows()
 	if m.filtering || m.filter != "" {
 		r--
 	}
 	return max(r, 1)
+}
+
+// listTitleRows is what the sidebar's fixed title costs: one row, or none once the
+// PINNED / HOSTS section headings scroll with the list and carry the counts.
+func (m *model) listTitleRows() int {
+	if m.hasSections() {
+		return 0
+	}
+	return 1
 }

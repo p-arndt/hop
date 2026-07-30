@@ -40,6 +40,8 @@ func helpLeft(vim bool) []helpSection {
 			{"o", "open in VS Code Remote (its shell's dir)"},
 			{"e", "edit this host"},
 			{"x", "delete this host"},
+			{"p", "pin it to the top / unpin"},
+			{"shift+j k", "move a pinned host in its section"},
 			{"d", "disconnect everything on it"},
 			{"r", "reconnect a dropped session"},
 			{",", "settings"},

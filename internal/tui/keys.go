@@ -253,6 +253,21 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.openHostFormEdit(h)
 
+	case "p":
+		// Pin the host under the cursor to the PINNED section at the top of the list,
+		// or take it back out.
+		m.togglePin()
+
+	case "K":
+		// Move a pinned host up its section, and "J" down. Shifted j/k rather than a
+		// ctrl or alt chord: they are the step keys with "and take the host with you"
+		// on them, and they arrive intact on a default macOS terminal, which alt
+		// chords do not.
+		m.movePin(-1)
+
+	case "J":
+		m.movePin(1)
+
 	case "x":
 		// Delete the host under the cursor — behind a confirmation, since there is no
 		// undo. 'x' rather than a second life for 'd', which already disconnects.
@@ -279,9 +294,9 @@ func (m *model) move(mo keymap.Motion) (tea.Model, tea.Cmd) {
 	case keymap.Down:
 		m.cursor++
 	case keymap.PageDown:
-		m.cursor += m.listRows()
+		m.pageCursor(1)
 	case keymap.PageUp:
-		m.cursor -= m.listRows()
+		m.pageCursor(-1)
 
 	case keymap.Out:
 		m.leaveDetails()
@@ -298,6 +313,29 @@ func (m *model) move(mo keymap.Motion) (tea.Model, tea.Cmd) {
 
 	m.clampCursor()
 	return m, nil
+}
+
+// pageCursor moves the cursor a screen down (delta 1) or up (-1). It works in row
+// space, where the section headings are rows too, because that is the space the
+// screen is measured in: paging by a count of *hosts* would step over the headings
+// as well and land a host or two past what was ever on screen. A page that ends on
+// a heading gives the row back toward where the cursor came from.
+func (m *model) pageCursor(delta int) {
+	if len(m.rows) == 0 {
+		return
+	}
+	target := clamp(m.cursorRow()+delta*m.listRows(), 0, len(m.rows)-1)
+
+	back := -1 // back toward the cursor, so a page never overshoots
+	if delta < 0 {
+		back = 1
+	}
+	for i := target; i >= 0 && i < len(m.rows); i += back {
+		if m.rows[i].heading == "" {
+			m.cursor = m.rows[i].fi
+			return
+		}
+	}
 }
 
 // leaveDetails backs out of the details/active view, to plain navigation.

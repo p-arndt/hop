@@ -38,6 +38,9 @@ func newMouseModel(n int) *model {
 		cfg:        config.Default(),
 	}
 	m.recomputeLayout()
+	// applyFilter is what builds the drawn rows the click arithmetic runs backwards;
+	// with an empty filter it hands back the same filtered list built above.
+	m.applyFilter()
 	return m
 }
 

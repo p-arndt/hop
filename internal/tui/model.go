@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -38,6 +39,13 @@ type model struct {
 	// filter matched — so the list can show *why* a row is a hit.
 	filtered   []int
 	highlights map[int][]int
+
+	// rows is what the sidebar actually draws, in order: the host rows of filtered,
+	// with the PINNED and HOSTS section headings interleaved once anything is
+	// pinned. Everything that has to count rows — the scroll window, the scrollbar,
+	// the mouse — works in this space, so a heading is a row to all three or to none
+	// of them. The cursor stays an index into filtered: headings are not selectable.
+	rows []listRow
 
 	cursor int
 
@@ -651,6 +659,9 @@ func (m *model) applyFilter() {
 		for i := range m.hosts {
 			m.filtered = append(m.filtered, i)
 		}
+		// The store already hands hosts over pinned-first, so an unfiltered list is
+		// in section order as it stands.
+		m.buildRows()
 		m.clampCursor()
 		return
 	}
@@ -680,7 +691,101 @@ func (m *model) applyFilter() {
 			m.highlights[mt.Index] = in
 		}
 	}
+	// A pin outranks a match score: a filter narrows the list, it does not dissolve
+	// the sections. The partition is stable, so inside each section the hits stay in
+	// the order the fuzzy matcher ranked them.
+	m.pinnedFirst()
+	m.buildRows()
 	m.clampCursor()
+}
+
+// pinnedFirst moves the pinned hosts to the front of m.filtered, in their pin
+// order — not in the order the fuzzy matcher ranked them. The section is drawn in
+// the order the user arranged by hand, and shift+j/k move within that same order,
+// so a filter that reshuffled the section would leave the reorder keys moving a
+// host somewhere other than where it looks like it is going. The unpinned tail
+// keeps the match ranking, which is the only place a score has anything to say.
+func (m *model) pinnedFirst() {
+	sorted := make([]int, 0, len(m.filtered))
+	for _, idx := range m.filtered {
+		if m.hosts[idx].Pinned {
+			sorted = append(sorted, idx)
+		}
+	}
+	if len(sorted) == 0 {
+		return
+	}
+	sort.SliceStable(sorted, func(a, b int) bool {
+		return m.hosts[sorted[a]].PinOrder < m.hosts[sorted[b]].PinOrder
+	})
+	if len(sorted) == len(m.filtered) {
+		m.filtered = append(m.filtered[:0], sorted...)
+		return
+	}
+	for _, idx := range m.filtered {
+		if !m.hosts[idx].Pinned {
+			sorted = append(sorted, idx)
+		}
+	}
+	m.filtered = append(m.filtered[:0], sorted...)
+}
+
+// buildRows recomputes the drawn rows from m.filtered, which is already in section
+// order. With nothing pinned there are no headings at all — the sidebar keeps the
+// single HOSTS title it has always had (see renderList), and this is a row per
+// host. A section with no matches left in it does not get a heading, so a filter
+// never draws an empty block.
+func (m *model) buildRows() {
+	m.rows = m.rows[:0]
+
+	pinned, matched := 0, 0
+	for _, h := range m.hosts {
+		if h.Pinned {
+			pinned++
+		}
+	}
+	for _, idx := range m.filtered {
+		if m.hosts[idx].Pinned {
+			matched++
+		}
+	}
+	if pinned == 0 {
+		for i := range m.filtered {
+			m.rows = append(m.rows, listRow{fi: i})
+		}
+		return
+	}
+
+	if matched > 0 {
+		m.rows = append(m.rows, listRow{heading: "PINNED", count: matched, total: pinned})
+	}
+	for i := 0; i < matched; i++ {
+		m.rows = append(m.rows, listRow{fi: i})
+	}
+	if rest := len(m.filtered) - matched; rest > 0 {
+		m.rows = append(m.rows, listRow{heading: "HOSTS", count: rest, total: len(m.hosts) - pinned})
+		for i := matched; i < len(m.filtered); i++ {
+			m.rows = append(m.rows, listRow{fi: i})
+		}
+	}
+}
+
+// hasSections reports whether the sidebar is drawing section headings — which it
+// does exactly when something is pinned, and which is what costs the single HOSTS
+// title at the top of the pane.
+func (m *model) hasSections() bool {
+	return len(m.rows) > len(m.filtered)
+}
+
+// cursorRow is where the cursor sits in row space (headings included), which is
+// what the scroll window and the scrollbar are measured in.
+func (m *model) cursorRow() int {
+	for i, r := range m.rows {
+		if r.heading == "" && r.fi == m.cursor {
+			return i
+		}
+	}
+	return 0
 }
 
 // selectedHost returns the host under the cursor, or false if the list is empty.
