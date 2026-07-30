@@ -51,8 +51,8 @@ func helpLeft(vim bool) []helpSection {
 			{"wheel", "move / scroll what you point at"},
 			{"click", "select it, or take the keyboard"},
 			{"double-click", "open it — as enter"},
-			{"click a tab", "switch shell / file tab"},
-			{",", "Mouse: off keeps terminal select"},
+			{"drag in a pane", "select text; copies on release"},
+			{"ctrl+g", "hand the mouse to your terminal"},
 		}},
 	}
 }

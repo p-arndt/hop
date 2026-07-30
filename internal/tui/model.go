@@ -65,6 +65,12 @@ type model struct {
 	lastClickZone zone
 	lastClickID   int
 
+	// sel is the text selection made with the pointer over a pane — the drag in
+	// progress, or the highlight the last one left behind. hop reports the mouse, so
+	// the terminal's own selection never happens and this is what stands in for it.
+	// See selection.go.
+	sel selection
+
 	// filter input state.
 	filtering bool
 	filter    string

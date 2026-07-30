@@ -44,9 +44,12 @@ type Config struct {
 	// its default, which is safe because Load starts from Default() and unmarshals
 	// over it, so only a file that says "mouse": false switches it off.
 	//
-	// It is worth switching off: while hop is reporting the mouse, the terminal's own
-	// click-and-drag selection is hop's instead, so copying text out of a pane needs
-	// the terminal's bypass modifier (shift, or alt on macOS) — or this, set to off.
+	// While hop is reporting the mouse, the terminal's own click-and-drag selection
+	// is hop's instead — so hop does the selecting: a drag over a pane highlights
+	// text and copies it on release (see internal/tui/selection.go). What that does
+	// not cover is a selection spanning hop's own furniture (the sidebar and a pane
+	// at once, the footer), and ctrl+g hands the pointer back to the terminal for as
+	// long as one of those takes. This setting is for handing it back permanently.
 	Mouse bool `json:"mouse"`
 
 	// Clipboard lets a program on a remote host put text on *your* clipboard, over

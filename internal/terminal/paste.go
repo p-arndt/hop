@@ -117,6 +117,14 @@ func pasteText(text string, bracketed bool) string {
 	text = strings.ReplaceAll(text, "\r\n", "\r")
 	text = strings.ReplaceAll(text, "\n", "\r")
 
+	// Whatever else a paste is, it is text: a Go string can hold any bytes at all,
+	// and a clipboard filled from a terminal that was showing mojibake holds exactly
+	// that. Sent as they are, those bytes are not characters at the far end — the pty
+	// is UTF-8 — and what they land in is somebody's command line. strings.ToValidUTF8
+	// is applied in both modes, before the mode-specific filtering below, so no path
+	// out of here can write a byte that is not part of a character.
+	text = strings.ToValidUTF8(text, "")
+
 	if bracketed {
 		return stripAll(stripAll(text, ansi.BracketedPasteStart), ansi.BracketedPasteEnd)
 	}

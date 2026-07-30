@@ -4,6 +4,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"hop/internal/terminal"
 )
 
 // Mouse support, and the one rule behind all of it: the pointer never does
@@ -113,10 +115,12 @@ func (m *model) clickChord(z zone, id int) bool {
 func (m *model) mouseList(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
+		m.clearSelection()
 		m.cursor--
 		m.clampCursor()
 
 	case tea.MouseButtonWheelDown:
+		m.clearSelection()
 		m.cursor++
 		m.clampCursor()
 
@@ -136,6 +140,7 @@ func (m *model) mouseList(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 // from whatever pane holds the keyboard, so it hands the keyboard back first: the
 // list you just pointed at is the thing that should answer the next key.
 func (m *model) clickList(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	m.clearSelection()
 	m.backToList()
 
 	i, ok := m.listRowAt(msg.Y)
@@ -267,6 +272,7 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 		if y == 0 {
 			if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
 				if i, ok := m.tabAt(shellTabNames(s), s.activeSh, x); ok {
+					m.clearSelection()
 					s.activeSh = i
 				}
 			}
@@ -281,16 +287,25 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 	if m.scrolling {
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
+			m.clearSelection()
 			p.ScrollUp(wheelStep)
+			return m, nil
 		case tea.MouseButtonWheelDown:
+			m.clearSelection()
 			p.ScrollDown(wheelStep)
 			if p.AtBottom() {
 				m.exitScrollback()
 			}
+			return m, nil
 		}
-		return m, nil
+		// Anything else over the history is a drag over text that is not going
+		// anywhere: history is the one screen worth selecting most of all.
+		return m.mouseSelect(msg, x, y, p.ViewScrollback())
 	}
 
+	// A remote program that asked for the mouse keeps it, selection included: vim
+	// with `set mouse=a` has its own, and two selections for one drag is worse than
+	// either.
 	if p.MouseEnabled() {
 		p.SendMouse(msg, x, y)
 		return m, nil
@@ -299,8 +314,42 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 	// Nothing asked for the mouse, so the wheel is hop's: back into the shell's
 	// scrollback, on the same terms as the entry chord (nothing to show, or a
 	// full-screen program owning the screen, and the gesture is spent doing nothing).
-	if msg.Button == tea.MouseButtonWheelUp && m.enterScrollback(s) {
-		p.ScrollUp(wheelStep)
+	if msg.Button == tea.MouseButtonWheelUp {
+		m.clearSelection()
+		if m.enterScrollback(s) {
+			p.ScrollUp(wheelStep)
+		}
+		return m, nil
+	}
+	if msg.Button == tea.MouseButtonWheelDown {
+		return m, nil
+	}
+	return m.mouseSelect(msg, x, y, p.View())
+}
+
+// mouseSelect is the pointer over a pane's text with nothing else claiming it:
+// press anchors a selection, motion drags it, release copies it. view is what the
+// pane is showing — the live screen or the history window — and is what the copy
+// is read out of, so the text that lands on the clipboard is the text that was
+// under the pointer.
+func (m *model) mouseSelect(msg tea.MouseMsg, x, y int, view string) (tea.Model, tea.Cmd) {
+	c := terminal.Cell{X: x, Y: y}
+	// A release is the end of the drag whatever button it names. Not every terminal
+	// says which one came up — the X10 encoding has no room to — and a drag that
+	// never ends is a highlight that never copies.
+	if msg.Action == tea.MouseActionRelease && m.sel.dragging {
+		m.dragSelection(c)
+		m.endSelection(view)
+		return m, nil
+	}
+	if msg.Button != tea.MouseButtonLeft {
+		return m, nil
+	}
+	switch msg.Action {
+	case tea.MouseActionPress:
+		m.startSelection(c)
+	case tea.MouseActionMotion:
+		m.dragSelection(c)
 	}
 	return m, nil
 }
@@ -313,13 +362,20 @@ func (m *model) mouseEditor(s *session, msg tea.MouseMsg, x, y int) (tea.Model, 
 	if y == 0 {
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
 			if i, ok := m.tabAt(editorTabNames(s), s.activeEd, x); ok {
+				m.clearSelection()
 				s.activeEd = i
 			}
 		}
 		return m, nil
 	}
-	s.editor().pane.SendMouse(msg, x, y-1)
-	return m, nil
+	p := s.editor().pane
+	if p.MouseEnabled() {
+		p.SendMouse(msg, x, y-1)
+		return m, nil
+	}
+	// An editor that has not asked for the mouse is a screen full of text like any
+	// other: the drag selects out of it rather than being dropped.
+	return m.mouseSelect(msg, x, y-1, p.View())
 }
 
 // mouseBrowser is the pointer over the SFTP listing: the wheel moves the cursor,

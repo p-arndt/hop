@@ -34,6 +34,7 @@ the file browser, `esc` `esc` also works).
 | `,` | settings |
 | `?` | the keys card |
 | `ctrl+b` | hide / show the sidebar |
+| `ctrl+g` | hand the mouse to your terminal (and take it back) |
 | `q` / `ctrl+c` | quit |
 
 With **vim keys** turned on (`,` → *Vim keys*, off by default), these are bound as
@@ -216,7 +217,7 @@ hop starts on defaults rather than refusing to start.
 | Accent color | picked from the swatch strip with `←`/`→`, or typed | `212`, hop's pink |
 | Open with | the local command `o` opens a file with, e.g. `code -n` | the OS default app |
 | Vim keys | the vim motions in the list and the browser — a switch, `←`/`→` or `enter` | **off** — the arrows, `enter` and `esc` are all of navigation |
-| Mouse | wheel and click in the list, the browser and the panes — a switch | **on** — off hands click-and-drag back to your terminal |
+| Mouse | wheel, click and drag-to-copy in the list, the browser and the panes — a switch | **on** — off hands the pointer back to your terminal for good (`ctrl+g` lends it back for a moment) |
 | Remote clipboard | a yank on the remote host (OSC 52) lands on yours — a switch | **on** — off means the host cannot write your clipboard |
 
 **Vim keys are opt-in.** They are a dozen plain letters, and hop holding `h` and `l`
@@ -241,6 +242,8 @@ no capability.
 | click | a pane the list has the keyboard in | takes it: the pointer's `s` (a shell) or `f` (a browser) |
 | click | a tab strip | switches to that shell or file tab |
 | double-click | a host, or an entry in the browser | opens it — `enter`, by pointing |
+| drag | a shell pane, live or in its scrollback | selects the text under it, and copies it when you let go |
+| `ctrl+g` | anywhere | hands the mouse to your terminal, and takes it back |
 
 A remote program that has asked for the mouse gets the pointer **verbatim**: vim with
 `set mouse=a`, `htop`, `less`. hop honours that ask the way it honours a key — the
@@ -254,10 +257,23 @@ keyboard-only. They are modal and small, their keys are named along their foot, 
 click that fell through one onto the list behind it would be exactly the trap hop's
 modal ordering exists to prevent.
 
-**The cost, and the way out.** While hop is reporting the mouse, your terminal's own
-click-and-drag selection belongs to hop, so copying text out of a pane needs the
-terminal's bypass modifier — `shift` in most, `alt`/`option` on macOS. If you would
-rather keep the selection, `,` → **Mouse** → off, and it applies on the spot.
+**Selecting text.** While hop is reporting the mouse, your terminal's own
+click-and-drag selection belongs to hop — so hop does the selecting. Drag across a
+shell pane and the text highlights as you go; let go and it is on your clipboard,
+with the header saying how many lines. Any key, any scroll and any click elsewhere
+takes the highlight down again. It works the same over a pane paused in its
+scrollback, which is where most of what you want to copy has usually gone.
+
+Two things that selection does not cover, and one key for both: a selection spanning
+hop's own furniture (the sidebar *and* a pane, the footer, the header), and a
+terminal feature that wants the pointer for itself. `ctrl+g` hands the mouse back to
+your terminal — everything is native again, exactly as it was before hop started —
+and `ctrl+g` takes it back. If you would rather hop never had it, `,` → **Mouse** →
+off, and it applies on the spot.
+
+A remote program that asked for the mouse still keeps it, selection included: vim
+with `set mouse=a` does its own selecting, and two selections for one drag is worse
+than either.
 
 ## Copy and paste
 
@@ -281,8 +297,9 @@ carries a newline, or runs to four characters that are not all the same. So hold
 **Copying out** has two routes, and which one you want depends on what you are
 copying:
 
-- Your terminal's own selection, for anything on screen. With the mouse on, that
-  needs the bypass modifier above (or `,` → **Mouse** → off).
+- A drag over a pane, for what is on screen or in its scrollback: it copies when you
+  let go. For a selection that spans hop's own furniture, `ctrl+g` hands the pointer
+  to your terminal and its native selection for as long as you need it.
 - The remote host's clipboard, for anything else: a yank in a remote vim configured
   for it, or tmux's `set-clipboard on`, sends the text over OSC 52 and hop puts it on
   your local clipboard. It works over the connection you already have, so it covers
@@ -389,6 +406,7 @@ swallowed rather than forwarded: the browser has no use for it.
 | `ctrl+o` `ctrl+o` | open **this directory** in VS Code Remote |
 | `shift+↑` / `shift+pgup` | scroll back into the pane's history (see below) |
 | `ctrl+b` | hide / show the sidebar — the pane takes the whole window |
+| `ctrl+g` | hand the mouse to your terminal (and take it back) |
 | *everything else* | sent to the remote shell |
 
 ### VS Code Remote, where you actually are — `ctrl+o` `ctrl+o`
@@ -441,7 +459,7 @@ ESC-prefixed meta key hop reads — so **every** `alt+…` binding above (`alt+0
 - **WezTerm** — `send_composed_key_when_left_alt_is_pressed = false`
 - **VS Code's terminal** — `"terminal.integrated.macOptionIsMeta": true`
 
-Nothing hop *reserves* needs this — `ctrl+o`, `ctrl+b`, `esc` `esc` and the chord above
+Nothing hop *reserves* needs this — `ctrl+o`, `ctrl+b`, `ctrl+g`, `esc` `esc` and the chord above
 are control bytes and arrive everywhere. It is only the tab keys, which is why they are
 the only thing in the alt namespace.
 
@@ -465,9 +483,11 @@ alt+**digits** are the one exception hop makes, and `alt+0` is why the new-shell
 key is a digit rather than the more memorable `alt+n`: it costs the remote shell
 nothing that `alt+1`…`alt+9` has not already cost it.
 
-The other key hop keeps from the shell is `ctrl+b`, the sidebar toggle — the same
-key tmux and screen use for "this one is for the multiplexer". A remote tmux
-therefore never sees its prefix through hop; nothing else is taken.
+The other two keys hop keeps from the shell are `ctrl+b`, the sidebar toggle — the
+same key tmux and screen use for "this one is for the multiplexer" — and `ctrl+g`,
+which hands the mouse back to your terminal. A remote tmux therefore never sees its
+prefix through hop, and readline never sees an abort it was idle for anyway; nothing
+else is taken.
 
 Type `exit` to close a shell: its tab goes away, the rest keep running. When the
 last one exits, the connection is done and the host goes back to idle in the list

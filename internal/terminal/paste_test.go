@@ -4,6 +4,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"hop/internal/sshx"
 )
@@ -155,5 +156,24 @@ func TestPasteText(t *testing.T) {
 				t.Fatalf("pasteText(%q, %v) = %q, want %q", tt.in, tt.bracketed, got, tt.want)
 			}
 		})
+	}
+}
+
+// A Go string can hold any bytes at all, and a clipboard filled from a terminal
+// that was showing mojibake holds exactly that. What comes out of here is always
+// characters: the far end is a UTF-8 pty, and a byte that is not part of one is not
+// input — it is a byte typed onto somebody's command line that nothing can read.
+func TestPasteDropsBytesThatAreNotCharacters(t *testing.T) {
+	// A truncated UTF-8 sequence between two words: what a half-copied emoji is.
+	raw := "echo \xf0\x9f hi"
+
+	for _, bracketed := range []bool{false, true} {
+		got := pasteText(raw, bracketed)
+		if !utf8.ValidString(got) {
+			t.Fatalf("bracketed=%v: pasteText returned invalid UTF-8: %q", bracketed, got)
+		}
+		if !strings.Contains(got, "echo ") || !strings.Contains(got, "hi") {
+			t.Fatalf("bracketed=%v: the text either side of the bad bytes was lost: %q", bracketed, got)
+		}
 	}
 }

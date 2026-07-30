@@ -90,6 +90,12 @@ func TestMouseBytes(t *testing.T) {
 	drag := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionMotion}
 	hover := tea.MouseMsg{Button: tea.MouseButtonNone, Action: tea.MouseActionMotion}
 	ctrlClick := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Ctrl: true}
+	// Every modifier on a wheel event: the one shape whose button field alone runs
+	// past what an ASCII byte holds.
+	wheelAllMods := tea.MouseMsg{
+		Button: tea.MouseButtonWheelDown, Action: tea.MouseActionMotion,
+		Shift: true, Alt: true, Ctrl: true,
+	}
 
 	cases := []struct {
 		name  string
@@ -111,10 +117,13 @@ func TestMouseBytes(t *testing.T) {
 		{"hover under 1003", hover, 1, 1, trackAll, true, "\x1b[<35;2;2M"},
 		{"x10 press", press(0, 0), 0, 0, trackPress, false, "\x1b[M\x20\x21\x21"},
 		{"x10 release is button 3", release, 0, 0, trackRelease, false, "\x1b[M\x23\x21\x21"},
-		{"x10 at the last byte-addressable column", press(0, 0), 94, 0, trackPress, false, "\x1b[M\x20\x7f\x21"},
-		{"x10 past it, where a rune conversion would corrupt the report", press(0, 0), 95, 0, trackPress, false, "\x1b[M\x20\x80\x21"},
-		{"x10 at its ceiling", press(0, 0), 222, 0, trackPress, false, "\x1b[M\x20\xff\x21"},
-		{"x10 cannot address past 222", press(0, 0), 223, 0, trackPress, false, ""},
+		{"x10 at the last ASCII-addressable column", press(0, 0), 93, 0, trackPress, false, "\x1b[M\x20\x7e\x21"},
+		{"x10 the same for a row", press(0, 0), 0, 93, trackPress, false, "\x1b[M\x20\x21\x7e"},
+		// Past that the coordinate byte has its top bit set, which is not a character
+		// on a UTF-8 pty — hop refuses to write one rather than send xterm's report.
+		{"x10 stops at the top bit, column", press(0, 0), 94, 0, trackPress, false, ""},
+		{"x10 stops at the top bit, row", press(0, 0), 0, 94, trackPress, false, ""},
+		{"x10 will not overflow the button field either", wheelAllMods, 0, 0, trackPress, false, ""},
 		{"sgr can", press(0, 0), 300, 0, trackPress, true, "\x1b[<0;301;1M"},
 		{"negative cells are not events", press(0, 0), -1, 0, trackRelease, true, ""},
 	}
@@ -221,5 +230,56 @@ func TestSendMouseOnAClosedPane(t *testing.T) {
 	p.Close()
 	if p.SendMouse(press(1, 1), 1, 1) {
 		t.Fatal("an event was forwarded to a closed pane")
+	}
+}
+
+// A full-screen program that leaves the alt screen without releasing the mouse
+// takes its ask with it anyway.
+//
+// This is the shape of a real defect rather than a hypothetical: the modes belong
+// to the program, and a program that was killed — or that restored the screen and
+// nothing else — never sends the "l" that switches them off. The shell underneath
+// is then left "asking" for a mouse it knows nothing about, and every drag over it
+// is encoded and typed into it as input.
+func TestLeavingTheAltScreenDropsTheMouse(t *testing.T) {
+	out, w := io.Pipe()
+	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
+	defer p.Close()
+
+	// A full-screen program: alt screen, then the mouse and bracketed paste.
+	go io.WriteString(w, "\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?2004h")
+	if !waitFor(func() bool { return p.MouseEnabled() && p.BracketedPaste() }) {
+		t.Fatal("the program's asks were not noticed")
+	}
+
+	// ...and it goes away without a word about either of them.
+	go io.WriteString(w, "\x1b[?1049l")
+	if !waitFor(func() bool { return !p.MouseEnabled() }) {
+		t.Fatal("the shell under a program that never released the mouse is still reported to")
+	}
+	if p.BracketedPaste() {
+		t.Fatal("bracketed paste outlived the program that asked for it")
+	}
+	if p.SendMouse(press(3, 4), 3, 4) {
+		t.Fatal("an event was forwarded into a shell that never asked for one")
+	}
+}
+
+// An inline program keeps what it asked for: leaving the alt screen is the tell,
+// and a program that never took it has not left anything.
+func TestInlineMouseSurvives(t *testing.T) {
+	out, w := io.Pipe()
+	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
+	defer p.Close()
+
+	go io.WriteString(w, "\x1b[?1002h\x1b[?1006hfzf\r\n")
+	if !waitFor(func() bool { return p.MouseEnabled() }) {
+		t.Fatal("an inline program asking for the mouse was not noticed")
+	}
+	if !waitFor(func() bool { return !p.emu.IsAltScreen() }) {
+		t.Fatal("an inline program was taken to be on the alt screen")
+	}
+	if !p.MouseEnabled() {
+		t.Fatal("an inline program's mouse was dropped without it leaving anything")
 	}
 }

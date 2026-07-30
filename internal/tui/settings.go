@@ -135,7 +135,7 @@ var settingsFields = []settingsField{
 	{
 		label: "Mouse",
 		kind:  fieldToggle,
-		desc:  "Wheel and click in the list, the browser and the panes. Off: your terminal keeps its own selection.",
+		desc:  "Wheel, click, and drag-to-copy in the panes. ctrl+g lends the pointer back to your terminal.",
 		get:   func(c config.Config) string { return onOff(c.Mouse) },
 		set:   func(c *config.Config, v string) { c.Mouse = v == on },
 	},
@@ -329,6 +329,9 @@ func (m *model) applyMouse() tea.Cmd {
 	if m.cfg.Mouse == m.mouseOn {
 		return nil
 	}
+	// A pointer hop is no longer reading cannot finish the drag it was in the middle
+	// of, and a highlight left over one is a lie about what is on the clipboard.
+	m.clearSelection()
 	m.mouseOn = m.cfg.Mouse
 	if m.mouseOn {
 		// Cell motion, not all motion: drag is reported (a remote program's visual
@@ -337,6 +340,23 @@ func (m *model) applyMouse() tea.Cmd {
 		return tea.EnableMouseCellMotion
 	}
 	return tea.DisableMouse
+}
+
+// toggleMouse hands the pointer between hop and the terminal, live — the ctrl+g
+// binding. It moves the same setting the card edits and does not save it: the
+// gesture is "let go of the mouse for a moment", and what hop opens with next time
+// is a decision made in the settings card, not by a passing keystroke. (A save made
+// afterwards does keep it, because the card shows the state this left behind, and a
+// card that saved something other than what it shows would be worse.)
+func (m *model) toggleMouse() tea.Cmd {
+	m.cfg.Mouse = !m.cfg.Mouse
+	cmd := m.applyMouse()
+	if m.cfg.Mouse {
+		m.setStatus(statusOK, "mouse on — hop has the pointer")
+	} else {
+		m.setStatus(statusOK, "mouse off — your terminal has the pointer (%s to take it back)", toggleMouseKey)
+	}
+	return cmd
 }
 
 // browserOptions is the slice of the config the file browser cares about.

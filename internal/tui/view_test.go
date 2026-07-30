@@ -80,6 +80,38 @@ func TestViewFitsTheWindow(t *testing.T) {
 	}
 }
 
+// A pane holding lines wider than the box it is drawn in still leaves the screen
+// exactly the size of the window.
+//
+// lipgloss grows a box to fit its content rather than clipping it, and a line wider
+// than the box is *wrapped* onto another row — so one over-wide row makes the pane a
+// row taller, the screen a row taller than the window, and the terminal scrolls
+// hop's own header and the tops of its boxes off the top of itself. The lines get
+// that wide in the ordinary course of things: a pane's scrollback holds each line at
+// the width the pane had when it was pushed, so collapsing the sidebar (or resizing
+// the window) leaves history wider than the pane it is read back in.
+func TestPaneContentWiderThanTheBoxDoesNotGrowTheScreen(t *testing.T) {
+	m := viewModel(100, 20)
+	m.active = "web1"
+	m.focused = true
+
+	// A pane laid out for a much wider window than the model now has — which is what
+	// a resize leaves behind in the lines already in scrollback.
+	wide := strings.Repeat("x", m.paneW*2-1)
+	pane := fakePaneWith(t, m.paneW*2, m.paneH, wide+"\r\n"+wide, wide)
+	m.sessions["web1"] = &session{shells: []*shellTab{{id: 1, pane: pane}}}
+
+	lines := strings.Split(m.View(), "\n")
+	if len(lines) != 20 {
+		t.Fatalf("view is %d lines, want 20 — the over-wide rows wrapped and grew the pane", len(lines))
+	}
+	for i, ln := range lines {
+		if got := lipgloss.Width(ln); got > 100 {
+			t.Fatalf("line %d is %d cells wide, want at most 100", i, got)
+		}
+	}
+}
+
 // The two panes together fill the width: a gap down the right-hand side is the
 // layout arithmetic being off, which is invisible until you look for it.
 func TestPanesFillTheWidth(t *testing.T) {

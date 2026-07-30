@@ -27,6 +27,23 @@ const doubleEscWindow = 400 * time.Millisecond
 // pane, and nothing else is taken.
 const toggleSidebarKey = "ctrl+b"
 
+// toggleMouseKey switches hop's mouse reporting off and on again without opening
+// the settings card — the escape hatch for the one thing hop cannot give back
+// while it is reading the mouse.
+//
+// hop selects text itself (see selection.go), so this is not the way to copy out
+// of a pane. It is for the selections hop's own does not cover: dragging across
+// the sidebar *and* a pane, picking a URL out of the footer, or handing the window
+// to a terminal feature — a click-to-open, a search overlay — that wants the
+// pointer. Off, the terminal is in charge of the mouse again exactly as it was
+// before hop started; the same key puts hop back in charge.
+//
+// ctrl+g for the same reason ctrl+b is the sidebar: on macOS a terminal does not
+// send alt+<letter> by default, so an alt mnemonic never arrives. ctrl+g is the
+// least spoken-for control byte there is — readline's abort, which is idle at a
+// prompt — and it is taken from the remote program the way ctrl+o and ctrl+b are.
+const toggleMouseKey = "ctrl+g"
+
 // handleKey routes a key to whichever mode currently owns the keyboard. The order
 // is the order of modality: the modal cards take everything, then the sidebar
 // toggle, then the panes that forward to a remote program, then the filter, then
@@ -73,17 +90,25 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSettingsKey(msg)
 	}
 
-	// The one binding hop holds in every mode below the cards. It is layout, not
-	// navigation: it belongs to the window rather than to whatever owns the keyboard,
-	// so it is answered here instead of being repeated in four handlers — and it is
-	// reserved from the remote program the same way ctrl+o is. A card is the
-	// exception: the sidebar is behind it, and each card takes every key while it
-	// is up.
-	if msg.String() == toggleSidebarKey {
+	// A key is the end of a selection: the highlight is a moment, and the screen
+	// under it is about to change. The key itself is not spent doing this — it goes
+	// on to mean whatever it means below.
+	m.clearSelection()
+
+	// The two bindings hop holds in every mode below the cards. They are layout and
+	// device, not navigation: they belong to the window rather than to whatever owns
+	// the keyboard, so they are answered here instead of being repeated in four
+	// handlers — and they are reserved from the remote program the same way ctrl+o is.
+	// A card is the exception: each takes every key while it is up.
+	switch msg.String() {
+	case toggleSidebarKey:
 		m.toggleSidebar()
 		// Any key that is not an esc breaks a half-typed double-esc, this one included.
 		m.lastEsc = time.Time{}
 		return m, nil
+	case toggleMouseKey:
+		m.lastEsc = time.Time{}
+		return m, m.toggleMouse()
 	}
 
 	switch {

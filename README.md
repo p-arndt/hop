@@ -113,8 +113,8 @@ re-records it on any machine without exposing anything. See
 | 🔐 **Honest host keys** | An unknown key **aborts the dial** and shows a fingerprint card. `y` trusts it and appends; `n` trusts nothing. A *mismatch* is always a hard error. |
 | 📥 **SSH config import** | `i` (or `hop import`) upserts every host from `~/.ssh/config`. It's a *sync*, not a one-shot: re-import refreshes, and hosts you added by hand are left alone. |
 | 🔎 **Fuzzy find** | `/` filters as you type, with the matched characters picked out so a surprising hit explains itself. |
-| 🖱️ **Mouse** | Wheel and click in the list, the browser and the panes: the wheel scrolls a shell's history, a double-click connects, a click on a tab switches to it. Every gesture is a key you already have, and a remote program that asked for the mouse (vim's `set mouse=a`, `htop`) gets the pointer verbatim. `,` → *Mouse* → off hands click-and-drag selection back to your terminal. |
-| 📋 **Copy and paste** | Paste with your terminal's own paste — hop marks it as a paste (bracketed paste) so vim inserts it verbatim instead of indenting every line into a staircase. On Windows, where the console delivers a paste as synthesised keystrokes with no marker at all, hop recognises the burst and does it anyway. The other direction too: a yank on the remote host (OSC 52) lands on your local clipboard, and `,` → *Remote clipboard* → off closes that door. |
+| 🖱️ **Mouse** | Wheel and click in the list, the browser and the panes: the wheel scrolls a shell's history, a double-click connects, a click on a tab switches to it. Every gesture is a key you already have, and a remote program that asked for the mouse (vim's `set mouse=a`, `htop`) gets the pointer verbatim. Selecting still works, because hop does it: drag across a pane and it highlights, let go and it is on your clipboard. `ctrl+g` lends the pointer to your terminal for the selections that span hop's own furniture; `,` → *Mouse* → off hands it back for good. |
+| 📋 **Copy and paste** | Paste with your terminal's own paste — hop marks it as a paste (bracketed paste) so vim inserts it verbatim instead of indenting every line into a staircase. On Windows, where the console delivers a paste as synthesised keystrokes with no marker at all, hop recognises the burst and does it anyway. The other direction too: a drag over a pane copies what it covers, and a yank on the remote host (OSC 52) lands on your local clipboard, and `,` → *Remote clipboard* → off closes that door. |
 | ⚙️ **Live settings** | `,` opens a popover for editor, download dir, accent colour (a swatch strip you *see*, not a number you look up), open-with, vim keys, mouse and remote clipboard. Applied on the spot. |
 | 🎯 **Frecency ordering** | The hosts you actually use float to the top. |
 | 🪟 **Cross-platform** | Static, dependency-free binaries for Windows, macOS and Linux (amd64 + arm64). No cgo, no libc, no runtime. |
@@ -231,6 +231,7 @@ Every mode returns to the host list with **`ctrl+o`**.
 | `/` | fuzzy filter |
 | `,` `?` | settings / keys card |
 | `ctrl+b` | hide / show the sidebar |
+| `ctrl+g` | hand the mouse to your terminal (and take it back) |
 | `q` `ctrl+c` | quit |
 
 </details>
@@ -247,6 +248,7 @@ Every mode returns to the host list with **`ctrl+o`**.
 | `ctrl+o` `ctrl+o` | open **this directory** in VS Code Remote (out of the pane, then open) |
 | `shift+↑` / `shift+pgup` | into scrollback |
 | `ctrl+b` | hide the sidebar — the shell takes the whole window |
+| `ctrl+g` | hand the mouse to your terminal (and take it back) |
 | *everything else* | goes to the remote shell |
 
 `ctrl+o` `ctrl+o` opens VS Code Remote on the directory the shell is standing in —

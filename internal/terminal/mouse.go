@@ -188,8 +188,8 @@ func mouseBytes(msg tea.MouseMsg, x, y int, level tracking, sgr bool) []byte {
 	}
 
 	// X10 encoding carries each coordinate in one byte offset by 33, so a cell past
-	// column or row 222 cannot be addressed at all. Dropping the report is what xterm
-	// does; the alternative is to name a different cell than the one clicked.
+	// column or row x10Max cannot be addressed at all. Dropping the report is what
+	// xterm does; the alternative is to name a different cell than the one clicked.
 	if x > x10Max || y > x10Max {
 		return nil
 	}
@@ -199,6 +199,12 @@ func mouseBytes(msg tea.MouseMsg, x, y int, level tracking, sgr bool) []byte {
 		button = ansi.MouseNone
 	}
 	b := ansi.EncodeMouseButton(button, motion, msg.Shift, msg.Alt, msg.Ctrl)
+	// The button field carries the modifier bits, so a wheel event with all of them
+	// set overflows into the top half of the byte just as a far-right column does —
+	// and is dropped for the same reason. See x10Max.
+	if int(b)+x10Offset > 0x7e {
+		return nil
+	}
 	// The three bytes are written here rather than by ansi.MouseX10, which builds them
 	// with string(byte(x)+33) — a rune conversion, so every coordinate from 95 up is
 	// UTF-8 encoded into *two* bytes and the report arrives malformed. A real terminal
@@ -208,9 +214,19 @@ func mouseBytes(msg tea.MouseMsg, x, y int, level tracking, sgr bool) []byte {
 
 // x10Offset is the bias every field of an X10 mouse report carries, so that no byte
 // of it can be a control character; x10Max is the last cell one can therefore name.
+//
+// The ceiling is 126 rather than the 222 the byte would hold, and that is a
+// deliberate refusal to send a byte with its top bit set. Such a report is what
+// xterm sends, but the far end of an SSH session is a *UTF-8* pty: a lone 0x9f is
+// not a character there, and a program that does not recognise the report — a shell
+// that has been left in mouse mode by something that exited without switching it
+// off — swallows the "ESC [ M" it does understand and takes the remaining bytes as
+// input, which is a raw undecodable byte typed onto somebody's command line. The
+// column past 126 goes unreported instead, in the encoding nobody has used since
+// SGR (which hop prefers, and every program that asks for the mouse today sets).
 const (
 	x10Offset = 32
-	x10Max    = 255 - x10Offset - 1
+	x10Max    = 126 - x10Offset - 1
 )
 
 // isWheel reports whether b is one of the four wheel directions. Bubble Tea has

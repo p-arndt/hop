@@ -147,11 +147,28 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 	// each chunk is parsed — event-driven repaints instead of polling.
 	go func() {
 		first := true
+		wasAlt := false
 		buf := make([]byte, 32*1024)
 		for {
 			n, err := sess.Stdout.Read(buf)
 			if n > 0 {
 				_, _ = emu.Write(buf[:n])
+				// Leaving the alt screen ends the full-screen program that owned it, and
+				// hop stops believing whatever that program asked for. It is meant to say
+				// so itself — the modes go off before the screen is handed back — but a
+				// program that was killed, or that restored the screen and nothing else,
+				// never does, and the shell underneath it is then left "asking" for the
+				// mouse it knows nothing about. Every drag over that shell would be
+				// encoded and typed into it. So the ask is dropped with the screen it was
+				// made on, which is also what the modes mean: they belong to the program,
+				// and the program is gone.
+				if alt := emu.IsAltScreen(); alt != wasAlt {
+					wasAlt = alt
+					if !alt {
+						p.mouse.clear()
+						p.paste.clear()
+					}
+				}
 				// The same bytes, watched for the one sequence that reports the remote
 				// shell's directory (see cwd.go). It is a scan, not a second parse: the
 				// emulator above remains the only thing interpreting the stream.

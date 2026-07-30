@@ -4,6 +4,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -186,4 +187,25 @@ func TestRemoteEditorCmdQuotesPath(t *testing.T) {
 			t.Fatalf("remoteEditorCmd(%q) = %q, want it to prefer the remote $EDITOR", tc.path, got)
 		}
 	}
+}
+
+// fakePaneWith is fakePane at a chosen size with screen already printed onto it by
+// the far end, for the tests that care about the relationship between a pane's own
+// width and the box it is drawn in. It waits for the emulator to have parsed the
+// output before handing the pane back — marker is the text to wait for.
+func fakePaneWith(t *testing.T, w, h int, screen, marker string) *terminal.Pane {
+	t.Helper()
+	p := terminal.New(&sshx.Session{
+		Stdin:  nopWriteCloser{io.Discard},
+		Stdout: strings.NewReader(screen),
+	}, w, h, nil)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(p.View(), marker) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !strings.Contains(p.View(), marker) {
+		t.Fatalf("the pane never rendered %q", marker)
+	}
+	return p
 }

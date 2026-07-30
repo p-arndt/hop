@@ -169,12 +169,18 @@ func (m *model) renderRight(h int) string {
 
 	// The content is cut to the pane rather than allowed to grow it: a details
 	// card taller than a short window would push the footer off the screen.
+	// The content is cut to the pane in *both* directions. Height is the obvious one;
+	// width is the one that bites, because lipgloss wraps a line wider than the box
+	// instead of clipping it — so one over-wide row makes the pane a row taller, the
+	// screen a row taller than the window, and the terminal scrolls hop's frame off
+	// its own top. A scrollback line rendered at the width the pane had before the
+	// sidebar was collapsed (or the window resized) is exactly such a row.
 	pane := func(active bool, content string) string {
 		style := paneBorder
 		if active {
 			style = paneBorderActive
 		}
-		return style.Width(m.paneW).Height(innerH).Render(fitLines(content, innerH))
+		return style.Width(m.paneW).Height(innerH).Render(clampLines(fitLines(content, innerH), m.paneW))
 	}
 
 	// A session whose connection dropped keeps its pane: the last screen the host
@@ -188,7 +194,7 @@ func (m *model) renderRight(h int) string {
 	switch {
 	// Editing: a tab strip over the open editor's screen.
 	case m.editing && s != nil && s.editor() != nil:
-		return pane(true, m.renderEditorTabs(s)+"\n"+s.editor().pane.View())
+		return pane(true, m.renderEditorTabs(s)+"\n"+m.selectedView(s.editor().pane.View()))
 
 	// Browsing: the session's file browser.
 	case m.browsing && s != nil && s.browser != nil:
@@ -203,6 +209,9 @@ func (m *model) renderRight(h int) string {
 		if m.focused && m.scrolling {
 			content = s.shell().pane.ViewScrollback()
 		}
+		// The highlight goes on before the tab strip, so the selection's rows are the
+		// pane's own rows — the same coordinates the drag was measured in.
+		content = m.selectedView(content)
 		if len(s.shells) > 1 {
 			content = m.renderShellTabs(s) + "\n" + content
 		}
