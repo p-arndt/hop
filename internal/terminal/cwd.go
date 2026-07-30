@@ -49,24 +49,45 @@ func (p *Pane) setCwd(dir string) {
 
 // maxOSCPayload caps how much of an OSC sequence is buffered while waiting for
 // its terminator. Real OSC 7 payloads are a path; anything longer than this is
-// either a different (long) OSC — a title, a hyperlink, a clipboard write — or a
-// sequence whose terminator never arrived, and neither is worth holding bytes
-// for. The overflow is dropped, not truncated into a wrong path: a payload that
-// stops being buffered is failed outright.
-const maxOSCPayload = 4096
+// either a different (long) OSC — a title, a hyperlink — or a sequence whose
+// terminator never arrived, and neither is worth holding bytes for. The overflow
+// is dropped, not truncated into a wrong path: a payload that stops being
+// buffered is failed outright.
+//
+// maxClipPayload is the same cap for the one OSC that is legitimately long: a
+// clipboard write (OSC 52), whose payload is base64 and therefore a third larger
+// than the text it carries. A yank of a whole file is a normal thing to do, so
+// the cap is generous; it is still a cap, because the payload is buffered in
+// memory while the remote writes it and the remote is not to be trusted with an
+// unbounded one.
+const (
+	maxOSCPayload  = 4096
+	maxClipPayload = 1 << 20
+)
 
-// oscScanner is an incremental scanner for OSC 7 sequences in a byte stream. It
+// oscScanner is an incremental scanner for the OSC sequences hop acts on in a
+// byte stream — OSC 7 (the working directory) and OSC 52 (a clipboard write). It
 // is fed the same bytes the emulator parses, in whatever chunks the network
 // delivers them, and it carries its state across chunks — a sequence split down
 // the middle of its payload (or between its ESC and the ']') is found all the
 // same.
 //
-// It is deliberately not a full ANSI parser. It only needs to recognise one
-// sequence, and it ignores every other OSC by matching the "7;" introducer, so
+// It is deliberately not a full ANSI parser. It only needs to recognise two
+// sequences, and it ignores every other OSC by matching their introducers, so
 // the emulator remains the only thing that interprets the stream.
 type oscScanner struct {
 	state oscState
 	buf   []byte
+	// clip is the text of the last clipboard write (OSC 52) seen, and clipSet says
+	// there was one — a distinction that matters, because clearing the clipboard is
+	// something a remote program does deliberately. Both are taken by tookClipboard.
+	//
+	// Last one wins, deliberately: two writes in a single read of the stream are two
+	// copies in a row, and the clipboard would have ended up holding the second of
+	// them anyway. It is not the OSC 7 arrangement — a directory is a fact about the
+	// shell — but it is what a clipboard is.
+	clip    string
+	clipSet bool
 	// over is set when the current payload outgrew maxOSCPayload, so the rest of
 	// it is consumed and discarded rather than buffered.
 	over bool
@@ -177,7 +198,7 @@ func (s *oscScanner) push(c byte) {
 	if s.over {
 		return
 	}
-	if len(s.buf) >= maxOSCPayload {
+	if len(s.buf) >= s.cap() {
 		s.over = true
 		s.buf = s.buf[:0]
 		return
@@ -185,7 +206,22 @@ func (s *oscScanner) push(c byte) {
 	s.buf = append(s.buf, c)
 }
 
-// finish parses a completed payload and returns to ground state.
+// cap is how much of the payload in hand is worth buffering. It is decided from
+// the introducer, which is the first thing in the payload: a clipboard write gets
+// room for a clipboard, everything else gets room for a path. Until three bytes
+// have arrived the introducer is not known yet, and the larger cap is used —
+// nothing is discarded on the strength of a guess, and the smaller one is applied
+// as soon as the payload proves not to be a clipboard write.
+func (s *oscScanner) cap() int {
+	if len(s.buf) < len(oscClipPrefix) || string(s.buf[:len(oscClipPrefix)]) == oscClipPrefix {
+		return maxClipPayload
+	}
+	return maxOSCPayload
+}
+
+// finish parses a completed payload and returns to ground state. It returns a
+// directory when the payload was an OSC 7; a clipboard write is recorded on the
+// scanner instead, to be taken by tookClipboard.
 func (s *oscScanner) finish() (string, bool) {
 	payload := string(s.buf)
 	over := s.over
@@ -195,7 +231,23 @@ func (s *oscScanner) finish() (string, bool) {
 	if over {
 		return "", false
 	}
+	if text, ok := parseOSC52(payload); ok {
+		s.clip, s.clipSet = text, true
+		return "", false
+	}
 	return parseOSC7(payload)
+}
+
+// tookClipboard reports the last clipboard write seen since it was last asked,
+// and forgets it. Like tookReset, it is the way a sequence that is neither a
+// directory nor an error leaves this scanner.
+func (s *oscScanner) tookClipboard() (string, bool) {
+	if !s.clipSet {
+		return "", false
+	}
+	text := s.clip
+	s.clip, s.clipSet = "", false
+	return text, true
 }
 
 // parseOSC7 pulls the directory out of an OSC payload, or reports that this is

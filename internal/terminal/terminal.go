@@ -59,6 +59,22 @@ type Pane struct {
 	// pane belongs to the remote program or to hop's own scrollback. See mouse.go.
 	mouse mouseState
 
+	// paste is the bracketed-paste mode the far end has asked for, tracked the same
+	// way and for the same reason: it decides whether a paste is marked as one on
+	// its way out. See paste.go.
+	paste pasteState
+
+	// clipSink is where a clipboard write from the remote (OSC 52) is handed to, and
+	// clipMu guards it: it is installed from the UI goroutine and read by the output
+	// pump. nil — the default — drops the sequence. clipQueue is the one-deep mailbox
+	// the single sink worker takes from, and clipBusy says that worker is running; the
+	// far end decides how often this happens, so it is served by one goroutine rather
+	// than one per sequence. See clipboard.go.
+	clipSink  func(string)
+	clipMu    sync.Mutex
+	clipQueue chan string
+	clipBusy  bool
+
 	// cwd is the remote shell's working directory as last reported over OSC 7, and
 	// cwdMu guards it: it is written by the output pump and read by the UI. osc is
 	// the scanner that produces it, touched by the pump alone. See cwd.go.
@@ -107,14 +123,23 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 		firstOutput: make(chan struct{}),
 		closed:      make(chan struct{}),
 		onOutput:    onOutput,
+		clipQueue:   make(chan string, 1),
 	}
 
-	// Watch the mode changes the remote program makes, for the one thing hop needs
-	// to know about them: whether it has asked for the mouse (see mouse.go). Wired
-	// before the pumps start, so nothing is parsed while the callbacks are being set.
+	// Watch the mode changes the remote program makes, for the two things hop needs
+	// to know about them: whether it has asked for the mouse (see mouse.go), and
+	// whether it has asked to be told which of its input is a paste (see paste.go).
+	// Wired before the pumps start, so nothing is parsed while the callbacks are
+	// being set.
 	emu.SetCallbacks(vt.Callbacks{
-		EnableMode:  func(mode ansi.Mode) { p.mouse.setMode(mode, true) },
-		DisableMode: func(mode ansi.Mode) { p.mouse.setMode(mode, false) },
+		EnableMode: func(mode ansi.Mode) {
+			p.mouse.setMode(mode, true)
+			p.paste.setMode(mode, true)
+		},
+		DisableMode: func(mode ansi.Mode) {
+			p.mouse.setMode(mode, false)
+			p.paste.setMode(mode, false)
+		},
 	})
 
 	// Remote/server output -> emulator parser: update the rendered screen. We
@@ -138,6 +163,12 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 				// the only warning hop gets. See oscScanner.ris.
 				if p.osc.tookReset() {
 					p.mouse.clear()
+					p.paste.clear()
+				}
+				// A remote yank that went to the system clipboard (OSC 52) — the copy
+				// half of copy-and-paste. See clipboard.go.
+				if text, ok := p.osc.tookClipboard(); ok {
+					p.copyOut(text)
 				}
 				if first {
 					first = false

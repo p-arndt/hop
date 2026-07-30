@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -81,6 +82,21 @@ type model struct {
 	// notify is signalled by live panes whenever new server output has been
 	// parsed, so the UI repaints event-driven (no polling ticker).
 	notify chan struct{}
+
+	// paste is the keystroke burst being collected into a paste, and pasteCoalesce
+	// says whether this platform needs that at all — only Windows does. See paste.go.
+	paste         pasteBuf
+	pasteCoalesce bool
+
+	// clipOK mirrors cfg.Clipboard for the panes: a clipboard write arriving from a
+	// remote host is handled on the pane's output pump, off this goroutine, so the
+	// setting it is checked against cannot be read from cfg directly. It is written
+	// here (applyClipboard) and read there. See clipboard.go.
+	clipOK atomic.Bool
+	// clipWrite overrides how the local clipboard is written. It is nil in a running
+	// hop — the real clipboard — and set by tests, which have no business putting
+	// anything on the clipboard of the machine they run on.
+	clipWrite func(string) error
 
 	// keycast is the on-screen trail of recent keys used when recording the demo.
 	// It holds nothing and draws nothing unless hop was built with `-tags hopdemo`
@@ -203,7 +219,11 @@ func Run(st *store.Store) error {
 		notify:     make(chan struct{}, 1),
 		prompts:    make(chan authPromptMsg),
 		cfg:        cfg,
+		// Windows delivers a paste as synthesised keystrokes, so there it has to be
+		// recognised by its shape. See paste.go.
+		pasteCoalesce: coalescePastes(),
 	}
+	m.applyClipboard()
 	m.applyFilter()
 	// First run: an empty store almost always means the hosts are sitting in an
 	// OpenSSH config hop has not been pointed at yet, so offer the import here
@@ -326,11 +346,23 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case pasteFlushMsg:
+		// Only if nothing has been typed since this flush was armed: a key that
+		// arrived in between armed one of its own, and the burst has not ended yet.
+		if msg.seq == m.paste.seq {
+			m.flushPaste()
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		m.keycastRecord(msg.String())
 		return m.handleKey(msg)
 
 	case tea.MouseMsg:
+		// The pointer moving is the burst over: whatever it does next — switching
+		// tabs, standing on a host, reaching a remote program — must land after the
+		// keys that preceded it.
+		m.flushPaste()
 		return m.handleMouse(msg)
 	}
 
@@ -374,6 +406,7 @@ func (m *model) shellLanded(msg connectedMsg) (tea.Model, tea.Cmd) {
 	}
 	s.shells = append(s.shells, msg.tab)
 	s.activeSh = len(s.shells) - 1
+	m.armClipboard(msg.tab.pane)
 	m.st.Touch(msg.alias)
 	m.reloadHosts()
 
@@ -516,6 +549,7 @@ func (m *model) editorLanded(msg editorOpenedMsg) (tea.Model, tea.Cmd) {
 	}
 	s.editors = append(s.editors, msg.tab)
 	s.activeEd = len(s.editors) - 1
+	m.armClipboard(msg.tab.pane)
 	m.active = msg.alias
 	m.editing = true
 	m.browsing = false

@@ -146,3 +146,29 @@ func TestLoadMouseDefaultsOn(t *testing.T) {
 		t.Fatal(`a config saying "mouse": false loaded with the mouse on`)
 	}
 }
+
+// The remote clipboard is the other field of that kind, and the one where getting
+// it backwards matters most: a config that omits the key must not come back with a
+// remote host silently unable to hand you what you yanked — nor, the other way, must
+// a file that switched it off be ignored.
+func TestLoadClipboardDefaultsOn(t *testing.T) {
+	dir := isolate(t)
+	path := filepath.Join(dir, "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"editor":"nano"}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !Load().Clipboard {
+		t.Fatal("a config with no clipboard key loaded with it off, want on")
+	}
+
+	if err := os.WriteFile(path, []byte(`{"clipboard":false}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if Load().Clipboard {
+		t.Fatal(`a config saying "clipboard": false loaded with it on`)
+	}
+}

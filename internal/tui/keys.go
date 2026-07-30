@@ -32,6 +32,24 @@ const toggleSidebarKey = "ctrl+b"
 // toggle, then the panes that forward to a remote program, then the filter, then
 // plain navigation.
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Before anything else, because it is about what this key *is* rather than what
+	// it means: on Windows a paste arrives as a burst of ordinary keystrokes, so the
+	// ones that could be part of one are held for a few milliseconds and sent as a
+	// paste if they turn out to be. Any key that is not held ends the burst, and ends
+	// it here so that the keys typed before it are delivered before it. See paste.go.
+	if m.pasteCoalesce {
+		if m.takeKey(msg) {
+			return m, m.pasteFlushCmd()
+		}
+		m.flushPaste()
+	}
+
+	// A paste is answered above every mode, because every mode below reads the key's
+	// name and a paste's name is the whole clipboard. See handlePaste.
+	if msg.Paste {
+		return m.handlePaste(msg)
+	}
+
 	switch {
 	case m.auth.open:
 		// First, above even the help card: this one has a dial parked on it inside
@@ -561,6 +579,7 @@ func (m *model) handleEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.editing = false
 		return m, nil
 	}
+
 	key := msg.String()
 
 	switch key {

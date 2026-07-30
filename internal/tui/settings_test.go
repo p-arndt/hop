@@ -351,14 +351,16 @@ func TestOverlayClipsAtBottom(t *testing.T) {
 }
 
 // The card has to fit the window it floats over: a modal whose bottom rows are cut
-// off loses its hint line, which is where the keys that work it are named. The
-// spacing between fields is what gives way on a short window (see renderSettings),
-// so the card fits every window from settingsMinH rows up — which has to include 24,
-// the standard terminal, with every field, the explanation and the hints on screen.
+// off loses its hint line, which is where the keys that work it are named. Two
+// things give way on a short window (see renderSettings) — first the spacing
+// between fields, then the number of them on screen, the list scrolling inside the
+// card — so it fits every window from settingsMinH rows up, which has to include
+// 24, the standard terminal.
 //
 // Below settingsMinH it does not fit, and there is nothing left to drop that is not
-// one of those three things. The test says so rather than passing over it, so a
-// seventh field cannot quietly raise the floor past a window people actually use.
+// the selected field, its explanation or the hints. The test says so rather than
+// passing over it: the floor is a function of settingsMinFields rather than of how
+// many settings hop has, and adding one must not raise it.
 func TestSettingsCardFitsTheWindow(t *testing.T) {
 	if settingsMinH() > 24 {
 		t.Fatalf("the packed card needs %d rows; it must fit a standard 24-row terminal", settingsMinH())
@@ -368,6 +370,34 @@ func TestSettingsCardFitsTheWindow(t *testing.T) {
 		m.openSettings()
 		if got := lipgloss.Height(m.renderSettings()); got > h {
 			t.Errorf("a %d-row window got a %d-line card", h, got)
+		}
+	}
+}
+
+// A window too short for every field shows a run of them instead — and the run
+// always holds the one the cursor is on, wherever in the list it has got to. A
+// scrolling list that can hide the selection is worse than a truncated card: the
+// keys still work, on a field nobody can see.
+func TestSettingsCardScrollsToTheCursor(t *testing.T) {
+	m := &model{height: settingsMinH(), width: 100, cfg: config.Default()}
+	m.openSettings()
+
+	for i := range settingsFields {
+		m.settings.cursor = i
+		first, count := m.settingsWindow()
+
+		if count >= len(settingsFields) {
+			t.Fatalf("a %d-row window drew all %d fields", m.height, count)
+		}
+		if i < first || i >= first+count {
+			t.Fatalf("field %d is outside the drawn window [%d, %d)", i, first, first+count)
+		}
+		if got := lipgloss.Height(m.renderSettings()); got > m.height {
+			t.Fatalf("cursor on field %d: a %d-row window got a %d-line card", i, m.height, got)
+		}
+		// The selected field's label is what says it is on screen at all.
+		if !strings.Contains(m.renderSettings(), settingsFields[i].label) {
+			t.Fatalf("field %q is selected but not drawn", settingsFields[i].label)
 		}
 	}
 }

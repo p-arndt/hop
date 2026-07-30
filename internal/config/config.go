@@ -48,6 +48,18 @@ type Config struct {
 	// click-and-drag selection is hop's instead, so copying text out of a pane needs
 	// the terminal's bypass modifier (shift, or alt on macOS) — or this, set to off.
 	Mouse bool `json:"mouse"`
+
+	// Clipboard lets a program on a remote host put text on *your* clipboard, over
+	// OSC 52 — a yank in a remote vim configured for it, or tmux's set-clipboard,
+	// landing where your local paste can reach it. Like Mouse it defaults to on, and
+	// for the same reason it is safe to: Load starts from Default().
+	//
+	// It is worth knowing what it is before leaving it on. The channel is one-way
+	// and hop keeps it that way — a remote asking to *read* the clipboard is never
+	// answered (see internal/terminal/clipboard.go) — but anything running on the far
+	// end can write it, not only what you started, and what it writes is what your
+	// next paste puts somewhere else.
+	Clipboard bool `json:"clipboard"`
 }
 
 // DefaultAccent is hop's pink.
@@ -59,6 +71,7 @@ func Default() Config {
 		DownloadDir: defaultDownloadDir(),
 		Accent:      DefaultAccent,
 		Mouse:       true,
+		Clipboard:   true,
 	}
 }
 

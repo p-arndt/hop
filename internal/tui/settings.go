@@ -139,6 +139,13 @@ var settingsFields = []settingsField{
 		get:   func(c config.Config) string { return onOff(c.Mouse) },
 		set:   func(c *config.Config, v string) { c.Mouse = v == on },
 	},
+	{
+		label: "Remote clipboard",
+		kind:  fieldToggle,
+		desc:  "A yank on the remote host (OSC 52) lands on your clipboard. Off: the host cannot write it.",
+		get:   func(c config.Config) string { return onOff(c.Clipboard) },
+		set:   func(c *config.Config, v string) { c.Clipboard = v == on },
+	},
 }
 
 // settingsUI is the popover's own state. The values it edits live in model.cfg;
@@ -311,6 +318,7 @@ func (m *model) applySettings() tea.Cmd {
 			s.browser.SetOptions(opts)
 		}
 	}
+	m.applyClipboard()
 	return m.applyMouse()
 }
 
@@ -367,12 +375,39 @@ const (
 // then the rule, a blank, and the hint line.
 const settingsChrome = 2 + 2 + 2 + 1 + 1 + 1
 
+// settingsMinFields is the fewest fields the card shows before it stops shrinking:
+// the selected one, and one on either side of it to say there are others. It is
+// what keeps the floor below fixed as fields are added — the card scrolls instead
+// of growing past the window (see settingsWindow).
+const settingsMinFields = 3
+
 // settingsFullH is how tall the card stands with a blank line between its fields —
-// the height a window has to have before it can afford that air. settingsMinH is how
-// tall it stands packed, which is the smallest it gets: a window shorter than this
+// the height a window has to have before it can afford that air. settingsPackedH is
+// how tall it stands with every field but no air between them. settingsMinH is the
+// smallest it gets, showing settingsMinFields of them: a window shorter than this
 // has its bottom rows cut off by the overlay. See renderSettings.
-func settingsFullH() int { return settingsChrome + settingsDescH + 3*len(settingsFields) }
-func settingsMinH() int  { return settingsChrome + settingsDescH + 2*len(settingsFields) }
+func settingsFullH() int   { return settingsChrome + settingsDescH + 3*len(settingsFields) }
+func settingsPackedH() int { return settingsChrome + settingsDescH + 2*len(settingsFields) }
+func settingsMinH() int    { return settingsChrome + settingsDescH + 2*settingsMinFields }
+
+// settingsWindow is the run of fields the card has room to draw, as a first index
+// and a count, and it always contains the cursor.
+//
+// A window tall enough for all of them gets all of them, which is every ordinary
+// window: the scrolling below is for the short ones. There the fields that fit are
+// centred on the cursor, so moving through the list walks it past a window that
+// keeps what is selected in the middle — a scrollbar's behaviour without a
+// scrollbar, which there is no row to spare for.
+func (m *model) settingsWindow() (first, count int) {
+	n := len(settingsFields)
+	if m.height >= settingsPackedH() {
+		return 0, n
+	}
+	room := (m.height - settingsChrome - settingsDescH) / 2
+	count = clamp(room, settingsMinFields, n)
+	first = clamp(m.settings.cursor-count/2, 0, n-count)
+	return first, count
+}
 
 // settingsInnerW is the width available to a rendered row: the box minus its
 // border and padding. Every line is held to it, because a modal that wraps spills
@@ -397,20 +432,23 @@ func (m *model) renderSettings() string {
 	b.WriteString("\n\n")
 
 	// The fields are spaced apart where there is room and packed where there is not.
-	// What has to survive a short window is the whole card — every field, the
+	// What has to survive a short window is the shape of the card — a field, the
 	// selected one's explanation, and the key hints at its foot — so the air between
-	// rows is what gives way, rather than the bottom of the card being cut off.
+	// rows is what gives way first, rather than the bottom of the card being cut off.
 	//
-	// Packed is as small as the card goes: settingsMinH rows. Below that the overlay
-	// drops its bottom lines, hints included, and the honest answer is a taller
-	// window — there is nothing left to give that is not one of the things listed
-	// above. settingsMinH is where the test pins it.
+	// After the air, it is the number of fields on screen that gives way: below
+	// settingsPackedH the list scrolls inside the card (see settingsWindow) instead
+	// of the card growing past the window. settingsMinH is where that stops, and it
+	// is where the test pins it — below it the overlay drops the bottom lines, hints
+	// included, and the honest answer is a taller window.
 	gap := "\n\n"
 	if m.height < settingsFullH() {
 		gap = "\n"
 	}
 
-	for i, f := range settingsFields {
+	first, count := m.settingsWindow()
+	for i := first; i < first+count; i++ {
+		f := settingsFields[i]
 		selected := i == m.settings.cursor
 
 		bar, label := "  ", settingsLabel.Render(f.label)

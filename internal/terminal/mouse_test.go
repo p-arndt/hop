@@ -27,6 +27,13 @@ func (s *syncBuf) Write(p []byte) (int, error) {
 
 func (s *syncBuf) Close() error { return nil }
 
+// reset forgets what has been written, so a test can look at one write at a time.
+func (s *syncBuf) reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.b = s.b[:0]
+}
+
 func (s *syncBuf) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

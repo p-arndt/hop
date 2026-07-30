@@ -217,6 +217,7 @@ hop starts on defaults rather than refusing to start.
 | Open with | the local command `o` opens a file with, e.g. `code -n` | the OS default app |
 | Vim keys | the vim motions in the list and the browser — a switch, `←`/`→` or `enter` | **off** — the arrows, `enter` and `esc` are all of navigation |
 | Mouse | wheel and click in the list, the browser and the panes — a switch | **on** — off hands click-and-drag back to your terminal |
+| Remote clipboard | a yank on the remote host (OSC 52) lands on yours — a switch | **on** — off means the host cannot write your clipboard |
 
 **Vim keys are opt-in.** They are a dozen plain letters, and hop holding `h` and `l`
 for "out of" and "into a host" is a surprise to anyone who did not ask for it — so
@@ -257,6 +258,40 @@ modal ordering exists to prevent.
 click-and-drag selection belongs to hop, so copying text out of a pane needs the
 terminal's bypass modifier — `shift` in most, `alt`/`option` on macOS. If you would
 rather keep the selection, `,` → **Mouse** → off, and it applies on the spot.
+
+## Copy and paste
+
+**Pasting has no key of its own.** You paste the way you already paste — `cmd+v`,
+`ctrl+shift+v`, a middle click, a right click — and hop takes it from there. What it
+adds is the thing that makes a paste different from typing: if the program on the far
+end has asked to be told (bracketed paste, which vim, zsh and readline all ask for),
+the text arrives marked as a paste. That is what stops vim from indenting every line
+of a pasted block one step further than the last, and what stops a shell from running
+each line as it arrives.
+
+Windows is the exception worth knowing about, because there is nothing hop can bind
+there: the Windows console delivers a paste as a stream of synthesised keystrokes,
+with no marker of any kind, and the terminal's own paste chord never reaches hop.
+So hop recognises a paste by its shape instead — characters arriving faster than
+anyone types are held for a few milliseconds and sent as one paste. Typing is not
+that, and hop leans towards calling it typing: a burst counts as a paste only if it
+carries a newline, or runs to four characters that are not all the same. So holding
+`j` still moves down, and a quick `dw` in vim still deletes a word.
+
+**Copying out** has two routes, and which one you want depends on what you are
+copying:
+
+- Your terminal's own selection, for anything on screen. With the mouse on, that
+  needs the bypass modifier above (or `,` → **Mouse** → off).
+- The remote host's clipboard, for anything else: a yank in a remote vim configured
+  for it, or tmux's `set-clipboard on`, sends the text over OSC 52 and hop puts it on
+  your local clipboard. It works over the connection you already have, so it covers
+  text that was never on screen — a whole file, the output of a command.
+
+That second route is a channel from a remote machine to your desktop, so it is a
+setting. It is one-way by construction — a remote asking to *read* your clipboard is
+never answered — but everything running on the far end can write it, not only what
+you started. `,` → **Remote clipboard** → off closes it.
 
 ## Browsing — the SFTP file browser
 
