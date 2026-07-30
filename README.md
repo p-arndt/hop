@@ -25,6 +25,12 @@ host and everything you left behind is still exactly where you left it.
 
 ---
 
+> [!NOTE]
+> **hop is in early development.** Things may break, change, or behave in ways they
+> shouldn't. If you hit a bug, have an idea, or something just feels off,
+> [open an issue](https://github.com/p-arndt/hop/issues)! Feedback at this stage is
+> genuinely the most useful thing you can contribute. 🙌
+
 ## 🎬 What it looks like
 
 <p align="center">
