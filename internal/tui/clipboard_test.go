@@ -3,7 +3,6 @@ package tui
 import (
 	"encoding/base64"
 	"io"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,11 +28,20 @@ func clipModel(on bool) (*model, *terminal.Pane, func() string) {
 	}
 	m.applyClipboard()
 
+	// The pane's output pump starts reading the moment New returns, so the yank must
+	// not be readable until the sink is installed — otherwise the pump can consume
+	// (and drop) the OSC 52 before armClipboard runs, which is a race the CI machine
+	// loses. A pipe holds the output back until arming is done, then delivers it.
+	pr, pw := io.Pipe()
 	pane := terminal.New(&sshx.Session{
 		Stdin:  nopWriteCloser{io.Discard},
-		Stdout: strings.NewReader("\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte("yanked")) + "\x07"),
+		Stdout: pr,
 	}, 20, 5, nil)
 	m.armClipboard(pane)
+	go func() {
+		_, _ = io.WriteString(pw, "\x1b]52;c;"+base64.StdEncoding.EncodeToString([]byte("yanked"))+"\x07")
+		pw.Close()
+	}()
 
 	return m, pane, func() string {
 		mu.Lock()
