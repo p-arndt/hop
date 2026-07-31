@@ -108,6 +108,25 @@ func TestBurstWithANewlineIsAPaste(t *testing.T) {
 	}
 }
 
+// A typed Enter arrives alone in its burst — the human-sized pause before it
+// ended the previous one — and it must reach the shell as the keystroke it was.
+// Read as a one-newline paste it goes out *bracketed*, which a shell in
+// bracketed-paste mode inserts instead of executing: no command ever runs, and
+// the terminal shows no output from the first Enter on (the v0.5.0 regression).
+func TestALoneEnterIsAKeystrokeNotAPaste(t *testing.T) {
+	m, stdin := pasteModel()
+
+	if looksPasted([]tea.KeyMsg{{Type: tea.KeyEnter}}) {
+		t.Fatal("a lone Enter was taken for a paste")
+	}
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m.flushPaste()
+	if got := stdin.String(); got != "\r" {
+		t.Fatalf("the pane received %q, want the bare CR a typed Enter sends", got)
+	}
+}
+
 // A key held down until it repeats arrives just as fast as a paste and is not one.
 // It is replayed as the keystrokes it was, so holding j in vim still moves down
 // three lines instead of inserting "jjj".
