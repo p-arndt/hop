@@ -264,8 +264,19 @@ func (m *model) flushPaste() {
 
 // looksPasted reports whether a burst is a paste rather than typing.
 //
-// A newline settles it on its own: nothing types two lines in a few milliseconds,
-// and multi-line text is what this whole file exists for. Failing that it takes
+// A burst of one key never is: it is the key that was pressed, and nothing else.
+// This matters most for Enter — a typed Enter usually goes quiet for the gap and
+// arrives here alone, and reading it as a one-newline paste sends it *bracketed*
+// (ESC[200~ CR ESC[201~) to a shell whose readline has asked for bracketed
+// paste. Bracketed text is inserted, not executed: the command line just typed
+// never runs, no output ever appears, and every further Enter does the same —
+// the terminal looks dead from the first command on.
+//
+// Past one key, a newline settles it on its own: nothing types two lines in a
+// few milliseconds, and multi-line text is what this whole file exists for. It
+// is genuinely in the burst with the text before it only during a paste — a
+// typed Enter after typed characters has the human-sized gap in front of it,
+// which ended their burst already. Failing that it takes
 // pasteRun characters, not all of them the same — which rules out both of the ways
 // typing can arrive this fast. A key held down until it repeats produces a run of
 // one character; a fast digraph produces two.
@@ -275,6 +286,9 @@ func (m *model) flushPaste() {
 // newline in it means no indenting to get wrong — whereas "dw" typed quickly in
 // vim and sent as a paste is inserted as text instead of deleting a word.
 func looksPasted(keys []tea.KeyMsg) bool {
+	if len(keys) < 2 {
+		return false
+	}
 	distinct := make(map[string]struct{}, len(keys))
 	for _, k := range keys {
 		if k.Type == tea.KeyEnter {
