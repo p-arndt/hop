@@ -45,6 +45,14 @@ func TestViewFitsTheWindow(t *testing.T) {
 		"filter":   func(m *model) { m.filtering = true; m.filter = "pi"; m.applyFilter() },
 		"help":     func(m *model) { m.help = true },
 		"settings": func(m *model) { m.openSettings() },
+		"tunnel manager": func(m *model) {
+			m.hosts[0].Forwards = []store.Forward{{ID: 1, Kind: store.ForwardLocal, BindHost: "127.0.0.1", BindPort: 15432, TargetHost: "db.internal", TargetPort: 5432}}
+			m.openTunnels(m.hosts[0])
+		},
+		"tunnel editor": func(m *model) {
+			m.openTunnels(m.hosts[0])
+			m.handleKey(key(t, "a"))
+		},
 		"connecting": func(m *model) {
 			m.connecting["raspberrypi"] = true
 			m.setStatus(statusErr, "connect web1 failed: dial tcp: connection refused")

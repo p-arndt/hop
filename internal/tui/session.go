@@ -17,6 +17,10 @@ import (
 type session struct {
 	client *sshx.Client
 
+	// tunnels are the running forwarding definitions on this connection, keyed by
+	// their persistent id. A connection may be tunnel-only, with no visible pane.
+	tunnels map[int64]*sshx.Tunnel
+
 	// shells are the interactive shells open on this host, shown as tabs when
 	// there is more than one. activeSh indexes into it. Each is its own channel on
 	// the one connection, so a second shell costs no handshake.
@@ -135,11 +139,24 @@ func (s *session) closeEditors() {
 	s.activeEd = 0
 }
 
+// closeTunnels releases every local and remote listener on the connection.
+func (s *session) closeTunnels() {
+	for _, tunnel := range s.tunnels {
+		_ = tunnel.Close()
+	}
+	s.tunnels = nil
+}
+
+func (s *session) empty() bool {
+	return len(s.shells) == 0 && s.browser == nil && len(s.editors) == 0 && len(s.tunnels) == 0
+}
+
 // close tears the whole session down: every shell and editor, the SFTP subsystem,
 // and finally the connection they were all riding on.
 func (s *session) close() {
 	s.closeShells()
 	s.closeEditors()
+	s.closeTunnels()
 	if s.browser != nil {
 		s.browser.Close()
 		s.browser = nil
@@ -162,6 +179,9 @@ func (s *session) summary() []string {
 	}
 	if n := len(s.editors); n > 0 {
 		parts = append(parts, strconv.Itoa(n)+" "+plural(n, "editor", "editors"))
+	}
+	if n := len(s.tunnels); n > 0 {
+		parts = append(parts, strconv.Itoa(n)+" "+plural(n, "tunnel", "tunnels"))
 	}
 	return parts
 }

@@ -23,6 +23,8 @@ the file browser, `esc` `esc` also works).
 | `s` | focus the existing session for this host |
 | `S` | open **another** shell on this host, alongside the ones already open |
 | `f` | open the SFTP browser |
+| `t` | start all defined tunnels, or stop them when any are running |
+| `T` | manage this host's tunnel definitions |
 | `o` | open the host in VS Code Remote, in the directory its shell is standing in |
 | `d` | disconnect the session |
 | `r` | reconnect a session whose connection dropped, reopening what it held |
@@ -113,10 +115,42 @@ is not an error, and `a` adds a host by hand.
 
 It stays bound once the list is full, because importing is a **sync**, not a
 one-time step: each host is upserted, so a re-import refreshes what the config
-knows (hostname, user, port, identity file) and leaves hosts hop added itself
-untouched. Wildcard patterns (`Host *`) are skipped.
+knows (hostname, user, port, identity file, and TCP `LocalForward` / `RemoteForward`
+directives) and leaves hosts hop added itself untouched. Wildcard host patterns
+are not imported as hosts, but their forwarding defaults are applied to concrete
+hosts the same way OpenSSH applies them. Dynamic and Unix-socket forwards are
+left to OpenSSH; hop's tunnel manager handles TCP forwards.
 
 `hop import [path]` on the command line does exactly the same thing.
+
+## Tunnels / port forwarding
+
+`t` is the fast path for the host under the cursor: with no tunnels running it
+starts every saved definition; with any running it stops the set. If the host has
+no definitions yet, `t` opens the manager instead. `T` always opens it.
+
+| Key | Action in the tunnel manager |
+| --- | --- |
+| `up` / `down` | select a definition |
+| `enter` / `space` | start or stop the selected tunnel |
+| `t` | close the card and start/stop the whole set |
+| `a` | add a definition |
+| `e` | edit the selected definition (a running old definition is stopped on save) |
+| `x` | delete the selected definition |
+| `esc` | back from the editor, or close the manager |
+
+A **local** forward listens on the machine running hop and reaches its target
+through the SSH server — the equivalent of `ssh -L`. A **remote** forward listens
+on the SSH server and sends connections back to a target reachable from the
+machine running hop — `ssh -R`. Both bind to `127.0.0.1` when the bind-address
+field is blank. To expose one on other interfaces, enter that address explicitly
+(for example `0.0.0.0`); the SSH server may still restrict remote binds.
+
+Starting a tunnel reuses the host's existing authenticated connection. A host with
+only tunnels running keeps a connection of its own and releases it when its last
+tunnel stops. The details dashboard shows all saved definitions with hollow or
+green dots, and the sidebar adds `⇄n` for the running count. If the connection
+drops, reconnect restores exactly the tunnels that were running.
 
 ## Authentication — the 2FA / password card
 
@@ -150,8 +184,8 @@ the attempt outright — it does not move you on to the next method the server
 offers.
 
 Nothing is stored, and nothing needs to be: hop holds **one connection per host**,
-and every extra shell (`S`), the SFTP browser (`f`) and every editor tab are
-channels on it. You are asked once per host, per hop run.
+and every extra shell (`S`), the SFTP browser (`f`), every editor tab and every
+tunnel are channels on it. You are asked once per host, per hop run.
 
 Two hosts connecting at once each get their turn — the second card comes up when
 the first is answered.
@@ -176,14 +210,15 @@ own small keyboard:
 | `d` / `x` | drop the session — the pane goes, the host is idle again |
 | `ctrl+o` / `esc` / `q` | back to the host list, leaving the pane on screen |
 
-`r` is bound in the host list too (as are `enter`, `s`, `S` and `f` on a dropped
+`r` is bound in the host list too (as are `enter`, `s`, `S`, `f` and `t` on a dropped
 host, all of which mean "get me back on this one"), because a drop you notice by the
 red dot in the sidebar is as likely as one you notice by the pane going still.
 
 **What comes back.** A reconnect is a fresh connection, so the *processes* are gone
 for good — what is restored is the shape of the session: as many shell tabs as you
-had, and the SFTP browser in the directory it was standing in. Whichever half you
-were in when the link dropped is dialed first, so you come back where you were.
+had, the SFTP browser in the directory it was standing in, and the exact tunnel
+definitions that were running. Whichever visible half you were in when the link
+dropped is dialed first, so you come back where you were.
 Editor tabs are **not** reopened: an editor holds a buffer, and quietly reopening the
 file on a fresh pty would look like nothing had been lost. The status line says how
 many were left behind.
@@ -512,9 +547,9 @@ else is taken.
 
 Type `exit` to close a shell: its tab goes away, the rest keep running. When the
 last one exits, the connection is done and the host goes back to idle in the list
-— unless its SFTP browser or an editor tab is still open on it, which keeps the
-connection alive. `d` still tears down the whole host at once: every shell, the
-browser and the editors.
+— unless its SFTP browser, an editor tab or a tunnel is still open on it, which
+keeps the connection alive. `d` still tears down the whole host at once: every
+shell, the browser, the editors and the tunnels.
 
 ### Scrolling back through history
 

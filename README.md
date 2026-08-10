@@ -38,7 +38,7 @@ host and everything you left behind is still exactly where you left it.
 </p>
 
 <sub>Keys are shown bottom-right as they're pressed. `●` connected · `◐` connecting ·
-`○` idle · `×2` two shells open · `▤` SFTP browser open</sub>
+`○` idle · `×2` two shells open · `▤` SFTP browser open · `⇄2` two tunnels running</sub>
 
 The header always tells you **where your keystrokes are going**. That's the single most
 disorienting thing about a TUI that embeds other people's programs, so it gets permanent
@@ -103,15 +103,16 @@ re-records it on any machine without exposing anything. See
 |  | |
 | --- | --- |
 | 🖥️ **Embedded SSH shells** | Real terminals in a pane: a pure-Go SSH client (`x/crypto/ssh`) feeding a real VT emulator (`x/vt`). Agent *or* private-key auth, resize, cursor, the lot. |
-| 🔑 **2FA and passwords** | A host that wants a verification code (`pam_google_authenticator`) or a password gets a card, right when it asks. The dial waits in the handshake rather than restarting — a one-time code is only good once. Nothing is stored; one prompt per host, since every extra shell rides the same connection. |
+| 🔑 **2FA and passwords** | A host that wants a verification code (`pam_google_authenticator`) or a password gets a card, right when it asks. The dial waits in the handshake rather than restarting — a one-time code is only good once. Nothing is stored; one prompt per host, since shells, SFTP, editors and tunnels ride the same connection. |
 | 🗂️ **Multiple shells per host** | `S` (or `alt+0`) opens another shell on a host you're already on. It's a second *channel*, so no new handshake and no second auth. Tabs across the top, `alt+1…9` to jump. |
 | 📁 **SFTP file browser** | `f` browses the remote filesystem over the connection you already have. Download with `d`, open locally with `o`. |
+| ⇄ **Local & remote tunnels** | Define TCP forwards per host with `T`; `t` starts or stops the set over the connection hop already holds. The dashboard shows saved and live state, SSH-config forwards import with the host, and reconnect puts running tunnels back. |
 | ✎ **Remote editor tabs** | `enter` on a file runs `$EDITOR` **on the server** on a second channel and renders it in a tab. No download, no copy, and `:w` writes the real file. |
 | 📂 **VS Code where you are** | `ctrl+o` `ctrl+o` in a shell (or `o` in the list) opens VS Code Remote on the directory the shell is standing in, not the one you log in to. hop tracks it over OSC 7, installing the prompt hook into bash/zsh itself and wiping the line it typed, so the pane looks untouched. |
 | ⇅ **Scrollback** | `shift+↑` pauses a shell into its history with vim-ish paging. Declines politely when a full-screen program owns the screen. |
-| 🔁 **Reconnect after a drop** | A dropped link (suspended laptop, dead VPN, rebooted box) is *noticed* — keepalive probes, not silence — and the pane keeps the last screen the host drew instead of quietly freezing. `r` dials again and puts the session's shape back: the same shell tabs, the browser in the directory it was in. |
+| 🔁 **Reconnect after a drop** | A dropped link (suspended laptop, dead VPN, rebooted box) is *noticed* — keepalive probes, not silence — and the pane keeps the last screen the host drew instead of quietly freezing. `r` dials again and puts the session's shape back: the same shell tabs, browser directory and running tunnels. |
 | 🔐 **Honest host keys** | An unknown key **aborts the dial** and shows a fingerprint card. `y` trusts it and appends; `n` trusts nothing. A *mismatch* is always a hard error. |
-| 📥 **SSH config import** | `i` (or `hop import`) upserts every host from `~/.ssh/config`. It's a *sync*, not a one-shot: re-import refreshes, and hosts you added by hand are left alone. |
+| 📥 **SSH config import** | `i` (or `hop import`) upserts every host and its TCP `LocalForward` / `RemoteForward` entries from `~/.ssh/config`. It's a *sync*, not a one-shot: re-import refreshes, and hosts you added by hand are left alone. |
 | 🔎 **Fuzzy find** | `/` filters as you type, with the matched characters picked out so a surprising hit explains itself. |
 | 🖱️ **Mouse** | Wheel and click in the list, the browser and the panes: the wheel scrolls a shell's history, a double-click connects, a click on a tab switches to it. Every gesture is a key you already have, and a remote program that asked for the mouse (vim's `set mouse=a`, `htop`) gets the pointer verbatim. Selecting still works, because hop does it: drag across a pane and it highlights, let go and it is on your clipboard. `ctrl+g` lends the pointer to your terminal for the selections that span hop's own furniture; `,` → *Mouse* → off hands it back for good. |
 | 📋 **Copy and paste** | Paste with your terminal's own paste — hop marks it as a paste (bracketed paste) so vim inserts it verbatim instead of indenting every line into a staircase. On Windows, where the console delivers a paste as synthesised keystrokes with no marker at all, hop recognises the burst and does it anyway. The other direction too: a drag over a pane copies what it covers, and a yank on the remote host (OSC 52) lands on your local clipboard, and `,` → *Remote clipboard* → off closes that door. |
@@ -223,6 +224,7 @@ Every mode returns to the host list with **`ctrl+o`**.
 | `enter` `→` | connect, or focus the shell already open |
 | `s` / `S` | focus this host's session / open **another** shell on it |
 | `f` | SFTP browser |
+| `t` / `T` | start or stop all tunnels / manage their definitions |
 | `o` | open in VS Code Remote, in the directory this host's shell is in |
 | `d` | disconnect |
 | `r` | reconnect a session whose connection dropped |
@@ -360,11 +362,10 @@ everything else a `.tar.gz` so the exec bit survives.
 
 Next up:
 
-- 🔌 **Tunnels / port forwarding**: local and remote forwards per host, on the connection hop already holds
 - 💓 **Health panel**: per-host reachability, latency, uptime and disk
 - ⬆️ **Uploads & file ops** in the browser (`u`, `x`, `R`, `m`) with async transfer progress
 - 🏷️ **Groups & tags** in the list: section by group, filter by tag, pin favourites
-- 📐 Narrow-terminal layouts, copy/paste into panes
+- 📐 Narrow-terminal layouts and cursor-style fidelity
 
 The living version, with far more detail on each item, is [TODO.md](TODO.md).
 

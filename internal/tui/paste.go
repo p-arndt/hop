@@ -64,6 +64,10 @@ func (m *model) handlePaste(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.hostForm.buf[m.hostForm.cursor] += pasteInline(text)
 	case m.importer.open:
 		m.importer.path += pasteInline(text)
+	case m.tunnels.open:
+		if m.tunnels.editing && m.tunnels.field != tfKind {
+			m.tunnels.buf[m.tunnels.field] += pasteInline(text)
+		}
 	case m.settings.open:
 		// Only while a field has the keyboard. On the list itself a paste would be a
 		// value for a field nobody has opened.
@@ -200,7 +204,7 @@ func pastable(msg tea.KeyMsg) bool {
 // the shell behind it.
 func (m *model) cardOpen() bool {
 	return m.auth.open || m.help || m.hostKey.open || m.confirm.open ||
-		m.hostForm.open || m.importer.open || m.settings.open
+		m.hostForm.open || m.importer.open || m.tunnels.open || m.settings.open
 }
 
 // forwardingPane reports whether the keyboard currently belongs to a remote

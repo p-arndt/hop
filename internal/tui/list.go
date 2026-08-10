@@ -196,6 +196,9 @@ func (m *model) renderRow(h store.Host, hits []int, selected bool, w int) string
 		if s.browser != nil {
 			badge += " " + faint.Render("▤")
 		}
+		if n := len(s.tunnels); n > 0 {
+			badge += " " + faint.Render(fmt.Sprintf("⇄%d", n))
+		}
 	}
 	if h.Group != "" {
 		badge += " " + faint.Render("["+stripControl(h.Group)+"]")

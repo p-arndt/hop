@@ -16,6 +16,7 @@ type hostKeyAction int
 const (
 	hostKeyShell hostKeyAction = iota
 	hostKeyBrowser
+	hostKeyTunnels
 )
 
 // hostKeyUI is the new-host-key confirmation card's state. It holds what the
@@ -31,6 +32,14 @@ type hostKeyUI struct {
 	// extra applies to a shell retry: whether the original request was for another
 	// shell alongside the host's existing ones (S / alt+0) rather than the first.
 	extra bool
+	// tunnelIDs applies to a tunnel retry: the definitions requested before the
+	// unknown key interrupted the dial.
+	tunnelIDs []int64
+}
+
+func (m *model) openTunnelHostKeyConfirm(alias string, e *sshx.UnknownHostKeyError, ids []int64) {
+	m.openHostKeyConfirm(alias, e, hostKeyTunnels, false)
+	m.hostKey.tunnelIDs = append([]int64(nil), ids...)
 }
 
 // openHostKeyConfirm arms the card for the key sshx reported unknown. The status
@@ -82,6 +91,8 @@ func (m *model) acceptHostKey(hk hostKeyUI) tea.Cmd {
 	switch hk.action {
 	case hostKeyBrowser:
 		return m.openBrowserTrusting(h, hk.fingerprint)
+	case hostKeyTunnels:
+		return m.startTunnelIDsTrusting(h, hk.tunnelIDs, hk.fingerprint)
 	default:
 		return m.openShellTrusting(h, hk.extra, hk.fingerprint)
 	}

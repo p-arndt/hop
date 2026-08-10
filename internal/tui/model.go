@@ -175,6 +175,10 @@ type model struct {
 	// it rather than on an empty list telling you to go and run `hop import`.
 	importer importUI
 
+	// tunnels is the per-host forwarding manager. In list mode it starts/stops and
+	// removes definitions; in edit mode it owns the five fields of one definition.
+	tunnels tunnelUI
+
 	// hostKey is the new-host-key confirmation card's state. It is modal like the
 	// others, and it stands in for what used to be a silent trust-on-first-use: an
 	// unknown key now pauses the dial here until the user approves the fingerprint.
@@ -331,6 +335,12 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionLostMsg:
 		return m.sessionLost(msg)
 
+	case tunnelsStartedMsg:
+		return m.tunnelsLanded(msg)
+
+	case tunnelStoppedMsg:
+		return m.tunnelStopped(msg)
+
 	case browserOpenedMsg:
 		return m.browserLanded(msg)
 
@@ -477,7 +487,7 @@ func (m *model) shellExited(msg shellExitedMsg) (tea.Model, tea.Cmd) {
 	// The last shell exited. Keep the session alive only for what is still open
 	// on its connection; with nothing left, the connection is done — closing it
 	// is what "exit" meant, and the host goes back to idle in the list.
-	if s.browser == nil && len(s.editors) == 0 {
+	if s.browser == nil && len(s.editors) == 0 && len(s.tunnels) == 0 {
 		s.close()
 		delete(m.sessions, msg.alias)
 		if m.active == msg.alias {

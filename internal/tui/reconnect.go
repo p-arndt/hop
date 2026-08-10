@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -51,6 +52,10 @@ type reconnectPlan struct {
 	// on a fresh pty would silently discard whatever was in it while looking like it
 	// had not. The count is kept only so the reconnect can say what it left behind.
 	editors int
+
+	// tunnels are the persistent ids of the forwarding definitions that were
+	// running. Unlike shell processes, they can be restored exactly.
+	tunnels []int64
 
 	// browsingFirst is true when the keyboard was in the browser (or in an editor
 	// opened from it) at the drop, and there is a browser to come back to. It decides
@@ -125,6 +130,10 @@ func (s *session) plan(browsingFirst bool) reconnectPlan {
 		browser: s.browser != nil,
 		editors: len(s.editors),
 	}
+	for id := range s.tunnels {
+		p.tunnels = append(p.tunnels, id)
+	}
+	sort.Slice(p.tunnels, func(i, j int) bool { return p.tunnels[i] < p.tunnels[j] })
 	if s.browser != nil {
 		p.browserDir = s.browser.Path()
 		p.browsingFirst = browsingFirst
@@ -178,7 +187,13 @@ func (m *model) reconnect(h store.Host) tea.Cmd {
 	// shell goes first for everyone else — including a browser-only session, where
 	// "everyone else" cannot happen.
 	if plan.browser && (plan.browsingFirst || plan.shells == 0) {
+		// A tunnel-only session has no browser, so it falls through to the tunnel
+		// primary below rather than manufacturing a shell just to carry a connection.
 		return m.withSpinner(openBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), plan.browserDir, m.paneW, m.paneH, false))
+	}
+	if plan.shells == 0 && len(plan.tunnels) > 0 {
+		defs := forwardDefinitions(h, plan.tunnels)
+		return m.withSpinner(startTunnelsCmd(h, nil, "", m.prompter(h.Alias), defs, true))
 	}
 	m.nextShID++
 	cols, rows := m.shellSize(1)
@@ -218,6 +233,18 @@ func (m *model) applyPlan(alias string) tea.Cmd {
 	if plan.browser && s.browser == nil {
 		cmds = append(cmds, openBrowserCmd(h, s.client, "", nil, m.browserOptions(), plan.browserDir, m.paneW, m.paneH, true))
 	}
+	var missing []int64
+	for _, id := range plan.tunnels {
+		if s.tunnels[id] == nil {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) > 0 {
+		defs := forwardDefinitions(h, missing)
+		if len(defs) > 0 {
+			cmds = append(cmds, startTunnelsCmd(h, s.client, "", nil, defs, true))
+		}
+	}
 
 	m.setStatus(statusOK, "reconnected to %s%s", alias, plan.restored(len(s.shells)))
 	return tea.Batch(cmds...)
@@ -237,6 +264,9 @@ func (p reconnectPlan) restored(have int) string {
 	if p.editors > 0 {
 		parts = append(parts, fmt.Sprintf("%d %s not reopened",
 			p.editors, plural(p.editors, "editor", "editors")))
+	}
+	if n := len(p.tunnels); n > 0 {
+		parts = append(parts, strconv.Itoa(n)+" "+plural(n, "tunnel", "tunnels"))
 	}
 	if len(parts) == 0 {
 		return ""

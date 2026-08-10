@@ -85,6 +85,26 @@ type sessionLostMsg struct {
 	err    error
 }
 
+// tunnelsStartedMsg is the result of starting one or more forwarding listeners.
+// client is non-nil only when the command had to establish the host connection.
+type tunnelsStartedMsg struct {
+	alias   string
+	client  *sshx.Client
+	tunnels map[int64]*sshx.Tunnel
+	ids     []int64
+	restore bool
+	err     error
+}
+
+// tunnelStoppedMsg reports a listener ending on its own. A deliberate stop first
+// removes it from the session map, so the model ignores that stale watcher.
+type tunnelStoppedMsg struct {
+	alias  string
+	id     int64
+	tunnel *sshx.Tunnel
+	err    error
+}
+
 // editorOpenedMsg is returned once a remote editor is running on its own SSH
 // session (or has failed to start).
 type editorOpenedMsg struct {

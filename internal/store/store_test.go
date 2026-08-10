@@ -2,7 +2,10 @@ package store
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -94,14 +97,161 @@ func TestUpsertUpdatesExisting(t *testing.T) {
 func TestDelete(t *testing.T) {
 	s := newStore(t)
 
-	if _, err := s.Upsert(Host{Alias: "temp", HostName: "temp.example.com"}); err != nil {
+	id, err := s.Upsert(Host{Alias: "temp", HostName: "temp.example.com"})
+	if err != nil {
 		t.Fatalf("Upsert: %v", err)
+	}
+	if _, err := s.AddForward(id, Forward{Kind: ForwardLocal, BindPort: 8080, TargetHost: "localhost", TargetPort: 80}); err != nil {
+		t.Fatalf("AddForward: %v", err)
 	}
 	if err := s.Delete("temp"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if h := findHost(t, s, "temp"); h != nil {
 		t.Fatalf("host %q still present after Delete", "temp")
+	}
+	var forwards int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM forwards`).Scan(&forwards); err != nil {
+		t.Fatalf("count forwards: %v", err)
+	}
+	if forwards != 0 {
+		t.Fatalf("deleted host left %d forwarding definitions behind", forwards)
+	}
+}
+
+func TestForwardCRUDAndHostLoading(t *testing.T) {
+	s := newStore(t)
+	hostID, err := s.Add(Host{Alias: "web", HostName: "web.example.com"})
+	if err != nil {
+		t.Fatalf("Add host: %v", err)
+	}
+
+	local := Forward{Kind: ForwardLocal, BindHost: "127.0.0.1", BindPort: 8080, TargetHost: "app.internal", TargetPort: 80}
+	id, err := s.AddForward(hostID, local)
+	if err != nil {
+		t.Fatalf("AddForward: %v", err)
+	}
+	h := findHost(t, s, "web")
+	if h == nil || len(h.Forwards) != 1 {
+		t.Fatalf("loaded host forwards = %+v, want one", h)
+	}
+	got := h.Forwards[0]
+	if got.ID != id || got.HostID != hostID || got.Kind != ForwardLocal || got.TargetHost != "app.internal" {
+		t.Fatalf("loaded forward = %+v", got)
+	}
+
+	got.Kind = ForwardRemote
+	got.BindHost = ""
+	got.BindPort = 9090
+	got.TargetHost = "127.0.0.1"
+	got.TargetPort = 3000
+	if err := s.UpdateForward(got); err != nil {
+		t.Fatalf("UpdateForward: %v", err)
+	}
+	h = findHost(t, s, "web")
+	if len(h.Forwards) != 1 || h.Forwards[0].Kind != ForwardRemote || h.Forwards[0].BindPort != 9090 {
+		t.Fatalf("updated forwards = %+v", h.Forwards)
+	}
+
+	if err := s.DeleteForward(hostID, id); err != nil {
+		t.Fatalf("DeleteForward: %v", err)
+	}
+	if h = findHost(t, s, "web"); len(h.Forwards) != 0 {
+		t.Fatalf("deleted forward still loaded: %+v", h.Forwards)
+	}
+}
+
+func TestForwardValidationAndDuplicateListener(t *testing.T) {
+	s := newStore(t)
+	hostID, err := s.Add(Host{Alias: "web", HostName: "web.example.com"})
+	if err != nil {
+		t.Fatalf("Add host: %v", err)
+	}
+
+	invalid := []Forward{
+		{Kind: "dynamic", BindPort: 8080, TargetHost: "x", TargetPort: 80},
+		{Kind: ForwardLocal, BindPort: 0, TargetHost: "x", TargetPort: 80},
+		{Kind: ForwardLocal, BindPort: 8080, TargetHost: "", TargetPort: 80},
+		{Kind: ForwardLocal, BindPort: 8080, TargetHost: "x", TargetPort: 70000},
+	}
+	for _, f := range invalid {
+		if _, err := s.AddForward(hostID, f); err == nil {
+			t.Fatalf("AddForward(%+v) succeeded, want validation error", f)
+		}
+	}
+
+	f := Forward{Kind: ForwardLocal, BindHost: "127.0.0.1", BindPort: 8080, TargetHost: "x", TargetPort: 80}
+	if _, err := s.AddForward(hostID, f); err != nil {
+		t.Fatalf("first AddForward: %v", err)
+	}
+	f.TargetPort = 81
+	if _, err := s.AddForward(hostID, f); err == nil {
+		t.Fatal("duplicate listener was accepted")
+	}
+}
+
+func TestImportSSHConfigIncludesTCPForwards(t *testing.T) {
+	s := newStore(t)
+	path := filepath.Join(t.TempDir(), "config")
+	config := `
+Host web
+  HostName web.example.com
+  User deploy
+  LocalForward 15432 db.internal:5432
+  LocalForward [::1]:16379 cache.internal:6379
+  RemoteForward 127.0.0.1:18080 127.0.0.1:3000
+  DynamicForward 1080
+
+Host *
+  LocalForward 19090 metrics.internal:9090
+`
+	if err := os.WriteFile(path, []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if n, err := s.ImportSSHConfig(path); err != nil || n != 1 {
+		t.Fatalf("ImportSSHConfig = %d, %v; want 1, nil", n, err)
+	}
+
+	h := findHost(t, s, "web")
+	if h == nil {
+		t.Fatal("imported host missing")
+	}
+	if len(h.Forwards) != 4 {
+		t.Fatalf("imported forwards = %+v, want 4 TCP forwards", h.Forwards)
+	}
+	got := map[string]Forward{}
+	for _, f := range h.Forwards {
+		got[string(f.Kind)+":"+f.BindHost+":"+strconv.Itoa(f.BindPort)] = f
+	}
+	if f := got["local:127.0.0.1:15432"]; f.TargetHost != "db.internal" || f.TargetPort != 5432 {
+		t.Fatalf("local forward = %+v", f)
+	}
+	if f := got["local:::1:16379"]; f.TargetHost != "cache.internal" || f.TargetPort != 6379 {
+		t.Fatalf("IPv6 local forward = %+v", f)
+	}
+	if f := got["remote:127.0.0.1:18080"]; f.TargetPort != 3000 {
+		t.Fatalf("remote forward = %+v", f)
+	}
+	if f := got["local:127.0.0.1:19090"]; f.TargetHost != "metrics.internal" {
+		t.Fatalf("wildcard forward = %+v", f)
+	}
+
+	// Re-import updates a listener's target rather than duplicating it.
+	config = strings.Replace(config, "db.internal:5432", "db-new.internal:6432", 1)
+	if err := os.WriteFile(path, []byte(config), 0o600); err != nil {
+		t.Fatalf("rewrite config: %v", err)
+	}
+	if _, err := s.ImportSSHConfig(path); err != nil {
+		t.Fatalf("re-import: %v", err)
+	}
+	h = findHost(t, s, "web")
+	if len(h.Forwards) != 4 {
+		t.Fatalf("re-import duplicated forwards: %+v", h.Forwards)
+	}
+	for _, f := range h.Forwards {
+		if f.Kind == ForwardLocal && f.BindPort == 15432 && (f.TargetHost != "db-new.internal" || f.TargetPort != 6432) {
+			t.Fatalf("re-import did not update target: %+v", f)
+		}
 	}
 }
 

@@ -37,6 +37,8 @@ func helpLeft(vim bool) []helpSection {
 			{"S", "another shell, same connection"},
 			{"s", "focus the host's shell"},
 			{"f", "sftp file browser"},
+			{"t", "start / stop all tunnels"},
+			{"shift+t", "manage tunnel definitions"},
 			{"o", "open in VS Code Remote (its shell's dir)"},
 			{"e", "edit this host"},
 			{"x", "delete this host"},

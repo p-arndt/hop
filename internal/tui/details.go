@@ -70,6 +70,25 @@ func (m *model) renderDetails(w int) string {
 	), pad))
 	b.WriteString("\n")
 
+	// Saved forwards are part of the host's dashboard whether they are running or
+	// not. A green dot means the listener is live on this session; a hollow one is
+	// defined and ready to start with t.
+	if len(h.Forwards) > 0 {
+		b.WriteString(pad + sectionCap.Render("TUNNELS") + "\n")
+		limit := min(len(h.Forwards), 4)
+		for _, f := range h.Forwards[:limit] {
+			dot := idleDot
+			if s := m.sessions[h.Alias]; s != nil && !s.dead && s.tunnels[f.ID] != nil {
+				dot = connectedDot
+			}
+			b.WriteString(pad + dot + " " + dimStyle.Render(truncate(forwardText(f), inner-2)) + "\n")
+		}
+		if more := len(h.Forwards) - limit; more > 0 {
+			b.WriteString(pad + faint.Render(fmt.Sprintf("  … %d more", more)) + "\n")
+		}
+		b.WriteString("\n")
+	}
+
 	// What is open on the connection. This is the answer to "what am I about to
 	// close?", and it is on screen before you reach for 'd' rather than after.
 	if s := m.sessions[h.Alias]; s != nil {
@@ -113,8 +132,9 @@ func (m *model) actionGrid(h store.Host, w int) string {
 		{"enter", "connect"},
 		{"S", "new shell"},
 		{"f", "sftp browser"},
+		{"t", "start / stop tunnels"},
 	}
-	right := [][2]string{{"o", "open in vs code"}}
+	right := [][2]string{{"o", "open in vs code"}, {"T", "manage tunnels"}}
 	switch {
 	case live && s.dead:
 		// The one key that matters on a dropped session goes where "focus shell" would

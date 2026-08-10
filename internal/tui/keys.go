@@ -86,6 +86,8 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleHostFormKey(msg)
 	case m.importer.open:
 		return m.handleImportKey(msg)
+	case m.tunnels.open:
+		return m.handleTunnelsKey(msg)
 	case m.settings.open:
 		return m.handleSettingsKey(msg)
 	}
@@ -216,6 +218,20 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.openBrowser(h)
+
+	case "t":
+		h, ok := m.selectedHost()
+		if !ok {
+			return m, nil
+		}
+		return m, m.toggleTunnels(h)
+
+	case "T":
+		h, ok := m.selectedHost()
+		if !ok {
+			return m, nil
+		}
+		m.openTunnels(h)
 
 	case "o":
 		h, ok := m.selectedHost()

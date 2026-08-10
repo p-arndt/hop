@@ -115,6 +115,50 @@ func watchClientCmd(alias string, cli *sshx.Client) tea.Cmd {
 	}
 }
 
+// startTunnelsCmd starts defs over an existing connection, or dials h first when
+// existing is nil. The group is atomic: if one listener cannot start, listeners
+// already opened by this command are closed and a newly-dialed client is released.
+func startTunnelsCmd(h store.Host, existing *sshx.Client, trustedFP string, prompt sshx.Prompter, defs []store.Forward, restore bool) tea.Cmd {
+	ids := make([]int64, len(defs))
+	for i, f := range defs {
+		ids[i] = f.ID
+	}
+	return func() tea.Msg {
+		cli := existing
+		var dialed *sshx.Client
+		if cli == nil {
+			c, err := dialClient(h, trustedFP, prompt)
+			if err != nil {
+				return tunnelsStartedMsg{alias: h.Alias, ids: ids, restore: restore, err: err}
+			}
+			cli, dialed = c, c
+		}
+
+		started := make(map[int64]*sshx.Tunnel, len(defs))
+		for _, f := range defs {
+			tunnel, err := cli.StartForward(f)
+			if err != nil {
+				for _, running := range started {
+					_ = running.Close()
+				}
+				if dialed != nil {
+					_ = dialed.Close()
+				}
+				return tunnelsStartedMsg{alias: h.Alias, ids: ids, restore: restore, err: err}
+			}
+			started[f.ID] = tunnel
+		}
+		return tunnelsStartedMsg{alias: h.Alias, client: dialed, tunnels: started, ids: ids, restore: restore}
+	}
+}
+
+func watchTunnelCmd(alias string, id int64, tunnel *sshx.Tunnel) tea.Cmd {
+	return func() tea.Msg {
+		<-tunnel.Done()
+		return tunnelStoppedMsg{alias: alias, id: id, tunnel: tunnel, err: tunnel.Err()}
+	}
+}
+
 // newShell starts a shell on cli and wraps it in a terminal pane.
 func newShell(cli *sshx.Client, id, cols, rows int, notify chan struct{}) (*shellTab, error) {
 	sess, err := cli.Shell(cols, rows)
