@@ -34,8 +34,14 @@ func (m *model) renderDetails(w int) string {
 	title := titleStyle.Render(stripControl(h.Alias))
 	badge := m.hostBadge(h)
 	gap := max(inner-lipgloss.Width(title)-lipgloss.Width(badge), 1)
-	b.WriteString(pad + title + strings.Repeat(" ", gap) + badge + "\n")
-	b.WriteString(pad + rule(inner) + "\n\n")
+	b.WriteString(pad)
+	b.WriteString(title)
+	b.WriteString(strings.Repeat(" ", gap))
+	b.WriteString(badge)
+	b.WriteString("\n")
+	b.WriteString(pad)
+	b.WriteString(rule(inner))
+	b.WriteString("\n\n")
 
 	// What you connect to on the left, what you know about having connected on the right.
 	port := h.Port
@@ -68,17 +74,25 @@ func (m *model) renderDetails(w int) string {
 	// Saved forwards belong on the dashboard whether running or not: a green dot is a live
 	// listener, a hollow one is defined and ready to start with t.
 	if len(h.Forwards) > 0 {
-		b.WriteString(pad + sectionCap.Render("TUNNELS") + "\n")
+		b.WriteString(pad)
+		b.WriteString(sectionCap.Render("TUNNELS"))
+		b.WriteString("\n")
 		limit := min(len(h.Forwards), 4)
 		for _, f := range h.Forwards[:limit] {
 			dot := idleDot
 			if s := m.sessions[h.Alias]; s != nil && !s.dead && s.tunnels[f.ID] != nil {
 				dot = connectedDot
 			}
-			b.WriteString(pad + dot + " " + dimStyle.Render(truncate(forwardText(f), inner-2)) + "\n")
+			b.WriteString(pad)
+			b.WriteString(dot)
+			b.WriteString(" ")
+			b.WriteString(dimStyle.Render(truncate(forwardText(f), inner-2)))
+			b.WriteString("\n")
 		}
 		if more := len(h.Forwards) - limit; more > 0 {
-			b.WriteString(pad + faint.Render(fmt.Sprintf("  … %d more", more)) + "\n")
+			b.WriteString(pad)
+			b.WriteString(faint.Render(fmt.Sprintf("  … %d more", more)))
+			b.WriteString("\n")
 		}
 		b.WriteString("\n")
 	}
@@ -86,15 +100,23 @@ func (m *model) renderDetails(w int) string {
 	// What is open on the connection — the answer to "what am I about to close?".
 	if s := m.sessions[h.Alias]; s != nil {
 		if parts := s.summary(); len(parts) > 0 {
-			b.WriteString(pad + sectionCap.Render("OPEN") + "\n")
-			b.WriteString(pad + accentText.Render("▸ ") + dimStyle.Render(strings.Join(parts, faint.Render(" · "))) + "\n\n")
+			b.WriteString(pad)
+			b.WriteString(sectionCap.Render("OPEN"))
+			b.WriteString("\n")
+			b.WriteString(pad)
+			b.WriteString(accentText.Render("▸ "))
+			b.WriteString(dimStyle.Render(strings.Join(parts, faint.Render(" · "))))
+			b.WriteString("\n\n")
 		}
 	}
 
-	b.WriteString(pad + sectionCap.Render("ACTIONS") + "\n")
+	b.WriteString(pad)
+	b.WriteString(sectionCap.Render("ACTIONS"))
+	b.WriteString("\n")
 	b.WriteString(indent(m.actionGrid(h, inner), pad))
 	b.WriteString("\n")
-	b.WriteString(pad + keyHint("?", "every key hop knows"))
+	b.WriteString(pad)
+	b.WriteString(keyHint("?", "every key hop knows"))
 
 	return clampLines(b.String(), w)
 }
@@ -150,16 +172,34 @@ func (m *model) actionGrid(h store.Host, w int) string {
 func (m *model) renderNoHost(w int) string {
 	var b strings.Builder
 	b.WriteString("\n\n")
-	b.WriteString("  " + titleStyle.Render("hop") + dimStyle.Render(" — jump between your servers") + "\n\n")
+	b.WriteString("  ")
+	b.WriteString(titleStyle.Render("hop"))
+	b.WriteString(dimStyle.Render(" — jump between your servers"))
+	b.WriteString("\n\n")
 	if len(m.hosts) == 0 {
-		b.WriteString("  " + dimStyle.Render("No hosts yet. Import the ones you") + "\n")
-		b.WriteString("  " + dimStyle.Render("already have in ~/.ssh/config:") + "\n\n")
-		b.WriteString("  " + keyHint("i", "import ~/.ssh/config") + "\n\n")
-		b.WriteString("  " + faint.Render("…or ") + keyHint("a", "add one by hand") + "\n")
+		b.WriteString("  ")
+		b.WriteString(dimStyle.Render("No hosts yet. Import the ones you"))
+		b.WriteString("\n")
+		b.WriteString("  ")
+		b.WriteString(dimStyle.Render("already have in ~/.ssh/config:"))
+		b.WriteString("\n\n")
+		b.WriteString("  ")
+		b.WriteString(keyHint("i", "import ~/.ssh/config"))
+		b.WriteString("\n\n")
+		b.WriteString("  ")
+		b.WriteString(faint.Render("…or "))
+		b.WriteString(keyHint("a", "add one by hand"))
+		b.WriteString("\n")
 	} else {
-		b.WriteString("  " + dimStyle.Render("Select a host on the left.") + "\n\n")
-		b.WriteString("  " + keyHint("/", "filter the list") + "\n")
-		b.WriteString("  " + keyHint("?", "every key hop knows") + "\n")
+		b.WriteString("  ")
+		b.WriteString(dimStyle.Render("Select a host on the left."))
+		b.WriteString("\n\n")
+		b.WriteString("  ")
+		b.WriteString(keyHint("/", "filter the list"))
+		b.WriteString("\n")
+		b.WriteString("  ")
+		b.WriteString(keyHint("?", "every key hop knows"))
+		b.WriteString("\n")
 	}
 	return clampLines(b.String(), w)
 }

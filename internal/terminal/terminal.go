@@ -421,9 +421,9 @@ func modifiedKeyBytes(msg tea.KeyMsg) ([]byte, bool) {
 	}
 
 	if final != 0 {
-		return []byte(fmt.Sprintf("\x1b[1;%d%c", mods+1, final)), true
+		return fmt.Appendf(nil, "\x1b[1;%d%c", mods+1, final), true
 	}
-	return []byte(fmt.Sprintf("\x1b[%d;%d~", tilde, mods+1)), true
+	return fmt.Appendf(nil, "\x1b[%d;%d~", tilde, mods+1), true
 }
 
 // keyBytes is keyToBytes without the meta prefix: the bytes for the key itself.

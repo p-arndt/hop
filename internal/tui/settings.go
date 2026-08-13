@@ -527,15 +527,21 @@ func (m *model) renderSwatches(f settingsField, selected bool, w int) string {
 		if s.code == current {
 			name = s.name
 			// Brackets, not a highlight: on a row of colours, colour cannot mark one.
-			b.WriteString("[" + block(s.code) + "]")
+			b.WriteString("[")
+			b.WriteString(block(s.code))
+			b.WriteString("]")
 			continue
 		}
-		b.WriteString(" " + block(s.code) + " ")
+		b.WriteString(" ")
+		b.WriteString(block(s.code))
+		b.WriteString(" ")
 	}
 
 	if name == "" {
 		// A typed code or a hand-edited config; show it anyway.
-		b.WriteString("[" + block(current) + "]")
+		b.WriteString("[")
+		b.WriteString(block(current))
+		b.WriteString("]")
 		name = current
 	}
 

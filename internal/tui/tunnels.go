@@ -486,7 +486,15 @@ func (m *model) renderTunnels() string {
 		b.WriteString("\n")
 		b.WriteString(rule(w))
 		b.WriteString("\n")
-		b.WriteString(keyHint("enter", "start / stop") + "  " + keyHint("a", "add") + "  " + keyHint("e", "edit") + "  " + keyHint("x", "delete") + "  " + keyHint("esc", "close"))
+		b.WriteString(keyHint("enter", "start / stop"))
+		b.WriteString("  ")
+		b.WriteString(keyHint("a", "add"))
+		b.WriteString("  ")
+		b.WriteString(keyHint("e", "edit"))
+		b.WriteString("  ")
+		b.WriteString(keyHint("x", "delete"))
+		b.WriteString("  ")
+		b.WriteString(keyHint("esc", "close"))
 	}
 	return cardBox.Width(w + 2*cardPadX).Render(b.String())
 }
@@ -516,18 +524,30 @@ func (m *model) renderTunnelEdit() string {
 			} else {
 				remote = accentText.Render(remote)
 			}
-			b.WriteString("    " + local + faint.Render("  ↔  ") + remote)
+			b.WriteString("    ")
+			b.WriteString(local)
+			b.WriteString(faint.Render("  ↔  "))
+			b.WriteString(remote)
 		} else if selected {
-			b.WriteString("    " + inputStyle.Width(w-4).Render(truncate(value, w-7)+accentText.Render("▏")))
+			b.WriteString("    ")
+			b.WriteString(inputStyle.Width(w - 4).Render(truncate(value, w-7) + accentText.Render("▏")))
 		} else if value == "" {
-			b.WriteString("    " + settingsPlaceholder.Render(field.placeholder))
+			b.WriteString("    ")
+			b.WriteString(settingsPlaceholder.Render(field.placeholder))
 		} else {
-			b.WriteString("    " + settingsValue.Render(truncate(value, w-6)))
+			b.WriteString("    ")
+			b.WriteString(settingsValue.Render(truncate(value, w-6)))
 		}
 		b.WriteString("\n\n")
 	}
 	b.WriteString(rule(w))
 	b.WriteString("\n")
-	b.WriteString(keyHint("tab", "next") + "  " + keyHint("←→", "direction") + "  " + keyHint("enter", "save") + "  " + keyHint("esc", "back"))
+	b.WriteString(keyHint("tab", "next"))
+	b.WriteString("  ")
+	b.WriteString(keyHint("←→", "direction"))
+	b.WriteString("  ")
+	b.WriteString(keyHint("enter", "save"))
+	b.WriteString("  ")
+	b.WriteString(keyHint("esc", "back"))
 	return cardBox.Width(w + 2*cardPadX).Render(b.String())
 }

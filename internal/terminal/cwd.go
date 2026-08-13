@@ -446,8 +446,8 @@ func (p *Pane) eraseEcho(top, sbBefore int, hook string) {
 
 	// Park on the first row to go, delete n rows, then restore the cursor onto the
 	// prompt that came up. CUP is 1-based; emulator positions are not.
-	_, _ = p.emu.Write([]byte(fmt.Sprintf("\x1b[%d;1H\x1b[%dM\x1b[%d;%dH",
-		top+1, n, top+1, cur.X+1)))
+	_, _ = p.emu.Write(fmt.Appendf(nil, "\x1b[%d;1H\x1b[%dM\x1b[%d;%dH",
+		top+1, n, top+1, cur.X+1))
 	if p.onOutput != nil {
 		p.onOutput()
 	}
