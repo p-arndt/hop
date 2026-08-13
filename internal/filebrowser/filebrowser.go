@@ -315,12 +315,13 @@ func (b *Browser) openInApp() {
 		b.fail(err)
 		return
 	}
-	// Handing an executable-extension file to the OS default handler would run
-	// it via ShellExecute rather than view it, so a server that names a payload
-	// like a document could get code executed locally on a single "o". Refuse
-	// when the launch would reach the default handler. An explicit OpenWith
-	// command receives the file as an argument to a program the user chose, not
-	// through ShellExecute, so that path is left alone.
+	// Handing an executable-extension file to the OS default handler
+	// (ShellExecute, `open`, `xdg-open`) would run it rather than view it, so a
+	// server that names a payload like a document could get code executed
+	// locally on a single "o". Refuse when the launch would reach the default
+	// handler. An explicit OpenWith command receives the file as an argument to
+	// a program the user chose, not through the default handler, so that path
+	// is left alone.
 	if b.opts.OpenWith == "" && executableName(e.Name) {
 		b.fail(fmt.Errorf("refusing to open executable file %q — use d to download instead", e.Name))
 		return
@@ -383,6 +384,13 @@ func (b *Browser) fetch(e sftpx.Entry) (string, error) {
 	local := filepath.Join(dir, e.Name)
 	if _, err := b.client.Download(path.Join(b.cwd, e.Name), local); err != nil {
 		return "", err
+	}
+	// The copy came from a remote host and is about to be handed to the OS
+	// default handler, so mark it the way a browser download would be. On macOS
+	// that sets com.apple.quarantine and keeps Gatekeeper in the loop for file
+	// types the extension guard does not know about; elsewhere it is a no-op.
+	if err := quarantine(local); err != nil {
+		return "", fmt.Errorf("quarantine %s: %w", e.Name, err)
 	}
 	return local, nil
 }
@@ -453,14 +461,21 @@ func checkLocalName(name string) error {
 	return nil
 }
 
-// executableExts are the final extensions ShellExecute (the desktop's default
-// handler) will run rather than merely open: native executables, installer and
-// control-panel formats, Windows Script Host targets, shortcuts that can point
-// anywhere, and shell-namespace files that can trigger code or reach into the
-// filesystem when double-clicked. A remote-named file carrying one of these
-// would be executed locally when handed to the OS default handler, so it is a
+// executableExts are the final extensions the desktop's default handler will
+// run rather than merely open. On Windows that handler is ShellExecute: native
+// executables, installer and control-panel formats, Windows Script Host
+// targets, shortcuts that can point anywhere, and shell-namespace files that
+// can trigger code when double-clicked. On macOS, `open` executes rather than
+// views Terminal profiles (.terminal runs its embedded CommandString with no
+// execute bit needed), shell scripts, AppleScript, Automator workflows, and
+// the location/shortcut plists; on Linux, xdg-open backends may honor a
+// .desktop entry's Exec= line. A remote-named file carrying any of these would
+// be executed locally when handed to the OS default handler. The set is
+// checked on every platform rather than per-GOOS: refusing a .desktop file on
+// macOS costs nothing, while missing one costs code execution. It is a
 // package-level set the guard and its test both range over.
 var executableExts = map[string]bool{
+	// Windows (ShellExecute)
 	".exe": true, ".com": true, ".bat": true, ".cmd": true, ".scr": true,
 	".pif": true, ".msi": true, ".msp": true, ".msc": true, ".cpl": true,
 	".hta": true, ".js": true, ".jse": true, ".vbs": true, ".vbe": true,
@@ -469,6 +484,12 @@ var executableExts = map[string]bool{
 	".appx": true, ".msix": true, ".jar": true, ".sct": true,
 	".settingcontent-ms": true, ".iso": true, ".vhd": true, ".vhdx": true,
 	".library-ms": true, ".search-ms": true,
+	// macOS (LaunchServices)
+	".terminal": true, ".command": true, ".tool": true, ".app": true,
+	".scpt": true, ".scptd": true, ".workflow": true, ".action": true,
+	".fileloc": true, ".inetloc": true, ".webloc": true, ".dmg": true,
+	// Linux (xdg-open / desktop environments)
+	".desktop": true,
 }
 
 // executableName reports whether name's final extension is one the OS default

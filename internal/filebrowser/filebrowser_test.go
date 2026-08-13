@@ -56,6 +56,11 @@ func (f *fakeClient) List(string) ([]sftpx.Entry, error) { return f.entries, nil
 
 func (f *fakeClient) Download(remote, local string) (int64, error) {
 	f.downloads = append(f.downloads, [2]string{remote, local})
+	// Create the local file like the real client would: fetch quarantines the
+	// copy after downloading, and the xattr call needs a file to land on.
+	if err := os.WriteFile(local, nil, 0o644); err != nil {
+		return 0, err
+	}
 	return 0, nil
 }
 func (f *fakeClient) Close() error { return nil }
@@ -454,6 +459,11 @@ func TestExecutableName(t *testing.T) {
 		{"evil.exe .", true},   // trailing dot and space are stripped by Windows
 		{"setup.MSI", true},
 		{"shortcut.lnk", true},
+		{"invoices.terminal", true}, // macOS: Terminal profile runs its CommandString on open
+		{"notes.pdf.Command", true},
+		{"backup.scpt", true},
+		{"photo.fileloc", true},
+		{"report.desktop", true}, // Linux: xdg-open may honor the Exec= line
 		{"report.pdf", false},
 		{"main.go", false},
 		{"README", false},         // no extension at all
@@ -473,18 +483,20 @@ func TestOpenInAppRefusesExecutable(t *testing.T) {
 	b, fc, _, _ := fileTestBrowser(t)
 	opened, _ := stubOpen(t)
 
-	b.entries[1].Name = "invoice.pdf.hta"
-	b.cursor = 1
-	b.Handle(key(t, "o"))
+	for _, name := range []string{"invoice.pdf.hta", "invoices-2026.terminal", "report.desktop"} {
+		b.entries[1].Name = name
+		b.cursor = 1
+		b.Handle(key(t, "o"))
 
-	if len(fc.downloads) != 0 {
-		t.Fatalf("o on an executable fetched %v, want a refusal before any download", fc.downloads)
-	}
-	if *opened != "" {
-		t.Fatalf("o on an executable launched the default app on %q", *opened)
-	}
-	if !b.statusErr {
-		t.Fatalf("o on an executable: status = %q, want an error", b.status)
+		if len(fc.downloads) != 0 {
+			t.Fatalf("o on %q fetched %v, want a refusal before any download", name, fc.downloads)
+		}
+		if *opened != "" {
+			t.Fatalf("o on %q launched the default app on %q", name, *opened)
+		}
+		if !b.statusErr {
+			t.Fatalf("o on %q: status = %q, want an error", name, b.status)
+		}
 	}
 }
 
