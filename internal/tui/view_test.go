@@ -30,9 +30,9 @@ func viewModel(w, h int) *model {
 	return m
 }
 
-// Whatever the window and whatever is up, the screen is exactly the window: every
-// line fits across it, and there are exactly as many lines as it is tall. A view
-// that overruns either way corrupts the terminal rather than merely looking wrong.
+// Whatever the window and whatever is up, the screen is exactly the window: every line
+// fits across it, and there are as many lines as it is tall. A view that overruns either
+// way corrupts the terminal rather than merely looking wrong.
 func TestViewFitsTheWindow(t *testing.T) {
 	sizes := []struct{ w, h int }{
 		{120, 34}, // a comfortable terminal
@@ -88,16 +88,13 @@ func TestViewFitsTheWindow(t *testing.T) {
 	}
 }
 
-// A pane holding lines wider than the box it is drawn in still leaves the screen
-// exactly the size of the window.
+// A pane holding lines wider than the box it is drawn in still leaves the screen exactly
+// the size of the window.
 //
-// lipgloss grows a box to fit its content rather than clipping it, and a line wider
-// than the box is *wrapped* onto another row — so one over-wide row makes the pane a
-// row taller, the screen a row taller than the window, and the terminal scrolls
-// hop's own header and the tops of its boxes off the top of itself. The lines get
-// that wide in the ordinary course of things: a pane's scrollback holds each line at
-// the width the pane had when it was pushed, so collapsing the sidebar (or resizing
-// the window) leaves history wider than the pane it is read back in.
+// lipgloss grows a box to fit its content and wraps an over-wide line onto another row,
+// so one such row makes the screen taller than the window and the terminal scrolls hop's
+// header off the top. Lines get that wide ordinarily: scrollback holds each at the width
+// the pane had when it was pushed.
 func TestPaneContentWiderThanTheBoxDoesNotGrowTheScreen(t *testing.T) {
 	m := viewModel(100, 20)
 	m.active = "web1"
@@ -241,10 +238,8 @@ func TestSpinnerStopsWhenNothingIsConnecting(t *testing.T) {
 	}
 }
 
-// A focused pane can open another shell on the host it is already on, without
-// going back to the list for S — and the footer says so, on the first shell as
-// much as the second: the key that makes the second one is no use to you only
-// after you have one.
+// A focused pane can open another shell on the host it is already on, and the footer says
+// so on the first shell as much as the second.
 func TestNewShellFromAFocusedPane(t *testing.T) {
 	m := viewModel(120, 34)
 	m.notify = make(chan struct{}, 1)

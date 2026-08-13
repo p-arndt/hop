@@ -13,11 +13,9 @@ import (
 	"hop/internal/sshx"
 )
 
-// probeServer is an in-process SSH server for the shell-integration half of this
-// file: it answers the login-shell probe with a shell of the test's choosing,
-// records everything typed into its shell channel, and can speak on that channel
-// itself — which is how a test plays the part of the prompt hook the real thing
-// would have installed.
+// probeServer is an in-process SSH server for the shell-integration half of this file:
+// it answers the login-shell probe with a shell of the test's choosing, records what is
+// typed into the shell channel, and can speak on it — playing the part of the prompt hook.
 type probeServer struct {
 	addr  string
 	shell string // what the exec probe answers
@@ -36,9 +34,8 @@ func (s *probeServer) shellInput() string {
 	return string(s.input)
 }
 
-// waitForInput polls the shell channel's input for want. When the test expects
-// nothing it still waits — briefly — since "it did not arrive yet" and "it will
-// never arrive" look the same at the instant of asking.
+// waitForInput polls the shell channel's input for want, still waiting briefly when the
+// test expects nothing: "not yet" and "never" look the same at the instant of asking.
 func (s *probeServer) waitForInput(t *testing.T, want string, expected bool) bool {
 	t.Helper()
 	wait := 3 * time.Second
@@ -66,8 +63,7 @@ func (s *probeServer) say(out string) {
 	}
 }
 
-// startShellProbeServer brings up the server, answering the login-shell probe
-// with shell.
+// startShellProbeServer brings up the server, answering the login-shell probe with shell.
 func startShellProbeServer(t *testing.T, shell string) *probeServer {
 	t.Helper()
 	srv := &probeServer{shell: shell, opened: make(chan struct{})}
@@ -118,8 +114,8 @@ func (s *probeServer) serve(nc net.Conn, cfg *ssh.ServerConfig) {
 	}
 }
 
-// session answers a pty request, answers an exec with the configured login shell,
-// and on a shell request keeps the channel and records what is typed into it.
+// session answers a pty request, answers an exec with the configured login shell, and on
+// a shell request keeps the channel and records what is typed into it.
 func (s *probeServer) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 	for req := range reqs {
 		switch req.Type {
@@ -230,9 +226,8 @@ func TestScannerReadsOSC7(t *testing.T) {
 	}
 }
 
-// The network decides where the chunk boundaries fall, so the scanner has to
-// carry its state across them — including a split inside the ESC ] introducer and
-// inside the ST terminator.
+// The network decides where the chunk boundaries fall, so the scanner carries its state
+// across them — including a split inside the introducer and inside the terminator.
 func TestScannerSurvivesChunkSplits(t *testing.T) {
 	full := "output\r\n" + osc7("web1", "/srv/app") + "prompt$ "
 	for i := 1; i < len(full); i++ {
@@ -264,8 +259,8 @@ func TestScannerKeepsTheLatestReport(t *testing.T) {
 	}
 }
 
-// A sequence whose terminator never arrives must not grow the buffer without
-// bound, and what follows the cap must not be mistaken for a directory.
+// A sequence whose terminator never arrives must not grow the buffer without bound, and
+// what follows the cap must not be read as a directory.
 func TestScannerCapsAnUnterminatedPayload(t *testing.T) {
 	var s oscScanner
 	s.feed([]byte("\x1b]7;file://web1/" + strings.Repeat("a", maxOSCPayload+2048)))
@@ -281,8 +276,8 @@ func TestScannerCapsAnUnterminatedPayload(t *testing.T) {
 	}
 }
 
-// An OSC interrupted by another escape sequence is malformed; the one that starts
-// immediately afterwards is not, and is still read.
+// An OSC interrupted by another escape sequence is malformed; the one starting right
+// afterwards is not, and is still read.
 func TestScannerRecoversFromAnInterruptedOSC(t *testing.T) {
 	var s oscScanner
 	if _, ok := s.feed([]byte("\x1b]7;file://web1/tmp\x1b[0m")); ok {
@@ -293,8 +288,7 @@ func TestScannerRecoversFromAnInterruptedOSC(t *testing.T) {
 	}
 }
 
-// A pane reports no directory until its shell says one, and the whole path from
-// server bytes to Pane.Cwd works.
+// A pane reports no directory until its shell says one.
 func TestPaneCwdFollowsTheStream(t *testing.T) {
 	pr, pw := io.Pipe()
 	p := New(&sshx.Session{Stdin: nopWriteCloser{io.Discard}, Stdout: pr}, 80, 24, nil)
@@ -315,9 +309,8 @@ func TestPaneCwdFollowsTheStream(t *testing.T) {
 	}
 }
 
-// Which shells the prompt hook may be typed into, and which line each gets.
-// Everything else is left alone rather than sent a line it would answer with a
-// parse error.
+// Which shells the prompt hook may be typed into, and which line each gets. Everything
+// else is left alone rather than sent a line it would answer with a parse error.
 func TestCwdHookFor(t *testing.T) {
 	for _, c := range []struct{ shell, want string }{
 		{"/bin/bash", bashCwdHook},
@@ -339,8 +332,7 @@ func TestCwdHookFor(t *testing.T) {
 	}
 }
 
-// The hooks themselves: one line each, submitted, and hung off the right shell's
-// prompt machinery.
+// The hooks themselves: one line each, submitted, hung off the right prompt machinery.
 func TestCwdHooksAreOneSubmittedLine(t *testing.T) {
 	for name, hook := range map[string]string{"bash": bashCwdHook, "zsh": zshCwdHook} {
 		if !strings.HasSuffix(hook, "\r") {
@@ -355,8 +347,7 @@ func TestCwdHooksAreOneSubmittedLine(t *testing.T) {
 		if !strings.Contains(hook, `]7;file://`) {
 			t.Errorf("%s: the hook emits no OSC 7", name)
 		}
-		// It is typed at a prompt and echoed there, so its length is a user-visible
-		// cost. Two lines of an 80-column terminal is the budget.
+		// Echoed at a real prompt, so its length is a visible cost: two 80-column lines.
 		if len(hook) > 160 {
 			t.Errorf("%s: the hook is %d bytes; it is echoed at the prompt, keep it under 160", name, len(hook))
 		}
@@ -369,8 +360,8 @@ func TestCwdHooksAreOneSubmittedLine(t *testing.T) {
 	}
 }
 
-// The clean-up after the injection: the rows the shell echoed the hook into are
-// deleted from hop's own screen, and what was below them slides up into their place.
+// The clean-up after the injection: the echoed rows are deleted from hop's screen and
+// what was below slides up.
 func TestEraseEchoTakesTheEchoOffTheScreen(t *testing.T) {
 	pr, pw := io.Pipe()
 	repaints := make(chan struct{}, 8)
@@ -382,8 +373,8 @@ func TestEraseEchoTakesTheEchoOffTheScreen(t *testing.T) {
 	})
 	defer p.Close()
 
-	// Row 0 is the banner; row 1 is where the prompt was when the hook was typed, and
-	// the hook wraps from there. The prompt below it is where the cursor ends up.
+	// Row 0 is the banner, row 1 the prompt the hook was typed at and wraps from; the
+	// prompt below it is where the cursor ends up.
 	io.WriteString(pw, "banner\r\n"+echoOf(bashCwdHook)+"\r\nprompt$ ")
 	if !waitForView(p, "prompt$", 3*time.Second) {
 		t.Fatalf("the screen never filled; view:\n%s", p.View())
@@ -411,10 +402,8 @@ func TestEraseEchoTakesTheEchoOffTheScreen(t *testing.T) {
 	}
 }
 
-// The span is measured before the hook is written, so the host is free to print into
-// it afterwards — a slow dynamic MOTD does exactly that. Rows holding anything but
-// the echo are left alone: a visible line is a blemish, deleting the host's own
-// output would be a defect.
+// The span is measured before the hook is written, so the host can print into it —
+// a slow dynamic MOTD does. Rows holding anything but the echo are left alone.
 func TestEraseEchoDeclinesWhenTheHostPrintedIntoTheSpan(t *testing.T) {
 	pr, pw := io.Pipe()
 	p := New(&sshx.Session{Stdin: nopWriteCloser{io.Discard}, Stdout: pr}, 60, 12, nil)
@@ -433,8 +422,7 @@ func TestEraseEchoDeclinesWhenTheHostPrintedIntoTheSpan(t *testing.T) {
 	}
 }
 
-// Nor does it erase a span that holds no echo at all — the shell never ran the hook,
-// or something else has since redrawn the screen.
+// Nor does it erase a span holding no echo at all.
 func TestEraseEchoDeclinesWithoutAnEcho(t *testing.T) {
 	pr, pw := io.Pipe()
 	p := New(&sshx.Session{Stdin: nopWriteCloser{io.Discard}, Stdout: pr}, 60, 8, nil)
@@ -453,8 +441,8 @@ func TestEraseEchoDeclinesWithoutAnEcho(t *testing.T) {
 	}
 }
 
-// And it declines on geometry it cannot use: a span that reaches to or past the
-// cursor covers nothing, and one taller than the screen is not a span at all.
+// And it declines on geometry it cannot use: a span reaching past the cursor covers
+// nothing, and one taller than the screen is not a span.
 func TestEraseEchoDeclinesOnUntrustworthyGeometry(t *testing.T) {
 	pr, pw := io.Pipe()
 	p := New(&sshx.Session{Stdin: nopWriteCloser{io.Discard}, Stdout: pr}, 60, 8, nil)
@@ -475,9 +463,8 @@ func TestEraseEchoDeclinesOnUntrustworthyGeometry(t *testing.T) {
 	}
 }
 
-// echoOf renders a hook the way a shell echoes it at a prompt: the text that was
-// typed, after a prompt, without the kill-line prefix or the carriage return that
-// submitted it.
+// echoOf renders a hook the way a shell echoes it at a prompt: the typed text, without
+// the kill-line prefix or the carriage return that submitted it.
 func echoOf(hook string) string {
 	return "prompt$ " + strings.TrimSuffix(strings.TrimPrefix(hook, "\x15"), "\r")
 }
@@ -493,11 +480,9 @@ func drain(ch chan struct{}) {
 	}
 }
 
-// The login shell hop probed is what the *account* has, not necessarily what is on
-// the other end of the pty: a .bash_profile ending in `exec tmux attach`, or an sshd
-// ForceCommand, both answer "bash". A full-screen program owns the alt screen, so
-// nothing is typed while one does — typing a shell command into vim would edit
-// somebody's file.
+// The probed login shell is what the account has, not what is on the other end of the
+// pty: a .bash_profile ending in `exec tmux attach` answers "bash". A full-screen program
+// owns the alt screen, so nothing is typed while one does.
 func TestTrackCwdTypesNothingOntoTheAltScreen(t *testing.T) {
 	srv := startShellProbeServer(t, "/bin/bash")
 	cli := dialProbeServer(t, srv.addr)
@@ -510,8 +495,8 @@ func TestTrackCwdTypesNothingOntoTheAltScreen(t *testing.T) {
 	p := New(sess, 80, 24, nil)
 	defer p.Close()
 
-	// The far end takes the alt screen before the probe can come back, as a program
-	// launched from a login file does.
+	// The far end takes the alt screen before the probe comes back, as a program launched
+	// from a login file does.
 	srv.say("\x1b[?1049h")
 	deadline := time.Now().Add(3 * time.Second)
 	for !p.AltScreen() && time.Now().Before(deadline) {
@@ -528,9 +513,8 @@ func TestTrackCwdTypesNothingOntoTheAltScreen(t *testing.T) {
 	}
 }
 
-// A shell tab is closed with one keystroke, and the injection sequence spans seconds.
-// Closing the pane ends it: nothing is typed into the session afterwards, and nothing
-// is written to the emulator Close has torn down.
+// A tab is closed with one keystroke and the injection spans seconds, so closing the pane
+// ends it: nothing is typed afterwards, and nothing is written to the torn-down emulator.
 func TestTrackCwdStopsWhenThePaneCloses(t *testing.T) {
 	srv := startShellProbeServer(t, "/bin/bash")
 	cli := dialProbeServer(t, srv.addr)
@@ -543,7 +527,7 @@ func TestTrackCwdStopsWhenThePaneCloses(t *testing.T) {
 	p := New(sess, 80, 24, nil)
 
 	p.TrackCwd(cli, "")
-	// Close while the goroutine is still waiting on the shell's first output.
+	// Close while the goroutine is still waiting on the first output.
 	if err := p.Close(); err != nil && !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("Close: %v", err)
 	}
@@ -565,9 +549,8 @@ func waitForCwd(p *Pane, want string) bool {
 	return p.Cwd() == want
 }
 
-// The startup line is one submitted line whatever it is made of, and the cd comes
-// before the hook — so the hook's own trailing call reports the directory the
-// session is actually starting in, not the one it logged into.
+// The startup line is one submitted line whatever it is made of, cd first — so the hook's
+// trailing call reports where the session starts, not where it logged in.
 func TestStartupLine(t *testing.T) {
 	for _, c := range []struct{ name, dir, hook, want string }{
 		{"nothing to do", "", "", ""},
@@ -594,9 +577,8 @@ func TestStartupLine(t *testing.T) {
 	}
 }
 
-// The directory is one word to the shell whatever is in it: a space does not split
-// it, and a quote cannot end the quoting and start a command. A leading ~ is the
-// one thing left to the shell to expand, because "~/work" is what people type.
+// The directory is one word to the shell whatever is in it: a space does not split it and
+// a quote cannot start a command. A leading ~ is the one thing left for the shell.
 func TestShellQuotePath(t *testing.T) {
 	for _, c := range []struct{ dir, want string }{
 		{"/srv/app", "'/srv/app'"},
@@ -612,9 +594,8 @@ func TestShellQuotePath(t *testing.T) {
 	}
 }
 
-// A host with a default directory moves its shell there on connect. The shell here
-// is fish, which gets no OSC 7 hook — the cd is a line every shell understands, so
-// it goes in on its own.
+// A host with a default directory moves its shell there on connect. fish gets no OSC 7
+// hook, so the cd goes in on its own.
 func TestTrackCwdCdsIntoTheDefaultDirectory(t *testing.T) {
 	srv := startShellProbeServer(t, "/usr/bin/fish")
 	cli := dialProbeServer(t, srv.addr)

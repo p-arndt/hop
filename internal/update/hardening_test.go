@@ -1,8 +1,7 @@
 package update
 
-// Regression tests for the security hardening: each test encodes an attack that
-// the update path must refuse — hostile release metadata, plaintext downloads,
-// and oversized payloads that would otherwise install truncated.
+// Regression tests for the security hardening: each encodes an attack the update path
+// must refuse — hostile release metadata, plaintext downloads, oversized payloads.
 
 import (
 	"bytes"
@@ -40,10 +39,9 @@ func TestValidVersion(t *testing.T) {
 	}
 }
 
-// A tag carrying terminal escapes must be rejected at ingress — it would
-// otherwise flow into terminal output, the on-disk cache, and asset names. In
-// hop's case it would also land in a TUI footer that is itself emitting escape
-// sequences, where a stray one corrupts the whole screen.
+// A tag carrying terminal escapes must be rejected at ingress: it would otherwise flow
+// into terminal output, the on-disk cache, asset names, and a TUI footer that is itself
+// emitting escape sequences.
 func TestLatestReleaseRejectsHostileTag(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/repos/p-arndt/hop/releases/latest", func(w http.ResponseWriter, r *http.Request) {
@@ -102,9 +100,8 @@ func TestDownloadRejectsPlainHTTPAsset(t *testing.T) {
 	}
 }
 
-// The redirect policy installed by NewClient must refuse an https→http
-// downgrade or a hop off GitHub's hosts mid-chain, not just validate the
-// first URL.
+// The redirect policy must refuse an https→http downgrade or a hop off GitHub's hosts
+// mid-chain, not just validate the first URL.
 func TestNewClientRedirectPolicyBlocksDowngrade(t *testing.T) {
 	c := NewClient(&http.Client{Timeout: time.Second})
 	via := []*http.Request{{}}
@@ -137,9 +134,8 @@ func TestNewClientNilIsNotDefaultClient(t *testing.T) {
 	}
 }
 
-// A checksums line whose hash field isn't clean 64-char hex must never be
-// treated as this archive's entry — a hostile hash could carry terminal escapes
-// into the mismatch error, and a malformed line vouches for nothing.
+// A checksums line whose hash field is not clean 64-char hex must never be treated as
+// this archive's entry: it vouches for nothing, and could carry escapes into the error.
 func TestVerifyChecksumIgnoresMalformedHash(t *testing.T) {
 	name := "hop_9.9.9_linux_amd64.tar.gz"
 	hostile := "\x1b[31mEVIL\x1b[0m  " + name + "\n"
@@ -152,9 +148,8 @@ func TestVerifyChecksumIgnoresMalformedHash(t *testing.T) {
 	}
 }
 
-// Payloads past the cap must be an error, never a silent truncation — a
-// truncated binary passed checksum verification (which covers the compressed
-// archive, not what it inflates to) and would be installed as corrupt garbage.
+// Payloads past the cap must be an error, never a truncation: the checksum covers the
+// compressed archive, not what it inflates to, so a cut binary would install as garbage.
 func TestOversizedPayloadsRefused(t *testing.T) {
 	orig := maxAsset
 	t.Cleanup(func() { maxAsset = orig })

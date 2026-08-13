@@ -16,14 +16,12 @@ import (
 	"hop/internal/store"
 )
 
-// lostWait is how long a test gives a connection to notice it has gone. The notice
-// is a goroutine parked on ssh.Client.Wait, so it lands as soon as the transport
-// does; the second is slack for a loaded CI machine, not an expectation.
+// lostWait is how long a test gives a connection to notice it has gone. The notice lands
+// as soon as the transport does; the second is slack for a loaded CI machine.
 const lostWait = time.Second
 
-// A connection the far end closes is reported lost, and the report is what the UI
-// hangs its reconnect offer on: a dropped session that never announced itself is a
-// pane that has quietly stopped updating.
+// A connection the far end closes is reported lost — what the UI hangs its reconnect
+// offer on, since a drop that never announced itself is a pane that stopped updating.
 func TestLostFiresWhenTheServerGoesAway(t *testing.T) {
 	h, stop := serveCloseable(t)
 
@@ -52,9 +50,8 @@ func TestLostFiresWhenTheServerGoesAway(t *testing.T) {
 	}
 }
 
-// Closing the connection from this side fires it too. That is deliberate: the model
-// tells its own closes apart by *which* connection the loss names, and a close that
-// stayed silent would leave a goroutine parked for the life of the process.
+// Closing from this side fires it too, deliberately: the model tells its own closes apart
+// by which connection the loss names, and a silent close would park a goroutine forever.
 func TestLostFiresOnOurOwnClose(t *testing.T) {
 	h, _ := serveCloseable(t)
 
@@ -71,9 +68,8 @@ func TestLostFiresOnOurOwnClose(t *testing.T) {
 	}
 }
 
-// The keepalive probe is what makes a blackholed connection detectable at all, so
-// it has to be answered on a live one — and to fail on a dead one. A *failure*
-// reply counts as answered: the request type exists only to be replied to.
+// The keepalive probe is what makes a blackholed connection detectable, so it has to be
+// answered on a live one and fail on a dead one. A failure reply counts as answered.
 func TestKeepalivePing(t *testing.T) {
 	h, stop := serveCloseable(t)
 
@@ -94,9 +90,8 @@ func TestKeepalivePing(t *testing.T) {
 	}
 }
 
-// A zero Client — one that never connected — is not lost, and blocking on it never
-// fires. The TUI builds such clients in its own tests, and more to the point a nil
-// channel is the honest answer for a connection that does not exist.
+// A zero Client is not lost, and blocking on it never fires: a nil channel is the honest
+// answer for a connection that does not exist.
 func TestZeroClientIsNotLost(t *testing.T) {
 	var c Client
 	if c.IsLost() {
@@ -112,11 +107,9 @@ func TestZeroClientIsNotLost(t *testing.T) {
 	}
 }
 
-// serveCloseable starts an SSH server on loopback that lets anything in and hands
-// back the host that reaches it, plus a stop function that drops the connection from
-// the server's side — which is the event these tests are about. It points $HOME at a
-// temp dir holding the server's key, so the dial gets past host-key verification
-// without touching the developer's real ~/.ssh.
+// serveCloseable starts an SSH server on loopback that lets anything in, and hands back
+// the host reaching it plus a stop function that drops the connection server-side. $HOME
+// points at a temp dir holding the server's key, keeping the dial off the real ~/.ssh.
 func serveCloseable(t *testing.T) (store.Host, func()) {
 	t.Helper()
 	disableAgent(t)

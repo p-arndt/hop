@@ -12,9 +12,8 @@ import (
 	"hop/internal/terminal"
 )
 
-// clipModel builds a model with the clipboard writer replaced, and returns a
-// reader for whatever the sink was handed. A test must never write the clipboard
-// of the machine it is running on.
+// clipModel builds a model with the clipboard writer replaced and returns a reader for
+// whatever the sink was handed: a test must never write the real clipboard.
 func clipModel(on bool) (*model, *terminal.Pane, func() string) {
 	var mu sync.Mutex
 	var got string
@@ -28,10 +27,8 @@ func clipModel(on bool) (*model, *terminal.Pane, func() string) {
 	}
 	m.applyClipboard()
 
-	// The pane's output pump starts reading the moment New returns, so the yank must
-	// not be readable until the sink is installed — otherwise the pump can consume
-	// (and drop) the OSC 52 before armClipboard runs, which is a race the CI machine
-	// loses. A pipe holds the output back until arming is done, then delivers it.
+	// The output pump starts reading the moment New returns, so the pipe holds the yank
+	// back until the sink is installed — otherwise the pump can drop the OSC 52 first.
 	pr, pw := io.Pipe()
 	pane := terminal.New(&sshx.Session{
 		Stdin:  nopWriteCloser{io.Discard},
@@ -74,16 +71,13 @@ func TestRemoteYankReachesTheClipboard(t *testing.T) {
 	}
 }
 
-// With the setting off, the sequence is decoded and dropped. This is the point of
-// having the setting: everything running on the far end can reach this channel, not
-// only what you started.
+// With the setting off, the sequence is decoded and dropped — the point of the setting,
+// since everything on the far end can reach this channel.
 func TestRemoteYankIsDroppedWhenTheSettingIsOff(t *testing.T) {
 	_, pane, read := clipModel(false)
 	defer pane.Close()
 
-	// Nothing to wait for, so wait for the pane to have parsed the sequence at all —
-	// a directory report behind it would be the tell, but here the absence has to be
-	// given time to be an absence.
+	// Nothing to wait for, so the absence has to be given time to be an absence.
 	time.Sleep(200 * time.Millisecond)
 	if read() != "" {
 		t.Fatalf("the clipboard was written %q with the setting off", read())

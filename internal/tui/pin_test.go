@@ -138,9 +138,8 @@ func TestPinReorderOnUnpinnedHostSaysSo(t *testing.T) {
 	}
 }
 
-// A filter narrows the sections, it does not dissolve them: a pinned match still
-// sorts above an unpinned one, and a section with nothing left in it loses its
-// heading rather than drawing an empty block.
+// A filter narrows the sections rather than dissolving them: a pinned match still sorts
+// above an unpinned one, and an empty section loses its heading.
 func TestFilterKeepsSections(t *testing.T) {
 	m := hostMgmtModel(t,
 		store.Host{Alias: "alpha", HostName: "a.test", Visits: 30},
@@ -202,9 +201,8 @@ func TestRenderListDrawsSections(t *testing.T) {
 	}
 }
 
-// The mouse maps rows through the same bookkeeping the renderer uses, so with the
-// sections on a click still lands on the host under the pointer — and a click on a
-// heading selects nothing.
+// The mouse maps rows through the renderer's own bookkeeping, so with the sections on a
+// click still lands on the host under the pointer, and a heading selects nothing.
 func TestClickWithSections(t *testing.T) {
 	m := pinModel(t)
 	m.cursor = 2
@@ -227,10 +225,9 @@ func TestClickWithSections(t *testing.T) {
 	}
 }
 
-// A filter must not reshuffle the PINNED section: it is drawn in the order the
-// user arranged, whatever the fuzzy matcher thinks of the aliases, because that is
-// the order shift+j/k move in. Drawing it by match score would leave the reorder
-// keys moving a host somewhere other than where it appears to be.
+// A filter must not reshuffle the PINNED section: it is drawn in the order the user
+// arranged, which is the order shift+j/k move in. By match score, the reorder keys would
+// move a host somewhere other than where it appears to be.
 func TestFilterKeepsPinOrder(t *testing.T) {
 	m := hostMgmtModel(t,
 		store.Host{Alias: "prod", HostName: "p.test", Visits: 30},
@@ -251,9 +248,8 @@ func TestFilterKeepsPinOrder(t *testing.T) {
 		t.Fatalf("filtered pinned order = %v, want the pin order %v", got, want)
 	}
 
-	// And the reorder keys agree with what is drawn: shift+k on the second row
-	// moves it above the first, rather than asking the store to move a host that
-	// was already at the top.
+	// And the reorder keys agree with what is drawn: shift+k on the second row moves it
+	// above the first.
 	m.cursor = 1
 	m.handleKey(key(t, "K"))
 	if got, want := listOrder(m), []string{"dev", "prod"}; strings.Join(got, ",") != strings.Join(want, ",") {

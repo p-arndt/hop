@@ -17,9 +17,8 @@ import (
 	"hop/internal/terminal"
 )
 
-// newMouseModel builds a model in navigation mode with n hosts and a window where
-// the sidebar is 32 columns wide, the list shows 15 rows and its first host row is
-// screen row 3.
+// newMouseModel builds a model in navigation mode with n hosts, a 32-column sidebar, 15
+// list rows and the first host on screen row 3.
 func newMouseModel(n int) *model {
 	hosts := make([]store.Host, n)
 	filtered := make([]int, n)
@@ -111,9 +110,8 @@ func TestWheelOverList(t *testing.T) {
 	}
 }
 
-// A click stands the cursor on the host it landed on. The rows above the list — the
-// heading, and the filter prompt when there is one — are not hosts, and a click on
-// them leaves the cursor where it was.
+// A click stands the cursor on the host it landed on. The rows above the list are not
+// hosts, and a click on them leaves the cursor where it was.
 func TestClickSelectsHost(t *testing.T) {
 	m := newMouseModel(6)
 
@@ -193,10 +191,8 @@ func TestDoubleClickConnects(t *testing.T) {
 		}
 	})
 
-	// The list re-scrolls around the cursor a click has just moved, so the row under
-	// the pointer can hold a different host by the time the second click arrives. Two
-	// clicks on one *row* are then two clicks on two hosts, and must connect to
-	// neither: the chord is keyed on the host, not the row it was drawn on.
+	// The list re-scrolls around the cursor a click has just moved, so two clicks on one
+	// row can be two clicks on two hosts. The chord is keyed on the host, not the row.
 	t.Run("the same row, a different host", func(t *testing.T) {
 		m := newMouseModel(30)
 		m.cursor = 20 // the window starts at 6; the top row is host 6
@@ -245,9 +241,8 @@ func TestClickInSidebarLeavesThePane(t *testing.T) {
 	}
 }
 
-// A card takes every event while it is up, the same way it takes every key: an event
-// that fell through onto the list behind it would be the trap the modal ordering
-// exists to prevent.
+// A card takes every event while it is up, as it takes every key: one falling through
+// onto the list behind it is the trap the modal ordering prevents.
 func TestModalCardSwallowsMouse(t *testing.T) {
 	m := newMouseModel(6)
 	m.help = true
@@ -368,9 +363,8 @@ func (f mouseSFTP) List(string) ([]sftpx.Entry, error) { return f.ents, nil }
 func (mouseSFTP) Download(_, _ string) (int64, error)  { return 0, nil }
 func (mouseSFTP) Close() error                         { return nil }
 
-// A double-click in the browser opens what it landed on — enter, by pointing. The
-// row is mapped through the pane's borders and then through the browser's own header
-// and rule, so the entry that opens is the one under the pointer.
+// A double-click in the browser opens what it landed on. The row is mapped through the
+// pane's borders and the browser's own header and rule.
 func TestDoubleClickInBrowserOpens(t *testing.T) {
 	br, err := filebrowser.New(
 		mouseSFTP{ents: []sftpx.Entry{{Name: "logs", IsDir: true}, {Name: "app.conf", Size: 12}}},
@@ -412,9 +406,8 @@ func scrollbackPane(t *testing.T) *terminal.Pane {
 	return p
 }
 
-// Nothing on the far end asked for the mouse, so the wheel over a shell is hop's:
-// it pauses into the history shift+↑ opens, and scrolling back to the live bottom
-// hands the shell its keyboard back — the same exit the keys have.
+// Nothing on the far end asked for the mouse, so the wheel over a shell is hop's: it
+// pauses into history, and scrolling back to live hands the keyboard back.
 func TestWheelOverShellDrivesScrollback(t *testing.T) {
 	m := newMouseModel(3)
 	m.active = "ha"
@@ -445,9 +438,9 @@ func TestWheelOverShellDrivesScrollback(t *testing.T) {
 	}
 }
 
-// Switching the mouse off has to reach the *user's* terminal, which only Bubble Tea
-// can address — so the setting comes back as a command. A settings edit that did not
-// touch the field sends nothing: mouseOn is what hop last asked the terminal for.
+// Switching the mouse off has to reach the user's terminal, which only Bubble Tea can
+// address, so it comes back as a command. An edit that did not touch the field sends
+// nothing: mouseOn is what hop last asked for.
 func TestApplyMouseOnlySpeaksWhenItChanges(t *testing.T) {
 	m := newMouseModel(1)
 	m.mouseOn = true // as Init left it, the setting being on by default

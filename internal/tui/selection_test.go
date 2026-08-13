@@ -13,10 +13,10 @@ import (
 	"hop/internal/terminal"
 )
 
-// selModel builds a focused shell on a pane that has printed text, with the
-// clipboard writer replaced — a test must never write the clipboard of the machine
-// it runs on. It returns a reader for whatever was copied.
-// marker is the text the screen ends with, waited for before a test points at it.
+// selModel builds a focused shell on a pane that has printed text, with the clipboard
+// writer replaced: a test must never write the clipboard of the machine it runs on. It
+// returns a reader for whatever was copied. marker is the text the screen ends with,
+// waited for before a test points at it.
 func selModel(t *testing.T, screen, marker string) (*model, func() string) {
 	t.Helper()
 
@@ -93,9 +93,8 @@ func TestDragOverShellSelectsAndCopies(t *testing.T) {
 	}
 }
 
-// A click that never moved selects nothing, and nothing is what it copies: a
-// pointer resting on a pane must not clear the clipboard somebody was about to
-// paste from.
+// A click that never moved selects nothing and copies nothing: a pointer resting on a
+// pane must not clear the clipboard somebody was about to paste from.
 func TestClickWithoutDragCopiesNothing(t *testing.T) {
 	m, copied := selModel(t, "sudo apt update\r\n", "sudo apt update")
 
@@ -168,9 +167,8 @@ func TestRemoteMouseKeepsTheDrag(t *testing.T) {
 	}
 }
 
-// ctrl+g hands the pointer back to the terminal and takes it again — the escape
-// hatch for the selections hop's own does not cover (across the sidebar, the
-// footer, or into a terminal feature that wants the mouse).
+// ctrl+g hands the pointer back to the terminal and takes it again — the escape hatch for
+// the selections hop's own does not cover.
 func TestToggleMouseKeyHandsThePointerOver(t *testing.T) {
 	m := newMouseModel(3)
 	m.mouseOn = true
@@ -229,11 +227,9 @@ func TestReleaseWithoutAButtonStillCopies(t *testing.T) {
 	}
 }
 
-// A drag that runs off the pane still ends when the button comes up. Releasing
-// over the sidebar never reaches the pane's selection code, and a drag left live
-// there would make the *next* release over the pane — one whose press hop never saw
-// — finish a gesture nobody was making, copying a span anchored where the
-// abandoned drag started.
+// A drag that runs off the pane still ends when the button comes up. Releasing over the
+// sidebar never reaches the pane's selection code, and a drag left live there would make
+// the next release finish a gesture nobody was making.
 func TestDragReleasedOutsideThePaneEnds(t *testing.T) {
 	m, copied := selModel(t, "sudo apt update\r\n", "sudo apt update")
 

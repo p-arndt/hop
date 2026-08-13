@@ -1,6 +1,5 @@
-// Command hop is a Windows-first TUI SSH/server connection manager with
-// embedded terminal panes. Run with no arguments to launch the TUI; the
-// subcommands below manage the host store from the command line.
+// Command hop is a Windows-first TUI SSH connection manager with embedded terminal panes.
+// Run with no arguments to launch the TUI; the subcommands manage the host store.
 package main
 
 import (
@@ -22,9 +21,8 @@ import (
 func main() {
 	args := os.Args[1:]
 
-	// A previous self-update on Windows leaves the old binary beside the new one
-	// (a running .exe can be renamed but not deleted). Sweep it up now that it is
-	// no longer running.
+	// A previous self-update on Windows leaves the old binary beside the new one, since a
+	// running .exe can be renamed but not deleted.
 	update.CleanupLeftovers()
 
 	// Handle commands that don't need the store first.
@@ -68,19 +66,17 @@ func main() {
 		usage()
 	}
 
-	// A one-line hint on stderr — never stdout, so `hop list` stays pipeable.
-	// It reports the previous check and refreshes the cache for the next run;
-	// the TUI shows the same thing in its footer.
+	// A one-line hint on stderr, never stdout, so `hop list` stays pipeable. It reports
+	// the previous check and refreshes the cache for the next run.
 	update.NotifyIfAvailable(os.Stderr, buildinfo.Version)
 }
 
-// updateTimeout bounds the whole check-download-verify-install cycle. Generous
-// compared to the passive notice, since the user explicitly asked for it.
+// updateTimeout bounds the whole check-download-verify-install cycle, generously: the
+// user explicitly asked for it.
 const updateTimeout = 60 * time.Second
 
-// cmdUpdate backs `hop self-update` and, with checkOnly, `hop check-update`:
-// the first replaces the running binary with the latest release once its
-// checksum verifies, the second only reports whether a newer one exists.
+// cmdUpdate backs `hop self-update` and, with checkOnly, `hop check-update`: the first
+// replaces the running binary once the checksum verifies, the second only reports.
 func cmdUpdate(checkOnly bool) {
 	current := buildinfo.Version
 	client := update.NewClient(&http.Client{Timeout: updateTimeout})

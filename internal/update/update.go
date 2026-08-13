@@ -1,15 +1,13 @@
-// Package update handles self-updating the hop binary from GitHub Releases and
-// the lightweight "a newer version is available" notice.
+// Package update handles self-updating the hop binary from GitHub Releases and the
+// "a newer version is available" notice.
 //
-// The release pipeline publishes one archive per platform named
-// hop_<version>_<goos>_<goarch>.{tar.gz,zip} plus a checksums file (see
-// .github/workflows/release.yml). Update downloads the archive matching the
-// running platform, verifies its SHA-256 against that checksums file, extracts
-// the binary, and atomically swaps it in place of the running executable.
+// The release pipeline publishes one archive per platform, hop_<version>_<goos>_<goarch>
+// .{tar.gz,zip}, plus a checksums file. Update downloads the archive matching the running
+// platform, verifies its SHA-256 against that file, extracts the binary, and atomically
+// swaps it in place of the running executable.
 //
-// Everything that touches the network goes through Client so tests can point at
-// a local server; the version math, checksum verification, and archive
-// extraction are pure functions.
+// Everything touching the network goes through Client so tests can point at a local
+// server; the version math, checksum verification and extraction are pure functions.
 package update
 
 import (
@@ -35,27 +33,22 @@ import (
 	"time"
 )
 
-// Repo coordinates for the published releases. Kept here so both the updater and
-// the notice point at the same place.
+// Repo coordinates for the published releases, shared by the updater and the notice.
 const (
 	repoOwner = "p-arndt"
 	repoName  = "hop"
 )
 
-// maxAsset caps how many bytes we accept from a release asset — both the
-// downloaded archive and the binary extracted from it — so a hostile or corrupt
-// response can't exhaust memory. Exceeding it is always an error, never a silent
-// truncation: installing a truncated binary would brick the user's hop.
-// Release binaries are a few MB. A var only so tests can shrink it.
+// maxAsset caps how many bytes we accept from a release asset — the archive and the
+// binary inside it — so a hostile or corrupt response can't exhaust memory. Exceeding it
+// is an error, never a truncation: a truncated binary would brick the user's hop. A var
+// only so tests can shrink it.
 var maxAsset = int64(64 << 20) // 64 MiB
 
-// maxChecksums caps the checksums file, which is a few hundred bytes in a
-// genuine release — there is no reason to buffer megabytes of "checksums" a
-// hostile release asset serves up.
+// maxChecksums caps the checksums file, a few hundred bytes in a genuine release.
 const maxChecksums = int64(1 << 20) // 1 MiB
 
-// Client talks to the GitHub Releases API. The zero value is not usable; use
-// NewClient. APIBase and HTTP are overridable in tests.
+// Client talks to the GitHub Releases API. The zero value is not usable; use NewClient.
 type Client struct {
 	HTTP    *http.Client
 	APIBase string // e.g. "https://api.github.com"
@@ -63,12 +56,10 @@ type Client struct {
 	Repo    string
 }
 
-// NewClient returns a Client pointed at github.com with the given HTTP client
-// (nil gets a fresh client with a sane timeout — never http.DefaultClient, which
-// has no timeout and is a shared global we must not mutate). The client is given
-// a redirect policy that keeps every hop on https: the checksum only vouches for
-// the download if the whole chain is authenticated, because the checksums file
-// travels over the same channel an attacker would use to swap the archive.
+// NewClient returns a Client pointed at github.com. A nil HTTP client gets a fresh one
+// with a timeout — never http.DefaultClient, which has none and is a shared global. The
+// redirect policy keeps every hop on https: the checksum only vouches for the download
+// if the whole chain is authenticated.
 func NewClient(hc *http.Client) *Client {
 	if hc == nil {
 		hc = &http.Client{Timeout: 30 * time.Second}
@@ -84,14 +75,11 @@ func NewClient(hc *http.Client) *Client {
 	return &Client{HTTP: hc, APIBase: "https://api.github.com", Owner: repoOwner, Repo: repoName}
 }
 
-// allowedURL rejects any download URL that isn't https to a GitHub-controlled
-// host. The release metadata — including asset URLs — is input, not truth:
-// following a plain-http URL (or a redirect hop onto one) would let an on-path
-// attacker substitute both the archive and the checksums file that vouches for
-// it, making verification meaningless. Plain http is tolerated only for
-// loopback, so tests can run a local server. The error deliberately doesn't
-// echo the URL: it's untrusted bytes that would otherwise land on the user's
-// terminal.
+// allowedURL rejects any download URL that isn't https to a GitHub-controlled host. The
+// release metadata is input, not truth: a plain-http URL, or a redirect onto one, would
+// let an on-path attacker substitute both the archive and the checksums file vouching
+// for it. Plain http is tolerated only for loopback, so tests can run a local server.
+// The error does not echo the URL — untrusted bytes bound for the user's terminal.
 func allowedURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -109,9 +97,8 @@ func allowedURL(raw string) error {
 }
 
 // isGitHubHost reports whether host is one GitHub serves releases from: the API,
-// the release download path on github.com, and the *.githubusercontent.com CDN
-// hosts those downloads redirect to. Matching is on whole labels — a lookalike
-// like "evilgithubusercontent.com" or "github.com.evil.example" must not pass.
+// github.com, and the *.githubusercontent.com CDN it redirects to. Matching is on whole
+// labels, so "evilgithubusercontent.com" does not pass.
 func isGitHubHost(host string) bool {
 	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	switch host {
@@ -130,12 +117,9 @@ func isLoopback(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// validVersion reports whether v is a plausible release version: bounded length,
-// starts with a digit, and only semver characters. Everything else — including
-// terminal escape sequences smuggled into a tag name — is rejected at ingress,
-// because versions get printed to the user's terminal (and into a TUI that is
-// itself drawing escape sequences), cached on disk, and interpolated into asset
-// file names.
+// validVersion reports whether v is a plausible release version: bounded length, starts
+// with a digit, only semver characters. Rejected at ingress because versions are printed
+// to the terminal, cached on disk, and interpolated into asset file names.
 func validVersion(v string) bool {
 	if len(v) == 0 || len(v) > 64 || v[0] < '0' || v[0] > '9' {
 		return false
@@ -164,7 +148,7 @@ type Release struct {
 	Assets []Asset `json:"assets"`
 }
 
-// LatestRelease fetches the latest non-prerelease, non-draft release. GitHub's
+// LatestRelease fetches the latest non-prerelease, non-draft release; GitHub's
 // /releases/latest endpoint already excludes both.
 func (c *Client) LatestRelease(ctx context.Context) (*Release, error) {
 	u := fmt.Sprintf("%s/repos/%s/%s/releases/latest", strings.TrimRight(c.APIBase, "/"), c.Owner, c.Repo)
@@ -183,28 +167,24 @@ func (c *Client) LatestRelease(ctx context.Context) (*Release, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		// StatusCode, not Status: the status line is server-supplied text and
-		// this message reaches the terminal.
+		// StatusCode, not Status: the status line is server text bound for the terminal.
 		return nil, fmt.Errorf("github returned HTTP %d", resp.StatusCode)
 	}
 	var rel Release
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&rel); err != nil {
 		return nil, fmt.Errorf("decoding release: %w", err)
 	}
-	// The tag is untrusted input that flows into terminal output, the on-disk
-	// cache, and asset-name matching — reject anything that isn't a clean
-	// version before it goes anywhere.
+	// The tag flows into terminal output, the cache and asset-name matching, so reject
+	// anything that is not a clean version here.
 	if !validVersion(strings.TrimPrefix(rel.Tag, "v")) {
 		return nil, fmt.Errorf("release tag is not a plausible version — refusing it")
 	}
 	return &rel, nil
 }
 
-// download fetches an asset into memory. It refuses URLs that fail allowedURL
-// (the asset URL comes from untrusted release metadata) and errors — rather
-// than silently truncating — when the body exceeds limit. what names the asset
-// in errors, since the URL itself is untrusted bytes we won't echo to the
-// terminal.
+// download fetches an asset into memory. It refuses URLs that fail allowedURL and
+// errors, rather than truncating, when the body exceeds limit. what names the asset in
+// errors, since the URL is untrusted bytes we won't echo.
 func (c *Client) download(ctx context.Context, url, what string, limit int64) ([]byte, error) {
 	if err := allowedURL(url); err != nil {
 		return nil, fmt.Errorf("%s: %w", what, err)
@@ -240,8 +220,8 @@ func BinaryName(goos string) string {
 	return "hop"
 }
 
-// ArchiveName is the release archive file name for a platform and version,
-// matching what the release workflow produces.
+// ArchiveName is the release archive file name for a platform and version, matching
+// what the release workflow produces.
 func ArchiveName(version, goos, goarch string) string {
 	ext := "tar.gz"
 	if goos == "windows" {
@@ -255,8 +235,8 @@ func ChecksumsName(version string) string {
 	return fmt.Sprintf("hop_%s_checksums.txt", version)
 }
 
-// findAsset returns the asset with the given name, or an error naming what was
-// looked for (helps diagnose a platform the release didn't build for).
+// findAsset returns the asset with the given name, or an error naming what was looked
+// for — which diagnoses a platform the release didn't build for.
 func findAsset(assets []Asset, name string) (Asset, error) {
 	for _, a := range assets {
 		if a.Name == name {
@@ -273,14 +253,12 @@ func verifyChecksum(archive []byte, archiveName string, checksums []byte) error 
 	want := hex.EncodeToString(sum[:])
 	for line := range strings.SplitSeq(string(checksums), "\n") {
 		fields := strings.Fields(line)
-		// Only well-formed lines (64 hex chars + name) can match at all. This is
-		// also what keeps the mismatch message below safe to print: the checksums
-		// file is untrusted, and a non-hex "hash" could smuggle terminal escapes
-		// into the error output.
+		// Only well-formed lines (64 hex chars + name) can match, which is also what
+		// keeps the mismatch message below safe to print.
 		if len(fields) != 2 || !isHex64(fields[0]) {
 			continue
 		}
-		// sha256sum prefixes the name with "*" in binary mode; tolerate it.
+		// sha256sum prefixes the name with "*" in binary mode.
 		if strings.TrimPrefix(fields[1], "*") == archiveName {
 			if strings.EqualFold(fields[0], want) {
 				return nil
@@ -300,8 +278,8 @@ func isHex64(s string) bool {
 	return err == nil
 }
 
-// extractBinary pulls the named binary out of a release archive. isZip selects
-// zip (Windows) vs tar.gz (everything else).
+// extractBinary pulls the named binary out of a release archive: zip on Windows,
+// tar.gz everywhere else.
 func extractBinary(archive []byte, binName string, isZip bool) ([]byte, error) {
 	if isZip {
 		return extractFromZip(archive, binName)
@@ -350,10 +328,9 @@ func extractFromTarGz(archive []byte, binName string) ([]byte, error) {
 	return nil, fmt.Errorf("%s not found in archive", binName)
 }
 
-// readAllCapped reads r up to maxAsset bytes and errors if there is more. The
-// checksum covers the compressed archive, not what it inflates to — so a binary
-// that decompresses past the cap must fail here rather than be silently cut off
-// and installed as a corrupt executable over the user's working one.
+// readAllCapped reads r up to maxAsset bytes and errors if there is more. The checksum
+// covers the compressed archive, not what it inflates to, so a binary that decompresses
+// past the cap must fail rather than be installed truncated.
 func readAllCapped(r io.Reader) ([]byte, error) {
 	data, err := io.ReadAll(io.LimitReader(r, maxAsset+1))
 	if err != nil {
@@ -367,12 +344,10 @@ func readAllCapped(r io.Reader) ([]byte, error) {
 
 // replaceExecutable atomically swaps the file at exePath for newBin.
 //
-// The new binary is written to a temp file in the same directory (so the final
-// rename stays on one filesystem and is atomic). On Windows a running .exe
-// cannot be deleted or overwritten, but it can be renamed, so the current file
-// is moved aside to "<exe>.old" first; that leftover is cleaned up on the next
-// run (see CleanupLeftovers). Windows is hop's first-class platform, so this
-// path is the one that has to be right.
+// The new binary is written to a temp file in the same directory, so the final rename
+// stays on one filesystem. On Windows a running .exe cannot be deleted or overwritten
+// but can be renamed, so the current file is moved aside to "<exe>.old" first and
+// cleaned up on the next run (see CleanupLeftovers).
 func replaceExecutable(exePath string, newBin []byte) error {
 	dir := filepath.Dir(exePath)
 	tmp, err := os.CreateTemp(dir, ".hop-update-*")
@@ -380,7 +355,7 @@ func replaceExecutable(exePath string, newBin []byte) error {
 		return fmt.Errorf("cannot write to %s (%w) — reinstall hop or run with sufficient permissions", dir, err)
 	}
 	tmpName := tmp.Name()
-	// Clean up the temp file on any failure before the final rename succeeds.
+	// Clean up the temp file on any failure before the rename succeeds.
 	success := false
 	defer func() {
 		if !success {
@@ -406,7 +381,7 @@ func replaceExecutable(exePath string, newBin []byte) error {
 			return fmt.Errorf("cannot move current binary aside (%w) — is another hop running?", err)
 		}
 		if err := os.Rename(tmpName, exePath); err != nil {
-			// Put the original back so the user isn't left without a binary.
+			// Put the original back rather than leave the user without a binary.
 			os.Rename(old, exePath)
 			return err
 		}
@@ -418,9 +393,8 @@ func replaceExecutable(exePath string, newBin []byte) error {
 	return nil
 }
 
-// CleanupLeftovers best-effort removes the "<exe>.old" file left by a prior
-// Windows self-update. Called once at startup; a no-op if there's nothing to do
-// or the file is still locked.
+// CleanupLeftovers removes the "<exe>.old" file left by a prior Windows self-update.
+// Called once at startup, best effort.
 func CleanupLeftovers() {
 	exe, err := os.Executable()
 	if err != nil {
@@ -432,9 +406,8 @@ func CleanupLeftovers() {
 	os.Remove(exe + ".old")
 }
 
-// executablePath resolves the running binary to a real, symlink-free path so the
-// swap targets the actual file rather than a symlink pointing at it. It's a var
-// so tests can point the swap at a throwaway file.
+// executablePath resolves the running binary to a symlink-free path, so the swap
+// targets the file rather than a symlink to it. A var so tests can redirect it.
 var executablePath = func() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -451,10 +424,9 @@ type Result struct {
 	ExePath string // the binary that was (or would be) replaced
 }
 
-// SelfUpdate checks for a newer release and, unless checkOnly, downloads,
-// verifies, and installs it in place of the running binary. current is the
-// running version (without a leading "v"). It refuses to act on "dev"/source
-// builds, which have no release to compare against.
+// SelfUpdate checks for a newer release and, unless checkOnly, downloads, verifies and
+// installs it over the running binary. current is the running version without a leading
+// "v". It refuses to act on dev/source builds, which have no release to compare against.
 func (c *Client) SelfUpdate(ctx context.Context, current string, checkOnly bool) (*Result, error) {
 	if isDevVersion(current) {
 		return nil, fmt.Errorf("this is a %q build, not an installed release — build from source or download a release binary to get updates", current)
@@ -518,8 +490,7 @@ func (c *Client) SelfUpdate(ctx context.Context, current string, checkOnly bool)
 	return res, nil
 }
 
-// isDevVersion reports whether v is a non-release build (the buildinfo default,
-// or a bare "go run"/"go install" with no injected version).
+// isDevVersion reports whether v is a non-release build.
 func isDevVersion(v string) bool {
 	v = strings.TrimSpace(v)
 	return v == "" || v == "dev" || v == "(devel)"
@@ -533,9 +504,9 @@ func IsNewer(latest, current string) bool {
 	return CompareVersions(latest, current) > 0
 }
 
-// CompareVersions compares two semver-ish versions, returning -1, 0, or 1.
-// A leading "v" and build metadata ("+...") are ignored. A version with a
-// pre-release suffix ("-pre.1") sorts below the same version without one.
+// CompareVersions compares two semver-ish versions, returning -1, 0 or 1. A leading
+// "v" and build metadata are ignored; a pre-release suffix sorts below the same version
+// without one.
 func CompareVersions(a, b string) int {
 	a = normalizeVersion(a)
 	b = normalizeVersion(b)
@@ -573,8 +544,7 @@ func splitPrerelease(v string) (core, pre string) {
 	return v, ""
 }
 
-// compareCore compares dot-separated numeric cores (MAJOR.MINOR.PATCH), missing
-// fields treated as 0.
+// compareCore compares dot-separated numeric cores, missing fields treated as 0.
 func compareCore(a, b string) int {
 	as := strings.Split(a, ".")
 	bs := strings.Split(b, ".")
@@ -610,9 +580,9 @@ func compareNumericField(a, b string) int {
 	return strings.Compare(a, b)
 }
 
-// comparePrerelease applies semver precedence to dot-separated pre-release
-// identifiers: numeric compared as numbers, numeric below alphanumeric, and a
-// shorter set below a longer one when the shared prefix is equal.
+// comparePrerelease applies semver precedence to dot-separated pre-release identifiers:
+// numeric compared as numbers, numeric below alphanumeric, and a shorter set below a
+// longer one when the shared prefix is equal.
 func comparePrerelease(a, b string) int {
 	as := strings.Split(a, ".")
 	bs := strings.Split(b, ".")

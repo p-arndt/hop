@@ -9,9 +9,8 @@ import (
 	"hop/internal/sshx"
 )
 
-// A shell that has not asked to be told about pastes gets the text and nothing
-// else; the program that asks — the DECSET vim, zsh and readline all send — gets it
-// wrapped, and stops getting it wrapped when it leaves.
+// A shell that has not asked to be told about pastes gets the text and nothing else; one
+// that asks gets it wrapped, and stops when it leaves.
 func TestBracketedPasteFollowsTheRemote(t *testing.T) {
 	out, w := io.Pipe()
 	stdin := &syncBuf{}
@@ -44,10 +43,9 @@ func TestBracketedPasteFollowsTheRemote(t *testing.T) {
 	}
 }
 
-// A full reset takes the mode with it. The emulator rewrites its mode map without
-// telling anyone, so the scan for RIS is the only warning hop gets — and a shadow
-// left believing the program before the reset would bracket a paste no one is
-// reading brackets for, putting ESC[200~ on the command line.
+// A full reset takes the mode with it. The emulator rewrites its mode map without telling
+// anyone, so the scan for RIS is the only warning — and a stale shadow would put
+// ESC[200~ on a command line nobody is reading brackets on.
 func TestResetClearsBracketedPaste(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
@@ -64,9 +62,8 @@ func TestResetClearsBracketedPaste(t *testing.T) {
 	}
 }
 
-// A paste of nothing — an empty clipboard, or one holding only characters that are
-// dropped — writes nothing at all. The brackets alone would knock a program into
-// and out of paste mode for no text.
+// A paste of nothing writes nothing at all: the brackets alone would knock a program
+// into and out of paste mode for no text.
 func TestEmptyPasteWritesNothing(t *testing.T) {
 	stdin := &syncBuf{}
 	p := New(&sshx.Session{Stdin: stdin, Stdout: strings.NewReader("")}, 80, 24, nil)
@@ -79,9 +76,8 @@ func TestEmptyPasteWritesNothing(t *testing.T) {
 	}
 }
 
-// The payload itself: line endings become the carriage return a pty reads as
-// Enter, and what is done with the control characters turns on whether the far end
-// knows this is a paste.
+// The payload: line endings become the carriage return a pty reads as Enter, and what is
+// done with the control characters turns on whether the far end knows this is a paste.
 func TestPasteText(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -133,10 +129,8 @@ func TestPasteText(t *testing.T) {
 			want:      "safemore",
 		},
 		{
-			// One pass over this splices a whole terminator out of the bytes left
-			// behind, which then reaches the remote intact and ends the paste early —
-			// everything after it read as keystrokes. The strip repeats until the text
-			// stops changing.
+			// One pass splices a whole terminator out of the bytes left behind, ending
+			// the paste early. The strip repeats until the text stops changing.
 			name:      "bracketed, a terminator hidden inside a terminator goes too",
 			in:        "safe\x1b[2\x1b[201~01~rm -rf /",
 			bracketed: true,
@@ -159,10 +153,9 @@ func TestPasteText(t *testing.T) {
 	}
 }
 
-// A Go string can hold any bytes at all, and a clipboard filled from a terminal
-// that was showing mojibake holds exactly that. What comes out of here is always
-// characters: the far end is a UTF-8 pty, and a byte that is not part of one is not
-// input — it is a byte typed onto somebody's command line that nothing can read.
+// A Go string can hold any bytes at all, and a clipboard filled from a terminal showing
+// mojibake holds exactly that. What comes out of here is always characters: the far end
+// is a UTF-8 pty.
 func TestPasteDropsBytesThatAreNotCharacters(t *testing.T) {
 	// A truncated UTF-8 sequence between two words: what a half-copied emoji is.
 	raw := "echo \xf0\x9f hi"

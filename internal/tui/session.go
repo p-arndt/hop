@@ -11,9 +11,8 @@ import (
 	"hop/internal/terminal"
 )
 
-// session bundles a live SSH client with the shells open on it and/or an
-// optional SFTP file browser. A session may hold only a browser (browser-only,
-// no shells) when the SFTP view was opened for a host without a live shell.
+// session bundles a live SSH client with the shells open on it and an optional SFTP file
+// browser. It may hold only a browser, when SFTP was opened for a host with no shell.
 type session struct {
 	client *sshx.Client
 
@@ -21,9 +20,9 @@ type session struct {
 	// their persistent id. A connection may be tunnel-only, with no visible pane.
 	tunnels map[int64]*sshx.Tunnel
 
-	// shells are the interactive shells open on this host, shown as tabs when
-	// there is more than one. activeSh indexes into it. Each is its own channel on
-	// the one connection, so a second shell costs no handshake.
+	// shells are the interactive shells open on this host, shown as tabs when there is
+	// more than one; activeSh indexes into it. Each is its own channel on the one
+	// connection, so a second shell costs no handshake.
 	shells   []*shellTab
 	activeSh int
 
@@ -34,29 +33,24 @@ type session struct {
 	editors  []*editorTab
 	activeEd int
 
-	// dead is set once the connection under this session has dropped. Everything on
-	// it — shells, browser, editors — is finished, but the session is deliberately
-	// kept: the panes still hold the last screen the host drew, which is the thing
-	// you want to read when a link goes down, and the session is what 'r' reconnects.
-	// While it is set, no key reaches the remote and nothing here is torn down until
-	// the user reconnects or drops it.
+	// dead is set once the connection under this session has dropped. The session is kept
+	// anyway: the panes still hold the last screen the host drew, and it is what 'r'
+	// reconnects. While it is set, no key reaches the remote and nothing is torn down.
 	dead bool
-	// lostWhy is what the transport reported when it went, for the banner. It is
-	// often empty (a clean close from the far end says nothing).
+	// lostWhy is what the transport reported when it went, for the banner. Often empty.
 	lostWhy string
 }
 
-// shellTab is one interactive shell: an SSH session on a pty, rendered through a
-// terminal pane. The id is stable across tab removals, so an exit maps back to
-// its tab.
+// shellTab is one interactive shell: an SSH session on a pty, rendered through a terminal
+// pane. The id is stable across tab removals, so an exit maps back to its tab.
 type shellTab struct {
 	id   int
 	pane *terminal.Pane
 	sess *sshx.Session
 }
 
-// editorTab is one open file: a remote editor process on its own SSH session,
-// rendered through the same terminal pane the remote shell uses.
+// editorTab is one open file: a remote editor on its own SSH session, rendered through
+// the same terminal pane a shell uses.
 type editorTab struct {
 	id   int // stable across tab removals, so an exit maps back to its tab
 	name string
@@ -73,8 +67,8 @@ func (s *session) shell() *shellTab {
 	return s.shells[s.activeSh]
 }
 
-// dropShell closes the shell with the given id and removes its tab, returning
-// true if it was there.
+// dropShell closes the shell with the given id and removes its tab, reporting whether it
+// was there.
 func (s *session) dropShell(id int) bool {
 	for i, sh := range s.shells {
 		if sh.id != id {
@@ -115,8 +109,8 @@ func (s *session) findEditor(path string) int {
 	return -1
 }
 
-// dropEditor closes the tab with the given id and removes it, returning true if
-// it was there. The caller decides where focus goes next.
+// dropEditor closes the tab with the given id and removes it, reporting whether it was
+// there. The caller decides where focus goes next.
 func (s *session) dropEditor(id int) bool {
 	for i, e := range s.editors {
 		if e.id != id {
@@ -151,8 +145,8 @@ func (s *session) empty() bool {
 	return len(s.shells) == 0 && s.browser == nil && len(s.editors) == 0 && len(s.tunnels) == 0
 }
 
-// close tears the whole session down: every shell and editor, the SFTP subsystem,
-// and finally the connection they were all riding on.
+// close tears the whole session down: every shell and editor, the SFTP subsystem, and
+// finally the connection they rode on.
 func (s *session) close() {
 	s.closeShells()
 	s.closeEditors()
@@ -167,8 +161,8 @@ func (s *session) close() {
 	}
 }
 
-// summary describes what a session is holding, for the details card: it is the
-// answer to "what am I about to close?" before you press 'd'.
+// summary describes what a session is holding, for the details card — the answer to
+// "what am I about to close?".
 func (s *session) summary() []string {
 	var parts []string
 	if n := len(s.shells); n > 0 {
@@ -188,13 +182,11 @@ func (s *session) summary() []string {
 
 // ---- model-level session actions ----
 
-// openShell focuses the host's current shell, or starts one. With extra set it
-// always starts another shell, even when the host already has one: it is a second
-// channel on the connection hop already holds, so there is no new handshake and
-// no second authentication.
+// openShell focuses the host's current shell, or starts one. With extra set it always
+// starts another — a second channel on the connection hop holds, so no handshake and no
+// second authentication.
 func (m *model) openShell(h store.Host, extra bool) tea.Cmd {
-	// A connect for this host is already in flight. Waiting for it keeps a second
-	// dial (and a second, orphaned client) from racing the first one in.
+	// A connect is already in flight; a second dial would race an orphaned client in.
 	if m.connecting[h.Alias] {
 		m.setStatus(statusInfo, "connecting to %s…", h.Alias)
 		return nil
@@ -202,13 +194,11 @@ func (m *model) openShell(h store.Host, extra bool) tea.Cmd {
 
 	s := m.sessions[h.Alias]
 	if s != nil && s.dead {
-		// Nothing can be opened on a connection that is gone, and the shells it is
-		// still showing are pictures of one. Every way of asking for a shell here —
-		// enter, S, ctrl+o 0 — means "get me back on this host", so that is what it does.
+		// Nothing can be opened on a connection that is gone. Every way of asking for a
+		// shell here means "get me back on this host".
 		return m.reconnect(h)
 	}
 	if s != nil && !extra && s.shell() != nil {
-		// Already has a shell: just focus it.
 		m.focusShell(h.Alias)
 		return nil
 	}
@@ -218,8 +208,7 @@ func (m *model) openShell(h store.Host, extra bool) tea.Cmd {
 	m.connecting[h.Alias] = true
 
 	if s != nil && s.client != nil {
-		// The host is connected (a browser-only session, or one with shells
-		// already): open the new shell on the connection it holds.
+		// The host is connected: open the new shell on the connection it holds.
 		cols, rows := m.shellSize(len(s.shells) + 1)
 		return m.withSpinner(shellCmd(h.Alias, h.DefaultDir, s.client, m.nextShID, cols, rows, m.notify, false))
 	}
@@ -227,10 +216,8 @@ func (m *model) openShell(h store.Host, extra bool) tea.Cmd {
 	return m.withSpinner(connectCmd(h, "", m.prompter(h.Alias), extra, m.nextShID, cols, rows, m.notify))
 }
 
-// openShellTrusting retries a first-contact shell dial after the user approved
-// the host key, trusting fingerprint. It is always a fresh dial — a prompt only
-// arises when the host had no established connection to reuse — so it takes the
-// first-shell path unconditionally.
+// openShellTrusting retries a first-contact shell dial after the user approved the host
+// key. It is always a fresh dial, since a prompt only arises with no connection to reuse.
 func (m *model) openShellTrusting(h store.Host, extra bool, fingerprint string) tea.Cmd {
 	if m.connecting[h.Alias] {
 		return nil
@@ -253,30 +240,28 @@ func (m *model) focusShell(alias string) {
 	m.resizeShells(s)
 }
 
-// openBrowser opens the host's SFTP browser, on the connection hop already holds
-// when there is one, and on a connection of its own when there is not.
+// openBrowser opens the host's SFTP browser, on the connection hop already holds or on
+// one of its own.
 func (m *model) openBrowser(h store.Host) tea.Cmd {
 	var existing *sshx.Client
 	if s := m.sessions[h.Alias]; s != nil {
 		if s.dead {
-			// Same as a shell: SFTP over a connection that is gone is not a browser,
-			// so 'f' on a dead session means reconnect it.
+			// As with a shell, 'f' on a dead session means reconnect it.
 			return m.reconnect(h)
 		}
 		existing = s.client
 	}
 	m.setStatus(statusInfo, "opening sftp %s…", h.Alias)
 	if existing == nil {
-		// A dial is about to happen, so the host earns a spinner in the list.
+		// A dial is about to happen, so the host earns a spinner.
 		m.connecting[h.Alias] = true
 		return m.withSpinner(openBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), h.DefaultDir, m.paneW, m.paneH, false))
 	}
 	return openBrowserCmd(h, existing, "", nil, m.browserOptions(), h.DefaultDir, m.paneW, m.paneH, false)
 }
 
-// openBrowserTrusting retries a first-contact SFTP dial after the user approved
-// the host key, trusting fingerprint. Like openShellTrusting it is always a fresh
-// dial, since a reusable connection would never have prompted.
+// openBrowserTrusting retries a first-contact SFTP dial after the user approved the host
+// key. Like openShellTrusting it is always a fresh dial.
 func (m *model) openBrowserTrusting(h store.Host, fingerprint string) tea.Cmd {
 	if m.connecting[h.Alias] {
 		return nil
@@ -286,8 +271,8 @@ func (m *model) openBrowserTrusting(h store.Host, fingerprint string) tea.Cmd {
 	return m.withSpinner(openBrowserCmd(h, nil, fingerprint, m.prompter(h.Alias), m.browserOptions(), m.browserStartDir(h), m.paneW, m.paneH, false))
 }
 
-// openFile opens the file the browser just activated in an editor tab. A file
-// that is already open focuses its tab instead of starting a second editor on it.
+// openFile opens the file the browser just activated in an editor tab, focusing the
+// existing tab when the file is already open.
 func (m *model) openFile(msg filebrowser.OpenFileMsg) tea.Cmd {
 	s := m.sessions[m.active]
 	if s == nil || s.client == nil {
@@ -301,10 +286,9 @@ func (m *model) openFile(msg filebrowser.OpenFileMsg) tea.Cmd {
 
 	m.nextEdID++
 	ew, eh := m.editorSize()
-	// The tab is labelled with the remote file's name, which ends up in the
-	// breadcrumb, the mode chip and the tab strip — all rendered to the user's
-	// terminal — so control characters are stripped from it here. The path stays
-	// untouched: it is shell-quoted where it is used, never rendered.
+	// The name ends up in the breadcrumb, the mode chip and the tab strip, so control
+	// characters are stripped here. The path stays untouched: it is shell-quoted where it
+	// is used, never rendered.
 	name := stripControl(msg.Name)
 	m.setStatus(statusInfo, "opening %s…", name)
 	return openEditorCmd(m.active, s.client, m.nextEdID, msg.Path, name, m.cfg.Editor, ew, eh, m.notify)

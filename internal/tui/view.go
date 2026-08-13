@@ -7,19 +7,17 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// View composes the screen: a header rule, the host list beside the right pane,
-// and a context-sensitive key legend along the bottom. The modal cards are
-// composited over the finished screen rather than replacing any part of it, so
-// the hosts and the pane stay visible behind them.
+// View composes the screen: a header rule, the host list beside the right pane, and a
+// context-sensitive key legend along the bottom. The modal cards are composited over the
+// finished screen, so the hosts and the pane stay visible behind them.
 func (m *model) View() string {
 	if !m.ready {
 		return "loading hop…"
 	}
 
 	bodyH := m.bodyHeight()
-	// Collapsed, the sidebar is not drawn narrow — it is not drawn: the pane already
-	// has the columns (see listWidth), and a zero-width box would still cost the two
-	// its border takes.
+	// Collapsed, the sidebar is not drawn at all: a zero-width box would still cost the
+	// two columns its border takes.
 	body := m.renderRight(bodyH)
 	if w := m.listWidth(); w > 0 {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderList(w, bodyH), body)
@@ -28,26 +26,21 @@ func (m *model) View() string {
 	screen := lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), body, m.renderFooter())
 
 	if card := m.modalCard(); card != "" {
-		// The cards size themselves to the window, but they are composited onto the
-		// screen by splicing each of their lines into a row of it — so a line that
-		// overran the window would push that row's right-hand border off the screen
-		// and nothing else would. Hold them to it here as well.
+		// The cards are composited by splicing each line into a row, so a line that
+		// overran the window would push that row's border off screen. Hold them to it.
 		card = clampLines(card, m.width)
 		x, y := centered(m.width, m.height, lipgloss.Width(card), lipgloss.Height(card))
 		screen = overlay(screen, card, x, y)
 	}
-	// Last, so the key trail floats over the cards too. A no-op in every build that
-	// is not the demo recording.
+	// Last, so the key trail floats over the cards too. A no-op outside the demo build.
 	return m.keycastDraw(screen)
 }
 
-// modalCard is the popover currently up, or "" when there is none. Only one can
-// be open: each of them takes every key while it is.
+// modalCard is the popover currently up, or "". Only one can be open: each takes every
+// key while it is.
 func (m *model) modalCard() string {
 	switch {
-	// Before the help card, for the reason handleKey gives: a dial is parked on
-	// this one, and it must not be hidden behind a card the user opened while
-	// waiting for the connect.
+	// Before the help card, for the reason handleKey gives: a dial is parked on this one.
 	case m.auth.open:
 		return m.renderAuth()
 	case m.help:
@@ -70,9 +63,8 @@ func (m *model) modalCard() string {
 
 // ---- header ----
 
-// renderHeader draws the title on the left and the state of the world on the
-// right: where the keyboard is going, how many hosts are connected, and the last
-// thing that happened.
+// renderHeader draws the title on the left and the state of the world on the right:
+// where the keyboard is going, how many hosts are connected, and what last happened.
 func (m *model) renderHeader() string {
 	left := headerBadge.Render("hop") + subtitle.Render(" "+m.breadcrumb())
 
@@ -92,8 +84,7 @@ func (m *model) renderHeader() string {
 	return truncate(left+strings.Repeat(" ", gap)+right, m.width)
 }
 
-// breadcrumb says where you are, which on a screen with four modes and a pane
-// full of somebody else's program is worth a line of its own.
+// breadcrumb says where you are.
 func (m *model) breadcrumb() string {
 	s := m.sessions[m.active]
 	switch {
@@ -110,24 +101,22 @@ func (m *model) breadcrumb() string {
 	}
 }
 
-// modeChip names where the keystrokes are going. Nothing is more disorienting in
-// a TUI than typing into the wrong thing, so the mode is always on screen.
+// modeChip names where the keystrokes are going, which is always on screen.
 func (m *model) modeChip() string {
 	s := m.sessions[m.active]
 	switch {
 	case m.active == "":
 		return ""
 	case s != nil && s.dead:
-		// The chip's job is to say where the keystrokes are going. On a dropped session
-		// they are going nowhere, and that is the most important thing on the screen.
+		// On a dropped session the keystrokes are going nowhere, which is the most
+		// important thing on the screen.
 		return redText.Bold(true).Render("✗ " + m.active + " lost")
 	case m.editing() && s != nil && s.editor() != nil:
 		return chipStyle.Render("✎ " + s.editor().name)
 	case m.browsing():
 		return chipStyle.Render("▤ sftp")
 	case m.focused() && m.scrolling() && s != nil && s.shell() != nil:
-		// A distinct chip while paused in history: the offset and how far back the
-		// scrollback runs, so you can see where in it you are.
+		// A distinct chip while paused in history: the offset and how far back it runs.
 		p := s.shell().pane
 		return accentText.Bold(true).Render(fmt.Sprintf("⇅ scrollback %d/%d", p.ScrollOffset(), p.ScrollbackLen()))
 	case m.focused():
@@ -140,8 +129,8 @@ func (m *model) modeChip() string {
 	return ""
 }
 
-// styledStatus colors the status line by what it means. The meaning is carried on
-// the message (see statusKind), not guessed from its wording.
+// styledStatus colors the status line by what it means, carried on the message (see
+// statusKind) rather than guessed from its wording.
 func (m *model) styledStatus() string {
 	if m.status == "" {
 		return ""
@@ -155,28 +144,22 @@ func (m *model) styledStatus() string {
 	case statusErr:
 		icon, style = "✗", redText
 	}
-	// A status that would push the header out of shape is cut, not wrapped: it is
-	// a note, and the chrome it sits in is not negotiable.
+	// A status that would push the header out of shape is cut, not wrapped.
 	return style.Render(truncate(icon+" "+m.status, max(m.width/2, 20)))
 }
 
 // ---- right pane ----
 
 // renderRight draws whatever the active session is showing — an editor, the SFTP
-// browser, a shell — and the details card for the host under the cursor when it
-// is showing nothing.
+// browser, a shell — and the details card when it is showing nothing.
 func (m *model) renderRight(h int) string {
 	innerH := max(h-2, 1)
 	s := m.sessions[m.active]
 
-	// The content is cut to the pane rather than allowed to grow it: a details
-	// card taller than a short window would push the footer off the screen.
-	// The content is cut to the pane in *both* directions. Height is the obvious one;
-	// width is the one that bites, because lipgloss wraps a line wider than the box
-	// instead of clipping it — so one over-wide row makes the pane a row taller, the
-	// screen a row taller than the window, and the terminal scrolls hop's frame off
-	// its own top. A scrollback line rendered at the width the pane had before the
-	// sidebar was collapsed (or the window resized) is exactly such a row.
+	// The content is cut to the pane in both directions. Width is the one that bites:
+	// lipgloss wraps a line wider than the box instead of clipping it, so one over-wide
+	// row makes the screen a row taller than the window and the terminal scrolls hop's
+	// frame off its own top.
 	pane := func(active bool, content string) string {
 		style := paneBorder
 		if active {
@@ -185,34 +168,32 @@ func (m *model) renderRight(h int) string {
 		return style.Width(m.paneW).Height(innerH).Render(clampLines(fitLines(content, innerH), m.paneW))
 	}
 
-	// A session whose connection dropped keeps its pane: the last screen the host
-	// drew, under a banner saying so. The border is drawn inactive even while the
-	// pane technically holds the keyboard, because what it holds it no longer
-	// forwards — the accent would promise a live shell.
+	// A dropped session keeps its pane: the last screen the host drew, under a banner.
+	// The border is drawn inactive even while the pane holds the keyboard, since the
+	// accent would promise a live shell.
 	if s != nil && s.dead && m.active != "" {
 		return pane(false, m.deadBanner(s)+"\n"+m.deadContent(s))
 	}
 
 	switch {
-	// Editing: a tab strip over the open editor's screen.
+	// A tab strip over the open editor's screen.
 	case m.editing() && s != nil && s.editor() != nil:
 		return pane(true, m.renderEditorTabs(s)+"\n"+m.selectedView(s.editor().pane.View()))
 
-	// Browsing: the session's file browser.
+	// The session's file browser.
 	case m.browsing() && s != nil && s.browser != nil:
 		return pane(true, s.browser.View())
 
 	// A live shell, with its strip of tabs once there is a second one to switch to.
 	case m.active != "" && s != nil && s.shell() != nil:
-		// In scrollback mode the pane shows a window onto its history rather than the
-		// live screen, but the same number of lines, so the tab strip and border are
-		// unaffected.
+		// Scrollback shows a window onto history rather than the live screen, but the
+		// same number of lines, so the strip and border are unaffected.
 		content := s.shell().pane.View()
 		if m.focused() && m.scrolling() {
 			content = s.shell().pane.ViewScrollback()
 		}
 		// The highlight goes on before the tab strip, so the selection's rows are the
-		// pane's own rows — the same coordinates the drag was measured in.
+		// coordinates the drag was measured in.
 		content = m.selectedView(content)
 		if len(s.shells) > 1 {
 			content = m.renderShellTabs(s) + "\n" + content
@@ -223,14 +204,13 @@ func (m *model) renderRight(h int) string {
 	return pane(false, m.renderDetails(m.paneW))
 }
 
-// deadBanner is the line across the top of a dropped session's pane: that the
-// connection is gone, why when the transport said, and the two keys that answer it.
-// It is on the pane rather than only in the status line because the status line
-// expires after a few seconds and a dropped connection does not.
+// deadBanner is the line across the top of a dropped session's pane: that the connection
+// is gone, why the transport said, and the two keys that answer it. It is on the pane
+// because the status line expires after a few seconds and a dropped connection does not.
 func (m *model) deadBanner(s *session) string {
 	head := redText.Bold(true).Render("⚠ connection lost")
 	if s.lostWhy != "" {
-		// The reason comes off the wire, so it is stripped like any remote string.
+		// Off the wire, so stripped like any remote string.
 		head += faint.Render(" · " + stripControl(s.lostWhy))
 	}
 	keys := keyHint("r", "reconnect") + "  " + keyHint("d", "drop")
@@ -238,10 +218,9 @@ func (m *model) deadBanner(s *session) string {
 	return truncate(head+strings.Repeat(" ", gap)+keys, m.paneW)
 }
 
-// deadContent is the frozen screen shown under the banner: whichever view the
-// session was showing when its connection went. It mirrors the live cases in
-// renderRight, with one addition — a session that has been left with nothing but a
-// dead connection (every shell and tab already gone) still has a pane to fill.
+// deadContent is the frozen screen under the banner: whichever view the session was
+// showing when its connection went. It mirrors renderRight's live cases, plus one for a
+// session left with nothing but a dead connection.
 func (m *model) deadContent(s *session) string {
 	switch {
 	case m.editing() && s.editor() != nil:
@@ -262,10 +241,8 @@ func (m *model) deadContent(s *session) string {
 
 // ---- footer ----
 
-// updateHint is the footer's "a newer hop exists" line, or "" when there is
-// nothing to say. It names the command rather than a key: updating swaps the
-// running binary, which is not something a single keystroke should do by
-// accident mid-session.
+// updateHint is the footer's "a newer hop exists" line, or "". It names the command
+// rather than a key: updating swaps the running binary mid-session.
 func (m *model) updateHint() string {
 	if m.updateLatest == "" {
 		return ""
@@ -273,9 +250,8 @@ func (m *model) updateHint() string {
 	return yellowText.Render("⬆ hop "+m.updateLatest+" available") + " " + dimStyle.Render("· hop self-update")
 }
 
-// sidebarHint is the footer's ctrl+b entry. It names the outcome rather than the
-// toggle — "hide hosts" or "show hosts" — because a legend that only says "sidebar"
-// leaves you to guess which way the key goes.
+// sidebarHint is the footer's ctrl+b entry. It names the outcome rather than the toggle,
+// so the legend does not leave you guessing which way the key goes.
 func (m *model) sidebarHint() string {
 	if m.sidebarHidden {
 		return keyHint("ctrl+b", "show hosts")
@@ -283,9 +259,8 @@ func (m *model) sidebarHint() string {
 	return keyHint("ctrl+b", "hide hosts")
 }
 
-// renderFooter is the key legend for the mode you are in. It is the same list the
-// help card holds, cut down to the keys that are live right now — the card is
-// there for when that is not enough.
+// renderFooter is the key legend for the mode you are in: the help card's list, cut down
+// to the keys that are live right now.
 func (m *model) renderFooter() string {
 	const sep = "  "
 
@@ -325,9 +300,8 @@ func (m *model) renderFooter() string {
 	case m.settings.open:
 		hints = []string{keyHint("↑↓", "move"), keyHint("enter", "edit"), keyHint("r", "reset"), keyHint("esc", "close")}
 
-	// Above every pane mode: while the leader is open the footer *is* the menu. It has
-	// to be, because the leader waits indefinitely — without this the pane would simply
-	// stop responding to keys with nothing on screen to say why.
+	// Above every pane mode: while the leader is open the footer is the menu. It has to
+	// be, since the leader waits indefinitely.
 	case m.leaderArmed():
 		hints = []string{
 			accentText.Render("leader"),
@@ -336,9 +310,8 @@ func (m *model) renderFooter() string {
 			dimStyle.Render("any other key cancels"),
 		}
 
-	// Above the three pane modes, the way handleKey routes the keys: a dead pane has
-	// its own small keyboard, and a legend still offering shift+←→ would be listing
-	// keys that do nothing.
+	// Above the three pane modes, as handleKey routes them: a dead pane has its own small
+	// keyboard, and a legend offering shift+←→ would list keys that do nothing.
 	case m.active != "" && m.inPane() && m.activeDead():
 		hints = []string{
 			keyHint("r", "reconnect"), keyHint("d", "drop session"),
@@ -366,23 +339,20 @@ func (m *model) renderFooter() string {
 		}
 
 	case m.focused() && m.active != "":
-		// ctrl+o 0 is named even on a host with one shell — it is the chord that *makes*
-		// the second one, so a footer that waited for a second shell to mention it
-		// would only ever tell you what you had already worked out.
+		// ctrl+o 0 is named even on a host with one shell: it is the chord that makes the
+		// second one.
 		hints = []string{keyHint("ctrl+o o", "back"), keyHint("esc esc", "back"), keyHint("ctrl+o", "leader")}
 		s := m.sessions[m.active]
-		// The chord is only named where it would do the thing it says: with a directory
-		// to hand. Without one a second ctrl+o still opens VS Code, but on the host's
-		// default directory, and a footer promising "this dir" for that would be lying.
+		// Only named where it would do what it says. Without a directory to hand it still
+		// opens VS Code, but on the host's default one.
 		if m.shellCwd(m.active) != "" {
 			hints = append(hints, keyHint("ctrl+o c", "vs code here"))
 		}
 		if s != nil && len(s.shells) > 1 {
 			hints = append(hints, keyHint("shift+←→", "shell"), keyHint("ctrl+o 1-9", "jump"))
 		}
-		// shift+↑ enters scrollback, but only where there is history to see and no
-		// full-screen program owns the screen — the same conditions the entry chord
-		// itself checks, so the hint never offers what the key would decline.
+		// The same conditions the entry chord checks, so the hint never offers what the
+		// key would decline.
 		if s != nil && s.shell() != nil && !s.shell().pane.AltScreen() && s.shell().pane.ScrollbackLen() > 0 {
 			hints = append(hints, keyHint("shift+↑", "scrollback"))
 		}
@@ -393,8 +363,8 @@ func (m *model) renderFooter() string {
 		hints = []string{keyHint("type", "filter"), keyHint("↑↓", "move"), keyHint("enter", "apply"), keyHint("esc", "clear")}
 
 	default:
-		// The per-host keys (S, s, o) are spelled out in the details card beside
-		// this line, so the footer keeps to the ones that are always true.
+		// The per-host keys are spelled out in the details card beside this line, so the
+		// footer keeps to the ones that are always true.
 		hints = []string{
 			keyHint("↑↓", "move"), keyHint("enter", "connect"), keyHint("f", "sftp"),
 			keyHint("t", "tunnels"),
@@ -402,9 +372,8 @@ func (m *model) renderFooter() string {
 			keyHint("p", "pin"),
 			keyHint("/", "filter"), keyHint(",", "settings"), keyHint("?", "keys"), keyHint("q", "quit"),
 		}
-		// 'r' is bound in the list at all times, but it is only worth a slot in the
-		// legend when there is a dropped session under the cursor to spend it on.
-		// Same for the reorder keys, which do something only on a pinned host.
+		// 'r' is always bound, but only worth a slot when there is a dropped session under
+		// the cursor. Same for the reorder keys, which need a pinned host.
 		if h, ok := m.selectedHost(); ok {
 			if h.Pinned {
 				hints = append([]string{keyHint("shift+jk", "reorder")}, hints...)
@@ -413,15 +382,14 @@ func (m *model) renderFooter() string {
 				hints = append([]string{keyHint("r", "reconnect")}, hints...)
 			}
 		}
-		// Collapsed, the way back is the only key that matters — so it goes first,
-		// where a narrow window's truncation cannot be what drops it.
+		// Collapsed, the way back matters most, so it goes first where truncation cannot
+		// drop it.
 		if m.sidebarHidden {
 			hints = append([]string{m.sidebarHint()}, hints...)
 		} else {
 			hints = append(hints, m.sidebarHint())
 		}
-		// News, not a key — so it goes first, where the truncation that trims a
-		// long legend on a narrow window can't be what drops it.
+		// News, not a key, and first so truncation cannot drop it.
 		if h := m.updateHint(); h != "" {
 			hints = append([]string{h}, hints...)
 		}

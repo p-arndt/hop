@@ -8,16 +8,14 @@ import (
 	"hop/internal/dockerenv"
 )
 
-// A host's default directory, end to end against a real OpenSSH server running
-// real shells (see internal/dockerenv/testdata/shellhost): connect the way a user
-// does and the shell has to be standing in that directory, with nothing left on
-// screen to say how it got there.
+// A host's default directory, end to end against a real OpenSSH server running real
+// shells: connect the way a user does and the shell has to be standing in that directory,
+// with nothing on screen to say how it got there.
 //
 //	HOP_DOCKER_E2E=1 go test ./internal/tui/ -run StartDirE2E -v
 //
-// bash and zsh get the cd on the same line as the OSC 7 hook, so what is checked
-// here is both halves at once: the shell moved, and the hook that reports it ran
-// after the move rather than before.
+// bash and zsh get the cd on the same line as the OSC 7 hook, so both halves are checked
+// at once: the shell moved, and the hook ran after the move.
 func TestStartDirE2ELandsInTheDefaultDirectory(t *testing.T) {
 	for _, c := range []struct{ user, dir string }{
 		{dockerenv.BashUser, "/etc/ssh"},
@@ -46,11 +44,9 @@ func TestStartDirE2ELandsInTheDefaultDirectory(t *testing.T) {
 	}
 }
 
-// fish gets no OSC 7 hook — it is written per shell and there is none for fish —
-// but "cd" is a line every shell understands, so the default directory still takes
-// effect. The proof is on the screen rather than in a cwd report: fish never
-// reports one, so what is checked is that hop typed the cd, the shell ran it, and
-// nothing was left behind.
+// fish gets no OSC 7 hook, but "cd" is a line every shell understands, so the default
+// directory still takes effect. The proof is on the screen rather than in a cwd report:
+// hop typed the cd, the shell ran it, and nothing was left behind.
 func TestStartDirE2EWorksOnAnUnhookableShell(t *testing.T) {
 	m, sh := connectShellHostIn(t, dockerenv.FishUser, "/etc/ssh")
 

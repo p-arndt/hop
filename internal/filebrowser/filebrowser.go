@@ -1,8 +1,6 @@
-// Package filebrowser implements a self-contained remote directory browser
-// component for hop's TUI. It mirrors the shape of terminal.Pane: the TUI
-// forwards key messages via Handle and renders the component with View. All
-// SFTP operations run synchronously — a slow directory briefly stalls the UI,
-// which is acceptable for the MVP.
+// Package filebrowser implements a remote directory browser for hop's TUI. It mirrors
+// terminal.Pane: the TUI forwards keys via Handle and renders with View. SFTP runs
+// synchronously, so a slow directory briefly stalls the UI.
 package filebrowser
 
 import (
@@ -40,9 +38,8 @@ var (
 	selBar = accentStyle.Render("▎")
 )
 
-// SetAccent re-points the browser's highlight color, keeping it in step with the
-// rest of hop when the accent is changed in the settings popover. The styles are
-// values rather than lazy lookups, so they must be rebuilt.
+// SetAccent re-points the browser's highlight color when the accent changes. The
+// styles are values rather than lazy lookups, so they must be rebuilt.
 func SetAccent(color string) {
 	if color == "" {
 		return
@@ -53,8 +50,8 @@ func SetAccent(color string) {
 	selBar = accentStyle.Render("▎")
 }
 
-// Client is the slice of *sftpx.Client the browser depends on. Narrowing it to
-// an interface keeps the component testable without a live SFTP connection.
+// Client is the slice of *sftpx.Client the browser depends on, narrowed to an interface
+// so it is testable without a live SFTP connection.
 type Client interface {
 	Home() (string, error)
 	List(dir string) ([]sftpx.Entry, error)
@@ -62,18 +59,16 @@ type Client interface {
 	Close() error
 }
 
-// OpenFileMsg asks the enclosing model to open a remote file in an editor pane.
-// The browser deliberately does not open it itself: the editor runs on the remote
-// host, over the SSH connection the TUI owns, and the browser knows nothing about
-// either.
+// OpenFileMsg asks the enclosing model to open a remote file in an editor pane. The
+// editor runs on the remote host over the SSH connection the TUI owns, which the
+// browser knows nothing about.
 type OpenFileMsg struct {
 	Path string // absolute remote path
 	Name string
 }
 
-// Options are the user settings the browser honours. They can change while it is
-// open — the settings popover applies them live — so they are held as a unit and
-// replaced wholesale rather than baked in at construction.
+// Options are the user settings the browser honours. The settings popover applies them
+// live, so they are replaced wholesale rather than baked in at construction.
 type Options struct {
 	// DownloadDir is where "d" puts a file.
 	DownloadDir string
@@ -81,8 +76,8 @@ type Options struct {
 	// Empty means the desktop's default application for the file type.
 	OpenWith string
 
-	// VimKeys binds the vim motions (hjkl, gg/G, H/M/L, ctrl+d/u/f/b). False leaves
-	// them unbound: the arrows, backspace and enter are then the whole of movement.
+	// VimKeys binds the vim motions (hjkl, gg/G, H/M/L, ctrl+d/u/f/b). False leaves the
+	// arrows, backspace and enter as the whole of movement.
 	VimKeys bool
 }
 
@@ -99,22 +94,19 @@ type Browser struct {
 	opts      Options
 	w, h      int
 
-	// tmpDir is the scratch directory files opened with "o" are fetched into,
-	// created on first use. Empty until then.
+	// tmpDir is the scratch directory "o" fetches into, created on first use.
 	tmpDir string
 
-	// keys resolves the listing's motion keys (and holds a half-typed "gg"). What
-	// the motions then do to the cursor is Browser.move.
+	// keys resolves the listing's motion keys and holds a half-typed "gg". What they do
+	// to the cursor is Browser.move.
 	keys keymap.Reader
 }
 
-// New builds a Browser starting in startDir (or the remote home when startDir
-// is empty), ensuring the download directory exists on the local filesystem.
+// New builds a Browser starting in startDir (or the remote home when empty), ensuring
+// the download directory exists locally.
 //
-// A startDir that cannot be listed does not fail the open: it is usually a host's
-// configured default directory that has been renamed or removed on the server, and
-// refusing to show anything at all would be a worse answer than showing the home
-// directory and saying why. The browser lands in the home directory with the
+// A startDir that cannot be listed does not fail the open — usually a host's default
+// directory renamed on the server. The browser lands in the home directory with the
 // listing error as its status.
 func New(c Client, startDir string, opts Options, w, h int) (*Browser, error) {
 	if err := os.MkdirAll(opts.DownloadDir, 0o755); err != nil {
@@ -134,9 +126,8 @@ func New(c Client, startDir string, opts Options, w, h int) (*Browser, error) {
 		}
 	}
 
-	// Either no start directory was asked for, or the one that was could not be
-	// listed. Either way the home directory is the answer; failing to find *that*
-	// is a real failure, since there is nothing left to show.
+	// No start directory, or one that could not be listed. Failing to find the home
+	// directory too is a real failure: there is nothing left to show.
 	home, err := c.Home()
 	if err != nil {
 		return nil, err
@@ -152,14 +143,12 @@ func New(c Client, startDir string, opts Options, w, h int) (*Browser, error) {
 	return b, nil
 }
 
-// SetOptions swaps in new user settings. A download directory that does not exist
-// yet is created on the next download, not here: a settings edit should not fail
-// because a directory is missing.
+// SetOptions swaps in new user settings. A missing download directory is created on the
+// next download, so a settings edit never fails on it.
 func (b *Browser) SetOptions(opts Options) { b.opts = opts }
 
-// load lists dir and, on success, commits it as the current directory, resetting
-// the cursor and scroll. On error it sets the status and leaves cwd/entries
-// untouched.
+// load lists dir and, on success, commits it as the current directory. On error it sets
+// the status and leaves cwd/entries untouched.
 func (b *Browser) load(dir string) {
 	ents, err := b.client.List(dir)
 	if err != nil {
@@ -174,18 +163,13 @@ func (b *Browser) load(dir string) {
 	b.statusErr = false
 }
 
-// Handle applies a key message: the motions (resolved through the shared keymap,
-// which is what decides whether the vim keys are live), then the browser's own
-// keyboard — refresh, and the two file actions "o" (open a local copy in the
-// desktop's default app) and "d" (download). All SFTP work runs synchronously.
+// Handle applies a key message: the motions through the shared keymap, then the
+// browser's own keys — refresh, "o" (open a local copy in the desktop's default app)
+// and "d" (download). All SFTP work runs synchronously.
 //
-// The returned tea.Cmd is non-nil only for entering a file, which yields an
-// OpenFileMsg: opening an editor needs the SSH connection, which belongs to the
-// model, not here.
-//
-// No key here leaves the browser: dismissal is the enclosing model's business
-// (ctrl+o or a double esc). Out is a strict "up a directory", so bumping against
-// the top is a no-op rather than a surprise exit.
+// The returned tea.Cmd is non-nil only for entering a file, which yields an OpenFileMsg.
+// No key here leaves the browser: dismissal is the model's business, and Out is a strict
+// "up a directory".
 func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 	key := msg.String()
 
@@ -195,9 +179,8 @@ func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 
 	switch key {
 	case "backspace":
-		// Not a motion — nothing else in hop scrolls with it — but here it is the
-		// same "up a directory" the arrow is, because a file browser that ignored
-		// backspace would be the odd one out.
+		// Not a motion elsewhere in hop, but a file browser that ignored it would be the
+		// odd one out.
 		b.load(path.Dir(b.cwd))
 
 	case "r":
@@ -214,20 +197,16 @@ func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 
 // ---- mouse ----
 //
-// The browser exposes the three things a pointer needs — which entry a view row
-// holds, how to stand on one, and how to open the one you are standing on — rather
-// than a Handle-shaped method taking mouse events. Where the wheel and a click
-// should land, and what counts as a double-click, is the enclosing model's
-// business (it owns the pane's borders and the clock); which row is which is the
-// browser's, because it drew them.
+// The browser exposes what a pointer needs — which entry a row holds, how to stand on
+// one, how to open it — rather than taking mouse events. Where a click lands and what
+// counts as a double is the model's business; which row is which is the browser's.
 
-// entryRows is the view row the first entry is drawn on: the path header and the
-// rule above it. It is what RowAt subtracts, and it mirrors View.
+// entryRows is the view row the first entry is drawn on, below the path header and the
+// rule. It mirrors View, and is what RowAt subtracts.
 const entryRows = 2
 
-// RowAt maps a view row — 0 is the browser's own top line, the path header — to
-// the entry drawn there. It reports false for a row holding no entry: the header,
-// the rule, the status line, or the blank space under a short listing.
+// RowAt maps a view row (0 is the path header) to the entry drawn there, reporting
+// false for a row holding no entry.
 func (b *Browser) RowAt(y int) (int, bool) {
 	row := y - entryRows
 	if row < 0 || row >= b.contentRows() {
@@ -240,30 +219,27 @@ func (b *Browser) RowAt(y int) (int, bool) {
 	return i, true
 }
 
-// Select stands the cursor on entry i, as a click on its row does. An index out of
-// range is clamped rather than refused, which is what every other move here does.
+// Select stands the cursor on entry i, as a click on its row does. An out-of-range
+// index is clamped, as everywhere else here.
 func (b *Browser) Select(i int) {
 	b.cursor = i
 	b.clampScroll()
 }
 
-// Activate opens the entry under the cursor: descend into a directory, or ask the
-// model to open a file in an editor. It is what enter does, exported for the
+// Activate opens the entry under the cursor — what enter does, exported for the
 // double-click that means the same thing.
 func (b *Browser) Activate() tea.Cmd { return b.activate() }
 
-// Scroll moves the cursor n rows, negative for up — one notch of the wheel. The
-// cursor moves rather than the window alone, because the cursor is what every
-// other key here acts on: a wheel that slid the listing out from under it would
-// leave "d" downloading a file that is no longer on screen.
+// Scroll moves the cursor n rows, negative for up. The cursor moves rather than the
+// window alone: every other key here acts on the cursor, so a wheel that slid the
+// listing out from under it would leave "d" on a file no longer on screen.
 func (b *Browser) Scroll(n int) {
 	b.cursor += n
 	b.clampScroll()
 }
 
-// move applies a motion to the listing. Unlike the host list, the browser scrolls,
-// so the screen-relative motions (H/M/L) land inside the visible window while Top
-// and Bottom address the directory.
+// move applies a motion to the listing. The browser scrolls, so H/M/L land inside the
+// visible window while Top and Bottom address the whole directory.
 func (b *Browser) move(mo keymap.Motion) tea.Cmd {
 	switch mo {
 	case keymap.Up:
@@ -302,9 +278,8 @@ func (b *Browser) move(mo keymap.Motion) tea.Cmd {
 	return nil
 }
 
-// activate enters the directory under the cursor, or asks the model to open the
-// file under it in an editor pane. Nothing is downloaded: the editor runs on the
-// remote host, against the real file.
+// activate enters the directory under the cursor, or asks the model to open the file in
+// an editor pane. Nothing is downloaded: the editor runs against the real remote file.
 func (b *Browser) activate() tea.Cmd {
 	e, ok := b.selected()
 	if !ok {
@@ -319,10 +294,8 @@ func (b *Browser) activate() tea.Cmd {
 	return func() tea.Msg { return msg }
 }
 
-// openInApp fetches the file under the cursor and hands the local copy to the
-// desktop's default application for its type. The launch is fire-and-forget: the
-// app opens in its own window and hop keeps running. Directories have no default
-// app, so "o" on one is a no-op.
+// openInApp fetches the file under the cursor and hands the local copy to the desktop's
+// default application, fire-and-forget. "o" on a directory is a no-op.
 func (b *Browser) openInApp() {
 	e, ok := b.selected()
 	if !ok || e.IsDir {
@@ -332,13 +305,10 @@ func (b *Browser) openInApp() {
 		b.fail(err)
 		return
 	}
-	// Handing an executable-extension file to the OS default handler
-	// (ShellExecute, `open`, `xdg-open`) would run it rather than view it, so a
-	// server that names a payload like a document could get code executed
-	// locally on a single "o". Refuse when the launch would reach the default
-	// handler. An explicit OpenWith command receives the file as an argument to
-	// a program the user chose, not through the default handler, so that path
-	// is left alone.
+	// The OS default handler would run an executable-extension file rather than view it,
+	// so a server that names a payload like a document could get code executed on a
+	// single "o". An explicit OpenWith passes the file to a program the user chose, so
+	// that path is left alone.
 	if b.opts.OpenWith == "" && executableName(e.Name) {
 		b.fail(fmt.Errorf("refusing to open executable file %q — use d to download instead", e.Name))
 		return
@@ -354,14 +324,13 @@ func (b *Browser) openInApp() {
 		b.fail(fmt.Errorf("open %s: %w", e.Name, err))
 		return
 	}
-	// The launcher exits as soon as the real application is up; reap it so it
-	// does not linger as a zombie.
+	// The launcher exits as soon as the real application is up; reap it.
 	go cmd.Wait()
 	b.ok("opened " + e.Name)
 }
 
-// download copies the file under the cursor into downloadDir, where — unlike the
-// scratch copy "o" makes — it is meant to be kept.
+// download copies the file under the cursor into downloadDir, where — unlike the scratch
+// copy "o" makes — it is meant to be kept.
 func (b *Browser) download() {
 	e, ok := b.selected()
 	if !ok || e.IsDir {
@@ -402,21 +371,18 @@ func (b *Browser) fetch(e sftpx.Entry) (string, error) {
 	if _, err := b.client.Download(path.Join(b.cwd, e.Name), local); err != nil {
 		return "", err
 	}
-	// The copy came from a remote host and is about to be handed to the OS
-	// default handler, so mark it the way a browser download would be. On macOS
-	// that sets com.apple.quarantine and keeps Gatekeeper in the loop for file
-	// types the extension guard does not know about; elsewhere it is a no-op.
+	// Mark the copy the way a browser download would be. On macOS that sets
+	// com.apple.quarantine, keeping Gatekeeper in the loop for types the extension guard
+	// does not know about; elsewhere it is a no-op.
 	if err := quarantine(local); err != nil {
 		return "", fmt.Errorf("quarantine %s: %w", e.Name, err)
 	}
 	return local, nil
 }
 
-// scratch returns the browser's temp directory, creating it on first use. Files
-// handed to the desktop's default app land here instead of downloadDir, so merely
-// looking at a remote file leaves no clutter behind. It is deliberately never
-// removed: the app may still hold the file open long after the browser is closed,
-// so cleanup is left to the OS.
+// scratch returns the browser's temp directory, creating it on first use. Files handed
+// to the desktop's default app land here rather than in downloadDir. It is never
+// removed: the app may still hold a file open long after the browser closes.
 func (b *Browser) scratch() (string, error) {
 	if b.tmpDir != "" {
 		return b.tmpDir, nil
@@ -440,12 +406,10 @@ func (b *Browser) fail(err error) {
 	b.statusErr = true
 }
 
-// checkLocalName rejects a server-supplied entry name that cannot safely be
-// used as a local file name. The listing comes from the remote host, so a
-// hostile or compromised server can put anything in it: path separators or
-// ".." would let a "download" write outside the download directory, a colon
-// would address an NTFS alternate data stream or a drive, and the reserved
-// device names open devices rather than files on Windows.
+// checkLocalName rejects a server-supplied entry name that cannot safely be used as a
+// local file name. Path separators or ".." would let a download write outside the
+// download directory, a colon addresses an NTFS stream or a drive, and the reserved
+// names open Windows devices rather than files.
 func checkLocalName(name string) error {
 	if name == "" || name == "." || name == ".." {
 		return fmt.Errorf("refusing unsafe remote file name %q", name)
@@ -458,16 +422,14 @@ func checkLocalName(name string) error {
 			return fmt.Errorf("refusing remote file name with control characters")
 		}
 	}
-	// Windows strips trailing dots and spaces while normalizing a name, so
-	// "CON .txt" and "con." both resolve to the reserved device CON. Trim them
-	// before splitting off the stem, or the check is trivially side-stepped.
+	// Windows strips trailing dots and spaces while normalizing, so "con." resolves to
+	// the device CON. Trim before splitting off the stem.
 	trimmed := strings.TrimRight(name, ". ")
 	stem := trimmed
 	if i := strings.IndexByte(stem, '.'); i >= 0 {
 		stem = stem[:i]
 	}
-	// The stem itself can carry trailing spaces that Windows drops, so "CON .txt"
-	// normalizes to the device CON. Trim them before the comparison.
+	// The stem can carry trailing spaces Windows drops, so "CON .txt" is CON too.
 	stem = strings.TrimRight(stem, " ")
 	switch s := strings.ToUpper(stem); s {
 	case "CON", "PRN", "AUX", "NUL",
@@ -478,19 +440,11 @@ func checkLocalName(name string) error {
 	return nil
 }
 
-// executableExts are the final extensions the desktop's default handler will
-// run rather than merely open. On Windows that handler is ShellExecute: native
-// executables, installer and control-panel formats, Windows Script Host
-// targets, shortcuts that can point anywhere, and shell-namespace files that
-// can trigger code when double-clicked. On macOS, `open` executes rather than
-// views Terminal profiles (.terminal runs its embedded CommandString with no
-// execute bit needed), shell scripts, AppleScript, Automator workflows, and
-// the location/shortcut plists; on Linux, xdg-open backends may honor a
-// .desktop entry's Exec= line. A remote-named file carrying any of these would
-// be executed locally when handed to the OS default handler. The set is
-// checked on every platform rather than per-GOOS: refusing a .desktop file on
-// macOS costs nothing, while missing one costs code execution. It is a
-// package-level set the guard and its test both range over.
+// executableExts are the final extensions the desktop's default handler runs rather
+// than opens: ShellExecute targets on Windows, and on macOS the things `open` executes
+// (.terminal runs its embedded CommandString with no execute bit needed), plus the
+// .desktop Exec= line on Linux. Checked on every platform rather than per-GOOS —
+// refusing a .desktop file on macOS costs nothing, missing one costs code execution.
 var executableExts = map[string]bool{
 	// Windows (ShellExecute)
 	".exe": true, ".com": true, ".bat": true, ".cmd": true, ".scr": true,
@@ -509,26 +463,20 @@ var executableExts = map[string]bool{
 	".desktop": true,
 }
 
-// executableName reports whether name's final extension is one the OS default
-// handler would execute rather than view. The name comes from the remote host,
-// so a hostile server can label a payload as a document ("invoice.pdf.hta");
-// only the last extension decides what ShellExecute does with it. Trailing dots
-// and spaces are trimmed first because Windows drops them while normalizing the
-// name, so "evil.exe ." reaches ShellExecute as "evil.exe".
+// executableName reports whether name's final extension is one the OS default handler
+// would execute. Only the last extension decides, so "invoice.pdf.hta" is caught;
+// trailing dots and spaces are trimmed because Windows drops them while normalizing.
 func executableName(name string) bool {
 	trimmed := strings.TrimRight(name, ". ")
 	return executableExts[strings.ToLower(filepath.Ext(trimmed))]
 }
 
-// openCmd builds the command that opens p. With an explicit "open with" setting
-// that command is used verbatim (it may carry flags, as in "code -n"); otherwise
-// p goes to the desktop's default handler for its file type. A variable so tests
-// can swap in something harmless.
+// openCmd builds the command that opens p, using an explicit "open with" setting
+// verbatim (flags and all) or the desktop's default handler. A variable so tests can
+// swap in something harmless.
 //
-// On Windows the handler is explorer.exe, not "cmd /c start": cmd re-parses its
-// command line, so metacharacters in a (remote-chosen) file name — "&", "%",
-// "^" are all legal in Windows names — could be executed as commands.
-// explorer.exe takes the path as a plain argument, with no shell in between.
+// On Windows the handler is explorer.exe, not "cmd /c start": cmd re-parses its command
+// line, so metacharacters legal in a remote-chosen file name could run as commands.
 var openCmd = func(with, p string) *exec.Cmd {
 	if fields := strings.Fields(with); len(fields) > 0 {
 		return exec.Command(fields[0], append(fields[1:], p)...)
@@ -543,8 +491,8 @@ var openCmd = func(with, p string) *exec.Cmd {
 	}
 }
 
-// windowRows is the number of entry rows actually filled on screen, which is
-// the viewport height except on a short final page.
+// windowRows is the number of entry rows actually filled, which is the viewport height
+// except on a short final page.
 func (b *Browser) windowRows() int {
 	n := len(b.entries) - b.scroll
 	if rows := b.contentRows(); n > rows {
@@ -564,8 +512,7 @@ func (b *Browser) halfPage() int {
 	return 1
 }
 
-// clampScroll clamps the cursor into range and slides the scroll window so the
-// cursor stays visible within the content rows.
+// clampScroll clamps the cursor into range and slides the window to keep it visible.
 func (b *Browser) clampScroll() {
 	if len(b.entries) == 0 {
 		b.cursor = 0
@@ -598,8 +545,7 @@ func (b *Browser) clampScroll() {
 	}
 }
 
-// contentRows is the number of entry rows shown, reserving a header, a rule and
-// a status line.
+// contentRows is the number of entry rows shown, less a header, rule and status line.
 func (b *Browser) contentRows() int {
 	r := b.h - 3
 	if r < 1 {
@@ -608,8 +554,8 @@ func (b *Browser) contentRows() int {
 	return r
 }
 
-// View renders the current listing to at most w columns and h rows. Every line
-// is truncated to w so it can never wrap out of its box.
+// View renders the listing to at most w columns and h rows, truncating every line to w
+// so it can never wrap out of its box.
 func (b *Browser) View() string {
 	if b.w <= 0 || b.h <= 0 {
 		return ""
@@ -618,9 +564,7 @@ func (b *Browser) View() string {
 	rows := b.contentRows()
 	lines := make([]string, 0, b.h)
 
-	// Header: current path (dim), tail-truncated with a leading "…/".
 	lines = append(lines, dimStyle.Render(truncPath(stripControl(b.cwd), b.w)))
-	// Faint horizontal rule.
 	lines = append(lines, faintStyle.Render(strings.Repeat("─", b.w)))
 
 	if len(b.entries) == 0 {
@@ -640,8 +584,7 @@ func (b *Browser) View() string {
 		lines = append(lines, "")
 	}
 
-	// Status line: red-ish for errors, green for a completed action, empty
-	// otherwise.
+	// Status line: red for errors, green for a completed action.
 	if b.status != "" {
 		txt := truncateText(stripControl(b.status), b.w)
 		if b.statusErr {
@@ -659,9 +602,8 @@ func (b *Browser) View() string {
 	return strings.Join(lines, "\n")
 }
 
-// renderRow renders a single entry: a leading accent bar + bold accent name for
-// the selection, directories in accent with a trailing "/", and files in the
-// default color with a right-aligned dim size.
+// renderRow renders one entry: an accent bar and bold name for the selection,
+// directories in accent with a trailing "/", files with a right-aligned dim size.
 func (b *Browser) renderRow(e sftpx.Entry, selected bool) string {
 	prefix := "  "
 	if selected {
@@ -677,13 +619,13 @@ func (b *Browser) renderRow(e sftpx.Entry, selected bool) string {
 		sizeText = humanizeBytes(e.Size)
 	}
 
-	// Width available for the name after the 2-cell prefix (and size + gap).
+	// Width left for the name after the 2-cell prefix, size and gap.
 	avail := b.w - 2
 	if sizeText != "" {
 		avail -= lipgloss.Width(sizeText) + 1
 	}
 	if avail < 1 {
-		// No room for a size column; drop it and give the name the full width.
+		// No room for a size column; give the name the full width.
 		sizeText = ""
 		avail = b.w - 2
 	}
@@ -729,8 +671,7 @@ func (b *Browser) Close() error { return b.client.Close() }
 
 // ---- helpers ----
 
-// humanizeBytes renders n as a compact size (B/K/M/G), using one decimal for
-// values of a kibibyte or more.
+// humanizeBytes renders n as a compact size (B/K/M/G), one decimal above a kibibyte.
 func humanizeBytes(n int64) string {
 	const unit = 1024
 	if n < unit {
@@ -746,10 +687,9 @@ func humanizeBytes(n int64) string {
 	return fmt.Sprintf("%.1f%s", f, units[i-1])
 }
 
-// stripControl removes control characters (C0, DEL and C1) from s. Entry names
-// and error texts originate on the remote host; rendered raw, an embedded
-// escape sequence would be interpreted by the user's terminal — repainting the
-// UI, retitling the window, or worse — instead of being displayed.
+// stripControl removes control characters (C0, DEL and C1) from s. Entry names and
+// error texts come from the remote host, and an embedded escape sequence would be
+// interpreted by the user's terminal rather than displayed.
 func stripControl(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r < 0x20 || (r >= 0x7f && r < 0xa0) {
@@ -759,8 +699,8 @@ func stripControl(s string) string {
 	}, s)
 }
 
-// truncateText shortens s (measured by display width) to at most w cells,
-// appending an ellipsis when it must cut. It operates on unstyled text.
+// truncateText shortens s to at most w display cells, appending an ellipsis when it
+// must cut. Unstyled text only.
 func truncateText(s string, w int) string {
 	if w <= 0 {
 		return ""
@@ -782,8 +722,7 @@ func truncateText(s string, w int) string {
 	return b.String() + "…"
 }
 
-// truncPath truncates a remote path to w cells, keeping the tail and prefixing
-// "…/" when it must cut.
+// truncPath truncates a remote path to w cells, keeping the tail behind a "…/".
 func truncPath(p string, w int) string {
 	if lipgloss.Width(p) <= w {
 		return p

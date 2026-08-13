@@ -25,25 +25,21 @@ type Host struct {
 	Group        string
 	Visits       int
 	LastConnect  int64
-	// DefaultDir is the remote directory a session starts in: shells cd there on
-	// connect and the file browser opens there. Blank means "wherever the login
-	// shell lands", which is what every host did before this column existed.
+	// DefaultDir is the remote directory a session starts in: shells cd there on connect
+	// and the file browser opens there. Blank means wherever the login shell lands.
 	DefaultDir string
-	// Pinned lifts a host out of the frecency order into the PINNED section at the
-	// top of the list; PinOrder is its place inside that section, 1-based and dense
-	// (see renumberPins). PinOrder is meaningless — and zero — on an unpinned host.
+	// Pinned lifts a host out of the frecency order into the PINNED section; PinOrder is
+	// its place inside it, 1-based and dense (see renumberPins), and zero when unpinned.
 	Pinned   bool
 	PinOrder int
 
-	// Forwards are the TCP tunnels defined for this host. They are loaded with the
-	// host so the dashboard and tunnel manager can render without querying from
-	// View, and are stored in their own table so editing a host never rewrites them.
+	// Forwards are the TCP tunnels defined for this host, loaded with it so View never
+	// queries, and stored in their own table so editing a host never rewrites them.
 	Forwards []Forward
 }
 
-// ForwardKind is which side of the SSH connection owns the listening socket.
-// A local forward listens on the machine running hop and dials its target through
-// SSH; a remote forward listens on the server and dials its target from hop.
+// ForwardKind is which side of the SSH connection owns the listening socket: a local
+// forward listens on the machine running hop, a remote one on the server.
 type ForwardKind string
 
 const (
@@ -62,8 +58,8 @@ type Forward struct {
 	TargetPort int
 }
 
-// Validate rejects definitions that cannot name TCP endpoints. BindHost may be
-// blank: the runtime applies the safe loopback default for the forward's side.
+// Validate rejects definitions that cannot name TCP endpoints. BindHost may be blank:
+// the runtime applies the loopback default for the forward's side.
 func (f Forward) Validate() error {
 	if f.Kind != ForwardLocal && f.Kind != ForwardRemote {
 		return fmt.Errorf("forward kind must be local or remote")
@@ -114,19 +110,17 @@ CREATE TABLE IF NOT EXISTS forwards (
 	UNIQUE (host_id, kind, bind_host, bind_port)
 );`
 
-// addedColumns are the columns that arrived after the first release. CREATE TABLE
-// IF NOT EXISTS is a no-op on a database that already has the table, so a schema
-// that only grows there is a schema no existing install ever gets — hence the
-// ALTER pass in migrate.
+// addedColumns are the columns that arrived after the first release. CREATE TABLE IF NOT
+// EXISTS is a no-op on a database that already has the table, hence migrate's ALTER pass.
 var addedColumns = []struct{ name, ddl string }{
 	{"pinned", `ALTER TABLE hosts ADD COLUMN pinned INTEGER DEFAULT 0`},
 	{"pin_order", `ALTER TABLE hosts ADD COLUMN pin_order INTEGER DEFAULT 0`},
 	{"default_dir", `ALTER TABLE hosts ADD COLUMN default_dir TEXT DEFAULT ''`},
 }
 
-// migrate adds any column in addedColumns the table does not have yet. It asks
-// PRAGMA table_info rather than running the ALTERs and swallowing the duplicate
-// column error, which is a driver-specific string and would hide real failures.
+// migrate adds any column in addedColumns the table lacks. It asks PRAGMA table_info
+// rather than swallowing the duplicate-column error, which is a driver-specific string
+// that would hide real failures.
 func migrate(db *sql.DB) error {
 	rows, err := db.Query(`PRAGMA table_info(hosts)`)
 	if err != nil {
@@ -193,8 +187,8 @@ func OpenAt(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	// Drop the table behind the withdrawn "recent directories" feature, so a
-	// database written by an older build does not keep its browsing history.
+	// Drop the table behind the withdrawn "recent directories" feature, so an older
+	// database does not keep its browsing history.
 	if _, err := db.Exec(`DROP TABLE IF EXISTS dirs`); err != nil {
 		db.Close()
 		return nil, err
@@ -207,8 +201,8 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// Hosts returns all hosts: the pinned ones first in the order the user put them
-// in, then the rest sorted by Visits desc then LastConnect desc.
+// Hosts returns all hosts: the pinned ones in the user's order, then the rest by Visits
+// desc then LastConnect desc.
 func (s *Store) Hosts() ([]Host, error) {
 	rows, err := s.db.Query(`
 		SELECT id, alias, hostname, user, port, identity_file, tags, grp, visits, last_connect,
@@ -294,8 +288,7 @@ func (s *Store) Upsert(h Host) (int64, error) {
 		return 0, err
 	}
 
-	// On an ON CONFLICT update LastInsertId is unreliable, so resolve the id
-	// authoritatively by alias.
+	// LastInsertId is unreliable on an ON CONFLICT update; resolve by alias instead.
 	var rowID int64
 	if qerr := s.db.QueryRow(`SELECT id FROM hosts WHERE alias = ?`, h.Alias).Scan(&rowID); qerr != nil {
 		return 0, qerr
@@ -303,12 +296,10 @@ func (s *Store) Upsert(h Host) (int64, error) {
 	return rowID, nil
 }
 
-// Add inserts a new host, failing when the alias is already taken. Unlike Upsert
-// it never overwrites: it is the path for "create a host the user believes is new",
-// so a stale in-memory list cannot silently clobber a host that was added since —
-// from the CLI, say, while the TUI was open. The UNIQUE constraint on alias is the
-// real guarantee; the pre-check is only there to turn a driver-specific constraint
-// error into a message worth reading. Returns the new row id.
+// Add inserts a new host, failing when the alias is taken. Unlike Upsert it never
+// overwrites, so a stale in-memory list cannot clobber a host added since — from the
+// CLI, say. The UNIQUE constraint is the real guarantee; the pre-check only turns a
+// driver-specific error into a readable one. Returns the new row id.
 func (s *Store) Add(h Host) (int64, error) {
 	var exists int
 	if err := s.db.QueryRow(`SELECT 1 FROM hosts WHERE alias = ?`, h.Alias).Scan(&exists); err == nil {
@@ -333,8 +324,8 @@ func (s *Store) Add(h Host) (int64, error) {
 	return res.LastInsertId()
 }
 
-// Delete removes the host with the given alias, closing the hole a pinned host
-// leaves behind in the pin order.
+// Delete removes the host with the given alias, closing the hole a pinned one leaves in
+// the pin order.
 func (s *Store) Delete(alias string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -354,8 +345,8 @@ func (s *Store) Delete(alias string) error {
 	return tx.Commit()
 }
 
-// AddForward persists a new forwarding definition for hostID. A host cannot have
-// two forwards competing for the same listener on the same side.
+// AddForward persists a new forwarding definition for hostID. A host cannot have two
+// forwards competing for the same listener on the same side.
 func (s *Store) AddForward(hostID int64, f Forward) (int64, error) {
 	f = normalizeForward(hostID, f)
 	if err := f.Validate(); err != nil {
@@ -378,8 +369,8 @@ func (s *Store) AddForward(hostID int64, f Forward) (int64, error) {
 	return res.LastInsertId()
 }
 
-// UpdateForward replaces an existing definition, preserving its identity so a
-// running tunnel can be matched and stopped before the new definition takes over.
+// UpdateForward replaces an existing definition, preserving its identity so a running
+// tunnel can be matched and stopped first.
 func (s *Store) UpdateForward(f Forward) error {
 	f = normalizeForward(f.HostID, f)
 	if err := f.Validate(); err != nil {
@@ -416,10 +407,9 @@ func normalizeForward(hostID int64, f Forward) Forward {
 	return f
 }
 
-// upsertImportedForward syncs one OpenSSH LocalForward/RemoteForward by its
-// listening endpoint. User-created definitions use AddForward and still get a
-// duplicate error; re-importing config is allowed to update the target behind an
-// existing listener.
+// upsertImportedForward syncs one OpenSSH LocalForward/RemoteForward by its listening
+// endpoint. User-created definitions go through AddForward and still get a duplicate
+// error; re-importing is allowed to update the target behind an existing listener.
 func (s *Store) upsertImportedForward(hostID int64, f Forward) error {
 	f = normalizeForward(hostID, f)
 	if err := f.Validate(); err != nil {
@@ -451,10 +441,9 @@ func (s *Store) DeleteForward(hostID, id int64) error {
 	return nil
 }
 
-// Rename changes a host's alias from oldAlias to newAlias, preserving its visit
-// count and connect history (a plain Upsert of a new alias would start them from
-// zero). It is a no-op when the two are equal, and fails when newAlias is already
-// taken or oldAlias does not exist.
+// Rename changes a host's alias, preserving its visit count and connect history, which
+// a plain Upsert of a new alias would zero. A no-op when the two are equal; it fails when
+// newAlias is taken or oldAlias does not exist.
 func (s *Store) Rename(oldAlias, newAlias string) error {
 	if oldAlias == newAlias {
 		return nil
@@ -481,10 +470,9 @@ func (s *Store) Rename(oldAlias, newAlias string) error {
 	return nil
 }
 
-// SetPinned pins or unpins a host. A newly pinned host goes to the *end* of the
-// pinned section — pinning is "keep this one where I can find it", not "make this
-// the first thing", and a pin that reshuffled the section every time would fight
-// the manual order the user set with MovePin. It fails when there is no such host.
+// SetPinned pins or unpins a host. A newly pinned host goes to the end of the section:
+// pinning is "keep this where I can find it", and reshuffling would fight the order set
+// with MovePin. It fails when there is no such host.
 func (s *Store) SetPinned(alias string, pinned bool) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -524,11 +512,9 @@ func (s *Store) SetPinned(alias string, pinned bool) error {
 	return tx.Commit()
 }
 
-// MovePin moves a pinned host delta places within the pinned section — -1 is up,
-// +1 is down — and reports whether it actually moved. An unpinned host, or one
-// already at the end it is being pushed against, is a no-op rather than an error:
-// it is a held-down key hitting the edge of the list, which the caller shows as
-// nothing happening.
+// MovePin moves a pinned host delta places within the pinned section (-1 up, +1 down)
+// and reports whether it moved. An unpinned host, or one already at the end, is a no-op
+// rather than an error: it is a held-down key hitting the edge of the list.
 func (s *Store) MovePin(alias string, delta int) (bool, error) {
 	if delta == 0 {
 		return false, nil
@@ -540,7 +526,7 @@ func (s *Store) MovePin(alias string, delta int) (bool, error) {
 	}
 	defer tx.Rollback()
 
-	// The section in the order it is drawn in, so "up" here is up on screen.
+	// In draw order, so "up" here is up on screen.
 	rows, err := tx.Query(`SELECT id, alias FROM hosts WHERE pinned = 1 ORDER BY pin_order ASC, visits DESC, last_connect DESC`)
 	if err != nil {
 		return false, err
@@ -590,10 +576,9 @@ func (s *Store) MovePin(alias string, delta int) (bool, error) {
 	return true, nil
 }
 
-// renumberPins rewrites pin_order as 1..n over the pinned hosts in their current
-// order, so a delete or an unpin cannot leave a hole for MovePin's arithmetic to
-// trip over. A host pinned before this column existed sorts by frecency, which is
-// the order it was already in.
+// renumberPins rewrites pin_order as 1..n over the pinned hosts in their current order,
+// so a delete or unpin cannot leave a hole for MovePin's arithmetic. A host pinned before
+// this column existed sorts by frecency, the order it was already in.
 func renumberPins(tx *sql.Tx) error {
 	rows, err := tx.Query(`SELECT id FROM hosts WHERE pinned = 1 ORDER BY pin_order ASC, visits DESC, last_connect DESC`)
 	if err != nil {
@@ -635,9 +620,8 @@ func (s *Store) Touch(alias string) error {
 	return err
 }
 
-// ImportSSHConfig parses an OpenSSH config file and upserts each concrete
-// Host alias (wildcard patterns containing '*' or '?' are skipped).
-// It returns the number of hosts imported.
+// ImportSSHConfig parses an OpenSSH config file and upserts each concrete Host alias,
+// skipping wildcard patterns, and returns how many were imported.
 func (s *Store) ImportSSHConfig(path string) (int, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -704,9 +688,9 @@ func (s *Store) ImportSSHConfig(path string) (int, error) {
 	return count, nil
 }
 
-// parseSSHForward accepts OpenSSH's TCP forwarding shape:
-// [bind_address:]port host:hostport. Socket-path and dynamic forms are left to
-// OpenSSH rather than being misrepresented as TCP definitions in hop.
+// parseSSHForward accepts OpenSSH's TCP forwarding shape, [bind_address:]port
+// host:hostport. Socket-path and dynamic forms are left to OpenSSH rather than
+// misrepresented as TCP definitions here.
 func parseSSHForward(value string, kind ForwardKind) (Forward, bool) {
 	fields := strings.Fields(value)
 	if len(fields) != 2 {
@@ -743,8 +727,8 @@ func splitForwardEndpoint(value string, portOnly bool) (string, int, bool) {
 	return host, port, true
 }
 
-// netSplitHostPortLoose is net.SplitHostPort plus OpenSSH's common unbracketed
-// hostname:port spelling. IPv6 remains bracketed, as OpenSSH documents it.
+// netSplitHostPortLoose is net.SplitHostPort plus OpenSSH's unbracketed hostname:port
+// spelling. IPv6 remains bracketed, as OpenSSH documents it.
 func netSplitHostPortLoose(value string) (string, string, error) {
 	if strings.HasPrefix(value, "[") {
 		end := strings.LastIndex(value, "]:")

@@ -12,11 +12,10 @@ import (
 	"hop/internal/store"
 )
 
-// reloadHosts re-reads the host list, so a connect's bump to visits and
-// last-connect shows up in the list's frecency order and in the details card
-// without a restart. A read failure leaves the list hop already has.
+// reloadHosts re-reads the host list, so a connect's bump to visits and last-connect
+// shows up without a restart. A read failure leaves the list hop already has.
 func (m *model) reloadHosts() {
-	// Hold the cursor on the host it is on, even when the new order moved it.
+	// Hold the cursor on its host, even when the new order moved it.
 	alias := ""
 	if h, ok := m.selectedHost(); ok {
 		alias = h.Alias
@@ -24,11 +23,9 @@ func (m *model) reloadHosts() {
 	m.reloadHostsSelecting(alias)
 }
 
-// reloadHostsSelecting re-reads the list and then parks the cursor on the host with
-// the given alias, or leaves it clamped in place when that alias is gone (a delete)
-// or filtered out. It is the shared body of reloadHosts and the one thing a save
-// needs on top of it: land the cursor on a host that was not selected a moment ago
-// — a brand-new one, or one whose alias just changed.
+// reloadHostsSelecting re-reads the list and parks the cursor on the given alias, leaving
+// it clamped in place when that alias is gone or filtered out. It is reloadHosts' body
+// plus the one thing a save needs: landing on a host that was not selected a moment ago.
 func (m *model) reloadHostsSelecting(alias string) {
 	if m.st == nil {
 		return
@@ -51,8 +48,7 @@ func (m *model) reloadHostsSelecting(alias string) {
 }
 
 // applyFilter recomputes m.filtered from the current filter text, records which
-// characters of each alias matched (for highlighting), and clamps the cursor into
-// range.
+// characters of each alias matched, and clamps the cursor into range.
 func (m *model) applyFilter() {
 	if m.highlights == nil {
 		m.highlights = make(map[int][]int)
@@ -64,15 +60,15 @@ func (m *model) applyFilter() {
 		for i := range m.hosts {
 			m.filtered = append(m.filtered, i)
 		}
-		// The store already hands hosts over pinned-first, so an unfiltered list is
-		// in section order as it stands.
+		// The store hands hosts over pinned-first, so an unfiltered list is already in
+		// section order.
 		m.buildRows()
 		m.clampCursor()
 		return
 	}
 
-	// The haystack is what a host *is* — its alias, its user and its hostname —
-	// so "root" finds a host whose alias says nothing about who you log in as.
+	// The haystack is what a host is — alias, user, hostname — so "root" finds a host
+	// whose alias says nothing about who you log in as.
 	hay := make([]string, len(m.hosts))
 	for i, h := range m.hosts {
 		hay[i] = h.Alias + " " + h.User + " " + h.HostName
@@ -82,9 +78,8 @@ func (m *model) applyFilter() {
 	m.filtered = m.filtered[:0]
 	for _, mt := range matches {
 		m.filtered = append(m.filtered, mt.Index)
-		// Only the offsets that landed in the alias are of any use to the row
-		// renderer: it is the one part of the haystack it draws character by
-		// character.
+		// Only offsets inside the alias are of use to the row renderer: it is the one part
+		// of the haystack it draws character by character.
 		alias := len(m.hosts[mt.Index].Alias)
 		var in []int
 		for _, at := range mt.MatchedIndexes {
@@ -96,20 +91,17 @@ func (m *model) applyFilter() {
 			m.highlights[mt.Index] = in
 		}
 	}
-	// A pin outranks a match score: a filter narrows the list, it does not dissolve
-	// the sections. The partition is stable, so inside each section the hits stay in
-	// the order the fuzzy matcher ranked them.
+	// A pin outranks a match score: a filter narrows the list, it does not dissolve the
+	// sections. The partition is stable, so within a section the ranking survives.
 	m.pinnedFirst()
 	m.buildRows()
 	m.clampCursor()
 }
 
-// pinnedFirst moves the pinned hosts to the front of m.filtered, in their pin
-// order — not in the order the fuzzy matcher ranked them. The section is drawn in
-// the order the user arranged by hand, and shift+j/k move within that same order,
-// so a filter that reshuffled the section would leave the reorder keys moving a
-// host somewhere other than where it looks like it is going. The unpinned tail
-// keeps the match ranking, which is the only place a score has anything to say.
+// pinnedFirst moves the pinned hosts to the front of m.filtered in their pin order, not
+// the fuzzy matcher's: shift+j/k move within the order the user arranged by hand, so a
+// filter that reshuffled the section would leave them moving a host somewhere else. The
+// unpinned tail keeps the match ranking.
 func (m *model) pinnedFirst() {
 	sorted := make([]int, 0, len(m.filtered))
 	for _, idx := range m.filtered {
@@ -135,11 +127,9 @@ func (m *model) pinnedFirst() {
 	m.filtered = append(m.filtered[:0], sorted...)
 }
 
-// buildRows recomputes the drawn rows from m.filtered, which is already in section
-// order. With nothing pinned there are no headings at all — the sidebar keeps the
-// single HOSTS title it has always had (see renderList), and this is a row per
-// host. A section with no matches left in it does not get a heading, so a filter
-// never draws an empty block.
+// buildRows recomputes the drawn rows from m.filtered, which is already in section order.
+// With nothing pinned there are no headings and this is a row per host. A section with no
+// matches left gets no heading, so a filter never draws an empty block.
 func (m *model) buildRows() {
 	m.rows = m.rows[:0]
 
@@ -175,15 +165,14 @@ func (m *model) buildRows() {
 	}
 }
 
-// hasSections reports whether the sidebar is drawing section headings — which it
-// does exactly when something is pinned, and which is what costs the single HOSTS
-// title at the top of the pane.
+// hasSections reports whether the sidebar is drawing section headings, which it does
+// exactly when something is pinned — and which costs the single HOSTS title above them.
 func (m *model) hasSections() bool {
 	return len(m.rows) > len(m.filtered)
 }
 
-// cursorRow is where the cursor sits in row space (headings included), which is
-// what the scroll window and the scrollbar are measured in.
+// cursorRow is where the cursor sits in row space, headings included — what the scroll
+// window and the scrollbar are measured in.
 func (m *model) cursorRow() int {
 	for i, r := range m.rows {
 		if r.heading == "" && r.fi == m.cursor {
@@ -205,9 +194,8 @@ func (m *model) selectedHost() (store.Host, bool) {
 	return m.hosts[i], true
 }
 
-// hostByAlias returns the host with this alias. It looks over every host rather
-// than the filtered ones, because the modes that ask — a focused pane, a browser
-// — are on a host the filter may well have hidden since.
+// hostByAlias returns the host with this alias, looking over every host rather than the
+// filtered ones: the modes that ask are on a host the filter may have hidden since.
 func (m *model) hostByAlias(alias string) (store.Host, bool) {
 	for _, h := range m.hosts {
 		if h.Alias == alias {

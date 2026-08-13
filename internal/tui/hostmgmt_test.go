@@ -11,9 +11,8 @@ import (
 	"hop/internal/store"
 )
 
-// hostMgmtModel builds a navigation-mode model backed by a real (temp-file) store
-// seeded with the given hosts, so the add/edit/delete flows exercise the actual
-// SQLite round-trip rather than a fake.
+// hostMgmtModel builds a navigation-mode model backed by a real temp-file store, so the
+// add/edit/delete flows exercise the actual SQLite round-trip.
 func hostMgmtModel(t *testing.T, seed ...store.Host) *model {
 	t.Helper()
 	st, err := store.OpenAt(t.TempDir() + "/hop.db")
@@ -300,9 +299,8 @@ func TestAddHostWithDefaultDir(t *testing.T) {
 	}
 }
 
-// An edit pre-fills the field from the host and can clear it again — an empty
-// default directory is the "wherever the login shell lands" behaviour, so it has to
-// be reachable, not just the state of a host that never had one.
+// An edit pre-fills the field from the host and can clear it again: an empty default
+// directory is a behaviour, so it has to be reachable.
 func TestEditHostDefaultDirRoundTrip(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22, DefaultDir: "/srv/app"})
 
@@ -345,10 +343,9 @@ func TestBrowserStartDirPrefersTheDroppedSession(t *testing.T) {
 	}
 }
 
-// The card has to fit the terminal it is drawn into. It gives way in the same
-// order the settings popover does — the air between fields first, then the number
-// of fields on screen — so a short window scrolls the form instead of cutting off
-// its bottom, hints and all.
+// The card has to fit the terminal it is drawn into, giving way in the settings popover's
+// order — air first, then the number of fields — so a short window scrolls the form
+// instead of cutting off its bottom.
 func TestHostFormFitsTheWindow(t *testing.T) {
 	if hostFormMinH() > 24 {
 		t.Fatalf("the packed card needs %d rows; it must fit a standard 24-row terminal", hostFormMinH())
@@ -366,9 +363,9 @@ func TestHostFormFitsTheWindow(t *testing.T) {
 	}
 }
 
-// However short the window, the field the cursor is on is one of the fields drawn —
-// a form that scrolled the row you are typing into off the card would be worse than
-// one that did not scroll at all.
+// However short the window, the field the cursor is on is one of those drawn: a form that
+// scrolled the row you are typing into off the card would be worse than one that did not
+// scroll at all.
 func TestHostFormWindowHoldsTheCursor(t *testing.T) {
 	for h := 10; h <= hostFormFullH()+4; h++ {
 		m := hostMgmtModel(t)

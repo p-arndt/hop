@@ -45,9 +45,8 @@ func press(x, y int) tea.MouseMsg {
 	return tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}
 }
 
-// A shell that has not asked for the mouse gets nothing: the wheel over it is
-// hop's, to spend on its own scrollback. A program that asks — the DECSET pair vim
-// and htop send — is reported to, and stops being reported to when it leaves.
+// A shell that has not asked for the mouse gets nothing: the wheel over it is hop's. A
+// program that asks is reported to, and stops being reported to when it leaves.
 func TestMouseEnabledFollowsTheRemote(t *testing.T) {
 	out, w := io.Pipe()
 	stdin := &syncBuf{}
@@ -81,9 +80,8 @@ func TestMouseEnabledFollowsTheRemote(t *testing.T) {
 	}
 }
 
-// The encoding, and the levels that decide whether an event is reported at all. A
-// program in DECSET 1000 asked for presses and releases; the motion reports of 1002
-// would be noise to it, so they are dropped rather than sent.
+// The encoding, and the levels that decide whether an event is reported. A program in
+// DECSET 1000 asked for presses and releases, so 1002's motion reports are dropped.
 func TestMouseBytes(t *testing.T) {
 	wheel := tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}
 	release := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease}
@@ -119,10 +117,9 @@ func TestMouseBytes(t *testing.T) {
 		{"x10 release is button 3", release, 0, 0, trackRelease, false, "\x1b[M\x23\x21\x21"},
 		{"x10 at the last ASCII column", press(0, 0), 93, 0, trackPress, false, "\x1b[M\x20\x7e\x21"},
 		{"x10 the same for a row", press(0, 0), 0, 93, trackPress, false, "\x1b[M\x20\x21\x7e"},
-		// Past that the coordinate byte has its top bit set, which is what xterm sends
-		// and what a program decoding the report reads — raw bytes, not text. A wide
-		// pane (the sidebar hidden) reaches these columns, and a program that asked for
-		// the mouse without SGR has no other way to be told about them.
+		// Past that the coordinate byte has its top bit set, which is what xterm sends and
+		// what a decoding program reads. A wide pane reaches these columns, and a non-SGR
+		// program has no other way to be told about them.
 		{"x10 past the top bit, column", press(0, 0), 94, 0, trackPress, false, "\x1b[M\x20\x7f\x21"},
 		{"x10 past the top bit, row", press(0, 0), 0, 200, trackPress, false, "\x1b[M\x20\x21\xe9"},
 		{"x10 at the last cell it can name", press(0, 0), 222, 0, trackPress, false, "\x1b[M\x20\xff\x21"},
@@ -146,9 +143,8 @@ func TestMouseBytes(t *testing.T) {
 	}
 }
 
-// The reporting level is the most specific mode the program has set, and it holds
-// while any of them do: a program that sets 1000 and 1002 wants motion, and turning
-// 1002 back off leaves it with the 1000 it still asked for.
+// The reporting level is the most specific mode set, and holds while any of them do:
+// turning 1002 off leaves a program with the 1000 it still asked for.
 func TestTrackingLevel(t *testing.T) {
 	var s mouseState
 
@@ -173,11 +169,9 @@ func TestTrackingLevel(t *testing.T) {
 	}
 }
 
-// A full terminal reset (RIS — what `reset` and `tput reset` send, and what some
-// programs emit on the way out) clears every mode, mouse reporting included. The
-// emulator does that without firing its mode callbacks, so the reset is noticed in
-// the byte stream instead. Missing it would leave hop forwarding the wheel into a
-// shell that stopped asking, and its own scrollback wheel dead for the tab's life.
+// A full terminal reset (RIS) clears every mode, mouse reporting included. The emulator
+// does that without firing its callbacks, so the reset is noticed in the byte stream
+// instead — missing it leaves hop forwarding the wheel into a shell that stopped asking.
 func TestFullResetForgetsTheMouse(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
@@ -204,9 +198,8 @@ func TestFullResetForgetsTheMouse(t *testing.T) {
 	}
 }
 
-// The reset is only a reset where it is one: an ESC c that goes past inside an OSC
-// payload — a window title, say — is that payload's data, not a reset of the
-// terminal, and must not drop what a program has asked for.
+// The reset is only a reset where it is one: an ESC c inside an OSC payload is that
+// payload's data, and must not drop what a program has asked for.
 func TestResetInsideAnOSCIsNotAReset(t *testing.T) {
 	var s oscScanner
 
@@ -241,14 +234,10 @@ func TestSendMouseOnAClosedPane(t *testing.T) {
 	}
 }
 
-// A full-screen program that leaves the alt screen without releasing the mouse
-// takes its ask with it anyway.
-//
-// This is the shape of a real defect rather than a hypothetical: the modes belong
-// to the program, and a program that was killed — or that restored the screen and
-// nothing else — never sends the "l" that switches them off. The shell underneath
-// is then left "asking" for a mouse it knows nothing about, and every drag over it
-// is encoded and typed into it as input.
+// A full-screen program that leaves the alt screen without releasing the mouse takes its
+// ask with it anyway. A program that was killed never sends the "l" that switches the
+// modes off, and the shell underneath is then left "asking" for a mouse it knows nothing
+// about — every drag over it typed into it as input.
 func TestLeavingTheAltScreenDropsTheMouse(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
@@ -292,12 +281,10 @@ func TestInlineMouseSurvives(t *testing.T) {
 	}
 }
 
-// The exit and what comes after it arrive together: over SSH, vim's teardown and
-// the shell's next prompt are one read, and readline announces bracketed paste
-// before every line it reads. The asks that follow the exit are the *shell's*, and
-// they must survive it — dropping the modes after the whole chunk was parsed
-// discarded them, and hop then pasted unbracketed into a shell that runs each line
-// of what it is given.
+// The exit and what follows arrive together: over SSH, vim's teardown and the shell's
+// next prompt are one read. The asks after the exit are the shell's and must survive it —
+// dropping the modes after the whole chunk discarded them, and hop then pasted
+// unbracketed into a shell that runs each line it is given.
 func TestAltScreenExitKeepsWhatFollowsInTheSameChunk(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)

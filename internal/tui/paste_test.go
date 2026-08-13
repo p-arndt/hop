@@ -43,10 +43,8 @@ func typed(r rune) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
 }
 
-// A marked paste goes to the pane as a paste — not as the bindings its characters
-// happen to spell. Pasting "q" into a shell must not be read as anything but a q,
-// and the same text arriving through the shell handler proves the branch sits
-// above the switch.
+// A marked paste goes to the pane as a paste, not as the bindings its characters spell:
+// pasting "q" into a shell must not be read as anything but a q.
 func TestMarkedPasteGoesToTheShell(t *testing.T) {
 	m, stdin := pasteModel()
 	m.handleKey(pasted("echo hi\n"))
@@ -87,9 +85,8 @@ func TestPasteFromScrollbackReturnsLiveFirst(t *testing.T) {
 	}
 }
 
-// Windows has no marked paste: the console synthesises one as a burst of ordinary
-// key events. A burst that carries a newline is a paste, and it reaches the pane as
-// one piece rather than as a line of typing an editor would indent.
+// Windows has no marked paste: the console synthesises one as a burst of key events. A
+// burst carrying a newline is a paste, and reaches the pane as one piece.
 func TestBurstWithANewlineIsAPaste(t *testing.T) {
 	m, stdin := pasteModel()
 
@@ -108,11 +105,9 @@ func TestBurstWithANewlineIsAPaste(t *testing.T) {
 	}
 }
 
-// A typed Enter arrives alone in its burst — the human-sized pause before it
-// ended the previous one — and it must reach the shell as the keystroke it was.
-// Read as a one-newline paste it goes out *bracketed*, which a shell in
-// bracketed-paste mode inserts instead of executing: no command ever runs, and
-// the terminal shows no output from the first Enter on (the v0.5.0 regression).
+// A typed Enter arrives alone in its burst and must reach the shell as a keystroke. Read
+// as a one-newline paste it goes out bracketed, which a shell inserts instead of
+// executing — no command runs from the first Enter on (the v0.5.0 regression).
 func TestALoneEnterIsAKeystrokeNotAPaste(t *testing.T) {
 	m, stdin := pasteModel()
 
@@ -127,9 +122,8 @@ func TestALoneEnterIsAKeystrokeNotAPaste(t *testing.T) {
 	}
 }
 
-// A key held down until it repeats arrives just as fast as a paste and is not one.
-// It is replayed as the keystrokes it was, so holding j in vim still moves down
-// three lines instead of inserting "jjj".
+// A key held down until it repeats arrives as fast as a paste and is not one: it is
+// replayed as keystrokes, so holding j in vim still moves down rather than inserting.
 func TestRepeatedKeyIsNotAPaste(t *testing.T) {
 	m, stdin := pasteModel()
 
@@ -146,9 +140,8 @@ func TestRepeatedKeyIsNotAPaste(t *testing.T) {
 	}
 }
 
-// A key that cannot be part of a paste ends the burst, and ends it *before* it is
-// handled itself: the text typed ahead of a ctrl+o has to reach the shell before
-// the pane is left.
+// A key that cannot be part of a paste ends the burst before it is handled itself: text
+// typed ahead of a ctrl+o reaches the shell before the pane is left.
 func TestAnUnbufferableKeyFlushesFirst(t *testing.T) {
 	m, stdin := pasteModel()
 
@@ -165,9 +158,8 @@ func TestAnUnbufferableKeyFlushesFirst(t *testing.T) {
 	}
 }
 
-// Nothing is buffered where a key is a command rather than a character. The host
-// list must answer a keystroke at once — and the burst detection has no paste to
-// find there anyway.
+// Nothing is buffered where a key is a command rather than a character: the host list
+// answers a keystroke at once.
 func TestNavigationKeysAreNeverBuffered(t *testing.T) {
 	m, _ := pasteModel()
 	m.mode = modeList
@@ -205,11 +197,9 @@ func TestStaleFlushIsIgnored(t *testing.T) {
 	}
 }
 
-// A card that opens under a burst takes its own keys. Both cards that open by
-// themselves — the 2FA challenge and the host-key question — arrive from a dial
-// that may well have been started from another host's shell, so the buffer must
-// stand down the moment one is up. Holding those keys back would deliver a
-// verification code to the shell behind the card.
+// A card that opens under a burst takes its own keys. Both cards that open by themselves
+// arrive from a dial that may have started in another host's shell, so holding those keys
+// back would deliver a verification code to the shell behind the card.
 func TestKeysAreNotBufferedUnderACard(t *testing.T) {
 	m, stdin := pasteModel()
 	m.auth = authUI{open: true, answers: []string{""}}
@@ -235,9 +225,8 @@ func TestPasteInTheHostListIsDropped(t *testing.T) {
 	}
 }
 
-// A password copied out of a manager brings the newline after it along. The field
-// takes the line, not the line ending — one that kept it would submit a value that
-// does not match on the next Enter.
+// A password copied out of a manager brings the newline along. The field takes the line,
+// not the line ending, which would otherwise submit a value that does not match.
 func TestPasteIntoACardTakesOneLine(t *testing.T) {
 	m := &model{auth: authUI{open: true, answers: []string{""}}}
 	m.handleKey(pasted("hunter2\nsecond line"))
@@ -247,9 +236,8 @@ func TestPasteIntoACardTakesOneLine(t *testing.T) {
 	}
 }
 
-// Into a text field, a paste is text — including a paste that spells one of the
-// field's own keys. The filter and the host form both read a key's name out of the
-// event, and "esc" pasted into either of them is characters.
+// Into a text field a paste is text, including one that spells the field's own keys:
+// "esc" pasted into the filter or the host form is four characters.
 func TestPasteIntoTextFieldsIsText(t *testing.T) {
 	m := &model{hosts: nil, highlights: map[int][]int{}, filtering: true}
 	m.handleKey(pasted("esc"))
@@ -279,12 +267,10 @@ func TestPasteString(t *testing.T) {
 	}
 }
 
-// Without a newline it takes a run of characters, not all the same, before a burst
-// is read as a paste. Both ways of typing this fast are ruled out — a key repeating
-// (one character over and over) and a fast digraph (two) — because being wrong here
-// is not symmetric: a short paste replayed as keystrokes types exactly what was
-// pasted, while "dw" typed quickly and sent as a paste is *inserted* by vim instead
-// of deleting a word.
+// Without a newline it takes a run of characters, not all the same, before a burst reads
+// as a paste — ruling out both fast-typing shapes. Being wrong is not symmetric: a short
+// paste replayed as keystrokes types what was pasted, while "dw" sent as a paste is
+// inserted by vim instead of deleting a word.
 func TestABurstWithNoNewlineNeedsARun(t *testing.T) {
 	if looksPasted([]tea.KeyMsg{typed('d'), typed('w')}) {
 		t.Fatal("a fast digraph was taken for a paste")

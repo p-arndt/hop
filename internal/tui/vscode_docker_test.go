@@ -12,22 +12,18 @@ import (
 	"hop/internal/store"
 )
 
-// The working-directory half of the VS Code binding, end to end against a real
-// OpenSSH server running real shells (see internal/dockerenv/testdata/shellhost):
-// connect the way a user does, let hop install its prompt hook into the shell, cd
-// somewhere, and press the key. What VS Code is asked to open has to be the
-// directory the shell is actually standing in.
+// The working-directory half of the VS Code binding, end to end against a real OpenSSH
+// server running real shells: connect the way a user does, let hop install its prompt
+// hook, cd somewhere, press the key. What VS Code is asked to open has to be where the
+// shell is standing.
 //
-// Nothing here is stubbed except the launch itself — there is no VS Code on a CI
-// box, and the path handed to it is the whole feature, so the launcher is the one
-// seam. Everything upstream of it is real: a real sshd, a real bash and zsh
-// emitting real OSC 7 because hop asked them to, and a real `cd` moving it.
+// Only the launch is stubbed — there is no VS Code on a CI box, and the path handed to it
+// is the whole feature. Everything upstream is real.
 //
 //	HOP_DOCKER_E2E=1 go test ./internal/tui/ -run VSCodeE2E -v
 //
-// The fish account is here for the other half of the promise: a shell hop cannot
-// install the hook into must be left alone, and the binding must fall back to the
-// host's default directory rather than to a wrong one.
+// The fish account covers the other half: a shell hop cannot install the hook into is
+// left alone, and the binding falls back to the host's default directory.
 
 var (
 	shellHostOnce sync.Once
@@ -35,10 +31,8 @@ var (
 	shellHostErr  error
 )
 
-// shellHostServer brings the shell host up on first use and shares it across the
-// tests in this file. It is started lazily rather than from TestMain so a run of
-// the two-factor tests does not pay for an image it will not use; TestMain stops
-// it if it was ever started.
+// shellHostServer brings the shell host up on first use and shares it across this file.
+// Lazily, so a run of the two-factor tests does not pay for an image it will not use.
 func shellHostServer(t *testing.T) *dockerenv.ShellHost {
 	t.Helper()
 	if !dockerenv.Enabled() {
@@ -73,18 +67,15 @@ func TestVSCodeE2EOpensTheShellsDirectory(t *testing.T) {
 		t.Run(c.user, func(t *testing.T) {
 			m, sh := connectShellHost(t, c.user)
 
-			// The hook lands on its own, a moment after the shell does: hop probes the
-			// login shell over a second channel, waits for the shell to say something,
-			// and only then types the hook in.
+			// The hook lands a moment after the shell: hop probes the login shell over a
+			// second channel and waits for the shell to say something first.
 			if dir := waitForPaneCwd(t, m, c.home); dir != c.home {
 				t.Fatalf("the shell reported %q on login, want %q\npane:\n%s", dir, c.home, sh.pane.View())
 			}
 
-			// And it leaves no trace: the line hop typed into the prompt to install the
-			// hook is taken back off the screen once it has run. That happens a moment
-			// after the report arrives — the prompt underneath the echo has to be drawn
-			// before the rows can be counted — so it is waited for, not asserted on the
-			// same instant.
+			// And it leaves no trace: the line is taken back off the screen once it has
+			// run. That happens a moment after the report, since the prompt underneath
+			// has to be drawn before the rows can be counted.
 			if view := waitForCleanPane(sh); strings.Contains(view, "hop_cwd") {
 				t.Fatalf("the hook hop typed is still on screen:\n%s", view)
 			}

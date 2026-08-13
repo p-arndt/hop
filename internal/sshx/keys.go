@@ -10,23 +10,17 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// defaultKeyNames are the private keys OpenSSH tries when a host names no
-// IdentityFile, in the same order and for the same reason: newer, cheaper
-// algorithms first. They live in ~/.ssh and are only used when they exist.
+// defaultKeyNames are the private keys OpenSSH tries when a host names no IdentityFile,
+// in its order: newer, cheaper algorithms first. Only used when they exist.
 var defaultKeyNames = []string{"id_ed25519", "id_ecdsa", "id_rsa", "id_dsa"}
 
-// keySigners loads private keys from disk: the host's IdentityFile when it names
-// one, otherwise the default ~/.ssh keys.
+// keySigners loads private keys from disk: the host's IdentityFile when it names one,
+// otherwise the default ~/.ssh keys. It is the fallback for an agent that is running but
+// holds no identities — the normal state on macOS for anyone who has not run `ssh-add`.
 //
-// This is the fallback for the very common case of an agent that is running but
-// holds no identities — on macOS launchd always provides $SSH_AUTH_SOCK, so
-// agent-only auth fails there for anyone who has not run `ssh-add`, even though
-// plain `ssh` connects fine off the key file.
-//
-// Missing files are skipped silently (a default key that is not there is not an
-// error). A key that needs a passphrase is skipped too, but reported through
-// skipped so the caller can tell the user to `ssh-add` it rather than leaving
-// them with a bare "no supported methods remain".
+// Missing files are skipped silently. A key that needs a passphrase is skipped too but
+// reported through skipped, so the caller can say which one rather than leaving the user
+// with a bare "no supported methods remain".
 func keySigners(identityFile string) (signers []ssh.Signer, skipped []string) {
 	paths, explicit := keyPaths(identityFile)
 
@@ -55,9 +49,9 @@ func keySigners(identityFile string) (signers []ssh.Signer, skipped []string) {
 	return signers, skipped
 }
 
-// keyPaths resolves the private keys to try for a host. An IdentityFile named by
-// the host wins outright and is reported as explicit, so a typo in it surfaces as
-// an error instead of being masked by a default key that happens to exist.
+// keyPaths resolves the private keys to try for a host. A host's IdentityFile wins
+// outright and is reported as explicit, so a typo in it surfaces rather than being masked
+// by a default key that happens to exist.
 func keyPaths(identityFile string) (paths []string, explicit bool) {
 	if f := strings.TrimSpace(identityFile); f != "" {
 		return []string{expandHome(f)}, true
@@ -72,8 +66,8 @@ func keyPaths(identityFile string) (paths []string, explicit bool) {
 	return paths, false
 }
 
-// expandHome resolves a leading ~ in a path, the form ssh_config uses for
-// IdentityFile and the form the import writes into the store verbatim.
+// expandHome resolves a leading ~ in a path — the form ssh_config uses for IdentityFile,
+// and what the import writes into the store verbatim.
 func expandHome(p string) string {
 	if p != "~" && !strings.HasPrefix(p, "~/") {
 		return p

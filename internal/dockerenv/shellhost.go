@@ -7,30 +7,26 @@ import (
 	"path/filepath"
 )
 
-// The accounts the shell host runs, one per login shell. Which shell an account
-// has is the whole point of it: hop's prompt hook is written for bash and zsh, and
-// must not be typed into anything else.
+// The accounts the shell host runs, one per login shell — the whole point of them, since
+// hop's prompt hook is written for bash and zsh and must not be typed into anything else.
 const (
 	BashUser = "bashy"
 	ZshUser  = "zshy"
 	FishUser = "fishy"
 
-	// SpaceDir exists on the host so a test can cd into a directory whose name has
-	// a space in it — the path most likely to be mangled on its way through an
-	// escape sequence.
+	// SpaceDir exists so a test can cd into a directory with a space in its name — the
+	// path most likely to be mangled on its way through an escape sequence.
 	SpaceDir = "/srv/hop test dir"
 )
 
 const shellHostImage = "hop-shellhost:test"
 
-// shellHostContainer is named per process, for the same reason the two-factor one
-// is: `go test ./...` runs each package in its own process, in parallel.
+// shellHostContainer is named per process, as the two-factor one is.
 var shellHostContainer = fmt.Sprintf("hop-shellhost-e2e-%d", os.Getpid())
 
-// ShellHost is a running SSH server with a real bash, a real zsh and a real fish
-// to log into (see testdata/shellhost). It is what hop's working-directory
-// tracking is tested against: the shells here emit OSC 7 because hop's prompt hook
-// asked them to, not because a fixture printed it.
+// ShellHost is a running SSH server with a real bash, zsh and fish to log into. hop's
+// working-directory tracking is tested against it: these shells emit OSC 7 because the
+// prompt hook asked them to, not because a fixture printed it.
 type ShellHost struct {
 	// Port is the loopback port the single sshd landed on.
 	Port int
@@ -40,11 +36,9 @@ type ShellHost struct {
 	keyDir string
 }
 
-// StartShellHost builds the image, generates the client key the accounts will
-// trust, and starts the container on an ephemeral loopback port. The returned host
-// is ready to dial: sshd has answered with a banner before this returns.
-//
-// Call Stop when done.
+// StartShellHost builds the image, generates the client key the accounts trust, and
+// starts the container on an ephemeral loopback port. sshd has answered with a banner
+// before it returns. Call Stop when done.
 func StartShellHost() (*ShellHost, error) {
 	dir, err := buildDir("shellhost")
 	if err != nil {
@@ -68,7 +62,7 @@ func StartShellHost() (*ShellHost, error) {
 		return nil, fmt.Errorf("dockerenv: docker build: %v: %s", err, tail(out))
 	}
 
-	// A container left behind by an interrupted run would hold the name.
+	// An interrupted run may have left one holding the name.
 	exec.Command("docker", "rm", "-f", shellHostContainer).Run()
 
 	if out, err := exec.Command("docker", "run", "-d", "--name", shellHostContainer,
@@ -93,8 +87,7 @@ func StartShellHost() (*ShellHost, error) {
 	return s, nil
 }
 
-// Stop removes the container and the generated key. It is safe to call on a
-// half-started host.
+// Stop removes the container and the generated key, safe on a half-started host.
 func (s *ShellHost) Stop() {
 	exec.Command("docker", "rm", "-f", shellHostContainer).Run()
 	if s != nil && s.keyDir != "" {
@@ -102,8 +95,8 @@ func (s *ShellHost) Stop() {
 	}
 }
 
-// Logs returns what the container has printed, which is where an sshd that
-// refused to start says why.
+// Logs returns what the container has printed — where an sshd that refused to start
+// says why.
 func (s *ShellHost) Logs() string {
 	out, _ := exec.Command("docker", "logs", shellHostContainer).CombinedOutput()
 	return string(out)

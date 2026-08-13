@@ -6,22 +6,20 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// helpSection is one group of bindings in the help card: a mode you can be in,
-// and what the keys do while you are in it.
+// helpSection is one group of bindings in the help card: a mode, and what the keys do in
+// it.
 type helpSection struct {
 	title string
 	keys  [][2]string
 }
 
-// The whole of hop's keyboard, grouped by the mode that owns it, and split into
-// the two columns the card stands up in. It is the same set of bindings the
-// footer shows a slice of — the footer says what is live right now, this says
-// what exists.
+// The whole of hop's keyboard, grouped by the mode that owns it and split into the card's
+// two columns. The footer shows a slice of the same set: it says what is live now, this
+// says what exists.
 //
-// The two motion sections are built rather than declared, because what hop binds in
-// them depends on the "Vim keys" setting. A reference card that lists keys you do
-// not have is worse than no card: the card shows the keyboard you are actually
-// holding, and when vim is off it says where to go and turn it on.
+// The two motion sections are built rather than declared, because what they bind depends
+// on the "Vim keys" setting: the card shows the keyboard you are actually holding, and
+// when vim is off it says where to turn it on.
 
 func helpLeft(vim bool) []helpSection {
 	return []helpSection{
@@ -48,8 +46,7 @@ func helpLeft(vim bool) []helpSection {
 			{"r", "reconnect a dropped session"},
 			{",", "settings"},
 		}},
-		// The pointer does nothing the keyboard cannot, so it is one short section
-		// rather than a column of its own: what is listed here is which key each
+		// The pointer does nothing the keyboard cannot, so this lists which key each
 		// gesture stands in for.
 		{"MOUSE", [][2]string{
 			{"wheel", "move / scroll what you point at"},
@@ -102,10 +99,9 @@ func helpRight(vim bool) []helpSection {
 	}
 }
 
-// motionKeys is how the list moves: the vim step keys when they are switched on,
-// and the plain ones plus a pointer at the switch when they are not. The list's
-// keyboard is the smaller of the two — the jumps and ctrl chords belong to the
-// browser (see keymap.Scope), and the card shows what you are actually holding.
+// motionKeys is how the list moves: the vim step keys when they are on, and the plain
+// ones plus a pointer at the switch when they are not. The jumps and ctrl chords belong
+// to the browser (see keymap.Scope).
 func motionKeys(vim bool) [][2]string {
 	if vim {
 		return [][2]string{
@@ -120,20 +116,19 @@ func motionKeys(vim bool) [][2]string {
 	}
 }
 
-// Help card geometry. helpKeyW is wide enough for the longest key hop names, and
-// helpColW for the longest thing it says about one.
+// Help card geometry: helpKeyW fits the longest key hop names, helpColW the longest
+// thing it says about one.
 const (
 	helpKeyW   = 13 // "ctrl+o ctrl+o", the widest key name hop has
 	helpColW   = 42
 	helpGutter = 4
 )
 
-// renderHelp draws the keybinding card: every key hop knows, on one screen. A
-// reference you have to page through is one you stop opening — so it stands in
-// two columns rather than scrolling, and falls back to one only when the window
-// is too narrow to hold them side by side.
+// renderHelp draws the keybinding card: every key hop knows, on one screen. It stands in
+// two columns rather than scrolling, falling back to one on a window too narrow to hold
+// them side by side.
 func (m *model) renderHelp() string {
-	// What the window can hold once the card's own border and padding are paid for.
+	// What the window holds once the card's border and padding are paid for.
 	room := max(m.width-2*cardPadX-2, 20)
 
 	left, right := helpLeft(m.cfg.VimKeys), helpRight(m.cfg.VimKeys)
@@ -161,11 +156,10 @@ func (m *model) renderHelp() string {
 	return cardBox.Width(w + 2*cardPadX).Render(b.String())
 }
 
-// fitHelp cuts the card's body to what the window can actually hold, so a short
-// terminal gets a card with a bottom edge on it rather than one running off the
-// screen. The rows it drops are the ones the footer is already showing.
+// fitHelp cuts the card's body to what the window can hold, so a short terminal gets a
+// card with a bottom edge rather than one running off the screen.
 func (m *model) fitHelp(body string) string {
-	// The card's own chrome: border, padding, title, blank, and the hint line.
+	// The card's chrome: border, padding, title, blank, and the hint line.
 	const chrome = 2 + 2 + 2 + 2
 	lines := strings.Split(body, "\n")
 	if room := m.height - chrome; room > 0 && len(lines) > room {
@@ -174,8 +168,8 @@ func (m *model) fitHelp(body string) string {
 	return strings.Join(lines, "\n")
 }
 
-// helpColumn renders sections as one column: a capped title with a rule running
-// out to the column's edge, then its keys with their labels aligned.
+// helpColumn renders sections as one column: a capped title with a rule out to the
+// column's edge, then its keys with the labels aligned.
 func helpColumn(sections []helpSection, w int) string {
 	var b strings.Builder
 	for i, sec := range sections {

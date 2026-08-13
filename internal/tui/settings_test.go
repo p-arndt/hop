@@ -13,9 +13,8 @@ import (
 // saving a setting cannot touch the real one.
 func settingsModel(t *testing.T) *model {
 	t.Helper()
-	// Redirect every variable os.UserConfigDir consults — %AppData% on Windows,
-	// $XDG_CONFIG_HOME on Linux, $HOME on macOS, which ignores XDG — or saving a
-	// setting here rewrites the developer's own config.
+	// Redirect every variable os.UserConfigDir consults, or saving a setting here
+	// rewrites the developer's own config.
 	dir := t.TempDir()
 	t.Setenv("AppData", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
@@ -161,8 +160,7 @@ func TestAccentCustomValueSurvives(t *testing.T) {
 }
 
 // The vim keys field is a switch: ←/→ and enter flip it, it applies to the browsers
-// already open, and it persists — and it never opens a text field, because there is
-// nothing about "on" worth typing.
+// already open, and it persists. It never opens a text field.
 func TestVimKeysToggle(t *testing.T) {
 	m := settingsModel(t)
 	m.settings.cursor = fieldIndex(t, "Vim keys")
@@ -233,10 +231,9 @@ func TestSettingsSwallowsKeys(t *testing.T) {
 	}
 }
 
-// The popover honours the vim setting like everything else: a card that still
-// answered to hjkl while holding the switch that says the vim keys are off would be
-// lying about its own state. Turning them off from this card cannot strand you — the
-// arrows and enter are never gated, and they are what the hint line names.
+// The popover honours the vim setting like everything else: a card answering to hjkl
+// while holding the switch that says they are off would be lying. Turning them off here
+// cannot strand you — the arrows and enter are never gated.
 func TestSettingsHonoursVimSetting(t *testing.T) {
 	m := settingsModel(t)
 
@@ -350,17 +347,14 @@ func TestOverlayClipsAtBottom(t *testing.T) {
 	}
 }
 
-// The card has to fit the window it floats over: a modal whose bottom rows are cut
-// off loses its hint line, which is where the keys that work it are named. Two
-// things give way on a short window (see renderSettings) — first the spacing
-// between fields, then the number of them on screen, the list scrolling inside the
-// card — so it fits every window from settingsMinH rows up, which has to include
-// 24, the standard terminal.
+// The card has to fit the window it floats over: a modal whose bottom rows are cut off
+// loses the hint line naming the keys that work it. Two things give way on a short window
+// (see renderSettings) — the spacing between fields, then the number on screen — so it
+// fits every window from settingsMinH rows up, which includes the standard 24.
 //
-// Below settingsMinH it does not fit, and there is nothing left to drop that is not
-// the selected field, its explanation or the hints. The test says so rather than
-// passing over it: the floor is a function of settingsMinFields rather than of how
-// many settings hop has, and adding one must not raise it.
+// Below settingsMinH there is nothing left to drop that is not the selected field, its
+// explanation or the hints. The floor is a function of settingsMinFields, not of how many
+// settings hop has, so adding one must not raise it.
 func TestSettingsCardFitsTheWindow(t *testing.T) {
 	if settingsMinH() > 24 {
 		t.Fatalf("the packed card needs %d rows; it must fit a standard 24-row terminal", settingsMinH())
@@ -374,10 +368,9 @@ func TestSettingsCardFitsTheWindow(t *testing.T) {
 	}
 }
 
-// A window too short for every field shows a run of them instead — and the run
-// always holds the one the cursor is on, wherever in the list it has got to. A
-// scrolling list that can hide the selection is worse than a truncated card: the
-// keys still work, on a field nobody can see.
+// A window too short for every field shows a run of them, always holding the cursor's.
+// A scrolling list that can hide the selection is worse than a truncated card: the keys
+// still work, on a field nobody can see.
 func TestSettingsCardScrollsToTheCursor(t *testing.T) {
 	m := &model{height: settingsMinH(), width: 100, cfg: config.Default()}
 	m.openSettings()

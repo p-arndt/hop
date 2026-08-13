@@ -14,15 +14,12 @@ import (
 )
 
 // The whole stack, end to end, against a real OpenSSH server running a real
-// pam_google_authenticator (see internal/dockerenv): press enter on a host, get
-// the card, type a code into it the way a user would, and end up with a live
-// remote shell.
+// pam_google_authenticator: press enter on a host, get the card, type a code into it, end
+// up with a live remote shell.
 //
-// internal/sshx has its own Docker tests for the protocol side. These are here
-// for the part only the TUI can answer: that the card the user actually types
-// into is wired to the dial correctly, that a real dial parks on it without
-// deadlocking the event loop, and that what lands afterwards is a working
-// session rather than a successful handshake.
+// internal/sshx covers the protocol side. These are for what only the TUI can answer:
+// that the card is wired to the dial, that a real dial parks on it without deadlocking
+// the event loop, and that a working session lands afterwards.
 //
 //	HOP_DOCKER_E2E=1 go test ./internal/tui/ -run TwoFactor -v
 
@@ -46,9 +43,8 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// Pressing enter on a 2FA host puts the card up, and the code typed into it
-// connects. This is the feature, from the keypress that starts it to the shell
-// that comes out.
+// Pressing enter on a 2FA host puts the card up and the code typed into it connects —
+// the feature, from keypress to shell.
 func TestTwoFactorConnectsThroughTheCard(t *testing.T) {
 	srv := twoFactorServer(t)
 	m := twoFactorModel(t, srv.CodePort, "")
@@ -84,9 +80,8 @@ func TestTwoFactorConnectsThroughTheCard(t *testing.T) {
 	s.close()
 }
 
-// The hardened setup — key, then code — through the card. The key alone gets a
-// partial success, so the user is asked exactly once and the connection still
-// lands.
+// The hardened setup — key, then code — through the card: the key gets a partial
+// success, so the user is asked exactly once.
 func TestTwoFactorAfterKeyConnectsThroughTheCard(t *testing.T) {
 	srv := twoFactorServer(t)
 	m := twoFactorModel(t, srv.KeyPort, srv.ClientKey)
@@ -214,10 +209,8 @@ func TestTwoFactorWrongCodeReopensTheCard(t *testing.T) {
 
 // ---- harness ----
 
-// twoFactorServer skips the test unless the environment opted into Docker, and
-// hands back the running container. Every test has to go through it before
-// touching a port: without Docker there is no server, and a port read off it
-// would be read before any skip could happen.
+// twoFactorServer skips the test unless the environment opted into Docker, and hands back
+// the running container. Every test goes through it before touching a port.
 func twoFactorServer(t *testing.T) *dockerenv.TwoFactor {
 	t.Helper()
 	if !dockerenv.Enabled() {
@@ -226,9 +219,8 @@ func twoFactorServer(t *testing.T) *dockerenv.TwoFactor {
 	return server
 }
 
-// twoFactorModel builds a model holding one host that points at the container,
-// with the host key already trusted and no agent in the way — the state a user
-// is in on the second run against a host they have approved once.
+// twoFactorModel builds a model holding one host pointing at the container, host key
+// already trusted and no agent — the state a user is in on the second run.
 func twoFactorModel(t *testing.T, port int, identityFile string) *model {
 	t.Helper()
 	trustHostKey(t, port)
@@ -254,11 +246,9 @@ func hostUnderTest(t *testing.T, m *model) store.Host {
 	return h
 }
 
-// pump runs cmd off the UI thread and returns the channel its message will
-// arrive on, the way Bubble Tea's event loop would. The auth challenge is
-// delivered to the model as it arrives, so the card is up by the time pump
-// returns — which is exactly the sequencing a real run has, and the reason the
-// dial must not be waited on synchronously.
+// pump runs cmd off the UI thread and returns the channel its message arrives on, as
+// Bubble Tea's event loop would. The auth challenge is delivered as it arrives, so the
+// card is up by the time pump returns — a real run's sequencing.
 func pump(t *testing.T, m *model, cmd tea.Cmd) chan tea.Msg {
 	t.Helper()
 	if cmd == nil {
@@ -271,11 +261,9 @@ func pump(t *testing.T, m *model, cmd tea.Cmd) chan tea.Msg {
 	return msgs
 }
 
-// dispatch runs cmd off the UI thread and puts its message on msgs, the way
-// Bubble Tea's event loop does — including unwrapping a tea.Batch into its
-// commands, which is what openShell returns when it starts the spinner
-// alongside the dial. The spinner's own ticks are dropped: they are a redraw
-// clock, and nothing here draws.
+// dispatch runs cmd off the UI thread and puts its message on msgs, as Bubble Tea's event
+// loop does — including unwrapping the tea.Batch openShell returns when it starts the
+// spinner. The spinner's ticks are dropped: nothing here draws.
 func dispatch(msgs chan tea.Msg, cmd tea.Cmd) {
 	if cmd == nil {
 		return
@@ -294,9 +282,8 @@ func dispatch(msgs chan tea.Msg, cmd tea.Cmd) {
 	}()
 }
 
-// waitForCard gives the dial a moment to ask something. It returns as soon as
-// the card is up, and also returns quietly if the dial finished instead — a
-// connect that never asks is a legitimate outcome for some of these tests.
+// waitForCard gives the dial a moment to ask something, returning as soon as the card is
+// up — or quietly if the dial finished instead, which some of these tests expect.
 func waitForCard(t *testing.T, m *model, msgs chan tea.Msg) {
 	t.Helper()
 	select {
@@ -333,10 +320,9 @@ func waitForConnect(t *testing.T, m *model, msgs chan tea.Msg) connectedMsg {
 	}
 }
 
-// trustHostKey records the container's host key in a throwaway ~/.ssh, so these
-// tests exercise the authentication card rather than the host-key one. It is the
-// TUI's own first-contact flow, run once: dial, take the fingerprint off the
-// error, and accept it.
+// trustHostKey records the container's host key in a throwaway ~/.ssh, so these tests
+// exercise the authentication card rather than the host-key one. It is the TUI's own
+// first-contact flow, run once.
 func trustHostKey(t *testing.T, port int) {
 	t.Helper()
 	home := t.TempDir()

@@ -1,7 +1,6 @@
 package tui
 
-// sidebarWidth is the host list's preferred width. It still yields to half the
-// window on a narrow one.
+// sidebarWidth is the host list's preferred width, yielding to half of a narrow window.
 const sidebarWidth = 32
 
 // chromeRows is what the header and footer cost the body.
@@ -12,22 +11,20 @@ func (m *model) recomputeLayout() {
 	if m.width <= 0 || m.height <= 0 {
 		return
 	}
-	// listWidth is the sidebar's *outer* width, borders included; the right pane
-	// gets the rest of the row, less the two columns its own border takes.
+	// listWidth is the sidebar's outer width, borders included; the right pane gets the
+	// rest of the row, less the two columns its own border takes.
 	m.paneW = max(m.width-m.listWidth()-2, 10)
 	m.paneH = max(m.bodyHeight()-2, 3)
 }
 
-// bodyHeight is the rows left for the two panes once the header and footer have
-// taken theirs.
+// bodyHeight is the rows left for the two panes once the header and footer have theirs.
 func (m *model) bodyHeight() int {
 	return max(m.height-chromeRows, 3)
 }
 
-// listWidth is the outer width of the host list, borders included, or 0 while the
-// sidebar is collapsed — which is the whole of what collapsing means: every other
-// size in here is derived from this one, so the panes take the freed columns
-// without knowing the sidebar exists.
+// listWidth is the outer width of the host list, borders included, or 0 while the sidebar
+// is collapsed — which is the whole of what collapsing means, since every other size here
+// derives from it.
 func (m *model) listWidth() int {
 	if m.sidebarHidden {
 		return 0
@@ -35,25 +32,23 @@ func (m *model) listWidth() int {
 	return clamp(sidebarWidth, 16, max(m.width/2, 16))
 }
 
-// toggleSidebar hides or restores the host list and re-lays out everything the
-// change resizes. The remote programs are told their new size here rather than on
-// the next window event, so a full-screen editor reflows the moment the columns
-// arrive instead of when the window next changes.
+// toggleSidebar hides or restores the host list and re-lays out what the change resizes.
+// The remote programs are told their new size here rather than on the next window event,
+// so a full-screen editor reflows the moment the columns arrive.
 func (m *model) toggleSidebar() {
 	m.sidebarHidden = !m.sidebarHidden
 	m.recomputeLayout()
 	m.resizeAll()
 }
 
-// editorSize is the terminal size an editor pane gets: the right pane, less the
-// row the tab bar sits on.
+// editorSize is the terminal size an editor pane gets: the right pane less the tab bar.
 func (m *model) editorSize() (int, int) {
 	return m.paneW, max(m.paneH-1, 1)
 }
 
-// shellSize is the terminal size a shell pane gets on a host with n shells open.
-// A lone shell gets the whole right pane — the tab strip only appears once there
-// is a second shell to switch to, and only then does it cost a row.
+// shellSize is the terminal size a shell pane gets on a host with n shells open. A lone
+// shell gets the whole right pane: the tab strip appears — and costs a row — only once
+// there is a second shell.
 func (m *model) shellSize(n int) (int, int) {
 	h := m.paneH
 	if n > 1 {
@@ -62,9 +57,8 @@ func (m *model) shellSize(n int) (int, int) {
 	return m.paneW, max(h, 1)
 }
 
-// resizeShells re-lays out every shell of s for the current pane size and tab
-// strip. It runs whenever the shell count changes, because the strip appearing
-// (or going away) resizes the panes underneath it.
+// resizeShells re-lays out every shell of s for the current pane size and tab strip. It
+// runs whenever the shell count changes, since the strip appearing resizes the panes.
 func (m *model) resizeShells(s *session) {
 	w, h := m.shellSize(len(s.shells))
 	for _, sh := range s.shells {
@@ -72,9 +66,8 @@ func (m *model) resizeShells(s *session) {
 	}
 }
 
-// resizeAll re-lays out every live pane, browser and editor for the current
-// window. Hidden tabs are resized too, so one switched to after a window change
-// is already laid out for it.
+// resizeAll re-lays out every live pane, browser and editor for the current window.
+// Hidden tabs are resized too, so one switched to later is already laid out.
 func (m *model) resizeAll() {
 	ew, eh := m.editorSize()
 	for _, s := range m.sessions {
@@ -88,10 +81,9 @@ func (m *model) resizeAll() {
 	}
 }
 
-// listRows approximates the rows visible in the list pane, which is the step
-// pgup/pgdn move by. It mirrors renderList's bookkeeping: the body loses the
-// header and footer, the border takes two more, then the HOSTS title (unless the
-// sections have replaced it) and (when present) the filter prompt.
+// listRows approximates the rows visible in the list pane — the step pgup/pgdn move by.
+// It mirrors renderList's bookkeeping: the body less the border, the HOSTS title unless
+// the sections have replaced it, and the filter prompt when there is one.
 func (m *model) listRows() int {
 	r := m.height - 4 - m.listTitleRows()
 	if m.filtering || m.filter != "" {
@@ -101,7 +93,7 @@ func (m *model) listRows() int {
 }
 
 // listTitleRows is what the sidebar's fixed title costs: one row, or none once the
-// PINNED / HOSTS section headings scroll with the list and carry the counts.
+// section headings scroll with the list and carry the counts.
 func (m *model) listTitleRows() int {
 	if m.hasSections() {
 		return 0

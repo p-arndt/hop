@@ -8,60 +8,45 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// authRetries is how many times *each* interactive method may be re-offered
-// before the dial gives up on it. Three matches what a mistyped verification
-// code deserves, and it is also roughly what pam_google_authenticator's default
-// rate limit (three attempts per 30 seconds) allows before the server refuses
-// outright — retrying past that only produces failures the user cannot fix by
-// typing more carefully.
+// authRetries is how many times each interactive method may be re-offered before the
+// dial gives up on it. Three is roughly what pam_google_authenticator's default rate
+// limit allows before the server refuses outright.
 //
-// It is a per-method bound, not a total. A server that offers both
-// keyboard-interactive and password as alternatives can therefore ask up to
-// twice this many times, because the client moves on to the second method once
-// the first is exhausted. That is what plain ssh does too, and the way out of it
-// is the same: esc, which cancels for good (see stickyCancel).
+// A per-method bound, not a total: a server offering both keyboard-interactive and
+// password can ask twice this often, as plain ssh does too. The way out is esc, which
+// cancels for good (see stickyCancel).
 const authRetries = 3
 
-// ErrAuthCanceled is what a Prompter returns to abort the dial: the user
-// dismissed the question rather than answering it. It travels back out of
-// Connect wrapped in the ssh package's own error, so callers test it with
-// errors.Is rather than by comparing strings.
+// ErrAuthCanceled is what a Prompter returns to abort the dial: the user dismissed the
+// question. It comes back out of Connect wrapped in the ssh package's own error, so
+// callers test it with errors.Is.
 var ErrAuthCanceled = errors.New("sshx: authentication canceled")
 
-// Question is one thing the server asks during interactive authentication —
-// "Verification code: ", "Password: ", or whatever else the remote PAM stack
-// puts in front of the user.
-//
-// Echo is the server's instruction on whether the answer may appear on screen.
-// It is false for secrets, which is what a TOTP prompt and a password prompt
-// both are, so the UI must mask anything it is false for.
+// Question is one thing the server asks during interactive authentication. Echo is the
+// server's instruction on whether the answer may appear on screen — false for secrets,
+// which the UI must mask.
 type Question struct {
 	Text string
 	Echo bool
 }
 
-// Challenge is a single round of interactive authentication. A round can hold
-// more than one question — a PAM stack that asks for a password and a
-// verification code together sends both at once, and the server expects both
-// answers in one reply, in order.
+// Challenge is a single round of interactive authentication. A round can hold more than
+// one question, and the server expects both answers in one reply, in order.
 //
-// Name and Instruction are the server's own framing for the round; either may be
-// empty. Both come off the wire from the remote host, so anything that renders
-// them has to treat them as untrusted text.
+// Name and Instruction are the server's framing for the round, either possibly empty.
+// Both come off the wire, so anything rendering them treats them as untrusted text.
 type Challenge struct {
 	Name        string
 	Instruction string
 	Questions   []Question
 }
 
-// Prompter answers a challenge on the user's behalf. Ask is called on the
-// goroutine running the dial, from inside the SSH handshake, and blocks it until
-// it returns — a TOTP code is only valid for about thirty seconds and may not be
-// reused, so there is no way to abort the handshake, ask, and replay it. The
-// question has to be answered in place.
+// Prompter answers a challenge on the user's behalf. Ask runs on the goroutine driving
+// the dial, inside the handshake, and blocks it: a TOTP code cannot be reused, so there
+// is no aborting and replaying the handshake.
 //
-// Returning an error fails the authentication attempt and unwinds the dial;
-// ErrAuthCanceled is the one to return when the user dismissed the prompt.
+// Returning an error fails the attempt and unwinds the dial; ErrAuthCanceled is the one
+// to return when the user dismissed the prompt.
 type Prompter interface {
 	Ask(Challenge) ([]string, error)
 }
@@ -73,16 +58,11 @@ func (f PrompterFunc) Ask(c Challenge) ([]string, error) { return f(c) }
 
 // stickyCancel makes a Prompter's cancel final for the whole dial.
 //
-// It exists because the SSH client does not stop at the first method that
-// errors: with keyboard-interactive dismissed it moves on to any other method
-// the server still offers (password, typically) and the error is only surfaced
-// once nothing is left to try. Without this, one esc on the verification-code
-// prompt would be answered by a password prompt appearing in its place. After a
-// cancel every later question is refused with the same error instead of being
-// put back in front of the user.
+// The SSH client does not stop at the first method that errors: with keyboard-interactive
+// dismissed it moves on to whatever else the server offers, so without this one esc on the
+// verification-code prompt would be answered by a password prompt in its place.
 //
-// The mutex guards against a future caller driving auth from more than one
-// goroutine; today every Ask comes from the single goroutine running the dial.
+// The mutex guards against a future caller driving auth from more than one goroutine.
 type stickyCancel struct {
 	p        Prompter
 	mu       sync.Mutex
@@ -107,14 +87,12 @@ func (s *stickyCancel) Ask(c Challenge) ([]string, error) {
 }
 
 // keyboardInteractive wraps p in the callback x/crypto/ssh drives for the
-// "keyboard-interactive" method — the method a server running
-// pam_google_authenticator uses to ask for the verification code, either on its
-// own or as the second factor after a public key has already been accepted.
+// "keyboard-interactive" method — how a server running pam_google_authenticator asks for
+// the verification code, alone or as the second factor after a key.
 func keyboardInteractive(p Prompter) ssh.KeyboardInteractiveChallenge {
 	return func(name, instruction string, questions []string, echos []bool) ([]string, error) {
-		// A round with no questions is the server showing a banner (PAM stacks do
-		// this for the login message). There is nothing to answer, and putting an
-		// empty card on screen for it would be noise.
+		// A round with no questions is the server showing a banner; there is nothing to
+		// answer, and an empty card would be noise.
 		if len(questions) == 0 {
 			return nil, nil
 		}
@@ -128,8 +106,8 @@ func keyboardInteractive(p Prompter) ssh.KeyboardInteractiveChallenge {
 		if err != nil {
 			return nil, err
 		}
-		// The protocol requires one answer per question, in order. A short reply
-		// would be silently misread by the server as answering the wrong prompts.
+		// One answer per question, in order: a short reply would be misread by the server
+		// as answering the wrong prompts.
 		if len(answers) != len(qs) {
 			return nil, fmt.Errorf("sshx: prompter returned %d answers for %d questions", len(answers), len(qs))
 		}
@@ -137,10 +115,9 @@ func keyboardInteractive(p Prompter) ssh.KeyboardInteractiveChallenge {
 	}
 }
 
-// passwordCallback wraps p in the callback for the plain "password" method,
-// which is what remains on a host that asks for one but does not offer
-// keyboard-interactive. The prompt is hop's own wording rather than the
-// server's: this method carries no prompt text of its own.
+// passwordCallback wraps p in the callback for the plain "password" method, what remains
+// on a host that does not offer keyboard-interactive. The wording is hop's: this method
+// carries no prompt text of its own.
 func passwordCallback(p Prompter) func() (string, error) {
 	return func() (string, error) {
 		answers, err := p.Ask(Challenge{

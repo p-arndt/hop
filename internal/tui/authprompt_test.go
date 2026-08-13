@@ -29,9 +29,8 @@ func promptFor(m *model, alias string, ch sshx.Challenge) chan authReply {
 	return reply
 }
 
-// A challenge opens the card, shows the server's own prompt text, and masks what
-// is typed — a verification code is a secret, and a screen recording of hop must
-// not carry one.
+// A challenge opens the card, shows the server's own prompt text, and masks what is
+// typed: a screen recording of hop must not carry a verification code.
 func TestAuthCardOpensAndMasksTheAnswer(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	promptFor(m, "web", challenge("Verification code: "))
@@ -119,9 +118,8 @@ func TestAuthCardWalksMultipleQuestions(t *testing.T) {
 	}
 }
 
-// Two hosts dialing at once each get their turn: the second challenge waits
-// behind the first rather than being drawn over or dropped, because the dial
-// behind it is blocked until it is answered.
+// Two hosts dialing at once each get their turn: the second challenge waits behind the
+// first, whose dial is blocked until it is answered.
 func TestAuthCardQueuesASecondChallenge(t *testing.T) {
 	m := hostMgmtModel(t,
 		store.Host{Alias: "web", HostName: "h", Port: 22},
@@ -176,11 +174,9 @@ func TestAuthCardSwallowsOtherKeys(t *testing.T) {
 	}
 }
 
-// The card outranks the help card. '?' is bound in navigation mode and a dial
-// takes long enough to press it, so a help card opened while connecting would
-// otherwise be drawn over the challenge that arrives next — leaving a dial
-// parked inside the handshake on a card nobody can see or reach until the code
-// has expired.
+// The card outranks the help card: '?' is bound in navigation mode and a dial takes long
+// enough to press it, so a help card opened while connecting would hide the challenge
+// that arrives next.
 func TestAuthCardOutranksHelp(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	m.help = true
@@ -239,9 +235,7 @@ func TestAuthFieldFollowsTheCaret(t *testing.T) {
 	}
 }
 
-// A dial the user cancelled reports nothing further: the card already said so,
-// and repeating it as a red "connect failed" would blame the host for the user's
-// own choice.
+// A dial the user cancelled reports nothing further: the card already said so.
 func TestCanceledAuthIsNotReportedAsFailure(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	m.connecting = map[string]bool{"web": true}

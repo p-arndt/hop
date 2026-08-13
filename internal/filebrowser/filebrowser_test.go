@@ -66,9 +66,8 @@ func (f *fakeClient) Download(remote, local string) (int64, error) {
 }
 func (f *fakeClient) Close() error { return nil }
 
-// newTestBrowser builds a Browser over n synthetic entries with a viewport tall
-// enough for 10 content rows, rooted at /home/u. The vim motions are switched on:
-// they are what most of these tests are about, and they are off by default.
+// newTestBrowser builds a Browser over n synthetic entries with room for 10 content rows,
+// rooted at /home/u. The vim motions are switched on, being what most of these test.
 func newTestBrowser(n int) (*Browser, *fakeClient) {
 	ents := make([]sftpx.Entry, n)
 	for i := range ents {
@@ -249,9 +248,8 @@ func fileTestBrowser(t *testing.T) (*Browser, *fakeClient, string, string) {
 	}, fc, tmp, dl
 }
 
-// stubOpen swaps the default-app launcher for a command that starts and exits
-// immediately (the test binary itself, told to run no tests), recording the path
-// it was handed. It restores the original when the test ends.
+// stubOpen swaps the default-app launcher for a command that starts and exits at once,
+// recording the path it was handed, and restores the original when the test ends.
 func stubOpen(t *testing.T) (opened, openedWith *string) {
 	t.Helper()
 	var p, with string
@@ -381,9 +379,9 @@ func TestDownloadKey(t *testing.T) {
 	}
 }
 
-// A server-supplied entry name must not be able to place a download outside
-// the chosen directory (path separators, ".."), address an NTFS stream (":"),
-// or name a device (CON) — for "d" and "o" alike: both write locally.
+// A server-supplied entry name must not place a download outside the chosen directory,
+// address an NTFS stream, or name a device — for "d" and "o" alike, since both write
+// locally.
 func TestRejectsUnsafeRemoteNames(t *testing.T) {
 	for _, name := range []string{
 		`..`, `..\..\evil.exe`, `../../evil`, `sub/file`, `C:evil`,
@@ -446,9 +444,8 @@ func TestViewStripsControlCharacters(t *testing.T) {
 	}
 }
 
-// executableName must flag exactly the names the OS default handler would run,
-// judging by the last extension only, and see through the trailing dot/space
-// Windows strips while normalizing a name.
+// executableName must flag exactly the names the OS default handler would run, judging by
+// the last extension only, and see through the trailing dot or space Windows strips.
 func TestExecutableName(t *testing.T) {
 	cases := []struct {
 		name string
@@ -477,9 +474,8 @@ func TestExecutableName(t *testing.T) {
 	}
 }
 
-// "o" on a file whose name carries an executable extension must refuse when the
-// launch would reach the OS default handler (empty OpenWith): handing it over
-// would execute it via ShellExecute. Nothing is fetched and nothing is launched.
+// "o" on a file with an executable extension must refuse when the launch would reach the
+// OS default handler, which would execute it. Nothing is fetched and nothing is launched.
 func TestOpenInAppRefusesExecutable(t *testing.T) {
 	b, fc, _, _ := fileTestBrowser(t)
 	opened, _ := stubOpen(t)
@@ -606,9 +602,8 @@ func TestNewOpensInTheStartDir(t *testing.T) {
 	}
 }
 
-// One that does not — a default directory removed on the server since it was set —
-// lands in the home directory instead, with the reason on the status line. A
-// browser that refused to open at all would be a worse answer.
+// One that does not — a default directory removed on the server — lands in the home
+// directory instead, with the reason on the status line.
 func TestNewFallsBackWhenTheStartDirIsGone(t *testing.T) {
 	c := &pickyClient{ok: map[string]bool{"/home/u": true}}
 	b, err := New(c, "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13)

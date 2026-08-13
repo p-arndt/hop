@@ -6,12 +6,9 @@ import (
 	"testing"
 )
 
-// isolate points os.UserConfigDir at a throwaway directory and returns the
-// directory the config file will actually land in, so the tests never touch the
-// real one. Each platform reads a different variable — %AppData% on Windows,
-// $XDG_CONFIG_HOME on Linux, $HOME/Library/Application Support on macOS (which
-// ignores XDG entirely) — so all three are redirected and the resulting
-// directory is derived from Path() rather than assumed.
+// isolate points os.UserConfigDir at a throwaway directory and returns where the config
+// file will land, so the tests never touch the real one. Each platform reads a different
+// variable, so all three are redirected and the directory comes from Path().
 func isolate(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -121,10 +118,9 @@ func TestSaveLeavesNoTempFile(t *testing.T) {
 	}
 }
 
-// Mouse is the one field whose default is not its zero value, which is only safe
-// because Load starts from Default() and unmarshals over it: a config written before
-// hop had the setting — or any file that simply omits the key — comes back with the
-// mouse on, and only a file that says otherwise switches it off.
+// Mouse is the one field whose default is not its zero value, which is safe because Load
+// starts from Default() and unmarshals over it: a file that omits the key comes back with
+// the mouse on, and only one that says otherwise switches it off.
 func TestLoadMouseDefaultsOn(t *testing.T) {
 	dir := isolate(t)
 	path := filepath.Join(dir, "config.json")
@@ -147,10 +143,8 @@ func TestLoadMouseDefaultsOn(t *testing.T) {
 	}
 }
 
-// The remote clipboard is the other field of that kind, and the one where getting
-// it backwards matters most: a config that omits the key must not come back with a
-// remote host silently unable to hand you what you yanked — nor, the other way, must
-// a file that switched it off be ignored.
+// The remote clipboard is the other field of that kind: a config omitting the key must
+// not come back with it off, nor must a file that switched it off be ignored.
 func TestLoadClipboardDefaultsOn(t *testing.T) {
 	dir := isolate(t)
 	path := filepath.Join(dir, "config.json")

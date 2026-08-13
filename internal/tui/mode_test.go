@@ -12,10 +12,9 @@ import (
 	"hop/internal/terminal"
 )
 
-// scrolledShell is a model on host "web" whose shell pane has real history behind
-// it, so enterScrollback can be exercised through its own guard rather than around
-// it. The emulator is fed on a goroutine of its own, so the lines have to be waited
-// for rather than assumed.
+// scrolledShell is a model on host "web" whose shell pane has real history behind it, so
+// enterScrollback runs through its own guard. The emulator is fed on its own goroutine,
+// so the lines have to be waited for.
 func scrolledShell(t *testing.T) (*model, *session) {
 	t.Helper()
 	var out strings.Builder
@@ -58,10 +57,9 @@ func modeName(md paneMode) string {
 	return "paneMode(?)"
 }
 
-// wantMode asserts the model's mode, and — the point of the enum — that the four
-// predicates every switch in the package is written against agree with it. They are
-// derived from the one value, so a disagreement means a predicate is wrong, which no
-// amount of correct call sites would have caught back when they were four bools.
+// wantMode asserts the model's mode and that the four predicates every switch is written
+// against agree with it. They derive from the one value, so a disagreement means a
+// predicate is wrong.
 func wantMode(t *testing.T, m *model, want paneMode) {
 	t.Helper()
 	if m.mode != want {
@@ -86,10 +84,9 @@ func wantMode(t *testing.T, m *model, want paneMode) {
 	}
 }
 
-// Every way into a pane lands in exactly one mode, and every way out lands back in
-// the list. This is the table the four bools could not have: with them, "focused
-// *and* browsing" was a state you could reach by forgetting a line, and no
-// assertion short of naming all four could tell you that you had.
+// Every way into a pane lands in exactly one mode, and every way out lands back in the
+// list. With four bools, "focused and browsing" was a state you could reach by forgetting
+// a line.
 func TestModeTransitionsAreExclusive(t *testing.T) {
 	steps := []struct {
 		name string
@@ -111,10 +108,9 @@ func TestModeTransitionsAreExclusive(t *testing.T) {
 	}
 }
 
-// Scrollback is a mode of the shell, so leaving the pane from inside it must leave
-// the shell too. With a separate `scrolling` bool this was the standing hazard: a
-// call site that cleared `focused` and forgot `scrolling` left the model claiming
-// the list had the keyboard *and* that a shell was paused in its history.
+// Scrollback is a mode of the shell, so leaving the pane from inside it leaves the shell
+// too. With a separate `scrolling` bool, a call site that cleared `focused` and forgot it
+// left the model claiming both.
 func TestLeavingFromScrollbackClearsBoth(t *testing.T) {
 	for _, out := range []struct {
 		name string
@@ -156,9 +152,8 @@ func TestBrowserEditorRoundTrip(t *testing.T) {
 	wantMode(t, m, modeList)
 }
 
-// A dropped connection takes the keyboard out of scrollback: the history is still
-// on screen, but the keys that drive it now belong to the dead pane's small
-// keyboard (r / d / the ways out).
+// A dropped connection takes the keyboard out of scrollback: the history is still on
+// screen, but the keys now belong to the dead pane's small keyboard.
 func TestConnectionLossLeavesScrollback(t *testing.T) {
 	m, s := scrolledShell(t)
 	if !m.enterScrollback(s) {

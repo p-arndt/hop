@@ -1,10 +1,9 @@
 package tui
 
-// What happens when an asynchronous open lands. Every one of these is the tail of a
-// tea.Cmd that went off to dial, start a channel or open a file, and each has the
-// same two problems: the world may have moved on while it was away (the session was
-// closed, the host deleted, the connection dropped), and whatever it opened has to be
-// merged into a session that may meanwhile hold other tabs.
+// What happens when an asynchronous open lands. Each is the tail of a tea.Cmd that went
+// off to dial, start a channel or open a file, and each has the same two problems: the
+// world may have moved on while it was away, and whatever it opened has to be merged into
+// a session that may hold other tabs by now.
 
 import (
 	"errors"
@@ -14,33 +13,29 @@ import (
 	"hop/internal/sshx"
 )
 
-// shellLanded merges a newly-started shell into its host's session and focuses
-// it.
+// shellLanded merges a newly-started shell into its host's session and focuses it.
 func (m *model) shellLanded(msg connectedMsg) (tea.Model, tea.Cmd) {
 	delete(m.connecting, msg.alias)
 	if msg.err != nil {
-		// A first-contact host key is no longer trusted silently: pause and ask,
-		// carrying the shell intent (another shell vs a host's first) into the retry.
+		// A first-contact host key is not trusted silently: pause and ask, carrying the
+		// shell intent into the retry.
 		var unknown *sshx.UnknownHostKeyError
 		if errors.As(msg.err, &unknown) {
 			m.openHostKeyConfirm(msg.alias, unknown, hostKeyShell, msg.extra)
 			return m, nil
 		}
-		// The dial is over, so a reconnect's plan has nothing left to land on. Dropping
-		// it here keeps a failed reconnect from restoring tabs on some later, ordinary
-		// connect to the same host. (The host-key path above returns before this: that
-		// dial is about to be replayed, and the plan is what it replays with.)
+		// The dial is over, so a reconnect's plan has nothing to land on; dropping it keeps
+		// a failed reconnect from restoring tabs on a later ordinary connect. The host-key
+		// path above returns first: that dial is about to be replayed with the plan.
 		m.dropPlan(msg.alias)
-		// Dismissing the authentication card already said so; repeating it as a
-		// connect failure would make the user's own choice look like a fault.
+		// Dismissing the authentication card already said so.
 		if errors.Is(msg.err, sshx.ErrAuthCanceled) {
 			return m, nil
 		}
 		m.setStatus(statusErr, "connect %s failed: %v", msg.alias, msg.err)
 		return m, nil
 	}
-	// Merge the new shell into any existing session (a browser-only one, or one
-	// that already has shells) so what is open there survives.
+	// Merge into any existing session so what is open there survives.
 	s := m.sessions[msg.alias]
 	if s == nil {
 		s = &session{}
@@ -57,17 +52,16 @@ func (m *model) shellLanded(msg connectedMsg) (tea.Model, tea.Cmd) {
 
 	cmds := []tea.Cmd{waitShellCmd(msg.alias, msg.tab.id, msg.tab.sess)}
 	if msg.client != nil {
-		// A new connection: watch it, so its loss is noticed rather than leaving a
-		// pane that has quietly stopped updating.
+		// A new connection: watch it, so its loss is noticed rather than leaving a pane
+		// that has quietly stopped updating.
 		cmds = append(cmds, watchClientCmd(msg.alias, msg.client))
 	}
 
-	// A shell a reconnect is putting back lands quietly: the reconnect has already
-	// decided where the keyboard goes, and its own status line says what came back.
+	// A shell a reconnect is putting back lands quietly: the reconnect has already decided
+	// where the keyboard goes.
 	if !msg.restore {
 		m.focusShell(msg.alias)
-		// First contact with this host: say which key was just trusted, so TOFU is
-		// at least visible — a fingerprint you can compare beats a silent accept.
+		// First contact: say which key was just trusted, so TOFU is at least visible.
 		if msg.client != nil && msg.client.NewHostKey != "" {
 			m.setStatus(statusWarn, "%s: new host key trusted (%s)", msg.alias, msg.client.NewHostKey)
 		} else {
@@ -82,18 +76,16 @@ func (m *model) shellLanded(msg connectedMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// shellExited drops the tab of a shell that has ended, and decides what is left
-// of the session behind it.
+// shellExited drops the tab of a shell that has ended, and decides what is left of the
+// session behind it.
 func (m *model) shellExited(msg shellExitedMsg) (tea.Model, tea.Cmd) {
 	s := m.sessions[msg.alias]
 	if s == nil {
 		return m, nil
 	}
-	// A shell whose connection has already gone did not exit — it was cut off, along
-	// with every other channel on that connection. Treating it as an exit would drop
-	// the tab, and the last one would close the session and take the reconnect offer
-	// with it. So the loss is recorded instead, and the tabs stay as they were: the
-	// last screen the host drew, which is what you want to read when a link drops.
+	// A shell whose connection has gone did not exit; it was cut off with every other
+	// channel. Treating it as an exit would drop the tab, and the last one would close the
+	// session and take the reconnect offer with it.
 	if s.deadConnection() {
 		m.markDead(msg.alias, lostReason(s))
 		return m, nil
@@ -105,9 +97,8 @@ func (m *model) shellExited(msg shellExitedMsg) (tea.Model, tea.Cmd) {
 	if len(s.shells) > 0 {
 		return m, nil
 	}
-	// The last shell exited. Keep the session alive only for what is still open
-	// on its connection; with nothing left, the connection is done — closing it
-	// is what "exit" meant, and the host goes back to idle in the list.
+	// The last shell exited. Keep the session alive only for what is still open on its
+	// connection; with nothing left, closing it is what "exit" meant.
 	if s.browser == nil && len(s.editors) == 0 && len(s.tunnels) == 0 {
 		s.close()
 		delete(m.sessions, msg.alias)
@@ -117,8 +108,8 @@ func (m *model) shellExited(msg shellExitedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.active == msg.alias && m.focused() {
-		// The shell that held the keyboard is gone; the browser still on the same
-		// connection is the only thing left to hand it to.
+		// The shell that held the keyboard is gone; the browser is all there is to hand it
+		// to.
 		m.mode = modeList
 		if s.browser != nil {
 			m.mode = modeBrowser
@@ -127,8 +118,7 @@ func (m *model) shellExited(msg shellExitedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// browserLanded attaches a newly-opened SFTP browser to its host's session and
-// shows it.
+// browserLanded attaches a newly-opened SFTP browser to its host's session and shows it.
 func (m *model) browserLanded(msg browserOpenedMsg) (tea.Model, tea.Cmd) {
 	delete(m.connecting, msg.alias)
 	if msg.err != nil {
@@ -164,8 +154,8 @@ func (m *model) browserLanded(msg browserOpenedMsg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, watchClientCmd(msg.alias, msg.client))
 	}
 
-	// A browser a reconnect is reattaching goes back on the session without taking
-	// the keyboard — the shell the reconnect landed first still has it.
+	// A browser a reconnect is reattaching goes back without taking the keyboard: the
+	// shell it landed first still has it.
 	if !msg.restore {
 		m.active = msg.alias
 		m.mode = modeBrowser

@@ -12,9 +12,8 @@ import (
 	"hop/internal/filebrowser"
 )
 
-// accent is the primary highlight color, and the only one the user chooses. The
-// rest of the palette is a fixed neutral ramp, so it has to stay legible beside
-// any accent the settings popover can produce.
+// accent is the primary highlight color, the only one the user chooses. The rest of the
+// palette is a fixed neutral ramp that has to stay legible beside any of them.
 var accent = lipgloss.Color(config.DefaultAccent)
 
 const (
@@ -34,9 +33,8 @@ const (
 
 // ---- styles ----
 //
-// The accent-derived ones are values rather than lazy lookups, so setAccent has
-// to rebuild them — which is also what lets a color picked in the popover apply
-// without a restart.
+// The accent-derived ones are values rather than lazy lookups, so setAccent rebuilds them
+// — which is what lets a color picked in the popover apply without a restart.
 
 var (
 	// Chrome.
@@ -66,12 +64,12 @@ var (
 	yellowText = lipgloss.NewStyle().Foreground(colYellow)
 	redText    = lipgloss.NewStyle().Foreground(colRed)
 
-	// The host under the cursor: a bright bold alias behind an accent bar. Not a
-	// full-width background block — that nests badly with the styles inside a row.
+	// The host under the cursor: a bold alias behind an accent bar, not a full-width
+	// fill, which nests badly with the styles inside a row.
 	selectedAliasStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	selBar             = accentText.Render("▎")
 
-	// A matched character while filtering, so a fuzzy hit shows *why* it matched.
+	// A matched character while filtering, so a fuzzy hit shows why it matched.
 	matchStyle = lipgloss.NewStyle().Bold(true).Underline(true).Foreground(accent)
 
 	// Pills.
@@ -82,9 +80,8 @@ var (
 	tabActive   = lipgloss.NewStyle().Bold(true).Foreground(colInk).Background(accent).Padding(0, 1)
 	tabInactive = lipgloss.NewStyle().Foreground(colDim).Background(colSurface).Padding(0, 1)
 
-	// Status dots. The dead one is a filled dot like the connected one, in red: it
-	// is a host hop is still holding something for, unlike an idle one, and the
-	// shape says so before the color does.
+	// Status dots. The dead one is filled like the connected one, in red: hop is still
+	// holding something for it, and the shape says so before the color does.
 	connectedDot = greenText.Render("●")
 	idleDot      = faint.Render("○")
 	deadDot      = redText.Render("●")
@@ -95,14 +92,13 @@ var (
 		BorderForeground(accent).
 		Padding(1, cardPadX)
 
-	// The settings card: a quiet label above each value, the selected value filled
-	// so it reads as a field you are standing in, and the one being edited filled
-	// brighter still with a caret in it.
+	// The settings card: a quiet label above each value, the selected one filled, the one
+	// being edited filled brighter still.
 	settingsLabel    = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
 	settingsLabelSel = lipgloss.NewStyle().Bold(true).Foreground(accent)
 
-	// The unselected values carry the same padding as the filled one, so the text
-	// does not jog sideways by a cell as the cursor moves down the card.
+	// Same padding as the filled one, so the text does not jog sideways as the cursor
+	// moves down the card.
 	settingsValue       = lipgloss.NewStyle().Foreground(colText).Padding(0, 1)
 	settingsPlaceholder = lipgloss.NewStyle().Italic(true).Foreground(colFaint).Padding(0, 1)
 
@@ -120,8 +116,8 @@ var (
 // cardPadX is the horizontal padding inside a modal card's border.
 const cardPadX = 3
 
-// setAccent re-points the palette at a new highlight color, here and in the file
-// browser, which draws its own rows.
+// setAccent re-points the palette at a new highlight color, here and in the file browser,
+// which draws its own rows.
 func setAccent(color string) {
 	if color == "" {
 		color = config.DefaultAccent
@@ -145,12 +141,11 @@ func setAccent(color string) {
 
 // ---- spinner ----
 
-// spinnerFrames is the braille cycle shown beside a host hop is dialing. It runs
-// only while a connect is in flight — nothing animates on an idle screen.
+// spinnerFrames is the braille cycle shown beside a host hop is dialing. It runs only
+// while a connect is in flight.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// spinner returns the frame for tick n, in the "working on it" yellow the
-// connecting host wears elsewhere.
+// spinner returns the frame for tick n, in the yellow a connecting host wears elsewhere.
 func spinner(n int) string {
 	return yellowText.Render(spinnerFrames[n%len(spinnerFrames)])
 }
@@ -160,13 +155,11 @@ func spinner(n int) string {
 // kc renders a keycap "pill" for legends and help bars.
 func kc(key string) string { return keycapStyle.Render(key) }
 
-// keyHint is the keycap-plus-label pair the footer and the help card are built
-// out of.
+// keyHint is the keycap-plus-label pair the footer and help card are built out of.
 func keyHint(key, label string) string { return kc(key) + " " + dimStyle.Render(label) }
 
-// stripControl removes control characters (C0, DEL and C1) from s, so a string
-// that originated on a remote host — a file name, an error text — cannot carry
-// an escape sequence into the user's terminal.
+// stripControl removes control characters (C0, DEL and C1) from s, so a string that came
+// from a remote host cannot carry an escape sequence into the user's terminal.
 func stripControl(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r < 0x20 || (r >= 0x7f && r < 0xa0) {
@@ -176,13 +169,9 @@ func stripControl(s string) string {
 	}, s)
 }
 
-// truncate shortens s (measured by display width) to at most w cells, adding an
-// ellipsis when it must cut.
-//
-// It is style-aware: a naive rune-by-rune cut can land in the middle of an ANSI
-// escape, which then leaks into the terminal as garbage (and drops the color it
-// was opening). ansi.Truncate cuts on cell boundaries and keeps the escapes
-// balanced.
+// truncate shortens s to at most w display cells, adding an ellipsis when it must cut.
+// Style-aware: a rune-by-rune cut can land inside an ANSI escape, which then leaks into
+// the terminal. ansi.Truncate cuts on cell boundaries and keeps the escapes balanced.
 func truncate(s string, w int) string {
 	if w <= 0 {
 		return ""
@@ -203,10 +192,9 @@ func clampLines(s string, w int) string {
 	return strings.Join(lines, "\n")
 }
 
-// fitLines cuts s to at most h lines. lipgloss's Height is a floor rather than a
-// ceiling — a box whose content is taller simply grows — so anything rendered
-// into a fixed-height pane has to be cut to it here, or the screen ends up taller
-// than the window and the terminal scrolls.
+// fitLines cuts s to at most h lines. lipgloss's Height is a floor, not a ceiling — a box
+// whose content is taller simply grows — so anything rendered into a fixed-height pane
+// has to be cut here, or the terminal scrolls.
 func fitLines(s string, h int) string {
 	if h < 1 {
 		return ""
@@ -218,9 +206,8 @@ func fitLines(s string, h int) string {
 	return strings.Join(lines[:h], "\n")
 }
 
-// padTo right-pads s with spaces to exactly w display cells (truncating when it
-// is already wider), so styled cells can be laid out in columns without lipgloss
-// having to measure them again.
+// padTo right-pads s to exactly w display cells, truncating when it is already wider, so
+// styled cells lay out in columns without being measured again.
 func padTo(s string, w int) string {
 	s = truncate(s, w)
 	if gap := w - lipgloss.Width(s); gap > 0 {
@@ -245,9 +232,8 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// relTime renders a unix timestamp as an age ("3m ago"), because when you last
-// used a host is the useful fact, not the wall-clock time you used it at. A zero
-// timestamp is a host that has never been connected to.
+// relTime renders a unix timestamp as an age ("3m ago"): how long ago you used a host is
+// the useful fact. A zero timestamp is a host never connected to.
 func relTime(unix int64) string {
 	if unix <= 0 {
 		return "never"

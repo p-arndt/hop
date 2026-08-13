@@ -11,9 +11,8 @@ import (
 	"hop/internal/store"
 )
 
-// fakeSFTP is the slice of an SFTP connection the browser uses, over a directory
-// that is not there: enough to build a real Browser (and to close one) without a
-// server behind it.
+// fakeSFTP is the slice of an SFTP connection the browser uses, over a directory that is
+// not there: enough to build and close a real Browser without a server behind it.
 type fakeSFTP struct{ dir string }
 
 func (f fakeSFTP) Home() (string, error)             { return f.dir, nil }
@@ -32,9 +31,8 @@ func fakeBrowser(t *testing.T, dir string) *filebrowser.Browser {
 	return br
 }
 
-// deadModel builds a model on host "web" holding n shells and, optionally, an SFTP
-// browser on one connection, with the pane focused. cli is the connection the
-// session is riding on, which the loss message has to name.
+// deadModel builds a model on host "web" holding n shells and optionally a browser on one
+// connection, pane focused. cli is the connection the loss message has to name.
 func deadModel(t *testing.T, n int, browser bool) (*model, *session, *sshx.Client) {
 	t.Helper()
 	cli := &sshx.Client{}
@@ -45,9 +43,8 @@ func deadModel(t *testing.T, n int, browser bool) (*model, *session, *sshx.Clien
 	if browser {
 		s.browser = fakeBrowser(t, "/srv/www")
 	}
-	// The host lives in the store as well as in the model: a landing shell reloads
-	// the list from it, and a reconnect's plan is applied against the host it finds
-	// there.
+	// The host lives in the store as well: a landing shell reloads the list from it, and
+	// a reconnect's plan is applied against the host it finds there.
 	host := store.Host{Alias: "web", HostName: "web.example.com", User: "deploy"}
 	st := testStore(t)
 	if _, err := st.Add(host); err != nil {
@@ -79,9 +76,8 @@ func deadModel(t *testing.T, n int, browser bool) (*model, *session, *sshx.Clien
 	return m, s, cli
 }
 
-// A dropped connection marks the session dead and leaves everything on screen: the
-// shells it was holding, the browser, and the host in the session list. Tearing it
-// down would take the reconnect offer — and the last screen the host drew — with it.
+// A dropped connection marks the session dead and leaves everything on screen. Tearing
+// it down would take the reconnect offer, and the last screen the host drew, with it.
 func TestDroppedConnectionMarksTheSessionDead(t *testing.T) {
 	m, s, cli := deadModel(t, 2, true)
 
@@ -104,9 +100,8 @@ func TestDroppedConnectionMarksTheSessionDead(t *testing.T) {
 	}
 }
 
-// Every channel on a dropped connection ends at once, so the shells report exits
-// too. They are not exits: dropping their tabs would close the session behind the
-// user's back, so a dead session ignores them.
+// Every channel on a dropped connection ends at once, so the shells report exits too.
+// They are not exits: a dead session ignores them.
 func TestShellExitsAfterADropKeepTheSession(t *testing.T) {
 	m, s, cli := deadModel(t, 2, false)
 	m.Update(sessionLostMsg{alias: "web", client: cli})
@@ -136,9 +131,8 @@ func TestEditorExitAfterADropKeepsTheSession(t *testing.T) {
 	}
 }
 
-// The loss message names the connection that died, not just the host: it also fires
-// for every close hop makes itself, and by then the alias may hold a *new*
-// connection. Marking that one dead would kill a session that is perfectly alive.
+// The loss message names the connection that died, not just the host: it fires for every
+// close hop makes itself, and by then the alias may hold a new, live connection.
 func TestLossOfAReplacedConnectionIsIgnored(t *testing.T) {
 	m, s, _ := deadModel(t, 1, false)
 
@@ -203,9 +197,8 @@ func TestDeadPaneReconnects(t *testing.T) {
 	}
 }
 
-// Someone who was in the SFTP browser when the link dropped comes back to it: the
-// browser is what the reconnect dials first, and the first thing to land is what
-// takes the keyboard.
+// Someone who was in the SFTP browser when the link dropped comes back to it: it is what
+// the reconnect dials first, and the first thing to land takes the keyboard.
 func TestReconnectComesBackToTheBrowser(t *testing.T) {
 	m, _, cli := deadModel(t, 1, true)
 	m.mode = modeBrowser
@@ -219,9 +212,8 @@ func TestReconnectComesBackToTheBrowser(t *testing.T) {
 	}
 }
 
-// The landing of a reconnect puts the rest back: the shell tabs it had and the
-// browser, over the one new connection. Editor tabs are not reopened, and the status
-// says so rather than leaving them quietly missing.
+// The landing of a reconnect puts the rest back over the one new connection. Editor tabs
+// are not reopened, and the status says so rather than leaving them quietly missing.
 func TestReconnectLandingRestoresTheRest(t *testing.T) {
 	m, s, cli := deadModel(t, 3, true)
 	s.editors = append(s.editors, &editorTab{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()})

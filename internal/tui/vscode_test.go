@@ -33,10 +33,8 @@ func stubVSCode(t *testing.T, err error) *opened {
 	return rec
 }
 
-// cwdPane builds a pane whose remote has already reported dir over OSC 7 — the same
-// bytes a shell with the prompt hook installed sends before every prompt. The stream
-// stays open, and the writer it returns is the remote: a test can go on to say
-// anything else the host would.
+// cwdPane builds a pane whose remote has already reported dir over OSC 7. The stream
+// stays open and the writer it returns is the remote, so a test can say more.
 func cwdPane(t *testing.T, dir string) (*terminal.Pane, io.Writer) {
 	t.Helper()
 	pr, pw := io.Pipe()
@@ -55,9 +53,8 @@ func cwdPane(t *testing.T, dir string) (*terminal.Pane, io.Writer) {
 	return p, pw
 }
 
-// vscodeModel builds a model on host "web" whose shell reports dir. An empty dir
-// gives a shell that reports nothing (the fake pane, whose stream is at EOF); no
-// shells at all is n = 0.
+// vscodeModel builds a model on host "web" whose shell reports dir. An empty dir gives a
+// shell that reports nothing; no shells at all is n = 0.
 func vscodeModel(t *testing.T, shells int, dir string) (*model, io.Writer) {
 	t.Helper()
 	s := &session{client: &sshx.Client{}}
@@ -105,9 +102,8 @@ func TestVSCodeOpensTheShellsDirectory(t *testing.T) {
 	}
 }
 
-// The chord: ctrl+o arms the leader without moving anything, and a second ctrl+o
-// leaves the pane and opens VS Code on the directory that shell was standing in. It
-// is the same action as 'o' in the list, reached without hunting for the host again.
+// The chord: ctrl+o arms the leader without moving anything, and the second key leaves
+// the pane and opens VS Code on the directory that shell was standing in.
 func TestVSCodeChordFromInsideTheShellPane(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "/var/log/nginx")
@@ -131,9 +127,8 @@ func TestVSCodeChordFromInsideTheShellPane(t *testing.T) {
 	}
 }
 
-// A ctrl+o that is not the second half of a chord does what it always did: nothing in
-// the list. Otherwise every exit from a pane would be one stray keypress away from
-// launching an editor.
+// A ctrl+o that is not the second half of a chord does nothing in the list; otherwise
+// every exit from a pane would be one stray keypress from launching an editor.
 func TestVSCodeChordNeedsTheSecondPressInTime(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "/srv/app")
@@ -156,9 +151,8 @@ func TestVSCodeChordNeedsTheSecondPressInTime(t *testing.T) {
 	}
 }
 
-// alt+o is not hop's key: the alt namespace in a pane is tab selection, and a
-// terminal sends alt+o as ESC then 'o' — vim's "leave insert mode, open a line
-// below". It goes to the remote like any other key.
+// alt+o is not hop's key: a terminal sends it as ESC then 'o', which is vim's "leave
+// insert mode, open a line below". It goes to the remote like any other key.
 func TestVSCodeIsNotOnAltO(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "/srv/app")
@@ -206,9 +200,8 @@ func TestVSCodeFallsBackWhenTheShellReportsNothing(t *testing.T) {
 	}
 }
 
-// A dropped session's pane still shows the last screen the host drew, but the
-// directory in it is where the shell *was*. Nothing is opened on the strength of
-// it.
+// A dropped session's pane still shows the last screen the host drew, but its directory
+// is where the shell was. Nothing is opened on the strength of it.
 func TestVSCodeIgnoresADeadSessionsDirectory(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "/srv/app")

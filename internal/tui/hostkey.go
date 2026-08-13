@@ -9,8 +9,7 @@ import (
 	"hop/internal/sshx"
 )
 
-// hostKeyAction is which dial to retry once the user trusts a first-contact host
-// key: the shell the list's connect was for, or the SFTP browser 'f' opened.
+// hostKeyAction is which dial to retry once the user trusts a first-contact host key.
 type hostKeyAction int
 
 const (
@@ -19,21 +18,20 @@ const (
 	hostKeyTunnels
 )
 
-// hostKeyUI is the new-host-key confirmation card's state. It holds what the
-// question needs to name — the alias and the key it is asking about — plus the
-// action to replay on "yes", captured at prompt time so the retry dials the same
-// host the same way regardless of where the cursor has since wandered.
+// hostKeyUI is the new-host-key confirmation card's state: the alias and key the question
+// names, plus the action to replay on "yes", captured at prompt time so the retry dials
+// the same host the same way wherever the cursor has since wandered.
 type hostKeyUI struct {
 	open        bool
 	alias       string
 	fingerprint string
 	keyType     string
 	action      hostKeyAction
-	// extra applies to a shell retry: whether the original request was for another
-	// shell alongside the host's existing ones (S / ctrl+o 0) rather than the first.
+	// extra applies to a shell retry: whether the request was for another shell alongside
+	// the host's existing ones rather than the first.
 	extra bool
-	// tunnelIDs applies to a tunnel retry: the definitions requested before the
-	// unknown key interrupted the dial.
+	// tunnelIDs applies to a tunnel retry: the definitions requested before the unknown
+	// key interrupted the dial.
 	tunnelIDs []int64
 }
 
@@ -42,8 +40,8 @@ func (m *model) openTunnelHostKeyConfirm(alias string, e *sshx.UnknownHostKeyErr
 	m.hostKey.tunnelIDs = append([]int64(nil), ids...)
 }
 
-// openHostKeyConfirm arms the card for the key sshx reported unknown. The status
-// line is cleared so the question stands on its own.
+// openHostKeyConfirm arms the card for the key sshx reported unknown, clearing the status
+// line so the question stands on its own.
 func (m *model) openHostKeyConfirm(alias string, e *sshx.UnknownHostKeyError, action hostKeyAction, extra bool) {
 	m.hostKey = hostKeyUI{
 		open:        true,
@@ -61,11 +59,9 @@ func (m *model) closeHostKey() {
 	m.hostKey = hostKeyUI{}
 }
 
-// handleHostKeyKey routes a key while the card is up. Like the other modal cards
-// it swallows everything: a stray key must not fall through and connect on a key
-// the user never approved. Only an explicit yes retries the dial, this time
-// trusting the fingerprint on screen; anything else that is a cancel trusts
-// nothing, and anything else keeps the question up.
+// handleHostKeyKey routes a key while the card is up, swallowing everything: a stray key
+// must not connect on a fingerprint the user never approved. Only an explicit yes retries
+// the dial; a cancel trusts nothing, and anything else keeps the question up.
 func (m *model) handleHostKeyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "enter":
@@ -80,9 +76,8 @@ func (m *model) handleHostKeyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// acceptHostKey replays the dial the card was armed for, now trusting the
-// approved fingerprint. A prompt only arises when the host had no established
-// connection to reuse, so the retry is always a fresh dial.
+// acceptHostKey replays the dial the card was armed for, trusting the approved
+// fingerprint. A prompt only arises with no connection to reuse, so it is a fresh dial.
 func (m *model) acceptHostKey(hk hostKeyUI) tea.Cmd {
 	h, ok := m.hostByAlias(hk.alias)
 	if !ok {
@@ -98,9 +93,8 @@ func (m *model) acceptHostKey(hk hostKeyUI) tea.Cmd {
 	}
 }
 
-// renderHostKeyConfirm draws the card, modelled on the delete confirmation but
-// wrapping its body: a fingerprint is ~50 cells and must be shown whole to be
-// compared, so lines wrap across the card rather than truncating it away.
+// renderHostKeyConfirm draws the card, modelled on the delete confirmation but wrapping
+// its body: a fingerprint must be shown whole to be compared.
 func (m *model) renderHostKeyConfirm() string {
 	w := m.confirmInnerW()
 	var b strings.Builder
@@ -125,8 +119,8 @@ func (m *model) renderHostKeyConfirm() string {
 	return cardBox.Width(w + 2*cardPadX).Render(b.String())
 }
 
-// wrapCard word-wraps s to w cells, hard-breaking any token (a fingerprint has no
-// spaces) that is itself wider than the card so nothing spills past the border.
+// wrapCard word-wraps s to w cells, hard-breaking any token wider than the card — a
+// fingerprint has no spaces — so nothing spills past the border.
 func wrapCard(s string, w int) string {
 	return lipgloss.NewStyle().Width(w).Render(s)
 }
