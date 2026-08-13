@@ -110,28 +110,45 @@ type Browser struct {
 
 // New builds a Browser starting in startDir (or the remote home when startDir
 // is empty), ensuring the download directory exists on the local filesystem.
+//
+// A startDir that cannot be listed does not fail the open: it is usually a host's
+// configured default directory that has been renamed or removed on the server, and
+// refusing to show anything at all would be a worse answer than showing the home
+// directory and saying why. The browser lands in the home directory with the
+// listing error as its status.
 func New(c Client, startDir string, opts Options, w, h int) (*Browser, error) {
 	if err := os.MkdirAll(opts.DownloadDir, 0o755); err != nil {
 		return nil, err
 	}
 
-	dir := startDir
-	if dir == "" {
-		home, err := c.Home()
-		if err != nil {
-			return nil, err
-		}
-		dir = home
-	}
-
 	b := &Browser{
 		client: c,
-		cwd:    dir,
 		opts:   opts,
 		w:      w,
 		h:      h,
 	}
-	b.load(dir)
+
+	if startDir != "" {
+		if b.load(startDir); b.cwd != "" {
+			return b, nil
+		}
+	}
+
+	// Either no start directory was asked for, or the one that was could not be
+	// listed. Either way the home directory is the answer; failing to find *that*
+	// is a real failure, since there is nothing left to show.
+	home, err := c.Home()
+	if err != nil {
+		return nil, err
+	}
+	failed := b.status
+	b.load(home)
+	if b.cwd == "" {
+		return nil, fmt.Errorf("%s", b.status)
+	}
+	if failed != "" {
+		b.status, b.statusErr = failed, true
+	}
 	return b, nil
 }
 

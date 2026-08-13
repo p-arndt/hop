@@ -626,3 +626,76 @@ func equal(a, b []string) bool {
 	}
 	return true
 }
+
+// A host's default directory survives both write paths, and an edit through
+// Upsert can change it — including clearing it back to "wherever the shell lands".
+func TestDefaultDirRoundTrips(t *testing.T) {
+	s := newStore(t)
+
+	if _, err := s.Add(Host{Alias: "web", HostName: "web.test", DefaultDir: "/srv/app"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if h := findHost(t, s, "web"); h == nil || h.DefaultDir != "/srv/app" {
+		t.Fatalf("after Add, host = %+v, want DefaultDir /srv/app", h)
+	}
+
+	if _, err := s.Upsert(Host{Alias: "web", HostName: "web.test", DefaultDir: "~/work"}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if h := findHost(t, s, "web"); h == nil || h.DefaultDir != "~/work" {
+		t.Fatalf("after Upsert, host = %+v, want DefaultDir ~/work", h)
+	}
+
+	if _, err := s.Upsert(Host{Alias: "web", HostName: "web.test"}); err != nil {
+		t.Fatalf("clearing Upsert: %v", err)
+	}
+	if h := findHost(t, s, "web"); h == nil || h.DefaultDir != "" {
+		t.Fatalf("after clearing, host = %+v, want an empty DefaultDir", h)
+	}
+}
+
+// default_dir arrived after the first release, so a database that predates it must
+// gain the column rather than fail to read — and its hosts start with no default
+// directory, which is exactly what they had before the column existed.
+func TestOpenMigratesDefaultDir(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hop.db")
+
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE hosts (
+			id            INTEGER PRIMARY KEY,
+			alias         TEXT UNIQUE NOT NULL,
+			hostname      TEXT,
+			user          TEXT,
+			port          INTEGER DEFAULT 22,
+			identity_file TEXT,
+			tags          TEXT,
+			grp           TEXT,
+			visits        INTEGER DEFAULT 0,
+			last_connect  INTEGER DEFAULT 0
+		);
+		INSERT INTO hosts (alias, hostname, user, identity_file, tags, grp)
+		VALUES ('old', 'old.test', 'me', '', '', '');`); err != nil {
+		t.Fatalf("seeding the old schema: %v", err)
+	}
+	db.Close()
+
+	s, err := OpenAt(path)
+	if err != nil {
+		t.Fatalf("OpenAt on an old database: %v", err)
+	}
+	defer s.Close()
+
+	if h := findHost(t, s, "old"); h == nil || h.DefaultDir != "" {
+		t.Fatalf("migrated host = %+v, want an empty DefaultDir", h)
+	}
+	if _, err := s.Upsert(Host{Alias: "old", HostName: "old.test", DefaultDir: "/opt"}); err != nil {
+		t.Fatalf("Upsert after migrating: %v", err)
+	}
+	if h := findHost(t, s, "old"); h == nil || h.DefaultDir != "/opt" {
+		t.Fatalf("host after setting a default dir = %+v, want /opt", h)
+	}
+}

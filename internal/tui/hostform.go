@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -34,6 +35,7 @@ var hostFormFields = [...]hostFormField{
 	{"Identity file", "none"},
 	{"Tags", "none"},
 	{"Group", "none"},
+	{"Default dir", "home"},
 }
 
 // Field indices into hostFormFields (and into hostFormUI.buf). Named so the
@@ -46,6 +48,7 @@ const (
 	hfIdentity
 	hfTags
 	hfGroup
+	hfDefaultDir
 )
 
 // hostFormUI is the add/edit card's own state. It carries the whole form in-flight
@@ -92,6 +95,7 @@ func (m *model) openHostFormEdit(h store.Host) {
 	f.buf[hfIdentity] = h.IdentityFile
 	f.buf[hfTags] = strings.Join(h.Tags, ", ")
 	f.buf[hfGroup] = h.Group
+	f.buf[hfDefaultDir] = h.DefaultDir
 
 	m.hostForm = f
 	m.status = ""
@@ -180,6 +184,7 @@ func (m *model) submitHostForm() {
 		IdentityFile: strings.TrimSpace(f.buf[hfIdentity]),
 		Tags:         splitFormTags(f.buf[hfTags]),
 		Group:        strings.TrimSpace(f.buf[hfGroup]),
+		DefaultDir:   strings.TrimSpace(f.buf[hfDefaultDir]),
 		Visits:       f.visits,
 		LastConnect:  f.lastConnect,
 	}
@@ -249,6 +254,44 @@ const (
 	hostFormFloorW = 20
 )
 
+// hostFormChrome is what the card costs before any field is drawn: its border and
+// the row of padding inside it top and bottom, the title and the blank under it,
+// then the rule and the hint line.
+const hostFormChrome = 2 + 2 + 2 + 1 + 1
+
+// hostFormMinFields is the fewest fields the card shows before it stops shrinking:
+// the selected one, and one on either side of it to say there are others. It is
+// what keeps the floor below fixed as fields are added — the card scrolls instead
+// of growing past the window (see hostFormWindow).
+const hostFormMinFields = 3
+
+// hostFormFullH is how tall the card stands with a blank line between its fields —
+// the height a window has to have before it can afford that air. hostFormPackedH is
+// how tall it stands with every field but no air between them. hostFormMinH is the
+// smallest it gets, showing hostFormMinFields of them: a window shorter than this
+// has its bottom rows cut off by the overlay. See renderHostForm.
+func hostFormFullH() int   { return hostFormChrome + 3*len(hostFormFields) }
+func hostFormPackedH() int { return hostFormChrome + 2*len(hostFormFields) }
+func hostFormMinH() int    { return hostFormChrome + 2*hostFormMinFields }
+
+// hostFormWindow is the run of fields the card has room to draw, as a first index
+// and a count, and it always contains the cursor.
+//
+// It is the settings popover's rule, for the same reason and with the same shape:
+// a window tall enough for all of them gets all of them, and a short one gets the
+// fields that fit, centred on the cursor, so tabbing through the form walks the
+// list past a window that keeps the field you are typing into in the middle.
+func (m *model) hostFormWindow() (first, count int) {
+	n := len(hostFormFields)
+	if m.height >= hostFormPackedH() {
+		return 0, n
+	}
+	room := (m.height - hostFormChrome) / 2
+	count = clamp(room, hostFormMinFields, n)
+	first = clamp(m.hostForm.cursor-count/2, 0, n-count)
+	return first, count
+}
+
 // hostFormInnerW is the width available to a rendered row: the box minus its
 // border and padding, held to the window so the card never spills past the screen.
 func (m *model) hostFormInnerW() int {
@@ -270,7 +313,19 @@ func (m *model) renderHostForm() string {
 	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n\n")
 
-	for i, f := range hostFormFields {
+	// The fields are spaced apart where there is room and packed where there is not,
+	// and below that the list scrolls inside the card rather than the card growing
+	// past the window — the same order of give as the settings popover, because they
+	// are the same card to look at and a form that ran off the bottom of a short
+	// terminal would hide the very field you tabbed to.
+	gap := "\n\n"
+	if m.height < hostFormFullH() {
+		gap = "\n"
+	}
+
+	first, count := m.hostFormWindow()
+	for i := first; i < first+count; i++ {
+		f := hostFormFields[i]
 		selected := i == m.hostForm.cursor
 
 		bar, label := "  ", settingsLabel.Render(f.label)
@@ -280,12 +335,18 @@ func (m *model) renderHostForm() string {
 		b.WriteString(truncate(bar+label, w))
 		b.WriteString("\n")
 		b.WriteString(m.renderHostFormValue(i, f, selected, w))
-		b.WriteString("\n\n")
+		b.WriteString(gap)
 	}
 
 	b.WriteString(rule(w))
 	b.WriteString("\n")
-	b.WriteString(keyHint("tab", "next") + "  " + keyHint("enter", "save") + "  " + keyHint("esc", "cancel"))
+	hints := keyHint("tab", "next") + "  " + keyHint("enter", "save") + "  " + keyHint("esc", "cancel")
+	if count < len(hostFormFields) {
+		// Only when the card is scrolling: a count is the one thing a window of fields
+		// cannot say for itself, and on a card showing all of them it would be noise.
+		hints += "  " + faint.Render(fmt.Sprintf("%d/%d", m.hostForm.cursor+1, len(hostFormFields)))
+	}
+	b.WriteString(truncate(hints, w))
 
 	return cardBox.Width(w + 2*cardPadX).Render(b.String())
 }

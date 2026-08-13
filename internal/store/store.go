@@ -25,6 +25,10 @@ type Host struct {
 	Group        string
 	Visits       int
 	LastConnect  int64
+	// DefaultDir is the remote directory a session starts in: shells cd there on
+	// connect and the file browser opens there. Blank means "wherever the login
+	// shell lands", which is what every host did before this column existed.
+	DefaultDir string
 	// Pinned lifts a host out of the frecency order into the PINNED section at the
 	// top of the list; PinOrder is its place inside that section, 1-based and dense
 	// (see renumberPins). PinOrder is meaningless — and zero — on an unpinned host.
@@ -94,7 +98,8 @@ CREATE TABLE IF NOT EXISTS hosts (
 	visits        INTEGER DEFAULT 0,
 	last_connect  INTEGER DEFAULT 0,
 	pinned        INTEGER DEFAULT 0,
-	pin_order     INTEGER DEFAULT 0
+	pin_order     INTEGER DEFAULT 0,
+	default_dir   TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS forwards (
@@ -116,6 +121,7 @@ CREATE TABLE IF NOT EXISTS forwards (
 var addedColumns = []struct{ name, ddl string }{
 	{"pinned", `ALTER TABLE hosts ADD COLUMN pinned INTEGER DEFAULT 0`},
 	{"pin_order", `ALTER TABLE hosts ADD COLUMN pin_order INTEGER DEFAULT 0`},
+	{"default_dir", `ALTER TABLE hosts ADD COLUMN default_dir TEXT DEFAULT ''`},
 }
 
 // migrate adds any column in addedColumns the table does not have yet. It asks
@@ -206,7 +212,7 @@ func (s *Store) Close() error {
 func (s *Store) Hosts() ([]Host, error) {
 	rows, err := s.db.Query(`
 		SELECT id, alias, hostname, user, port, identity_file, tags, grp, visits, last_connect,
-		       pinned, pin_order
+		       pinned, pin_order, COALESCE(default_dir, '')
 		FROM hosts
 		ORDER BY pinned DESC, pin_order ASC, visits DESC, last_connect DESC`)
 	if err != nil {
@@ -221,7 +227,7 @@ func (s *Store) Hosts() ([]Host, error) {
 		if err := rows.Scan(
 			&h.ID, &h.Alias, &h.HostName, &h.User, &h.Port,
 			&h.IdentityFile, &tags, &h.Group, &h.Visits, &h.LastConnect,
-			&h.Pinned, &h.PinOrder,
+			&h.Pinned, &h.PinOrder, &h.DefaultDir,
 		); err != nil {
 			return nil, err
 		}
@@ -272,16 +278,17 @@ func (s *Store) Upsert(h Host) (int64, error) {
 	tags := joinTags(h.Tags)
 
 	_, err := s.db.Exec(`
-		INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect, default_dir)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(alias) DO UPDATE SET
 			hostname      = excluded.hostname,
 			user          = excluded.user,
 			port          = excluded.port,
 			identity_file = excluded.identity_file,
 			tags          = excluded.tags,
-			grp           = excluded.grp`,
-		h.Alias, h.HostName, h.User, port, h.IdentityFile, tags, h.Group, h.Visits, h.LastConnect,
+			grp           = excluded.grp,
+			default_dir   = excluded.default_dir`,
+		h.Alias, h.HostName, h.User, port, h.IdentityFile, tags, h.Group, h.Visits, h.LastConnect, h.DefaultDir,
 	)
 	if err != nil {
 		return 0, err
@@ -316,9 +323,9 @@ func (s *Store) Add(h Host) (int64, error) {
 	}
 
 	res, err := s.db.Exec(`
-		INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		h.Alias, h.HostName, h.User, port, h.IdentityFile, joinTags(h.Tags), h.Group, h.Visits, h.LastConnect,
+		INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect, default_dir)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		h.Alias, h.HostName, h.User, port, h.IdentityFile, joinTags(h.Tags), h.Group, h.Visits, h.LastConnect, h.DefaultDir,
 	)
 	if err != nil {
 		return 0, err

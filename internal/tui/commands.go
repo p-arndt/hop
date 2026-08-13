@@ -67,7 +67,7 @@ func connectCmd(h store.Host, trustedFP string, prompt sshx.Prompter, extra bool
 		if err != nil {
 			return connectedMsg{alias: h.Alias, extra: extra, err: err}
 		}
-		tab, err := newShell(cli, id, cols, rows, notify)
+		tab, err := newShell(cli, h.DefaultDir, id, cols, rows, notify)
 		if err != nil {
 			cli.Close()
 			return connectedMsg{alias: h.Alias, extra: extra, err: err}
@@ -90,9 +90,9 @@ func dialClient(h store.Host, trustedFP string, prompt sshx.Prompter) (*sshx.Cli
 // the connection a browser-only session dialed, or the one the host's other
 // shells are already running on. restore marks one being put back by a reconnect,
 // which lands without taking the keyboard.
-func shellCmd(alias string, cli *sshx.Client, id, cols, rows int, notify chan struct{}, restore bool) tea.Cmd {
+func shellCmd(alias, startDir string, cli *sshx.Client, id, cols, rows int, notify chan struct{}, restore bool) tea.Cmd {
 	return func() tea.Msg {
-		tab, err := newShell(cli, id, cols, rows, notify)
+		tab, err := newShell(cli, startDir, id, cols, rows, notify)
 		if err != nil {
 			return connectedMsg{alias: alias, restore: restore, err: err}
 		}
@@ -159,18 +159,20 @@ func watchTunnelCmd(alias string, id int64, tunnel *sshx.Tunnel) tea.Cmd {
 	}
 }
 
-// newShell starts a shell on cli and wraps it in a terminal pane.
-func newShell(cli *sshx.Client, id, cols, rows int, notify chan struct{}) (*shellTab, error) {
+// newShell starts a shell on cli and wraps it in a terminal pane. startDir is the
+// host's default directory, empty for a host that has none.
+func newShell(cli *sshx.Client, startDir string, id, cols, rows int, notify chan struct{}) (*shellTab, error) {
 	sess, err := cli.Shell(cols, rows)
 	if err != nil {
 		return nil, err
 	}
 	pane := terminal.New(sess, cols, rows, wake(notify))
-	// Ask the shell to report where it stands, so the VS Code binding can open the
-	// directory you are in rather than the one you log in to. It is best effort and
-	// asynchronous — nothing here waits on it, and a shell it cannot be installed
-	// into is a shell whose cwd stays unknown.
-	pane.TrackCwd(cli)
+	// Move the shell to the host's default directory, and ask it to report where it
+	// stands so the VS Code binding can open the directory you are in rather than the
+	// one you log in to. Both are best effort and asynchronous — nothing here waits on
+	// them, and a shell the hook cannot be installed into is a shell whose cwd stays
+	// unknown.
+	pane.TrackCwd(cli, startDir)
 	return &shellTab{id: id, pane: pane, sess: sess}, nil
 }
 

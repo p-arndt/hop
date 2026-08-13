@@ -221,7 +221,7 @@ func (m *model) openShell(h store.Host, extra bool) tea.Cmd {
 		// The host is connected (a browser-only session, or one with shells
 		// already): open the new shell on the connection it holds.
 		cols, rows := m.shellSize(len(s.shells) + 1)
-		return m.withSpinner(shellCmd(h.Alias, s.client, m.nextShID, cols, rows, m.notify, false))
+		return m.withSpinner(shellCmd(h.Alias, h.DefaultDir, s.client, m.nextShID, cols, rows, m.notify, false))
 	}
 	cols, rows := m.shellSize(1)
 	return m.withSpinner(connectCmd(h, "", m.prompter(h.Alias), extra, m.nextShID, cols, rows, m.notify))
@@ -271,9 +271,9 @@ func (m *model) openBrowser(h store.Host) tea.Cmd {
 	if existing == nil {
 		// A dial is about to happen, so the host earns a spinner in the list.
 		m.connecting[h.Alias] = true
-		return m.withSpinner(openBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), "", m.paneW, m.paneH, false))
+		return m.withSpinner(openBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), h.DefaultDir, m.paneW, m.paneH, false))
 	}
-	return openBrowserCmd(h, existing, "", nil, m.browserOptions(), "", m.paneW, m.paneH, false)
+	return openBrowserCmd(h, existing, "", nil, m.browserOptions(), h.DefaultDir, m.paneW, m.paneH, false)
 }
 
 // openBrowserTrusting retries a first-contact SFTP dial after the user approved
@@ -285,7 +285,7 @@ func (m *model) openBrowserTrusting(h store.Host, fingerprint string) tea.Cmd {
 	}
 	m.setStatus(statusInfo, "opening sftp %s…", h.Alias)
 	m.connecting[h.Alias] = true
-	return m.withSpinner(openBrowserCmd(h, nil, fingerprint, m.prompter(h.Alias), m.browserOptions(), m.restoreDir(h.Alias), m.paneW, m.paneH, false))
+	return m.withSpinner(openBrowserCmd(h, nil, fingerprint, m.prompter(h.Alias), m.browserOptions(), m.browserStartDir(h), m.paneW, m.paneH, false))
 }
 
 // openFile opens the file the browser just activated in an editor tab. A file

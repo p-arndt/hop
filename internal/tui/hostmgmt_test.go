@@ -1,7 +1,11 @@
 package tui
 
 import (
+	"strconv"
+	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/config"
 	"hop/internal/store"
@@ -278,5 +282,130 @@ func TestConfirmSwallowsKeys(t *testing.T) {
 	}
 	if _, ok := aliases(t, m)["web"]; !ok {
 		t.Fatal("an unrelated key deleted the host")
+	}
+}
+
+// The default directory is a form field like any other: typed in on an add, and
+// stored against the host.
+func TestAddHostWithDefaultDir(t *testing.T) {
+	m := hostMgmtModel(t)
+	m.handleKey(key(t, "a"))
+	typeRunes(t, m, "web")
+	m.hostForm.cursor = hfDefaultDir
+	typeRunes(t, m, "/srv/app")
+	m.handleKey(key(t, "enter"))
+
+	if got := aliases(t, m)["web"]; got.DefaultDir != "/srv/app" {
+		t.Fatalf("stored DefaultDir = %q, want /srv/app", got.DefaultDir)
+	}
+}
+
+// An edit pre-fills the field from the host and can clear it again — an empty
+// default directory is the "wherever the login shell lands" behaviour, so it has to
+// be reachable, not just the state of a host that never had one.
+func TestEditHostDefaultDirRoundTrip(t *testing.T) {
+	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22, DefaultDir: "/srv/app"})
+
+	m.handleKey(key(t, "e"))
+	if got := m.hostForm.buf[hfDefaultDir]; got != "/srv/app" {
+		t.Fatalf("the form pre-filled DefaultDir as %q, want /srv/app", got)
+	}
+	m.hostForm.cursor = hfDefaultDir
+	m.handleKey(key(t, "ctrl+u"))
+	typeRunes(t, m, "~/work")
+	m.handleKey(key(t, "enter"))
+
+	if got := aliases(t, m)["web"]; got.DefaultDir != "~/work" {
+		t.Fatalf("DefaultDir = %q, want ~/work", got.DefaultDir)
+	}
+
+	m.handleKey(key(t, "e"))
+	m.hostForm.cursor = hfDefaultDir
+	m.handleKey(key(t, "ctrl+u"))
+	m.handleKey(key(t, "enter"))
+
+	if got := aliases(t, m)["web"]; got.DefaultDir != "" {
+		t.Fatalf("DefaultDir = %q, want it cleared", got.DefaultDir)
+	}
+}
+
+// A pending reconnect's browser directory outranks the host's default: it is where
+// the user was standing a moment ago. With no such plan the default is what is left.
+func TestBrowserStartDirPrefersTheDroppedSession(t *testing.T) {
+	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22, DefaultDir: "/srv/app"})
+	h := m.hosts[0]
+
+	if got := m.browserStartDir(h); got != "/srv/app" {
+		t.Fatalf("browserStartDir with no plan = %q, want the host default /srv/app", got)
+	}
+
+	m.pending = map[string]reconnectPlan{"web": {browser: true, browserDir: "/var/log"}}
+	if got := m.browserStartDir(h); got != "/var/log" {
+		t.Fatalf("browserStartDir with a plan = %q, want the dropped session's /var/log", got)
+	}
+}
+
+// The card has to fit the terminal it is drawn into. It gives way in the same
+// order the settings popover does — the air between fields first, then the number
+// of fields on screen — so a short window scrolls the form instead of cutting off
+// its bottom, hints and all.
+func TestHostFormFitsTheWindow(t *testing.T) {
+	if hostFormMinH() > 24 {
+		t.Fatalf("the packed card needs %d rows; it must fit a standard 24-row terminal", hostFormMinH())
+	}
+	for h := hostFormMinH(); h <= hostFormFullH()+8; h++ {
+		m := hostMgmtModel(t)
+		m.height = h
+		m.openHostFormAdd()
+		for cursor := range hostFormFields {
+			m.hostForm.cursor = cursor
+			if got := lipgloss.Height(m.renderHostForm()); got > h {
+				t.Fatalf("a %d-row window with the cursor on field %d got a %d-line card", h, cursor, got)
+			}
+		}
+	}
+}
+
+// However short the window, the field the cursor is on is one of the fields drawn —
+// a form that scrolled the row you are typing into off the card would be worse than
+// one that did not scroll at all.
+func TestHostFormWindowHoldsTheCursor(t *testing.T) {
+	for h := 10; h <= hostFormFullH()+4; h++ {
+		m := hostMgmtModel(t)
+		m.height = h
+		m.openHostFormAdd()
+		for cursor := range hostFormFields {
+			m.hostForm.cursor = cursor
+			first, count := m.hostFormWindow()
+			if cursor < first || cursor >= first+count {
+				t.Fatalf("a %d-row window drew fields [%d,%d) with the cursor on %d",
+					h, first, first+count, cursor)
+			}
+			if first < 0 || first+count > len(hostFormFields) {
+				t.Fatalf("a %d-row window drew fields [%d,%d), outside the form", h, first, first+count)
+			}
+		}
+	}
+}
+
+// The "n/8" counter is the one thing a scrolled window cannot say for itself, so
+// it appears exactly when the card is showing fewer fields than it has.
+func TestHostFormCounterOnlyWhenScrolled(t *testing.T) {
+	for _, c := range []struct {
+		height int
+		want   bool
+	}{
+		{hostFormFullH(), false},
+		{hostFormPackedH(), false},
+		{hostFormPackedH() - 2, true},
+		{hostFormMinH(), true},
+	} {
+		m := hostMgmtModel(t)
+		m.height = c.height
+		m.openHostFormAdd()
+		got := strings.Contains(m.renderHostForm(), "/"+strconv.Itoa(len(hostFormFields)))
+		if got != c.want {
+			t.Errorf("a %d-row card shows the counter = %v, want %v", c.height, got, c.want)
+		}
 	}
 }

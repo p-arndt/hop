@@ -1,6 +1,7 @@
 package filebrowser
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -573,5 +574,60 @@ func TestCursorStaysVisible(t *testing.T) {
 			t.Fatalf("after %q: cursor %d outside window [%d,%d)",
 				k, b.cursor, b.scroll, b.scroll+b.contentRows())
 		}
+	}
+}
+
+// pickyClient lists only the directories it knows, so a start directory can be
+// made to fail the way a host's default directory does once it is renamed away.
+type pickyClient struct {
+	fakeClient
+	ok map[string]bool
+}
+
+func (p *pickyClient) List(dir string) ([]sftpx.Entry, error) {
+	if !p.ok[dir] {
+		return nil, fmt.Errorf("stat %s: no such file or directory", dir)
+	}
+	return p.entries, nil
+}
+
+// A start directory that lists is where the browser opens.
+func TestNewOpensInTheStartDir(t *testing.T) {
+	c := &pickyClient{ok: map[string]bool{"/srv/app": true, "/home/u": true}}
+	b, err := New(c, "/srv/app", Options{DownloadDir: t.TempDir()}, 40, 13)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if b.Path() != "/srv/app" {
+		t.Fatalf("cwd = %q, want /srv/app", b.Path())
+	}
+	if b.Status() != "" {
+		t.Fatalf("status = %q, want none", b.Status())
+	}
+}
+
+// One that does not — a default directory removed on the server since it was set —
+// lands in the home directory instead, with the reason on the status line. A
+// browser that refused to open at all would be a worse answer.
+func TestNewFallsBackWhenTheStartDirIsGone(t *testing.T) {
+	c := &pickyClient{ok: map[string]bool{"/home/u": true}}
+	b, err := New(c, "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if b.Path() != "/home/u" {
+		t.Fatalf("cwd = %q, want the home directory /home/u", b.Path())
+	}
+	if !strings.Contains(b.Status(), "/srv/gone") {
+		t.Fatalf("status = %q, want it to name the directory that failed", b.Status())
+	}
+}
+
+// With neither a listable start directory nor a listable home there is nothing to
+// show, and New says so rather than handing back an empty browser.
+func TestNewFailsWhenNothingLists(t *testing.T) {
+	c := &pickyClient{ok: map[string]bool{}}
+	if _, err := New(c, "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13); err == nil {
+		t.Fatal("New on a host that lists nothing: got nil error, want non-nil")
 	}
 }

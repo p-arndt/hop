@@ -228,7 +228,7 @@ func (m *model) applyPlan(alias string) tea.Cmd {
 	for i := len(s.shells); i < plan.shells; i++ {
 		m.nextShID++
 		cols, rows := m.shellSize(i + 1)
-		cmds = append(cmds, shellCmd(alias, s.client, m.nextShID, cols, rows, m.notify, true))
+		cmds = append(cmds, shellCmd(alias, h.DefaultDir, s.client, m.nextShID, cols, rows, m.notify, true))
 	}
 	if plan.browser && s.browser == nil {
 		cmds = append(cmds, openBrowserCmd(h, s.client, "", nil, m.browserOptions(), plan.browserDir, m.paneW, m.paneH, true))
@@ -279,6 +279,18 @@ func (p reconnectPlan) restored(have int) string {
 // took a detour through the host-key card.
 func (m *model) restoreDir(alias string) string {
 	return m.pending[alias].browserDir
+}
+
+// browserStartDir is where a browser hop is about to open should land: the
+// directory a pending reconnect was standing in when the connection dropped, and
+// otherwise the host's own default directory. The dropped session's directory wins
+// — it is where the user was a moment ago, which is a stronger claim on "where I
+// meant" than a setting made once.
+func (m *model) browserStartDir(h store.Host) string {
+	if dir := m.restoreDir(h.Alias); dir != "" {
+		return dir
+	}
+	return h.DefaultDir
 }
 
 // dropPlan forgets a pending reconnect. A dial that failed for good — bad auth, a

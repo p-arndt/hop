@@ -153,6 +153,13 @@ func waitForCleanPane(sh *shellTab) string {
 // and returns the model with the landed shell focused.
 func connectShellHost(t *testing.T, user string) (*model, *shellTab) {
 	t.Helper()
+	return connectShellHostIn(t, user, "")
+}
+
+// connectShellHostIn is connectShellHost with a default directory set on the host,
+// which is what a session started there has to honour.
+func connectShellHostIn(t *testing.T, user, defaultDir string) (*model, *shellTab) {
+	t.Helper()
 	srv := shellHostServer(t)
 	trustHostKey(t, srv.Port)
 
@@ -162,6 +169,7 @@ func connectShellHost(t *testing.T, user string) (*model, *shellTab) {
 		Port:         srv.Port,
 		User:         user,
 		IdentityFile: srv.ClientKey,
+		DefaultDir:   defaultDir,
 	})
 	m.prompts = make(chan authPromptMsg, 1)
 	m.connecting = map[string]bool{}

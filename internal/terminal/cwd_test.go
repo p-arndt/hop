@@ -521,7 +521,7 @@ func TestTrackCwdTypesNothingOntoTheAltScreen(t *testing.T) {
 		t.Fatal("the pane never reported the alt screen")
 	}
 
-	p.TrackCwd(cli)
+	p.TrackCwd(cli, "")
 
 	if srv.waitForInput(t, "hop_cwd", false) {
 		t.Fatalf("the hook was typed into a full-screen program; it saw %q", srv.shellInput())
@@ -542,7 +542,7 @@ func TestTrackCwdStopsWhenThePaneCloses(t *testing.T) {
 	}
 	p := New(sess, 80, 24, nil)
 
-	p.TrackCwd(cli)
+	p.TrackCwd(cli, "")
 	// Close while the goroutine is still waiting on the shell's first output.
 	if err := p.Close(); err != nil && !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("Close: %v", err)
@@ -563,4 +563,127 @@ func waitForCwd(p *Pane, want string) bool {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return p.Cwd() == want
+}
+
+// The startup line is one submitted line whatever it is made of, and the cd comes
+// before the hook — so the hook's own trailing call reports the directory the
+// session is actually starting in, not the one it logged into.
+func TestStartupLine(t *testing.T) {
+	for _, c := range []struct{ name, dir, hook, want string }{
+		{"nothing to do", "", "", ""},
+		{"hook only", "", bashCwdHook, bashCwdHook},
+		{"cd only", "/srv/app", "", "\x15 cd '/srv/app'\r"},
+		{"cd and hook", "/srv/app", zshCwdHook, "\x15 cd '/srv/app'; " + strings.TrimPrefix(zshCwdHook, "\x15 ")},
+	} {
+		got := startupLine(c.dir, c.hook)
+		if got != c.want {
+			t.Errorf("%s: startupLine(%q, hook) = %q, want %q", c.name, c.dir, got, c.want)
+		}
+		if got == "" {
+			continue
+		}
+		if !strings.HasPrefix(got, "\x15 ") {
+			t.Errorf("%s: %q does not open with the kill-line and the history-hiding space", c.name, got)
+		}
+		if strings.Count(got, "\r") != 1 || !strings.HasSuffix(got, "\r") || strings.Contains(got, "\n") {
+			t.Errorf("%s: %q is not one submitted line", c.name, got)
+		}
+		if strings.Count(got, "\x15") != 1 {
+			t.Errorf("%s: %q kills the line more than once", c.name, got)
+		}
+	}
+}
+
+// The directory is one word to the shell whatever is in it: a space does not split
+// it, and a quote cannot end the quoting and start a command. A leading ~ is the
+// one thing left to the shell to expand, because "~/work" is what people type.
+func TestShellQuotePath(t *testing.T) {
+	for _, c := range []struct{ dir, want string }{
+		{"/srv/app", "'/srv/app'"},
+		{"/srv/my app", "'/srv/my app'"},
+		{"~", "~"},
+		{"~/work", "~/'work'"},
+		{"/tmp/x'; rm -rf /; '", `'/tmp/x'\''; rm -rf /; '\'''`},
+		{"$HOME/x", "'$HOME/x'"},
+	} {
+		if got := shellQuotePath(c.dir); got != c.want {
+			t.Errorf("shellQuotePath(%q) = %q, want %q", c.dir, got, c.want)
+		}
+	}
+}
+
+// A host with a default directory moves its shell there on connect. The shell here
+// is fish, which gets no OSC 7 hook — the cd is a line every shell understands, so
+// it goes in on its own.
+func TestTrackCwdCdsIntoTheDefaultDirectory(t *testing.T) {
+	srv := startShellProbeServer(t, "/usr/bin/fish")
+	cli := dialProbeServer(t, srv.addr)
+	defer cli.Close()
+
+	sess, err := cli.Shell(80, 24)
+	if err != nil {
+		t.Fatalf("Shell: %v", err)
+	}
+	p := New(sess, 80, 24, nil)
+	defer p.Close()
+
+	srv.say("prompt$ ")
+	p.TrackCwd(cli, "/srv/app")
+
+	if !srv.waitForInput(t, "cd '/srv/app'", true) {
+		t.Fatalf("the cd never arrived; the far end saw %q", srv.shellInput())
+	}
+	if strings.Contains(srv.shellInput(), "hop_cwd") {
+		t.Fatalf("a hook was typed into fish; it saw %q", srv.shellInput())
+	}
+}
+
+// A bash host with a default directory gets both, as one line.
+func TestTrackCwdSendsTheCdAndTheHookTogether(t *testing.T) {
+	srv := startShellProbeServer(t, "/bin/bash")
+	cli := dialProbeServer(t, srv.addr)
+	defer cli.Close()
+
+	sess, err := cli.Shell(80, 24)
+	if err != nil {
+		t.Fatalf("Shell: %v", err)
+	}
+	p := New(sess, 80, 24, nil)
+	defer p.Close()
+
+	srv.say("prompt$ ")
+	p.TrackCwd(cli, "/srv/app")
+
+	if !srv.waitForInput(t, "hop_cwd", true) {
+		t.Fatalf("the hook never arrived; the far end saw %q", srv.shellInput())
+	}
+	in := srv.shellInput()
+	if !strings.Contains(in, "cd '/srv/app'; hop_cwd()") {
+		t.Fatalf("the cd does not lead the hook on one line; the far end saw %q", in)
+	}
+	if strings.Count(in, "\r") != 1 {
+		t.Fatalf("more than one line was submitted; the far end saw %q", in)
+	}
+}
+
+// A host with no default directory on a shell with no hook has nothing to say, and
+// says nothing: the pane is left exactly as the login shell drew it.
+func TestTrackCwdTypesNothingWithNoDirAndNoHook(t *testing.T) {
+	srv := startShellProbeServer(t, "/usr/bin/fish")
+	cli := dialProbeServer(t, srv.addr)
+	defer cli.Close()
+
+	sess, err := cli.Shell(80, 24)
+	if err != nil {
+		t.Fatalf("Shell: %v", err)
+	}
+	p := New(sess, 80, 24, nil)
+	defer p.Close()
+
+	srv.say("prompt$ ")
+	p.TrackCwd(cli, "")
+
+	if srv.waitForInput(t, "cd ", false) {
+		t.Fatalf("something was typed into a shell with nothing to do; it saw %q", srv.shellInput())
+	}
 }

@@ -381,25 +381,87 @@ const hookGrace = 300 * time.Millisecond
 //
 // It is for shell panes. An editor pane runs one program to completion and has no
 // prompt to hang a hook off.
-func (p *Pane) TrackCwd(cli *sshx.Client) {
+func (p *Pane) TrackCwd(cli *sshx.Client, startDir string) {
 	if cli == nil {
 		return
 	}
 	go func() {
-		shell, err := cli.Output(loginShellCmd)
-		if err != nil {
-			return
+		var hook string
+		// A shell hop cannot identify still gets the cd — that line is one every shell
+		// understands — it just gets no hook, since the hook is written per shell.
+		if shell, err := cli.Output(loginShellCmd); err == nil {
+			hook = cwdHookFor(shell)
 		}
-		hook := cwdHookFor(shell)
-		if hook == "" {
+		if hook == "" && startDir == "" {
 			return
 		}
 		p.waitFirstOutput(hookDelay)
-		if p.isClosed() || p.reportsCwd(hookGrace) || p.emu.IsAltScreen() {
+		if p.isClosed() {
 			return
 		}
-		p.injectHook(hook)
+		// The grace comes before the alt-screen check, not after: it is 300 ms of the
+		// session's first moments, and a full-screen program that takes the screen
+		// inside that window has to be seen before anything is typed.
+		reports := p.reportsCwd(hookGrace)
+		if p.emu.IsAltScreen() {
+			return
+		}
+		if reports {
+			hook = ""
+		}
+		line := startupLine(startDir, hook)
+		if line == "" {
+			return
+		}
+		// The cwd report is what tells injectHook the line has run. It is only owed
+		// when something is going to emit one: the hook hop is installing, or a shell
+		// that was already reporting before hop typed anything.
+		p.injectHook(line, hook != "" || reports)
 	}()
+}
+
+// startupLine is the one line hop types at the fresh shell's prompt: the cd into
+// the host's default directory, the OSC 7 prompt hook, or both — in that order, so
+// the hook's trailing call reports the directory the session actually starts in.
+//
+// The two are joined with ";" rather than "&&" because a function definition is
+// not a valid right-hand side of "&&" in bash, and because a cd that fails should
+// still leave a shell that reports where it ended up.
+//
+// A cd that fails is not silenced. The shell prints its own "no such file or
+// directory", which both tells the user their default directory is wrong and — by
+// putting text hop did not type into the echoed span — stops the erase, so the
+// line stays on screen with the reason next to it. A default directory that is
+// simply gone should be visible, not swallowed.
+func startupLine(dir, hook string) string {
+	if dir == "" {
+		return hook
+	}
+	// The "\x15 " prefix is the hooks' own: a kill-line, so a half-typed line is not
+	// submitted with this one, and a space, for the shells configured to keep such
+	// lines out of history. The joined line needs it exactly once, at its front.
+	cd := "\x15 cd " + shellQuotePath(dir)
+	if hook == "" {
+		return cd + "\r"
+	}
+	return cd + "; " + strings.TrimPrefix(hook, "\x15 ")
+}
+
+// shellQuotePath renders dir as a single word for the shell, so a directory with
+// a space or a quote in it is one argument and nothing in it is executed.
+//
+// A leading "~" is left outside the quotes — a quoted tilde is a literal one, and
+// "~/work" is what people type. Nothing else expands: "$VAR" in a default
+// directory stays the four characters it looks like.
+func shellQuotePath(dir string) string {
+	prefix := ""
+	switch {
+	case dir == "~":
+		return "~"
+	case strings.HasPrefix(dir, "~/"):
+		prefix, dir = "~/", strings.TrimPrefix(dir, "~/")
+	}
+	return prefix + "'" + strings.ReplaceAll(dir, "'", `'\''`) + "'"
 }
 
 // isClosed reports whether the pane has been closed under us. Every wait in the
@@ -427,17 +489,17 @@ func (p *Pane) isClosed() bool {
 // Nothing is erased on a guess. The rows are only deleted when what is on them is
 // the line hop typed and nothing else — see eraseEcho. A visible line is a blemish;
 // erasing the host's own output would be a defect.
-func (p *Pane) injectHook(hook string) {
+func (p *Pane) injectHook(line string, expectReport bool) {
 	pos := p.emu.CursorPosition()
 	top, sbBefore := pos.Y, p.emu.ScrollbackLen()
 
-	p.writeString(hook)
+	p.writeString(line)
 
 	// The report is the tell that the hook ran. It is not the tell that the screen is
 	// ready to be measured: the hook's own trailing call emits it while the echoed
 	// line is still the current one, before the shell has printed the newline and the
 	// prompt that follow. So the report is waited for first, and then the screen is.
-	if !p.reportsCwd(hookRunWindow) {
+	if expectReport && !p.reportsCwd(hookRunWindow) {
 		return
 	}
 	if !p.waitPromptBelow(top, sbBefore) {
@@ -446,7 +508,7 @@ func (p *Pane) injectHook(hook string) {
 	if p.isClosed() {
 		return
 	}
-	p.eraseEcho(top, sbBefore, hook)
+	p.eraseEcho(top, sbBefore, line)
 }
 
 // hookRunWindow is how long the hook is given to run — one round trip and a prompt
