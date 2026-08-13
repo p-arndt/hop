@@ -343,7 +343,7 @@ func (m *model) handleDeadPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focused = false
 		m.browsing = false
 		m.editing = false
-		m.lastEsc = time.Time{}
+		m.chords.esc = time.Time{}
 		m.clearStatus()
 
 	case "d", "x":

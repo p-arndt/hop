@@ -175,7 +175,7 @@ func TestDoubleClickConnects(t *testing.T) {
 	t.Run("outside the window", func(t *testing.T) {
 		m := newMouseModel(3)
 		m.handleMouse(click(4, 4))
-		m.lastClick = time.Now().Add(-2 * doubleClickWindow)
+		m.chords.click = time.Now().Add(-2 * doubleClickWindow)
 		m.handleMouse(click(4, 4))
 		if len(m.connecting) != 0 {
 			t.Fatalf("two clicks a window apart started a connect: %v", m.connecting)

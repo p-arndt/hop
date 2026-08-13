@@ -15,6 +15,16 @@ import (
 // (say, in vim) stay independent.
 const doubleEscWindow = 400 * time.Millisecond
 
+// leaderKey opens hop's keyboard inside a pane. It does nothing on its own and it is
+// on no clock: it arms, the footer lists what can follow, and hop waits as long as it
+// takes. That is the whole reason it exists — an earlier version let ctrl+o both lead
+// and leave, which forced a timeout, and every value for that timeout was wrong. Too
+// short and the chords were unreachable; too long and leaving felt broken.
+//
+// Leaving is now leaderKey then "o", which costs a keystroke and buys back all of the
+// timing. esc esc still leaves in one gesture for anyone who wants it.
+const leaderKey = "ctrl+o"
+
 // toggleSidebarKey collapses the host list and brings it back. The mnemonic key
 // would be alt+b (sideBar), but a terminal only sends alt+letter as a meta escape
 // when it is configured to — on macOS it is not, by default, so the key arrives as a
@@ -92,6 +102,13 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSettingsKey(msg)
 	}
 
+	// The leader, if it is open: while it is, hop owns the keyboard outright — above
+	// even ctrl+b and ctrl+g, which are otherwise held in every mode. A chord half
+	// typed is not a moment to toggle the sidebar in and leave the other half hanging.
+	if m.leaderArmed() {
+		return m.handleLeader(msg)
+	}
+
 	// A key is the end of a selection: the highlight is a moment, and the screen
 	// under it is about to change. The key itself is not spent doing this — it goes
 	// on to mean whatever it means below.
@@ -106,10 +123,10 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case toggleSidebarKey:
 		m.toggleSidebar()
 		// Any key that is not an esc breaks a half-typed double-esc, this one included.
-		m.lastEsc = time.Time{}
+		m.chords.esc = time.Time{}
 		return m, nil
 	case toggleMouseKey:
-		m.lastEsc = time.Time{}
+		m.chords.esc = time.Time{}
 		return m, m.toggleMouse()
 	}
 
@@ -167,13 +184,9 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.clearStatus()
 
 	case "ctrl+o":
-		// The second half of the chord the pane armed on its way out: ctrl+o ctrl+o
-		// opens VS Code Remote on the directory the shell you just left was standing in.
-		// A ctrl+o that arrives on its own — nothing was left, or the window has passed
-		// — does nothing, which is what it did before.
-		if alias, ok := m.vscodeChord(); ok {
-			m.openVSCodeAt(alias)
-		}
+		// Nothing to go back from: the list is where back leads. The "vs code here"
+		// chord is answered in the pane now (see handleLeader), so a ctrl+o that
+		// reaches the list on its own does nothing.
 
 	case "esc":
 		// The one way back that is not a motion: esc is the browser's double-tap
@@ -187,6 +200,16 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.openShell(h, true)
+
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		// Straight into a numbered shell of the host under the cursor — what "s" does,
+		// aimed. Not a chord and not on a timer: in the list a digit has nothing else
+		// to be. A host with no session, or no shell at that position, ignores it.
+		h, ok := m.selectedHost()
+		if !ok {
+			return m, nil
+		}
+		return m.gotoShell(h.Alias, int(key[0]-'1'))
 
 	case "s":
 		h, ok := m.selectedHost()
@@ -432,7 +455,7 @@ func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	default:
 		// Any other key breaks the sequence, so esc-j-esc is not a double.
-		m.lastEsc = time.Time{}
+		m.chords.esc = time.Time{}
 	}
 
 	if s := m.sessions[m.active]; s != nil && s.browser != nil {
@@ -444,31 +467,31 @@ func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ---- shell pane ----
 
 // handleShellKey routes a key while a shell pane is focused. The remote shell owns
-// nearly every key, so hop reserves only ctrl+o, a double esc, alt+0 to open another
-// shell, alt+←/→ and alt+1..9 to switch between the ones already open, and ctrl+b for
-// the sidebar (taken before this, in handleKey). Everything
-// else is forwarded verbatim — including ←, which the shell needs for readline (and
-// for the alt+b/alt+f word motions built on it) and full-screen programs need for
-// navigation. Leaving the pane is ctrl+o or a double esc.
+// nearly every key, so hop reserves only ctrl+o, a double esc, shift+←/→ to switch
+// shells, shift+↑/pgup for scrollback, and ctrl+b for the sidebar (taken before this,
+// in handleKey). Everything else is forwarded verbatim — including ←, which readline
+// needs (and the alt+b/alt+f word motions built on it) and full-screen programs need
+// for navigation.
 //
-// The alt chords are deliberately fewer than the editor's: readline binds the
-// alt+letters (alt+l downcases a word, alt+b walks one back), so alt+h/alt+l are
-// not taken here the way they are in an editor. The digits are the exception hop
-// already makes — which is why "another shell" is alt+0 and not alt+n: it costs
-// the shell nothing that alt+1..9 has not already cost it.
+// Tab selection is shift+←/→ rather than alt+←/→ because a stock macOS terminal
+// types a character for Option+key instead of sending the meta escape hop reads, so
+// an alt binding is simply absent there. shift+↑ was already hop's for scrollback,
+// which makes shift+arrow the namespace with a precedent. The alt chords stay bound
+// as aliases: they cost nothing where they do arrive.
+//
+// Going to a shell *by number* is the ctrl+o leader — see handleLeader. It is not a
+// key of its own because ctrl+o is already reserved and there is no free one left to
+// take: every comfortable ctrl chord is spoken for at the far end (ctrl+t transposes,
+// ctrl+w erases a word, ctrl+n/p walk the history), and ctrl+digit is not transmitted
+// at all.
 func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	s := m.sessions[m.active]
 	key := msg.String()
 
 	switch key {
-	case "ctrl+o":
-		// Leave the pane, and arm the second half of the "vs code here" chord: another
-		// ctrl+o now opens VS Code on the directory this shell is in. It is a chord
-		// rather than a key of its own because the shell owns every plain key, and the
-		// alt namespace in here is tab selection — see handleNavKey for the other half.
-		alias := m.active
-		m.leavePane()
-		m.armVSCodeChord(alias)
+	case leaderKey:
+		// Open the leader and wait. It does not act on its own — see handleLeader.
+		m.armLeader()
 		return m, nil
 
 	case "alt+0":
@@ -481,13 +504,13 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.openShell(h, true)
 
-	case "alt+right":
+	case "shift+right", "alt+right":
 		if s != nil {
 			s.activeSh = cycle(s.activeSh, 1, len(s.shells))
 		}
 		return m, nil
 
-	case "alt+left":
+	case "shift+left", "alt+left":
 		if s != nil {
 			s.activeSh = cycle(s.activeSh, -1, len(s.shells))
 		}
@@ -530,7 +553,7 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	} else {
 		// Any other key breaks the sequence, so esc-j-esc is not a double.
-		m.lastEsc = time.Time{}
+		m.chords.esc = time.Time{}
 	}
 
 	if s != nil && s.shell() != nil {
@@ -662,15 +685,16 @@ func (m *model) handleEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	switch key {
-	case "ctrl+o":
-		m.leaveEditor()
+	case leaderKey:
+		// As in a shell pane: open the leader and wait.
+		m.armLeader()
 		return m, nil
 
-	case "alt+right", "alt+l":
+	case "shift+right", "alt+right", "alt+l":
 		s.activeEd = cycle(s.activeEd, 1, len(s.editors))
 		return m, nil
 
-	case "alt+left", "alt+h":
+	case "shift+left", "alt+left", "alt+h":
 		s.activeEd = cycle(s.activeEd, -1, len(s.editors))
 		return m, nil
 	}
@@ -691,7 +715,7 @@ func (m *model) handleEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	} else {
-		m.lastEsc = time.Time{}
+		m.chords.esc = time.Time{}
 	}
 
 	s.editor().pane.SendKey(msg)
@@ -715,10 +739,10 @@ func (m *model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // escChord reports whether this esc completes a double-esc within the window, and
 // arms the window when it does not.
 func (m *model) escChord() bool {
-	if !m.lastEsc.IsZero() && time.Since(m.lastEsc) <= doubleEscWindow {
+	if !m.chords.esc.IsZero() && time.Since(m.chords.esc) <= doubleEscWindow {
 		return true
 	}
-	m.lastEsc = time.Now()
+	m.chords.esc = time.Now()
 	return false
 }
 
@@ -727,31 +751,123 @@ func (m *model) leavePane() {
 	m.exitScrollback() // resets scrolling + the pane's offset while m.active is still set
 	m.focused = false
 	m.clearStatus()
-	m.lastEsc = time.Time{}
+	m.chords.esc = time.Time{}
 }
 
-// armVSCodeChord remembers that a shell pane was just left with ctrl+o, so a second
-// ctrl+o — in the list, where the first one lands — opens VS Code on the directory
-// that shell was standing in. See handleNavKey.
-func (m *model) armVSCodeChord(alias string) {
-	m.leftPane, m.leftPaneAlias = time.Now(), alias
+// armLeader opens the leader on the pane the keyboard is in. Nothing moves and no
+// timer starts: the next key decides, whenever it comes.
+func (m *model) armLeader() {
+	m.chords.leaderAlias = m.active
 }
 
-// vscodeChord reports whether this ctrl+o completes the chord: it is the second one,
-// inside the window, and the shell it was armed for is still there to be asked. The
-// arm is spent either way, so a third press is not a third open.
-func (m *model) vscodeChord() (string, bool) {
-	alias := m.leftPaneAlias
-	armed := !m.leftPane.IsZero() && time.Since(m.leftPane) <= doubleEscWindow
-	m.leftPane, m.leftPaneAlias = time.Time{}, ""
-	return alias, armed && alias != ""
+// leaderArmed reports whether the leader is waiting for its second key.
+func (m *model) leaderArmed() bool { return m.chords.leaderAlias != "" }
+
+// disarmLeader closes the leader and returns whose pane it was open on.
+func (m *model) disarmLeader() string {
+	alias := m.chords.leaderAlias
+	m.chords.leaderAlias = ""
+	return alias
+}
+
+// handleLeader answers the key that followed the leader.
+//
+// Nothing here leaves except "o", and that is the point: the leader has no effect of
+// its own, so every chord built on it acts where you already are. A tab is selected
+// in place, a shell opens in place, and only "out" goes out.
+//
+// A key that names no chord closes the leader and is swallowed. It is not passed on
+// to the remote: the leader means hop has the keyboard, and a program that received
+// the tail of an abandoned chord would act on a key the user was not typing at it.
+// The footer lists the choices for as long as the leader is open, so a wrong key is
+// visible rather than mysterious. leaderKey itself and esc are the explicit ways out.
+func (m *model) handleLeader(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	alias := m.disarmLeader()
+	editing := m.editing
+
+	switch key := msg.String(); {
+	case key == "o":
+		// Out. What ctrl+o used to be on its own, now that ctrl+o leads instead.
+		if editing {
+			m.leaveEditor()
+		} else {
+			m.leavePane()
+		}
+		return m, nil
+
+	case key == "c" && !editing:
+		// This directory in VS Code Remote. Leaving is part of it: VS Code takes over,
+		// and staying in a pane you asked to hand over would be the surprise.
+		m.leavePane()
+		m.openVSCodeAt(alias)
+		return m, nil
+
+	case key == "0" && !editing:
+		// Another shell on this host. There is no 0 for editor tabs: they are opened by
+		// picking a file, not by asking for an empty one.
+		h, ok := m.hostByAlias(alias)
+		if !ok {
+			return m, nil
+		}
+		return m, m.openShell(h, true)
+
+	case isTabDigit(key):
+		m.selectTab(alias, int(key[0]-'1'), editing)
+		return m, nil
+	}
+
+	// Anything else: the leader is closed and the key is spent on closing it.
+	return m, nil
+}
+
+// isTabDigit reports whether key is one of the digits that names a tab. 0 is not one
+// of them — it opens a new shell, and there is no zeroth tab to go to.
+func isTabDigit(key string) bool {
+	return len(key) == 1 && key[0] >= '1' && key[0] <= '9'
+}
+
+// selectTab moves to tab i of alias without touching the focus: the keyboard is
+// already in this pane, and the leader that got here did not leave it. A tab that is
+// not open leaves the selection alone rather than guessing at a neighbour.
+//
+// Deliberately not focusShell: that re-runs resizeShells, which sends a window-change
+// down every one of the host's shells. Selecting a tab changes nothing about their
+// size, so the remote has no reason to hear about it — and a full-screen program
+// would redraw itself on every jump if it did.
+func (m *model) selectTab(alias string, i int, editing bool) {
+	s := m.sessions[alias]
+	if s == nil || s.dead {
+		return
+	}
+	if editing {
+		if i < len(s.editors) {
+			s.activeEd = i
+		}
+		return
+	}
+	if i < len(s.shells) {
+		s.activeSh = i
+	}
+}
+
+// gotoShell focuses shell i of alias from the host list, where the keyboard is not
+// in the pane yet. Unlike selectTab it does focus, which is the whole point: the
+// digits in the list are a way *in*.
+func (m *model) gotoShell(alias string, i int) (tea.Model, tea.Cmd) {
+	s := m.sessions[alias]
+	if s == nil || s.dead || i >= len(s.shells) {
+		return m, nil
+	}
+	s.activeSh = i
+	m.focusShell(alias)
+	return m, nil
 }
 
 // leaveBrowser returns from the file browser to navigation mode.
 func (m *model) leaveBrowser() {
 	m.browsing = false
 	m.clearStatus()
-	m.lastEsc = time.Time{}
+	m.chords.esc = time.Time{}
 }
 
 // leaveEditor returns from the editor tabs to the browser the file was opened
@@ -761,7 +877,7 @@ func (m *model) leaveBrowser() {
 func (m *model) leaveEditor() {
 	m.editing = false
 	m.clearStatus()
-	m.lastEsc = time.Time{}
+	m.chords.esc = time.Time{}
 	if s := m.sessions[m.active]; s != nil && s.browser != nil {
 		m.browsing = true
 	}
@@ -794,4 +910,30 @@ func altDigit(key string) (int, bool) {
 		return 0, false
 	}
 	return int(n[0] - '1'), true
+}
+
+// chordState is every half-typed key sequence hop is holding: the presses that only
+// mean something together, and the timestamps that decide whether they still do.
+//
+// They live in one place because they share a failure mode. Each is armed by one
+// event and resolved by another, and each has to be *spent* when it resolves —
+// a chord left armed fires a second time on the next keystroke, which is how a
+// stray press ends up opening an editor or leaving a pane nobody asked to leave.
+type chordState struct {
+	// esc is when the most recent esc was forwarded to the focused pane. A second esc
+	// within doubleEscWindow leaves the pane. Zero means none is pending.
+	esc time.Time
+
+	// leaderAlias is whose pane the leader was opened in, and "" when it is closed.
+	// There is no timestamp beside it because the leader is on no clock: it waits for
+	// its second key however long that takes. See handleLeader.
+	leaderAlias string
+
+	// click is when the most recent click landed, and clickZone/clickID are what it
+	// landed on — the region, and the index of the host or entry inside it. A second
+	// click on the same thing inside doubleClickWindow means "open this" — the
+	// pointer's enter. Zero means no half-made double is waiting. See clickChord.
+	click     time.Time
+	clickZone zone
+	clickID   int
 }

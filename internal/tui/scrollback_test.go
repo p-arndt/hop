@@ -91,7 +91,7 @@ func TestScrollbackRoutesAwayFromShell(t *testing.T) {
 	if m.scrolling {
 		t.Fatal("esc did not leave scrollback mode")
 	}
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("esc armed the double-esc chord; it should have been the scrollback handler's exit")
 	}
 }

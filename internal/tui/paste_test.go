@@ -155,6 +155,7 @@ func TestAnUnbufferableKeyFlushesFirst(t *testing.T) {
 	m.handleKey(typed('h'))
 	m.handleKey(typed('i'))
 	m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
 
 	if got := stdin.String(); got != "hi" {
 		t.Fatalf("the pane received %q, want the buffered keys", got)

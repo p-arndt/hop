@@ -40,6 +40,11 @@ type Pane struct {
 	sess *sshx.Session
 	mu   sync.Mutex // guards ALL writes to sess.Stdin
 
+	// paneW/paneH are the size Resize last actually applied, so a resize to the size
+	// the pane already has can be dropped. Touched only from the UI goroutine, which
+	// is the only place Resize is called from.
+	paneW, paneH int
+
 	// scrollOffset is how far the scrollback window is lifted off the live bottom, in
 	// lines: 0 is live, N is N lines up into history.
 	//
@@ -111,6 +116,8 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 	emu := vt.NewSafeEmulator(w, h)
 	p := &Pane{
 		emu: emu, sess: sess,
+		// The pty was opened at this size, so a first Resize to it has nothing to say.
+		paneW: w, paneH: h,
 		firstOutput: make(chan struct{}),
 		closed:      make(chan struct{}),
 		onOutput:    onOutput,
@@ -326,7 +333,16 @@ func (p *Pane) AltScreen() bool {
 }
 
 // Resize resizes both the emulator screen and the remote PTY.
+//
+// A resize to the size the pane already has is dropped rather than sent. The callers
+// resize whole sessions at a time — every shell on a host, on any focus change — so
+// most calls are no-ops, and a window-change is not free at the far end: a
+// full-screen program redraws itself on one, whether or not anything moved.
 func (p *Pane) Resize(w, h int) {
+	if w == p.paneW && h == p.paneH {
+		return
+	}
+	p.paneW, p.paneH = w, h
 	p.emu.Resize(w, h)
 	_ = p.sess.Resize(w, h)
 }

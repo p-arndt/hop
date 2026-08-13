@@ -144,7 +144,7 @@ func TestSidebarToggleBreaksTheEscChord(t *testing.T) {
 
 	m.handleKey(key(t, "esc"))
 	m.handleKey(toggleKey())
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("ctrl+b left the pending esc armed")
 	}
 

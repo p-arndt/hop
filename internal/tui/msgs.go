@@ -35,7 +35,7 @@ type connectedMsg struct {
 	tab    *shellTab
 	// extra carries the shell intent through a dial so that, if the dial trips the
 	// new-host-key prompt, the retry knows whether it was for another shell (S /
-	// alt+0) or a host's first one. It is unused once the connect lands.
+	// ctrl+o 0) or a host's first one. It is unused once the connect lands.
 	extra bool
 	// restore marks a shell being put back after a reconnect. Such a shell lands
 	// quietly: it takes neither the keyboard nor the status line, because the

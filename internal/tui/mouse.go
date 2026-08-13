@@ -127,13 +127,13 @@ func (m *model) dragView() string {
 // the cursor the first click just moved, so keying on the row would open something
 // nobody pointed at.
 func (m *model) clickChord(z zone, id int) bool {
-	double := !m.lastClick.IsZero() && z == m.lastClickZone && id == m.lastClickID &&
-		time.Since(m.lastClick) <= doubleClickWindow
+	double := !m.chords.click.IsZero() && z == m.chords.clickZone && id == m.chords.clickID &&
+		time.Since(m.chords.click) <= doubleClickWindow
 	if double {
-		m.lastClick = time.Time{}
+		m.chords.click = time.Time{}
 		return true
 	}
-	m.lastClick, m.lastClickZone, m.lastClickID = time.Now(), z, id
+	m.chords.click, m.chords.clickZone, m.chords.clickID = time.Now(), z, id
 	return false
 }
 
@@ -223,7 +223,7 @@ func (m *model) backToList() {
 	m.exitScrollback()
 	m.focused, m.browsing, m.editing = false, false, false
 	m.clearStatus()
-	m.lastEsc = time.Time{}
+	m.chords.esc = time.Time{}
 }
 
 // ---- the right pane ----

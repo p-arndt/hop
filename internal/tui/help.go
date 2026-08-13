@@ -69,12 +69,12 @@ func helpRight(vim bool) []helpSection {
 
 	return []helpSection{
 		{"SHELL", [][2]string{
-			{"ctrl+o", "back to hop"},
+			{"ctrl+o o", "back to hop"},
 			{"esc esc", "back to hop"},
-			{"alt+0", "another shell, same host"},
-			{"alt+← →", "switch shell tab"},
-			{"alt+1…9", "jump to shell tab"},
-			{"ctrl+o ctrl+o", "this dir in VS Code"},
+			{"shift+← →", "switch shell tab"},
+			{"ctrl+o 1…9", "straight to that shell"},
+			{"ctrl+o 0", "another shell, same host"},
+			{"ctrl+o c", "this dir in VS Code"},
 			{"shift+↑", "scroll back through history"},
 			{"ctrl+b", "hide / show the sidebar"},
 			{"…anything", "goes to the remote shell"},
@@ -94,9 +94,9 @@ func helpRight(vim bool) []helpSection {
 		}},
 		{"EDITOR", [][2]string{
 			{":q", "close the tab"},
-			{"alt+← →", "switch file tab"},
-			{"alt+1…9", "jump to file tab"},
-			{"ctrl+o", "back to the browser"},
+			{"shift+← →", "switch file tab"},
+			{"ctrl+o 1…9", "straight to that tab"},
+			{"ctrl+o o", "back to the browser"},
 			{"…anything", "goes to the remote editor"},
 		}},
 	}

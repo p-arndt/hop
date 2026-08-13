@@ -266,7 +266,7 @@ func TestPaneDoubleEscLeaves(t *testing.T) {
 	if !m.focused {
 		t.Fatal("a single esc left the pane, want it forwarded to the shell")
 	}
-	if m.lastEsc.IsZero() {
+	if m.chords.esc.IsZero() {
 		t.Fatal("first esc did not arm the double-esc window")
 	}
 
@@ -274,7 +274,7 @@ func TestPaneDoubleEscLeaves(t *testing.T) {
 	if m.focused {
 		t.Fatal("double esc did not leave the pane")
 	}
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("lastEsc not reset on leaving the pane")
 	}
 }
@@ -285,13 +285,13 @@ func TestPaneSlowEscsStayInPane(t *testing.T) {
 	m := newPaneModel()
 
 	m.handleKey(key(t, "esc"))
-	m.lastEsc = time.Now().Add(-2 * doubleEscWindow) // as if the user paused
+	m.chords.esc = time.Now().Add(-2 * doubleEscWindow) // as if the user paused
 	m.handleKey(key(t, "esc"))
 
 	if !m.focused {
 		t.Fatal("two slow escs left the pane, want both forwarded to the shell")
 	}
-	if m.lastEsc.IsZero() {
+	if m.chords.esc.IsZero() {
 		t.Fatal("the second esc should re-arm the window")
 	}
 }
@@ -302,7 +302,7 @@ func TestPaneEscSequenceBrokenByOtherKey(t *testing.T) {
 
 	m.handleKey(key(t, "esc"))
 	m.handleKey(key(t, "j"))
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("an intervening key did not clear the pending esc")
 	}
 
@@ -312,17 +312,18 @@ func TestPaneEscSequenceBrokenByOtherKey(t *testing.T) {
 	}
 }
 
-// ctrl+o still leaves the pane, and clears any half-finished esc chord.
+// ctrl+o then o leaves the pane, and clears any half-finished esc chord.
 func TestPaneCtrlOLeaves(t *testing.T) {
 	m := newPaneModel()
 
 	m.handleKey(key(t, "esc"))
 	m.handleKey(key(t, "ctrl+o"))
+	m.handleKey(runeKey('o'))
 
 	if m.focused {
 		t.Fatal("ctrl+o did not leave the pane")
 	}
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("lastEsc not reset on leaving the pane")
 	}
 }
@@ -340,7 +341,7 @@ func TestBrowsingDoubleEscLeaves(t *testing.T) {
 	if m.browsing {
 		t.Fatal("double esc did not leave the browser")
 	}
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("lastEsc not reset on leaving the browser")
 	}
 }
@@ -363,7 +364,7 @@ func TestBrowsingSlowDoubleEscStays(t *testing.T) {
 	m := newBrowseModel()
 
 	m.handleKey(key(t, "esc"))
-	m.lastEsc = time.Now().Add(-2 * doubleEscWindow)
+	m.chords.esc = time.Now().Add(-2 * doubleEscWindow)
 	m.handleKey(key(t, "esc"))
 
 	if !m.browsing {
@@ -380,7 +381,7 @@ func TestBrowsingCtrlOLeaves(t *testing.T) {
 	if m.browsing {
 		t.Fatal("ctrl+o did not leave the browser")
 	}
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("lastEsc not reset on leaving the browser")
 	}
 }

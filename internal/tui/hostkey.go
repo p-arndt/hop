@@ -30,7 +30,7 @@ type hostKeyUI struct {
 	keyType     string
 	action      hostKeyAction
 	// extra applies to a shell retry: whether the original request was for another
-	// shell alongside the host's existing ones (S / alt+0) rather than the first.
+	// shell alongside the host's existing ones (S / ctrl+o 0) rather than the first.
 	extra bool
 	// tunnelIDs applies to a tunnel retry: the definitions requested before the
 	// unknown key interrupted the dial.

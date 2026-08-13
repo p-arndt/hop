@@ -28,7 +28,7 @@ func editorTabNames(s *session) []string {
 }
 
 // shellTabNames labels each shell. They have no names of their own, so they are
-// numbered — which is also how alt+1..9 addresses them.
+// numbered — which is also how the ctrl+o digit chord addresses them.
 func shellTabNames(s *session) []string {
 	names := make([]string, len(s.shells))
 	for i := range s.shells {

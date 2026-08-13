@@ -204,7 +204,7 @@ func (m *model) openShell(h store.Host, extra bool) tea.Cmd {
 	if s != nil && s.dead {
 		// Nothing can be opened on a connection that is gone, and the shells it is
 		// still showing are pictures of one. Every way of asking for a shell here —
-		// enter, S, alt+0 — means "get me back on this host", so that is what it does.
+		// enter, S, ctrl+o 0 — means "get me back on this host", so that is what it does.
 		return m.reconnect(h)
 	}
 	if s != nil && !extra && s.shell() != nil {

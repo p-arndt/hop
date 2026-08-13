@@ -142,8 +142,13 @@ func coalescePastes() bool { return runtime.GOOS == "windows" }
 // Only keys a paste is made of, and only while a pane forwards to a remote program.
 // Everywhere else a key is a command, and holding it back would delay that command
 // to catch a paste the view has no use for.
+//
+// An open leader is one of those elsewheres, even though the pane is still focused:
+// its second key is a chord (o, c, a digit — all of them pastable runes), and a
+// buffered chord is a chord that never lands. Windows is the only platform that
+// coalesces at all, so without this the leader would work everywhere but there.
 func (m *model) takeKey(msg tea.KeyMsg) bool {
-	if !m.pasteCoalesce || !pastable(msg) || m.cardOpen() || !m.forwardingPane() {
+	if !m.pasteCoalesce || !pastable(msg) || m.cardOpen() || m.leaderArmed() || !m.forwardingPane() {
 		return false
 	}
 	pane := m.keyPane()

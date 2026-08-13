@@ -325,8 +325,19 @@ func (m *model) renderFooter() string {
 	case m.settings.open:
 		hints = []string{keyHint("↑↓", "move"), keyHint("enter", "edit"), keyHint("r", "reset"), keyHint("esc", "close")}
 
+	// Above every pane mode: while the leader is open the footer *is* the menu. It has
+	// to be, because the leader waits indefinitely — without this the pane would simply
+	// stop responding to keys with nothing on screen to say why.
+	case m.leaderArmed():
+		hints = []string{
+			accentText.Render("leader"),
+			keyHint("o", "out"), keyHint("1-9", "tab"),
+			keyHint("0", "new shell"), keyHint("c", "vs code here"),
+			dimStyle.Render("any other key cancels"),
+		}
+
 	// Above the three pane modes, the way handleKey routes the keys: a dead pane has
-	// its own small keyboard, and a legend still offering alt+←→ would be listing
+	// its own small keyboard, and a legend still offering shift+←→ would be listing
 	// keys that do nothing.
 	case m.active != "" && (m.focused || m.browsing || m.editing) && m.activeDead():
 		hints = []string{
@@ -336,8 +347,8 @@ func (m *model) renderFooter() string {
 
 	case m.editing && m.active != "":
 		hints = []string{
-			keyHint("alt+←→", "tab"), keyHint("alt+1-9", "jump"),
-			keyHint(":q", "close"), keyHint("ctrl+o", "browser"), m.sidebarHint(),
+			keyHint("shift+←→", "tab"), keyHint(":q", "close"),
+			keyHint("ctrl+o o", "browser"), m.sidebarHint(),
 			dimStyle.Render("keys →") + " " + greenText.Render("editor"),
 		}
 
@@ -355,19 +366,19 @@ func (m *model) renderFooter() string {
 		}
 
 	case m.focused && m.active != "":
-		// alt+0 is named even on a host with one shell — it is the key that *makes*
+		// ctrl+o 0 is named even on a host with one shell — it is the chord that *makes*
 		// the second one, so a footer that waited for a second shell to mention it
 		// would only ever tell you what you had already worked out.
-		hints = []string{keyHint("ctrl+o", "back"), keyHint("esc esc", "back"), keyHint("alt+0", "new shell")}
+		hints = []string{keyHint("ctrl+o o", "back"), keyHint("esc esc", "back"), keyHint("ctrl+o", "leader")}
 		s := m.sessions[m.active]
 		// The chord is only named where it would do the thing it says: with a directory
 		// to hand. Without one a second ctrl+o still opens VS Code, but on the host's
 		// default directory, and a footer promising "this dir" for that would be lying.
 		if m.shellCwd(m.active) != "" {
-			hints = append(hints, keyHint("ctrl+o ctrl+o", "vs code here"))
+			hints = append(hints, keyHint("ctrl+o c", "vs code here"))
 		}
 		if s != nil && len(s.shells) > 1 {
-			hints = append(hints, keyHint("alt+←→", "shell"), keyHint("alt+1-9", "jump"))
+			hints = append(hints, keyHint("shift+←→", "shell"), keyHint("ctrl+o 1-9", "jump"))
 		}
 		// shift+↑ enters scrollback, but only where there is history to see and no
 		// full-screen program owns the screen — the same conditions the entry chord

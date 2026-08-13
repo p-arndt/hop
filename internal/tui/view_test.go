@@ -251,10 +251,18 @@ func TestNewShellFromAFocusedPane(t *testing.T) {
 	m.sessions["web1"] = &session{}
 	m.active, m.focused = "web1", true
 
-	if foot := m.renderFooter(); !strings.Contains(foot, "alt+0") {
-		t.Fatalf("the focused pane's footer does not name the new-shell key:\n%s", foot)
+	// The pane's footer names the leader, and the leader's own footer names the key
+	// that makes a second shell — on the first shell as much as the second.
+	if foot := m.renderFooter(); !strings.Contains(foot, "leader") {
+		t.Fatalf("the focused pane's footer does not name the leader:\n%s", foot)
 	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlO})
+	if foot := m.renderFooter(); !strings.Contains(foot, "new shell") {
+		t.Fatalf("the open leader's footer does not name the new-shell key:\n%s", foot)
+	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}}) // close it again
 
+	// alt+0 stays bound as an alias, for the terminals that deliver it.
 	altZero := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("0"), Alt: true}
 	_, cmd := m.Update(altZero)
 	if cmd == nil {

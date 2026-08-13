@@ -105,6 +105,7 @@ func TestEditorCtrlOKeepsTabs(t *testing.T) {
 
 	m.handleKey(altKey("2"))
 	m.handleKey(key(t, "ctrl+o"))
+	m.handleKey(runeKey('o')) // the leader's "out"
 
 	if m.editing {
 		t.Fatal("ctrl+o did not leave editing mode")

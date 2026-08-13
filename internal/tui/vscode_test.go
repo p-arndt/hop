@@ -105,23 +105,26 @@ func TestVSCodeOpensTheShellsDirectory(t *testing.T) {
 	}
 }
 
-// The chord: ctrl+o leaves the pane as it always did, and a second ctrl+o inside the
-// window opens VS Code on the directory that shell was standing in. It is the same
-// action as 'o' in the list, reached without hunting for the host again.
+// The chord: ctrl+o arms the leader without moving anything, and a second ctrl+o
+// leaves the pane and opens VS Code on the directory that shell was standing in. It
+// is the same action as 'o' in the list, reached without hunting for the host again.
 func TestVSCodeChordFromInsideTheShellPane(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "/var/log/nginx")
 	m.focused = true
 
 	m.handleKey(key(t, "ctrl+o"))
-	if m.focused {
-		t.Fatal("the first ctrl+o did not leave the pane")
+	if !m.focused {
+		t.Fatal("the leader left the pane; it is supposed to open and wait")
 	}
 	if rec.calls != 0 {
-		t.Fatal("the first ctrl+o opened VS Code; it is supposed to leave the pane")
+		t.Fatal("the leader opened VS Code on its own; it is supposed to wait")
 	}
 
-	m.handleKey(key(t, "ctrl+o"))
+	m.handleKey(runeKey('c'))
+	if m.focused {
+		t.Fatal("ctrl+o c did not leave the pane")
+	}
 	if rec.calls != 1 || rec.alias != "web" || rec.path != "/var/log/nginx" {
 		t.Fatalf("opened (%q, %q) in %d calls, want (%q, %q) once",
 			rec.alias, rec.path, rec.calls, "web", "/var/log/nginx")
@@ -136,17 +139,20 @@ func TestVSCodeChordNeedsTheSecondPressInTime(t *testing.T) {
 	m, _ := vscodeModel(t, 1, "/srv/app")
 	m.focused = true
 
+	// A key that names no chord closes the leader and opens nothing.
 	m.handleKey(key(t, "ctrl+o"))
-	m.leftPane = time.Now().Add(-2 * doubleEscWindow) // the window has passed
-	m.handleKey(key(t, "ctrl+o"))
+	m.handleKey(runeKey('z'))
 	if rec.calls != 0 {
-		t.Fatalf("a late second ctrl+o opened VS Code (%d calls)", rec.calls)
+		t.Fatalf("a key that is not a chord opened VS Code (%d calls)", rec.calls)
+	}
+	if m.leaderArmed() {
+		t.Fatal("a key that is not a chord left the leader open")
 	}
 
-	// And a third press is not a second chord: the arm is spent.
-	m.handleKey(key(t, "ctrl+o"))
+	// And 'c' with no leader open is the shell's, not hop's.
+	m.handleKey(runeKey('c'))
 	if rec.calls != 0 {
-		t.Fatalf("ctrl+o in the list opened VS Code with no chord armed (%d calls)", rec.calls)
+		t.Fatalf("a bare c opened VS Code with no leader open (%d calls)", rec.calls)
 	}
 }
 

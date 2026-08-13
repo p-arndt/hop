@@ -12,7 +12,7 @@ the package it works in — this file tracks *what*, not *why*.
 
 - [x] **Phase 1 — MVP:** SQLite host store, `~/.ssh/config` import, embedded SSH terminal panes, multi-session, VS Code Remote open, fuzzy search.
 - [x] **Phase 2 — SFTP browser:** `internal/sftpx` over the same SSH conn + `internal/filebrowser` TUI.
-- [x] **Working directory → VS Code:** shell panes track the remote cwd over OSC 7 (`internal/terminal/cwd.go`); `alt+o` / `o` opens VS Code Remote there. E2E against bash/zsh/fish in Docker.
+- [x] **Working directory → VS Code:** shell panes track the remote cwd over OSC 7 (`internal/terminal/cwd.go`); `ctrl+o` `ctrl+o` in a pane, or `o` in the host list, opens VS Code Remote there. E2E against bash/zsh/fish in Docker.
 - [x] **Phase 3 — Tunnels / port-forwarding:** `T` opens the per-host manager; local/remote TCP forwards in a `forwards` table, imported from SSH-config `LocalForward`/`RemoteForward`. `sshx.Tunnel` owns listener and copies; reconnect restores the running set.
 - [ ] **Phase 4 — Status/health panel:** per-host reachability + latency, `uptime`/disk via a background `session.Run`, shown like VS Code's connection status.
 
@@ -63,6 +63,8 @@ the package it works in — this file tracks *what*, not *why*.
 - [x] **Copy/paste into the remote shell:** no key of its own — paste the way your terminal pastes and hop marks it as a paste (bracketed when the far end asked). Windows has no marked paste, so the burst is recognised by shape (`internal/tui/paste.go`). Copy is OSC 52 → `internal/clipboard`; a remote asking to *read* the clipboard is never answered. Setting: `,` → Remote clipboard.
 - [ ] Cursor: respect hidden state and cursor style (block/bar/underline); optional blink.
 - [ ] Narrow-terminal handling: header/footer truncation and min-size behavior.
+- [ ] **Mode flags should be one enum:** `focused`/`browsing`/`editing`/`scrolling` in `model` are documented as mutually exclusive, but nothing enforces it — every call site has to set the other three correctly by hand (`focusShell`, `leaveEditor`, `leavePane`, `gotoEditor`, …). One `mode` value would make the invalid states unrepresentable. Behavioural refactor, needs the mode-switch tests that are still open under Testing.
+- [ ] **Footer is overcrowded — make the help key the way out:** always show `?` in the footer (it is the one hint that makes every other hint optional), and trim the rest to the two or three keys that mode actually needs. Then make the `?` card **context-aware**: open it on the section for the mode you are in (host list / shell / scrollback / browser / editor / a card) rather than showing all of them at once. `helpSections` in `internal/tui/help.go` is already split by mode, so the card mostly needs a starting section and the footer a shorter per-mode list (`renderFooter`, `internal/tui/view.go`).
 
 ## ⚙️ Config & distribution
 
@@ -94,4 +96,4 @@ the package it works in — this file tracks *what*, not *why*.
 - Auto-tracked "recent directories" in the sidebar was built then removed — the sidebar is a host list; dirs shouldn't appear implicitly. **Don't reintroduce implicit tracking.**
 - `x/vt` is an untagged dep (pinned to a pseudo-version) — watch for breaking changes on update.
 - SFTP ops are synchronous (acceptable for MVP; see async item above).
-- `alt+…` chords need "Option as Meta" on macOS terminals — prefer `ctrl`/`shift` for new bindings. See KEYBINDINGS.md.
+- `alt+…` chords need "Option as Meta" on macOS terminals, so they are only ever *aliases* — every hop binding must be reachable with `ctrl`/`shift`. See KEYBINDINGS.md.

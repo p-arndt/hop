@@ -75,7 +75,7 @@ screen space.
 <tr>
 <td width="50%" valign="top">
   <img src="./assets/screens/shells.png" alt="Two shells on one host, shown as a tab strip" width="100%"><br>
-  <sub><b>Two shells, one connection.</b> <code>S</code> (or <code>alt+0</code>) opens another channel, no second handshake.</sub>
+  <sub><b>Two shells, one connection.</b> <code>S</code> (or <code>ctrl+o</code> <code>0</code>) opens another channel, no second handshake.</sub>
 </td>
 <td width="50%" valign="top">
   <img src="./assets/screens/settings.png" alt="The settings popover" width="100%"><br>
@@ -104,7 +104,7 @@ re-records it on any machine without exposing anything. See
 | --- | --- |
 | 🖥️ **Embedded SSH shells** | Real terminals in a pane: a pure-Go SSH client (`x/crypto/ssh`) feeding a real VT emulator (`x/vt`). Agent *or* private-key auth, resize, cursor, the lot. |
 | 🔑 **2FA and passwords** | A host that wants a verification code (`pam_google_authenticator`) or a password gets a card, right when it asks. The dial waits in the handshake rather than restarting — a one-time code is only good once. Nothing is stored; one prompt per host, since shells, SFTP, editors and tunnels ride the same connection. |
-| 🗂️ **Multiple shells per host** | `S` (or `alt+0`) opens another shell on a host you're already on. It's a second *channel*, so no new handshake and no second auth. Tabs across the top, `alt+1…9` to jump. |
+| 🗂️ **Multiple shells per host** | `S` (or `ctrl+o` `0`) opens another shell on a host you're already on. It's a second *channel*, so no new handshake and no second auth. Tabs across the top, `shift+←/→` to switch. |
 | 📁 **SFTP file browser** | `f` browses the remote filesystem over the connection you already have. Download with `d`, open locally with `o`. |
 | ⇄ **Local & remote tunnels** | Define TCP forwards per host with `T`; `t` starts or stops the set over the connection hop already holds. The dashboard shows saved and live state, SSH-config forwards import with the host, and reconnect puts running tunnels back. |
 | ✎ **Remote editor tabs** | `enter` on a file runs `$EDITOR` **on the server** on a second channel and renders it in a tab. No download, no copy, and `:w` writes the real file. |
@@ -244,11 +244,13 @@ Every mode returns to the host list with **`ctrl+o`**.
 
 | Key | Action |
 | --- | --- |
-| `ctrl+o` | back to hop |
+| `ctrl+o` | the **leader** — opens hop's menu, does nothing on its own |
+| `ctrl+o` `o` | out, back to hop |
 | `esc` `esc` | back to hop (within 400 ms) |
-| `alt+0` | another shell on this host |
-| `alt+←` `alt+→` / `alt+1…9` | switch shells |
-| `ctrl+o` `ctrl+o` | open **this directory** in VS Code Remote (out of the pane, then open) |
+| `shift+←` `shift+→` | switch shells |
+| `ctrl+o` `1…9` | straight to that shell, without leaving the pane |
+| `ctrl+o` `0` | another shell on this host, without leaving the pane |
+| `ctrl+o` `c` | open **this directory** in VS Code Remote |
 | `shift+↑` / `shift+pgup` | into scrollback |
 | `ctrl+b` | hide the sidebar — the shell takes the whole window |
 | `ctrl+g` | hand the mouse to your terminal (and take it back) |
@@ -278,7 +280,8 @@ See [KEYBINDINGS.md](KEYBINDINGS.md).
 | `←` `backspace` | up one directory |
 | `r` | refresh |
 | `ctrl+b` | hide / show the sidebar |
-| `alt+←` `alt+→` / `alt+1…9` | switch editor tabs |
+| `shift+←` `shift+→` | switch editor tabs |
+| `ctrl+o` `o` | back to the browser |
 | `:q` | close an editor tab |
 | `ctrl+o` | back one level |
 
