@@ -42,7 +42,7 @@ func editorModel(t *testing.T, names ...string) (*model, *session) {
 		sessions: map[string]*session{"web": s},
 		notify:   make(chan struct{}, 1),
 		active:   "web",
-		editing:  true,
+		mode:     modeEditor,
 		paneW:    40,
 		paneH:    12,
 	}
@@ -92,7 +92,7 @@ func TestEditorTabJump(t *testing.T) {
 	if s.activeEd != 2 {
 		t.Fatalf("alt+9 with 3 tabs moved to %d, want to stay on 2", s.activeEd)
 	}
-	if !m.editing {
+	if !m.editing() {
 		t.Fatal("tab switching left editing mode")
 	}
 }
@@ -107,10 +107,10 @@ func TestEditorCtrlOKeepsTabs(t *testing.T) {
 	m.handleKey(key(t, "ctrl+o"))
 	m.handleKey(runeKey('o')) // the leader's "out"
 
-	if m.editing {
+	if m.editing() {
 		t.Fatal("ctrl+o did not leave editing mode")
 	}
-	if !m.browsing {
+	if !m.browsing() {
 		t.Fatal("ctrl+o did not return to the browser it was opened from")
 	}
 	if len(s.editors) != 2 || s.activeEd != 1 {
@@ -133,7 +133,7 @@ func TestEditorExitClosesTab(t *testing.T) {
 	if s.activeEd != 0 {
 		t.Fatalf("activeEd = %d, want 0 after the tab above it closed", s.activeEd)
 	}
-	if !m.editing {
+	if !m.editing() {
 		t.Fatal("left editing mode while a tab was still open")
 	}
 
@@ -141,9 +141,9 @@ func TestEditorExitClosesTab(t *testing.T) {
 	if len(s.editors) != 0 {
 		t.Fatalf("editors = %+v, want none", s.editors)
 	}
-	if m.editing || !m.browsing {
+	if m.editing() || !m.browsing() {
 		t.Fatalf("editing = %v, browsing = %v; the last tab closing must fall back to the browser",
-			m.editing, m.browsing)
+			m.editing(), m.browsing())
 	}
 }
 
@@ -151,16 +151,15 @@ func TestEditorExitClosesTab(t *testing.T) {
 // on the same file.
 func TestOpenFileFocusesExistingTab(t *testing.T) {
 	m, s := editorModel(t, "a.conf", "b.conf")
-	m.editing = false
-	m.browsing = true
+	m.mode = modeBrowser
 
 	cmd := m.openFile(filebrowser.OpenFileMsg{Path: "/etc/a.conf", Name: "a.conf"})
 	if cmd != nil {
 		t.Fatal("openFile started a second editor on a file that is already open")
 	}
-	if s.activeEd != 0 || !m.editing || m.browsing {
+	if s.activeEd != 0 || !m.editing() || m.browsing() {
 		t.Fatalf("activeEd = %d, editing = %v, browsing = %v; want the existing tab focused",
-			s.activeEd, m.editing, m.browsing)
+			s.activeEd, m.editing(), m.browsing())
 	}
 	if len(s.editors) != 2 {
 		t.Fatalf("editors = %d, want the original two", len(s.editors))

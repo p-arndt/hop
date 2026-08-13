@@ -26,7 +26,7 @@ func pasteModel() (*model, *syncBuf) {
 	m := &model{
 		sessions:      map[string]*session{"web": {shells: []*shellTab{{id: 1, pane: pane}}}},
 		active:        "web",
-		focused:       true,
+		mode:          modeShell,
 		pasteCoalesce: true,
 	}
 	return m, stdin
@@ -63,7 +63,7 @@ func TestMarkedPasteGoesToTheEditor(t *testing.T) {
 	m := &model{
 		sessions: map[string]*session{"web": {editors: []*editorTab{{id: 1, name: "f", pane: pane}}}},
 		active:   "web",
-		editing:  true,
+		mode:     modeEditor,
 	}
 	m.handleKey(pasted("line one\nline two"))
 
@@ -76,10 +76,10 @@ func TestMarkedPasteGoesToTheEditor(t *testing.T) {
 // back to the live screen — the same thing typing a letter in there does.
 func TestPasteFromScrollbackReturnsLiveFirst(t *testing.T) {
 	m, stdin := pasteModel()
-	m.scrolling = true
+	m.mode = modeScrollback
 
 	m.handleKey(pasted("ls"))
-	if m.scrolling {
+	if m.scrolling() {
 		t.Fatal("a paste left the shell in scrollback")
 	}
 	if got := stdin.String(); got != "ls" {
@@ -160,7 +160,7 @@ func TestAnUnbufferableKeyFlushesFirst(t *testing.T) {
 	if got := stdin.String(); got != "hi" {
 		t.Fatalf("the pane received %q, want the buffered keys", got)
 	}
-	if m.focused {
+	if m.focused() {
 		t.Fatal("ctrl+o was swallowed by the flush instead of leaving the pane")
 	}
 }
@@ -170,17 +170,16 @@ func TestAnUnbufferableKeyFlushesFirst(t *testing.T) {
 // find there anyway.
 func TestNavigationKeysAreNeverBuffered(t *testing.T) {
 	m, _ := pasteModel()
-	m.focused = false
+	m.mode = modeList
 
 	if m.takeKey(typed('j')) {
 		t.Fatal("a key in the host list was held back")
 	}
-	m.focused = true
-	m.scrolling = true
+	m.mode = modeScrollback
 	if m.takeKey(typed('j')) {
 		t.Fatal("a key in scrollback was held back")
 	}
-	m.scrolling = false
+	m.mode = modeShell
 	if m.takeKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}, Alt: true}) {
 		t.Fatal("alt+0 was held back: a modified key is a command, not a character")
 	}

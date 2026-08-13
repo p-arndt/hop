@@ -63,7 +63,7 @@ func deadModel(t *testing.T, n int, browser bool) (*model, *session, *sshx.Clien
 		pending:    map[string]reconnectPlan{},
 		notify:     make(chan struct{}, 1),
 		active:     "web",
-		focused:    n > 0,
+		mode:       paneModeIf(n > 0, modeShell),
 		width:      100,
 		height:     30,
 		paneW:      60,
@@ -159,16 +159,16 @@ func TestDeadPaneKeyboard(t *testing.T) {
 	if _, cmd := m.handleKey(key(t, "j")); cmd != nil {
 		t.Fatal("a plain key on a dead pane ran a command")
 	}
-	if m.connecting["web"] || !m.focused {
+	if m.connecting["web"] || !m.focused() {
 		t.Fatal("a plain key on a dead pane reconnected or left the pane")
 	}
 
 	// ctrl+o backs out to the list, leaving the pane on screen as the host's last
 	// known state.
 	m.handleKey(key(t, "ctrl+o"))
-	if m.focused || m.active != "web" {
+	if m.focused() || m.active != "web" {
 		t.Fatalf("focused = %v, active = %q; want the list focused with the pane still shown",
-			m.focused, m.active)
+			m.focused(), m.active)
 	}
 }
 
@@ -208,7 +208,7 @@ func TestDeadPaneReconnects(t *testing.T) {
 // takes the keyboard.
 func TestReconnectComesBackToTheBrowser(t *testing.T) {
 	m, _, cli := deadModel(t, 1, true)
-	m.focused, m.browsing = false, true
+	m.mode = modeBrowser
 	m.Update(sessionLostMsg{alias: "web", client: cli})
 
 	if _, cmd := m.handleKey(key(t, "r")); cmd == nil {
@@ -243,7 +243,7 @@ func TestReconnectLandingRestoresTheRest(t *testing.T) {
 	if !strings.Contains(m.status, "1 editor not reopened") {
 		t.Fatalf("status = %q, want it to name the editor tab it could not restore", m.status)
 	}
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("the reconnected shell did not take the pane back")
 	}
 }
@@ -252,7 +252,7 @@ func TestReconnectLandingRestoresTheRest(t *testing.T) {
 // decided where the keyboard goes, so a restored tab must not steal it.
 func TestRestoredShellLandsQuietly(t *testing.T) {
 	m, s, _ := deadModel(t, 1, false)
-	m.focused, m.browsing = false, true
+	m.mode = modeBrowser
 	m.clearStatus()
 
 	m.Update(connectedMsg{alias: "web", tab: &shellTab{id: 5, pane: fakePane()}, restore: true})
@@ -260,9 +260,9 @@ func TestRestoredShellLandsQuietly(t *testing.T) {
 	if len(s.shells) != 2 {
 		t.Fatalf("shells = %d, want the restored tab appended", len(s.shells))
 	}
-	if m.focused || !m.browsing {
+	if m.focused() || !m.browsing() {
 		t.Fatalf("focused = %v, browsing = %v; want the restored shell to leave the keyboard alone",
-			m.focused, m.browsing)
+			m.focused(), m.browsing())
 	}
 	if m.status != "" {
 		t.Fatalf("status = %q, want a restored shell to say nothing", m.status)
@@ -288,7 +288,7 @@ func TestFailedReconnectDropsThePlan(t *testing.T) {
 func TestReconnectKeyInTheList(t *testing.T) {
 	m, _, cli := deadModel(t, 1, false)
 	m.Update(sessionLostMsg{alias: "web", client: cli})
-	m.focused = false
+	m.mode = modeList
 	m.active = ""
 
 	if _, cmd := m.handleKey(key(t, "r")); cmd == nil {
@@ -302,7 +302,7 @@ func TestReconnectKeyInTheList(t *testing.T) {
 // ...and on a host that is not dropped it says so rather than dialing something.
 func TestReconnectKeyOnALiveHostExplains(t *testing.T) {
 	m, _, _ := deadModel(t, 1, false)
-	m.focused = false
+	m.mode = modeList
 	m.active = ""
 
 	if _, cmd := m.handleKey(key(t, "r")); cmd != nil {
@@ -336,7 +336,7 @@ func TestDeadSessionOnScreen(t *testing.T) {
 	}
 	// The host list and the details card both mark the host, so the state is visible
 	// with the pane left behind as much as in it.
-	m.focused, m.active = false, ""
+	m.mode, m.active = modeList, ""
 	if !strings.Contains(m.renderDetails(m.paneW), "connection lost") {
 		t.Fatal("the details card does not say the host's session dropped")
 	}
@@ -353,7 +353,7 @@ func TestDropADeadSession(t *testing.T) {
 	if _, live := m.sessions["web"]; live {
 		t.Fatal("d on a dead pane kept the session")
 	}
-	if m.focused {
+	if m.focused() {
 		t.Fatal("d on a dead pane left the keyboard in it")
 	}
 }
@@ -365,7 +365,7 @@ func TestOpeningAnythingOnADeadSessionReconnects(t *testing.T) {
 		t.Run(k, func(t *testing.T) {
 			m, _, cli := deadModel(t, 1, true)
 			m.Update(sessionLostMsg{alias: "web", client: cli})
-			m.focused, m.active = false, ""
+			m.mode, m.active = modeList, ""
 
 			if _, cmd := m.handleKey(key(t, k)); cmd == nil {
 				t.Fatalf("%q on a dropped session did nothing", k)

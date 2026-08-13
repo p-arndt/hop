@@ -54,9 +54,8 @@ const toggleSidebarKey = "ctrl+b"
 // prompt — and it is taken from the remote program the way ctrl+o and ctrl+b are.
 const toggleMouseKey = "ctrl+g"
 
-// handleKey routes a key to whichever mode currently owns the keyboard. The order
-// is the order of modality: the modal cards take everything, then the sidebar
-// toggle, then the panes that forward to a remote program, then the filter, then
+// handleKey routes a key to whichever mode owns the keyboard, in order of modality:
+// modal cards, sidebar toggle, panes that forward to a remote program, filter, then
 // plain navigation.
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Before anything else, because it is about what this key *is* rather than what
@@ -71,20 +70,17 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.flushPaste()
 	}
 
-	// A paste is answered above every mode, because every mode below reads the key's
-	// name and a paste's name is the whole clipboard. See handlePaste.
+	// Above every mode: the modes below read the key's name, and a paste's name is the
+	// whole clipboard.
 	if msg.Paste {
 		return m.handlePaste(msg)
 	}
 
 	switch {
 	case m.auth.open:
-		// First, above even the help card: this one has a dial parked on it inside
-		// the SSH handshake, so it is the most modal thing hop has. The order
-		// matters — '?' is bound in navigation mode and a dial takes long enough to
-		// press it, so a help card opened while connecting would otherwise be
-		// drawn over the challenge that arrives next, leaving the dial waiting on
-		// a card nobody can see or reach until the code has expired.
+		// Above even the help card: a dial is parked on this one inside the SSH
+		// handshake, so a help card opened while connecting would hide the challenge
+		// that arrives next.
 		return m.handleAuthKey(msg)
 	case m.help:
 		return m.handleHelpKey(msg)
@@ -102,9 +98,8 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSettingsKey(msg)
 	}
 
-	// The leader, if it is open: while it is, hop owns the keyboard outright — above
-	// even ctrl+b and ctrl+g, which are otherwise held in every mode. A chord half
-	// typed is not a moment to toggle the sidebar in and leave the other half hanging.
+	// While the leader is open hop owns the keyboard outright, above even ctrl+b and
+	// ctrl+g.
 	if m.leaderArmed() {
 		return m.handleLeader(msg)
 	}
@@ -114,11 +109,8 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// on to mean whatever it means below.
 	m.clearSelection()
 
-	// The two bindings hop holds in every mode below the cards. They are layout and
-	// device, not navigation: they belong to the window rather than to whatever owns
-	// the keyboard, so they are answered here instead of being repeated in four
-	// handlers — and they are reserved from the remote program the same way ctrl+o is.
-	// A card is the exception: each takes every key while it is up.
+	// The two bindings hop holds in every mode below the cards: they belong to the
+	// window, not to whatever owns the keyboard.
 	switch msg.String() {
 	case toggleSidebarKey:
 		m.toggleSidebar()
@@ -131,20 +123,19 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch {
-	// A pane whose connection has dropped is showing a picture, not a program: it
-	// takes the reconnect key and the ways out, and forwards nothing. This sits above
-	// the three pane handlers rather than inside each of them, because a dead
-	// connection kills the shell, the browser and the editors at once.
-	case m.active != "" && (m.focused || m.browsing || m.editing) && m.activeDead():
+	// A dropped pane takes the reconnect key and the ways out, and forwards nothing.
+	// Above the three pane handlers because a drop kills shell, browser and editors at
+	// once.
+	case m.active != "" && m.inPane() && m.activeDead():
 		return m.handleDeadPaneKey(msg)
 
-	case m.editing && m.active != "":
+	case m.editing() && m.active != "":
 		return m.handleEditorKey(msg)
-	case m.browsing && m.active != "":
+	case m.browsing() && m.active != "":
 		return m.handleBrowserKey(msg)
-	case m.scrolling && m.focused && m.active != "":
+	case m.scrolling() && m.focused() && m.active != "":
 		return m.handleScrollbackKey(msg)
-	case m.focused && m.active != "":
+	case m.focused() && m.active != "":
 		return m.handleShellKey(msg)
 	case m.filtering:
 		return m.handleFilterKey(msg)
@@ -189,8 +180,8 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// reaches the list on its own does nothing.
 
 	case "esc":
-		// The one way back that is not a motion: esc is the browser's double-tap
-		// chord, so the keymap leaves it to the mode that owns it.
+		// Not a motion: esc is the browser's double-tap chord, so the keymap leaves it
+		// to the mode that owns it.
 		m.leaveDetails()
 
 	case "S":
@@ -380,7 +371,7 @@ func (m *model) pageCursor(delta int) {
 // leaveDetails backs out of the details/active view, to plain navigation.
 func (m *model) leaveDetails() {
 	m.active = ""
-	m.browsing = false
+	m.mode = modeList
 	m.clearStatus()
 }
 
@@ -446,8 +437,7 @@ func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "esc":
-		// Unlike the focused pane, nothing downstream wants an esc: the browser
-		// ignores it. So swallow the first one and only arm the window.
+		// Nothing downstream wants an esc here, so swallow the first and arm the window.
 		if m.escChord() {
 			m.leaveBrowser()
 		}
@@ -495,9 +485,8 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "alt+0":
-		// Another shell on the host you are already in — S in the host list, without
-		// going back to the list for it. It is a second channel on the connection hop
-		// holds, so there is no handshake, and it lands focused (see shellLanded).
+		// Another shell on the host you are already in — "S" without the trip back to the
+		// list. A second channel on the connection hop holds, so there is no handshake.
 		h, ok := m.hostByAlias(m.active)
 		if !ok {
 			return m, nil
@@ -542,11 +531,8 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if key == "esc" {
-		// A second esc inside the window leaves the pane. The *first* esc is
-		// still forwarded below, because a lone esc belongs to the shell
-		// (it drops vim out of insert mode) and we cannot know a second one
-		// is coming without swallowing it. A stray extra esc is harmless:
-		// in vim's normal mode it is a no-op.
+		// A second esc inside the window leaves the pane. The first is still forwarded
+		// below: a lone esc belongs to the shell, and a stray extra one is harmless.
 		if m.escChord() {
 			m.leavePane()
 			return m, nil
@@ -564,14 +550,10 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // ---- scrollback ----
 
-// enterScrollback puts the focused shell pane into scrollback mode, or reports
-// that there is nothing to scroll and leaves the mode untouched. It is the guard
-// the entry chords lean on: they only commit — and only swallow the key — when it
-// returns true.
-//
-// A full-screen program (vim/htop/less) owns its own scrolling and keeps no
-// scrollback here; and with nothing scrolled off there is nothing to show. In
-// either case the key is better spent on the shell.
+// enterScrollback puts the focused shell pane into scrollback mode, or reports that
+// there is nothing to scroll and leaves the mode untouched — the entry chords only
+// swallow their key when it returns true. A full-screen program owns its own scrolling
+// and keeps no scrollback here.
 func (m *model) enterScrollback(s *session) bool {
 	if s == nil || s.shell() == nil {
 		return false
@@ -580,22 +562,19 @@ func (m *model) enterScrollback(s *session) bool {
 	if p.AltScreen() || p.ScrollbackLen() == 0 {
 		return false
 	}
-	m.scrolling = true
+	m.mode = modeScrollback
 	m.clearStatus()
 	return true
 }
 
-// handleScrollbackKey drives the history viewport while a shell pane is scrolled
-// back. The motion keys move within the scrollback; the ways out (and any key the
-// viewport has no use for) snap back to the live bottom and hand the keyboard back
-// to the shell. Reaching the bottom by scrolling is itself a way out: the point of
-// scrollback is to look at what went by, so arriving at the live tail means you are
-// done looking.
+// handleScrollbackKey drives the history viewport while a shell pane is scrolled back.
+// The ways out — and any key the viewport has no use for — snap back to the live bottom
+// and hand the keyboard back to the shell. Scrolling to the bottom is itself a way out.
 func (m *model) handleScrollbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	s := m.sessions[m.active]
 	if s == nil || s.shell() == nil {
 		// The session went away under us; there is nothing left to scroll.
-		m.scrolling = false
+		m.mode = modeShell
 		return m, nil
 	}
 	p := s.shell().pane
@@ -611,8 +590,7 @@ func (m *model) handleScrollbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "pgup", "shift+pgup":
-		// No ctrl+b partner for the ctrl+f below: it is the sidebar toggle in every
-		// mode, and handleKey takes it before scrollback ever sees it.
+		// No ctrl+b partner for the ctrl+f below: handleKey takes it for the sidebar.
 		p.ScrollUp(m.scrollPage())
 
 	case "pgdown", "ctrl+f", "shift+pgdown":
@@ -654,15 +632,16 @@ func (m *model) handleScrollbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// scrollPage / scrollHalf are the page and half-page steps for scrollback mode,
-// tracking the pane height so they move by roughly what you can see.
+// scrollPage / scrollHalf are the page and half-page steps for scrollback mode.
 func (m *model) scrollPage() int { return max(m.paneH-1, 1) }
 func (m *model) scrollHalf() int { return max(m.paneH/2, 1) }
 
-// exitScrollback returns from scrollback mode to the live shell, snapping the
-// viewport back to the bottom so the next entry starts fresh at the prompt.
+// exitScrollback returns from scrollback mode to the live shell, snapping the viewport
+// back to the bottom.
 func (m *model) exitScrollback() {
-	m.scrolling = false
+	if m.mode == modeScrollback {
+		m.mode = modeShell
+	}
 	if s := m.sessions[m.active]; s != nil && s.shell() != nil {
 		s.shell().pane.ScrollToBottom()
 	}
@@ -678,7 +657,7 @@ func (m *model) handleEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	s := m.sessions[m.active]
 	if s == nil || s.editor() == nil {
 		// Every tab closed while we were in editing mode; there is nothing to show.
-		m.editing = false
+		m.mode = modeList
 		return m, nil
 	}
 
@@ -748,8 +727,8 @@ func (m *model) escChord() bool {
 
 // leavePane returns from a focused terminal pane to navigation mode.
 func (m *model) leavePane() {
-	m.exitScrollback() // resets scrolling + the pane's offset while m.active is still set
-	m.focused = false
+	m.exitScrollback() // snaps the pane's offset back while m.active is still set
+	m.mode = modeList
 	m.clearStatus()
 	m.chords.esc = time.Time{}
 }
@@ -783,7 +762,7 @@ func (m *model) disarmLeader() string {
 // visible rather than mysterious. leaderKey itself and esc are the explicit ways out.
 func (m *model) handleLeader(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	alias := m.disarmLeader()
-	editing := m.editing
+	editing := m.editing()
 
 	switch key := msg.String(); {
 	case key == "o":
@@ -865,7 +844,7 @@ func (m *model) gotoShell(alias string, i int) (tea.Model, tea.Cmd) {
 
 // leaveBrowser returns from the file browser to navigation mode.
 func (m *model) leaveBrowser() {
-	m.browsing = false
+	m.mode = modeList
 	m.clearStatus()
 	m.chords.esc = time.Time{}
 }
@@ -875,21 +854,18 @@ func (m *model) leaveBrowser() {
 // the tabs are still open when you come back, cursor where you left it. Closing
 // one is the editor's own business — quit it and its tab goes with it.
 func (m *model) leaveEditor() {
-	m.editing = false
+	m.mode = modeList
 	m.clearStatus()
 	m.chords.esc = time.Time{}
 	if s := m.sessions[m.active]; s != nil && s.browser != nil {
-		m.browsing = true
+		m.mode = modeBrowser
 	}
 }
 
 // leaveAll drops every pane mode, handing the keyboard back to the host list.
 func (m *model) leaveAll() {
 	m.active = ""
-	m.focused = false
-	m.browsing = false
-	m.editing = false
-	m.scrolling = false
+	m.mode = modeList
 }
 
 // ---- key helpers ----
@@ -912,13 +888,9 @@ func altDigit(key string) (int, bool) {
 	return int(n[0] - '1'), true
 }
 
-// chordState is every half-typed key sequence hop is holding: the presses that only
-// mean something together, and the timestamps that decide whether they still do.
-//
-// They live in one place because they share a failure mode. Each is armed by one
-// event and resolved by another, and each has to be *spent* when it resolves —
-// a chord left armed fires a second time on the next keystroke, which is how a
-// stray press ends up opening an editor or leaving a pane nobody asked to leave.
+// chordState is every half-typed key sequence hop is holding. They share a failure
+// mode: each is armed by one event and resolved by another, and must be spent when it
+// resolves — a chord left armed fires again on the next keystroke.
 type chordState struct {
 	// esc is when the most recent esc was forwarded to the focused pane. A second esc
 	// within doubleEscWindow leaves the pane. Zero means none is pending.

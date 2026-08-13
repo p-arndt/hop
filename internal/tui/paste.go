@@ -62,23 +62,23 @@ func (m *model) handlePaste(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settings.buf += pasteInline(text)
 		}
 
-	case m.active != "" && (m.focused || m.browsing || m.editing) && m.activeDead():
+	case m.active != "" && m.inPane() && m.activeDead():
 		// A picture of a shell. It answers r, d and ctrl+o, and forwards nothing.
 
-	case m.editing && m.active != "":
+	case m.editing() && m.active != "":
 		if s != nil && s.editor() != nil {
 			s.editor().pane.SendPaste(text)
 		}
-	case m.browsing && m.active != "":
+	case m.browsing() && m.active != "":
 		// The browser's keys are commands; there is no field on it to paste into.
-	case m.scrolling && m.focused && m.active != "":
+	case m.scrolling() && m.focused() && m.active != "":
 		// Pasting into history is pasting into the shell it belongs to: come back to
 		// the live screen first, as typing a letter in there does.
 		if s != nil && s.shell() != nil {
 			m.exitScrollback()
 			s.shell().pane.SendPaste(text)
 		}
-	case m.focused && m.active != "":
+	case m.focused() && m.active != "":
 		if s != nil && s.shell() != nil {
 			s.shell().pane.SendPaste(text)
 		}
@@ -199,7 +199,7 @@ func (m *model) forwardingPane() bool {
 	if m.active == "" || m.activeDead() {
 		return false
 	}
-	return (m.focused && !m.scrolling) || m.editing
+	return (m.focused() && !m.scrolling()) || m.editing()
 }
 
 // keyPane is the pane a forwarded key goes to, or nil when there is none.
@@ -209,11 +209,11 @@ func (m *model) keyPane() *terminal.Pane {
 		return nil
 	}
 	switch {
-	case m.editing:
+	case m.editing():
 		if ed := s.editor(); ed != nil {
 			return ed.pane
 		}
-	case m.focused:
+	case m.focused():
 		if sh := s.shell(); sh != nil {
 			return sh.pane
 		}

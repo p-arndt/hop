@@ -24,6 +24,51 @@ const (
 	statusErr
 )
 
+// paneMode says which thing on screen the keyboard belongs to: the host list, or
+// one of the four things a session's pane can be. The modes are exclusive by
+// construction — moving to one leaves whichever one you were in, and there is no
+// way to spell "browsing a file *and* focused on a shell".
+//
+// Scrollback is its own mode rather than a flag on top of the shell, because a
+// pane paused in its history forwards nothing to the far end: it is a different
+// keyboard, not the shell's with a modifier. The shell predicates below still
+// count it as focused, since the pane is still the one holding the accent.
+type paneMode int
+
+const (
+	// modeList is the host list (with the details card): no pane has the keyboard.
+	modeList paneMode = iota
+	// modeShell forwards keys to the active session's visible shell pane.
+	modeShell
+	// modeScrollback drives the focused shell's history viewport instead of the
+	// shell. See handleScrollbackKey.
+	modeScrollback
+	// modeBrowser forwards keys to the active session's SFTP file browser.
+	modeBrowser
+	// modeEditor forwards keys to the open remote editor tab.
+	modeEditor
+)
+
+// The mode predicates. They exist so the routing and rendering switches read as
+// questions about the screen ("is a shell focused?") rather than comparisons
+// against an enum, and so scrollback can answer to both of the things it is.
+
+// focused reports whether a shell pane holds the keyboard — live or paused in its
+// scrollback.
+func (m *model) focused() bool { return m.mode == modeShell || m.mode == modeScrollback }
+
+// scrolling reports whether the focused shell is paused in its history.
+func (m *model) scrolling() bool { return m.mode == modeScrollback }
+
+// browsing reports whether the SFTP browser holds the keyboard.
+func (m *model) browsing() bool { return m.mode == modeBrowser }
+
+// editing reports whether an editor tab holds the keyboard.
+func (m *model) editing() bool { return m.mode == modeEditor }
+
+// inPane reports whether any pane holds the keyboard, i.e. the host list does not.
+func (m *model) inPane() bool { return m.mode != modeList }
+
 type model struct {
 	st    *store.Store
 	hosts []store.Host
@@ -97,20 +142,12 @@ type model struct {
 	// active is the alias of the session shown/focused in the right pane
 	// ("" means navigation/details mode).
 	active string
-	// focused is true when keystrokes are forwarded to the active pane.
-	focused bool
-	// browsing is true when the right pane shows the active session's SFTP file
-	// browser and keystrokes are forwarded to it. Mutually exclusive with focused.
-	browsing bool
-	// editing is true when the right pane shows the active session's editor tabs
-	// and keystrokes are forwarded to the open one. Mutually exclusive with both
-	// focused and browsing.
-	editing bool
 
-	// scrolling is true when the focused shell pane is in scrollback mode: keys drive
-	// the history viewport (see handleScrollbackKey) and the pane renders
-	// ViewScrollback(). Only meaningful while focused.
-	scrolling bool
+	// mode is where the keystrokes are going. It is one value rather than the four
+	// bools it replaced, because those were never independent: exactly one of them
+	// could be true, nothing enforced that, and every call site that moved between
+	// modes had to remember to clear the other three by hand. See paneMode.
+	mode paneMode
 
 	// sidebarHidden is true while the host list is collapsed (ctrl+b), giving the
 	// right pane the whole window. It is deliberately session-only and not a
@@ -333,7 +370,7 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// The last tab closing drops back where the file was opened from.
-		if len(s.editors) == 0 && m.editing && m.active == msg.alias {
+		if len(s.editors) == 0 && m.editing() && m.active == msg.alias {
 			m.leaveEditor()
 		}
 		return m, nil

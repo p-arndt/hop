@@ -99,11 +99,11 @@ func (m *model) breadcrumb() string {
 	switch {
 	case s != nil && s.dead && m.active != "":
 		return "ssh manager › " + m.active + " › disconnected"
-	case m.editing && s != nil && s.editor() != nil:
+	case m.editing() && s != nil && s.editor() != nil:
 		return "ssh manager › " + m.active + " › " + s.editor().name
-	case m.browsing && m.active != "":
+	case m.browsing() && m.active != "":
 		return "ssh manager › " + m.active + " › sftp"
-	case m.focused && m.active != "":
+	case m.focused() && m.active != "":
 		return "ssh manager › " + m.active
 	default:
 		return "ssh manager"
@@ -121,16 +121,16 @@ func (m *model) modeChip() string {
 		// The chip's job is to say where the keystrokes are going. On a dropped session
 		// they are going nowhere, and that is the most important thing on the screen.
 		return redText.Bold(true).Render("✗ " + m.active + " lost")
-	case m.editing && s != nil && s.editor() != nil:
+	case m.editing() && s != nil && s.editor() != nil:
 		return chipStyle.Render("✎ " + s.editor().name)
-	case m.browsing:
+	case m.browsing():
 		return chipStyle.Render("▤ sftp")
-	case m.focused && m.scrolling && s != nil && s.shell() != nil:
+	case m.focused() && m.scrolling() && s != nil && s.shell() != nil:
 		// A distinct chip while paused in history: the offset and how far back the
 		// scrollback runs, so you can see where in it you are.
 		p := s.shell().pane
 		return accentText.Bold(true).Render(fmt.Sprintf("⇅ scrollback %d/%d", p.ScrollOffset(), p.ScrollbackLen()))
-	case m.focused:
+	case m.focused():
 		chip := greenText.Bold(true).Render("● " + m.active)
 		if s != nil && len(s.shells) > 1 {
 			chip += " " + chipStyle.Render(fmt.Sprintf("shell %d/%d", s.activeSh+1, len(s.shells)))
@@ -195,11 +195,11 @@ func (m *model) renderRight(h int) string {
 
 	switch {
 	// Editing: a tab strip over the open editor's screen.
-	case m.editing && s != nil && s.editor() != nil:
+	case m.editing() && s != nil && s.editor() != nil:
 		return pane(true, m.renderEditorTabs(s)+"\n"+m.selectedView(s.editor().pane.View()))
 
 	// Browsing: the session's file browser.
-	case m.browsing && s != nil && s.browser != nil:
+	case m.browsing() && s != nil && s.browser != nil:
 		return pane(true, s.browser.View())
 
 	// A live shell, with its strip of tabs once there is a second one to switch to.
@@ -208,7 +208,7 @@ func (m *model) renderRight(h int) string {
 		// live screen, but the same number of lines, so the tab strip and border are
 		// unaffected.
 		content := s.shell().pane.View()
-		if m.focused && m.scrolling {
+		if m.focused() && m.scrolling() {
 			content = s.shell().pane.ViewScrollback()
 		}
 		// The highlight goes on before the tab strip, so the selection's rows are the
@@ -217,7 +217,7 @@ func (m *model) renderRight(h int) string {
 		if len(s.shells) > 1 {
 			content = m.renderShellTabs(s) + "\n" + content
 		}
-		return pane(m.focused, content)
+		return pane(m.focused(), content)
 	}
 
 	return pane(false, m.renderDetails(m.paneW))
@@ -244,9 +244,9 @@ func (m *model) deadBanner(s *session) string {
 // dead connection (every shell and tab already gone) still has a pane to fill.
 func (m *model) deadContent(s *session) string {
 	switch {
-	case m.editing && s.editor() != nil:
+	case m.editing() && s.editor() != nil:
 		return m.renderEditorTabs(s) + "\n" + s.editor().pane.View()
-	case m.browsing && s.browser != nil:
+	case m.browsing() && s.browser != nil:
 		return s.browser.View()
 	case s.shell() != nil:
 		content := s.shell().pane.View()
@@ -339,33 +339,33 @@ func (m *model) renderFooter() string {
 	// Above the three pane modes, the way handleKey routes the keys: a dead pane has
 	// its own small keyboard, and a legend still offering shift+←→ would be listing
 	// keys that do nothing.
-	case m.active != "" && (m.focused || m.browsing || m.editing) && m.activeDead():
+	case m.active != "" && m.inPane() && m.activeDead():
 		hints = []string{
 			keyHint("r", "reconnect"), keyHint("d", "drop session"),
 			keyHint("ctrl+o", "back"), m.sidebarHint(),
 		}
 
-	case m.editing && m.active != "":
+	case m.editing() && m.active != "":
 		hints = []string{
 			keyHint("shift+←→", "tab"), keyHint(":q", "close"),
 			keyHint("ctrl+o o", "browser"), m.sidebarHint(),
 			dimStyle.Render("keys →") + " " + greenText.Render("editor"),
 		}
 
-	case m.browsing && m.active != "":
+	case m.browsing() && m.active != "":
 		hints = []string{
 			keyHint("↑↓", "move"), keyHint("enter", "edit"), keyHint("o", "open local"),
 			keyHint("d", "download"), keyHint("←", "up"), keyHint("r", "refresh"),
 			keyHint("ctrl+o", "back"), m.sidebarHint(),
 		}
 
-	case m.scrolling && m.focused && m.active != "":
+	case m.scrolling() && m.focused() && m.active != "":
 		hints = []string{
 			keyHint("↑↓", "scroll"), keyHint("pgup/pgdn", "page"),
 			keyHint("g/G", "top/live"), keyHint("esc", "back to live"),
 		}
 
-	case m.focused && m.active != "":
+	case m.focused() && m.active != "":
 		// ctrl+o 0 is named even on a host with one shell — it is the chord that *makes*
 		// the second one, so a footer that waited for a second shell to mention it
 		// would only ever tell you what you had already worked out.

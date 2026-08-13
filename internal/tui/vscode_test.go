@@ -111,10 +111,10 @@ func TestVSCodeOpensTheShellsDirectory(t *testing.T) {
 func TestVSCodeChordFromInsideTheShellPane(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "/var/log/nginx")
-	m.focused = true
+	m.mode = modeShell
 
 	m.handleKey(key(t, "ctrl+o"))
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("the leader left the pane; it is supposed to open and wait")
 	}
 	if rec.calls != 0 {
@@ -122,7 +122,7 @@ func TestVSCodeChordFromInsideTheShellPane(t *testing.T) {
 	}
 
 	m.handleKey(runeKey('c'))
-	if m.focused {
+	if m.focused() {
 		t.Fatal("ctrl+o c did not leave the pane")
 	}
 	if rec.calls != 1 || rec.alias != "web" || rec.path != "/var/log/nginx" {
@@ -137,7 +137,7 @@ func TestVSCodeChordFromInsideTheShellPane(t *testing.T) {
 func TestVSCodeChordNeedsTheSecondPressInTime(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "/srv/app")
-	m.focused = true
+	m.mode = modeShell
 
 	// A key that names no chord closes the leader and opens nothing.
 	m.handleKey(key(t, "ctrl+o"))
@@ -162,14 +162,14 @@ func TestVSCodeChordNeedsTheSecondPressInTime(t *testing.T) {
 func TestVSCodeIsNotOnAltO(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "/srv/app")
-	m.focused = true
+	m.mode = modeShell
 
 	m.handleKey(altKey("o"))
 
 	if rec.calls != 0 {
 		t.Fatalf("alt+o opened VS Code (%d calls); it belongs to the remote", rec.calls)
 	}
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("alt+o left the pane")
 	}
 }
@@ -236,14 +236,14 @@ func TestVSCodeReportsALaunchFailure(t *testing.T) {
 // The footer only offers "vs code here" when there is a directory to open there.
 func TestFooterNamesTheChordOnlyWithADirectory(t *testing.T) {
 	m, _ := vscodeModel(t, 1, "/srv/app")
-	m.focused = true
+	m.mode = modeShell
 	m.width = 200
 	if !strings.Contains(m.renderFooter(), "vs code here") {
 		t.Fatalf("footer does not offer the chord with a directory to hand:\n%s", m.renderFooter())
 	}
 
 	bare, _ := vscodeModel(t, 1, "")
-	bare.focused = true
+	bare.mode = modeShell
 	bare.width = 200
 	if strings.Contains(bare.renderFooter(), "vs code here") {
 		t.Fatalf("footer offers the chord with no directory to open:\n%s", bare.renderFooter())

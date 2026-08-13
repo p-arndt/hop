@@ -55,7 +55,7 @@ func (m *model) renderList(w, h int) string {
 // listHasFocus is true when keys are going to the host list rather than to a pane
 // or a card — which is what the accented border on the sidebar means.
 func (m *model) listHasFocus() bool {
-	return !m.focused && !m.browsing && !m.editing
+	return m.mode == modeList
 }
 
 // listHeading is the section title, with the host count — and, while a filter is

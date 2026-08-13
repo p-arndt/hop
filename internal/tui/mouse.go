@@ -112,7 +112,7 @@ func (m *model) dragView() string {
 		return ""
 	}
 	p := s.shell().pane
-	if m.scrolling {
+	if m.scrolling() {
 		return p.ViewScrollback()
 	}
 	return p.View()
@@ -221,7 +221,7 @@ func (m *model) backToList() {
 		return
 	}
 	m.exitScrollback()
-	m.focused, m.browsing, m.editing = false, false, false
+	m.mode = modeList
 	m.clearStatus()
 	m.chords.esc = time.Time{}
 }
@@ -254,11 +254,11 @@ func (m *model) mousePane(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch {
-	case m.editing && s.editor() != nil:
+	case m.editing() && s.editor() != nil:
 		return m.mouseEditor(s, msg, x, y)
-	case m.browsing && s.browser != nil:
+	case m.browsing() && s.browser != nil:
 		return m.mouseBrowser(s, msg, x, y)
-	case m.focused && s.shell() != nil:
+	case m.focused() && s.shell() != nil:
 		return m.mouseShell(s, msg, x, y)
 	}
 	return m, nil
@@ -285,9 +285,7 @@ func (m *model) clickIntoPane(s *session) {
 	case s.shell() != nil:
 		m.focusShell(m.active)
 	case s.browser != nil:
-		m.browsing = true
-		m.focused = false
-		m.editing = false
+		m.mode = modeBrowser
 	}
 }
 
@@ -312,7 +310,7 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 
 	// Paused in history, the wheel drives the history — whatever the far end has
 	// asked for. It is not being shown the live screen, so it is not being pointed at.
-	if m.scrolling {
+	if m.scrolling() {
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
 			m.clearSelection()

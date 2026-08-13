@@ -36,7 +36,7 @@ func shellModel(t *testing.T, n int) (*model, *session) {
 		connecting: map[string]bool{},
 		notify:     make(chan struct{}, 1),
 		active:     "web",
-		focused:    n > 0,
+		mode:       paneModeIf(n > 0, modeShell),
 		paneW:      40,
 		paneH:      12,
 		height:     20,
@@ -61,7 +61,7 @@ func TestShellTabCycling(t *testing.T) {
 			t.Fatalf("after alt+left: activeSh = %d, want %d", s.activeSh, want)
 		}
 	}
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("switching shells left the pane")
 	}
 }
@@ -84,7 +84,7 @@ func TestShellTabJump(t *testing.T) {
 // hop is already holding, so it never dials again.
 func TestNewShellReusesTheConnection(t *testing.T) {
 	m, s := shellModel(t, 1)
-	m.focused = false
+	m.mode = modeList
 
 	_, cmd := m.handleKey(key(t, "S"))
 	if cmd == nil {
@@ -108,16 +108,16 @@ func TestNewShellReusesTheConnection(t *testing.T) {
 // only S does that.
 func TestEnterFocusesExistingShell(t *testing.T) {
 	m, s := shellModel(t, 2)
-	m.focused = false
+	m.mode = modeList
 	s.activeSh = 1
 
 	_, cmd := m.handleKey(key(t, "enter"))
 	if cmd != nil {
 		t.Fatal("enter opened a new shell on a host that already has one")
 	}
-	if !m.focused || s.activeSh != 1 || len(s.shells) != 2 {
+	if !m.focused() || s.activeSh != 1 || len(s.shells) != 2 {
 		t.Fatalf("focused = %v, activeSh = %d, shells = %d; want the second shell focused",
-			m.focused, s.activeSh, len(s.shells))
+			m.focused(), s.activeSh, len(s.shells))
 	}
 }
 
@@ -137,7 +137,7 @@ func TestConnectedMsgAppendsShell(t *testing.T) {
 	if m.connecting["web"] {
 		t.Fatal("the host is still marked connecting after its shell landed")
 	}
-	if !m.focused || m.active != "web" {
+	if !m.focused() || m.active != "web" {
 		t.Fatal("a new shell did not take the pane")
 	}
 }
@@ -155,7 +155,7 @@ func TestShellExitDropsTab(t *testing.T) {
 	if s.activeSh != 1 {
 		t.Fatalf("activeSh = %d, want 1 after the tab above it closed", s.activeSh)
 	}
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("left the pane while shells were still open")
 	}
 }
@@ -170,9 +170,9 @@ func TestLastShellExitEndsSession(t *testing.T) {
 	if _, live := m.sessions["web"]; live {
 		t.Fatal("the session outlived its last shell with nothing else open on it")
 	}
-	if m.focused || m.active != "" {
+	if m.focused() || m.active != "" {
 		t.Fatalf("focused = %v, active = %q; want the pane handed back to the host list",
-			m.focused, m.active)
+			m.focused(), m.active)
 	}
 }
 
@@ -187,8 +187,8 @@ func TestLastShellExitKeepsBrowser(t *testing.T) {
 	if _, live := m.sessions["web"]; !live {
 		t.Fatal("exiting the shell tore down a session whose browser was still open")
 	}
-	if m.focused || !m.browsing {
-		t.Fatalf("focused = %v, browsing = %v; want the browser back", m.focused, m.browsing)
+	if m.focused() || !m.browsing() {
+		t.Fatalf("focused = %v, browsing = %v; want the browser back", m.focused(), m.browsing())
 	}
 }
 
@@ -216,7 +216,7 @@ func TestLeftAlwaysGoesToTheShell(t *testing.T) {
 
 			m.handleKey(key(t, "left"))
 
-			if !m.focused {
+			if !m.focused() {
 				t.Fatalf("left at a %s left the pane, want it forwarded to the shell", tc.name)
 			}
 		})

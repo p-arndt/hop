@@ -116,9 +116,13 @@ func (m *model) shellExited(msg shellExitedMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.active == msg.alias && m.focused {
-		m.focused = false
-		m.browsing = s.browser != nil
+	if m.active == msg.alias && m.focused() {
+		// The shell that held the keyboard is gone; the browser still on the same
+		// connection is the only thing left to hand it to.
+		m.mode = modeList
+		if s.browser != nil {
+			m.mode = modeBrowser
+		}
 	}
 	return m, nil
 }
@@ -164,9 +168,7 @@ func (m *model) browserLanded(msg browserOpenedMsg) (tea.Model, tea.Cmd) {
 	// the keyboard — the shell the reconnect landed first still has it.
 	if !msg.restore {
 		m.active = msg.alias
-		m.browsing = true
-		m.focused = false
-		m.editing = false
+		m.mode = modeBrowser
 		if msg.client != nil && msg.client.NewHostKey != "" {
 			m.setStatus(statusWarn, "%s: new host key trusted (%s)", msg.alias, msg.client.NewHostKey)
 		} else {
@@ -196,9 +198,7 @@ func (m *model) editorLanded(msg editorOpenedMsg) (tea.Model, tea.Cmd) {
 	s.activeEd = len(s.editors) - 1
 	m.armClipboard(msg.tab.pane)
 	m.active = msg.alias
-	m.editing = true
-	m.browsing = false
-	m.focused = false
+	m.mode = modeEditor
 	m.clearStatus()
 	ew, eh := m.editorSize()
 	msg.tab.pane.Resize(ew, eh)

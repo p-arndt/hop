@@ -226,11 +226,11 @@ func TestClickInSidebarLeavesThePane(t *testing.T) {
 			m.sessions["ha"] = &session{}
 			switch mode {
 			case "focused":
-				m.focused = true
+				m.mode = modeShell
 			case "browsing":
-				m.browsing = true
+				m.mode = modeBrowser
 			case "editing":
-				m.editing = true
+				m.mode = modeEditor
 			}
 
 			m.handleMouse(click(4, 3))
@@ -289,7 +289,7 @@ func TestClickIntoPaneTakesTheKeyboard(t *testing.T) {
 
 	m.handleMouse(click(40, 6))
 
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("a click on the pane did not focus the shell")
 	}
 }
@@ -299,14 +299,14 @@ func TestClickIntoPaneTakesTheKeyboard(t *testing.T) {
 func TestMouseOnDeadPaneDoesNothing(t *testing.T) {
 	m := newMouseModel(3)
 	m.active = "ha"
-	m.focused = true
+	m.mode = modeShell
 	m.sessions["ha"] = &session{dead: true, shells: []*shellTab{{id: 1, pane: fakePane()}}}
 
 	// Must not panic reaching for the pane behind a dead session's shell tab.
 	m.handleMouse(wheel(40, 6, true))
 	m.handleMouse(click(40, 6))
 
-	if m.scrolling {
+	if m.scrolling() {
 		t.Fatal("the wheel scrolled a dropped session's frozen screen")
 	}
 }
@@ -342,7 +342,7 @@ func TestTabAt(t *testing.T) {
 func TestClickShellTab(t *testing.T) {
 	m := newMouseModel(3)
 	m.active = "ha"
-	m.focused = true
+	m.mode = modeShell
 	s := &session{shells: []*shellTab{
 		{id: 1, pane: fakePane()}, {id: 2, pane: fakePane()}, {id: 3, pane: fakePane()},
 	}}
@@ -381,7 +381,7 @@ func TestDoubleClickInBrowserOpens(t *testing.T) {
 
 	m := newMouseModel(3)
 	m.active = "ha"
-	m.browsing = true
+	m.mode = modeBrowser
 	m.sessions["ha"] = &session{browser: br}
 
 	// The browser's first entry: content row 2 (path header, rule), so screen row 4.
@@ -418,18 +418,18 @@ func scrollbackPane(t *testing.T) *terminal.Pane {
 func TestWheelOverShellDrivesScrollback(t *testing.T) {
 	m := newMouseModel(3)
 	m.active = "ha"
-	m.focused = true
+	m.mode = modeShell
 	p := scrollbackPane(t)
 	m.sessions["ha"] = &session{shells: []*shellTab{{id: 1, pane: p}}}
 
 	// Live, there is nothing newer to scroll to: a wheel down is spent doing nothing.
 	m.handleMouse(wheel(40, 6, false))
-	if m.scrolling {
+	if m.scrolling() {
 		t.Fatal("a wheel down on a live shell entered scrollback")
 	}
 
 	m.handleMouse(wheel(40, 6, true))
-	if !m.scrolling {
+	if !m.scrolling() {
 		t.Fatal("a wheel up did not pause the shell into its history")
 	}
 	if p.ScrollOffset() != wheelStep {
@@ -437,7 +437,7 @@ func TestWheelOverShellDrivesScrollback(t *testing.T) {
 	}
 
 	m.handleMouse(wheel(40, 6, false))
-	if m.scrolling {
+	if m.scrolling() {
 		t.Fatal("scrolling back to the live bottom left the pane paused in history")
 	}
 	if p.ScrollOffset() != 0 {

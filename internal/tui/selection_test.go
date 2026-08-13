@@ -25,7 +25,7 @@ func selModel(t *testing.T, screen, marker string) (*model, func() string) {
 
 	m := newMouseModel(3)
 	m.active = "ha"
-	m.focused = true
+	m.mode = modeShell
 	m.clipWrite = func(text string) error {
 		mu.Lock()
 		defer mu.Unlock()

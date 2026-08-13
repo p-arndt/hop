@@ -249,9 +249,7 @@ func (m *model) focusShell(alias string) {
 		return
 	}
 	m.active = alias
-	m.focused = true
-	m.browsing = false
-	m.editing = false
+	m.mode = modeShell
 	m.resizeShells(s)
 }
 
@@ -297,8 +295,7 @@ func (m *model) openFile(msg filebrowser.OpenFileMsg) tea.Cmd {
 	}
 	if i := s.findEditor(msg.Path); i >= 0 {
 		s.activeEd = i
-		m.editing = true
-		m.browsing = false
+		m.mode = modeEditor
 		return nil
 	}
 

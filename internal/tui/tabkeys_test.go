@@ -42,7 +42,7 @@ func TestShellTabCyclingWithShift(t *testing.T) {
 			t.Fatalf("after shift+left: activeSh = %d, want %d", s.activeSh, want)
 		}
 	}
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("switching shells left the pane")
 	}
 }
@@ -71,7 +71,7 @@ func TestLeaderOpensWithoutActing(t *testing.T) {
 	m, _ := shellModel(t, 3)
 
 	_, cmd := m.handleKey(ctrlO())
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("the leader left the pane; it is supposed to open and wait")
 	}
 	if cmd != nil {
@@ -89,7 +89,7 @@ func TestLeaderOutLeavesThePane(t *testing.T) {
 	m.handleKey(ctrlO())
 	m.handleKey(runeKey('o'))
 
-	if m.focused {
+	if m.focused() {
 		t.Fatal("ctrl+o o did not leave the pane")
 	}
 	if m.leaderArmed() {
@@ -107,7 +107,7 @@ func TestLeaderDigitSelectsShellInPlace(t *testing.T) {
 	if s.activeSh != 2 {
 		t.Fatalf("ctrl+o 3: activeSh = %d, want 2", s.activeSh)
 	}
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("ctrl+o 3 left the pane")
 	}
 	if m.leaderArmed() {
@@ -126,7 +126,7 @@ func TestLeaderDigitIgnoresMissingShell(t *testing.T) {
 	if s.activeSh != 0 {
 		t.Fatalf("ctrl+o 9 with 3 shells moved to %d, want to stay on 0", s.activeSh)
 	}
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("ctrl+o 9 left the pane")
 	}
 	if m.leaderArmed() {
@@ -147,7 +147,7 @@ func TestLeaderZeroOpensAnotherShell(t *testing.T) {
 	if !m.connecting["web"] {
 		t.Fatal("ctrl+o 0 did not mark the host as connecting")
 	}
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("ctrl+o 0 left the pane")
 	}
 }
@@ -160,7 +160,7 @@ func TestLeaderCancelsOnAnUnboundKey(t *testing.T) {
 	m.handleKey(ctrlO())
 	m.handleKey(runeKey('z'))
 
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("an unbound key after the leader left the pane")
 	}
 	if m.leaderArmed() {
@@ -198,7 +198,7 @@ func TestDigitWithoutLeaderGoesToTheShell(t *testing.T) {
 	if s.activeSh != 0 {
 		t.Fatalf("a digit with no leader open moved to shell %d", s.activeSh)
 	}
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("a digit with no leader open left the pane")
 	}
 }
@@ -207,7 +207,7 @@ func TestDigitWithoutLeaderGoesToTheShell(t *testing.T) {
 // the cursor. No leader, no window — in the list a digit has nothing else to be.
 func TestListDigitFocusesShell(t *testing.T) {
 	m, s := shellModel(t, 3)
-	m.focused = false
+	m.mode = modeList
 	m.cursor = 0
 
 	m.handleKey(runeKey('2'))
@@ -215,7 +215,7 @@ func TestListDigitFocusesShell(t *testing.T) {
 	if s.activeSh != 1 {
 		t.Fatalf("2 in the list: activeSh = %d, want 1", s.activeSh)
 	}
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("a digit in the list did not focus the shell")
 	}
 }
@@ -223,12 +223,12 @@ func TestListDigitFocusesShell(t *testing.T) {
 // A digit naming a shell the host has not got leaves the list alone.
 func TestListDigitIgnoresMissingShell(t *testing.T) {
 	m, _ := shellModel(t, 1)
-	m.focused = false
+	m.mode = modeList
 	m.cursor = 0
 
 	m.handleKey(runeKey('7'))
 
-	if m.focused {
+	if m.focused() {
 		t.Fatal("7 in the list focused a shell that is not open")
 	}
 }

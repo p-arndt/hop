@@ -61,7 +61,7 @@ func TestViewFitsTheWindow(t *testing.T) {
 		// have to fit the window like everything else.
 		"dropped": func(m *model) {
 			m.sessions["web1"] = &session{dead: true, lostWhy: "ssh: unexpected packet in response to channel open"}
-			m.active, m.focused = "web1", true
+			m.active, m.mode = "web1", modeShell
 		},
 		"no hosts":          func(m *model) { m.hosts = nil; m.applyFilter() },
 		"sidebar collapsed": func(m *model) { m.toggleSidebar() },
@@ -101,7 +101,7 @@ func TestViewFitsTheWindow(t *testing.T) {
 func TestPaneContentWiderThanTheBoxDoesNotGrowTheScreen(t *testing.T) {
 	m := viewModel(100, 20)
 	m.active = "web1"
-	m.focused = true
+	m.mode = modeShell
 
 	// A pane laid out for a much wider window than the model now has — which is what
 	// a resize leaves behind in the lines already in scrollback.
@@ -249,7 +249,7 @@ func TestNewShellFromAFocusedPane(t *testing.T) {
 	m := viewModel(120, 34)
 	m.notify = make(chan struct{}, 1)
 	m.sessions["web1"] = &session{}
-	m.active, m.focused = "web1", true
+	m.active, m.mode = "web1", modeShell
 
 	// The pane's footer names the leader, and the leader's own footer names the key
 	// that makes a second shell — on the first shell as much as the second.

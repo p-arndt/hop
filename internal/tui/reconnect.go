@@ -73,8 +73,8 @@ func (m *model) markDead(alias, why string) {
 
 	// Scrollback is a live pane's mode, and the keys that drive it now have nothing
 	// to scroll toward; the dead pane shows its last screen instead.
-	if m.active == alias {
-		m.scrolling = false
+	if m.active == alias && m.mode == modeScrollback {
+		m.mode = modeShell
 	}
 	m.setStatus(statusErr, "%s: connection lost — r to reconnect", alias)
 }
@@ -158,7 +158,7 @@ func (m *model) reconnect(h store.Host) tea.Cmd {
 		return nil
 	}
 
-	inBrowser := m.active == h.Alias && (m.browsing || m.editing)
+	inBrowser := m.active == h.Alias && (m.browsing() || m.editing())
 	plan := s.plan(inBrowser)
 
 	s.close()
@@ -340,9 +340,7 @@ func (m *model) handleDeadPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// the host's last known state, unfocused. A single esc is enough here: the
 		// double-tap exists to leave a *remote program* an esc of its own, and there
 		// is no longer a program to leave one to.
-		m.focused = false
-		m.browsing = false
-		m.editing = false
+		m.mode = modeList
 		m.chords.esc = time.Time{}
 		m.clearStatus()
 

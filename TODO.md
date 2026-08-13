@@ -63,7 +63,7 @@ the package it works in — this file tracks *what*, not *why*.
 - [x] **Copy/paste into the remote shell:** no key of its own — paste the way your terminal pastes and hop marks it as a paste (bracketed when the far end asked). Windows has no marked paste, so the burst is recognised by shape (`internal/tui/paste.go`). Copy is OSC 52 → `internal/clipboard`; a remote asking to *read* the clipboard is never answered. Setting: `,` → Remote clipboard.
 - [ ] Cursor: respect hidden state and cursor style (block/bar/underline); optional blink.
 - [ ] Narrow-terminal handling: header/footer truncation and min-size behavior.
-- [ ] **Mode flags should be one enum:** `focused`/`browsing`/`editing`/`scrolling` in `model` are documented as mutually exclusive, but nothing enforces it — every call site has to set the other three correctly by hand (`focusShell`, `leaveEditor`, `leavePane`, `gotoEditor`, …). One `mode` value would make the invalid states unrepresentable. Behavioural refactor, needs the mode-switch tests that are still open under Testing.
+- [x] **Mode flags are one enum:** `focused`/`browsing`/`editing`/`scrolling` are gone; `model.mode` is a single `paneMode` (`modeList`/`modeShell`/`modeScrollback`/`modeBrowser`/`modeEditor`), so the invalid combinations are unrepresentable and a call site can no longer forget to clear the other three. The old names live on as predicates derived from it (`m.focused()`, `m.scrolling()`, …), plus `m.inPane()`. Scrollback is its own mode rather than a flag on the shell.
 - [ ] **Footer is overcrowded — make the help key the way out:** always show `?` in the footer (it is the one hint that makes every other hint optional), and trim the rest to the two or three keys that mode actually needs. Then make the `?` card **context-aware**: open it on the section for the mode you are in (host list / shell / scrollback / browser / editor / a card) rather than showing all of them at once. `helpSections` in `internal/tui/help.go` is already split by mode, so the card mostly needs a starting section and the footer a shorter per-mode list (`renderFooter`, `internal/tui/view.go`).
 
 ## ⚙️ Config & distribution
@@ -89,7 +89,7 @@ the package it works in — this file tracks *what*, not *why*.
 - [ ] `action` package.
 - [ ] `keyToBytes` mapping table test in `terminal`.
 - [ ] `filebrowser` rendering.
-- [ ] Mode *switches* (navigation ↔ terminal ↔ browsing) — need a fake pane/browser.
+- [x] Mode *switches* (navigation ↔ terminal ↔ browsing ↔ editing ↔ scrollback), `mode_test.go`: every transition asserted through the real helpers, against a shell pane with genuine scrollback.
 
 ## 📝 Known limitations / notes
 
