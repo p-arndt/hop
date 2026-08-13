@@ -1,36 +1,25 @@
 package tui
 
-// Paste, on the way in — where the text comes from, and how hop can tell a paste
-// from typing. What happens to it afterwards is terminal.Pane.SendPaste, which
-// marks it as a paste for the remote program (see internal/terminal/paste.go).
+// Paste on the way in. What happens to it afterwards is terminal.Pane.SendPaste
+// (see internal/terminal/paste.go). Two routes in, because the platforms differ:
 //
-// There are two routes in, because the platforms genuinely differ:
+//   - macOS and Linux: bracketed paste works, so a paste arrives as one key event
+//     with Paste set — see the msg.Paste branches in keys.go.
+//   - Windows: Bubble Tea reads console input records, and the console delivers a
+//     paste as synthesised key-down events, one per character, with no marker at
+//     all. ctrl+shift+v and right-click are handled by the terminal itself, so only
+//     the characters reach hop.
 //
-//   - macOS and Linux: the terminal hop runs in supports bracketed paste, Bubble
-//     Tea turns it on, and a paste arrives as a single key event carrying the whole
-//     clipboard with Paste set. Nothing here has to detect anything — see the
-//     msg.Paste branches in keys.go.
-//   - Windows: Bubble Tea reads the *console input records* rather than a byte
-//     stream (inputreader_windows.go), and the Windows console delivers a paste as
-//     a stream of synthesised key-down events — one per character, with no marker
-//     of any kind. Paste is never set there, and neither Windows Terminal's
-//     ctrl+shift+v nor a right-click in conhost can be intercepted as a key, because
-//     the terminal handles them itself and only the characters reach hop.
+// So on Windows a paste is recognised by its shape: keys arriving in a burst are
+// held for pasteGap and sent as one paste, keys at human speed are sent as
+// themselves. The delay is local and an order of magnitude below the SSH round trip
+// every keystroke already pays.
 //
-// So on Windows a paste has to be recognised by its shape, and that is what the
-// rest of this file does: keys that arrive in a burst are held for a few
-// milliseconds and sent as one paste, and keys that arrive at human speed are sent
-// as themselves. The delay is bounded by pasteGap and is spent locally — every
-// keystroke here is already crossing an SSH connection, which costs an order of
-// magnitude more.
-//
-// The buffer is deliberately conservative: what it is protecting against is
-// turning *typing* into a paste, and the one thing that arrives as fast as a paste
-// without being one is a key held down until it repeats. A run of the same
-// character is therefore replayed as keystrokes, and only a burst carrying a
-// newline or more than one distinct character is treated as a paste — which is
-// also exactly the shape that gets mangled without this, since it is the newline
-// that makes an editor indent the next line.
+// The buffer is conservative, because the risk is turning *typing* into a paste and
+// a held-down repeating key arrives just as fast. A run of the same character is
+// replayed as keystrokes; only a burst with a newline or more than one distinct
+// character becomes a paste — which is also the shape that gets mangled without
+// this, since the newline is what makes an editor indent.
 
 import (
 	"runtime"
@@ -42,15 +31,13 @@ import (
 	"hop/internal/terminal"
 )
 
-// handlePaste routes a paste to whichever mode owns the keyboard, in the same
-// order handleKey routes a key — and it is answered there, before any of them, for
-// one reason: every handler below reads a key's *name* out of the event, and a
-// paste's name is the whole clipboard. A clipboard holding "q" in the host list is
-// not the quit key, and "esc" in a form is three characters of a hostname.
+// handlePaste routes a paste to whichever mode owns the keyboard, in the same order
+// handleKey routes a key — but ahead of all of them, because every handler reads a
+// key's *name* and a paste's name is the whole clipboard: "q" in the host list is
+// not the quit key, "esc" in a form is three characters of a hostname.
 //
-// Where the mode has something to type into, the text goes in; where it has not —
-// the host list, the browser, the confirmation cards, a pane whose connection has
-// dropped — a paste has nowhere to go and is dropped rather than guessed at.
+// A mode with nowhere to put text (the host list, the browser, the confirmations)
+// drops the paste rather than guessing at it.
 func (m *model) handlePaste(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	text := string(msg.Runes)
 	s := m.sessions[m.active]
@@ -103,15 +90,11 @@ func (m *model) handlePaste(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// pasteInline is a paste on its way into a single-line field: the first line of it,
-// with the control characters dropped.
-//
-// Everything hop pastes into by keyboard is one line — a hostname, a path, a
-// password, a filter — and the text on a clipboard often is not: copying a password
-// out of a manager takes the newline after it along, and a field that keeps that
-// newline submits itself on the next Enter with a value that does not match. The
-// rest of a multi-line paste is dropped rather than joined, because a hostname made
-// by concatenating three lines is not what was meant either.
+// pasteInline is a paste on its way into a single-line field: its first line, with
+// control characters dropped. Copying a password out of a manager takes the trailing
+// newline along, and a field that keeps it submits a value that does not match. The
+// remaining lines are dropped rather than joined — a hostname made of three
+// concatenated lines is not what was meant either.
 func pasteInline(text string) string {
 	if i := strings.IndexAny(text, "\r\n"); i >= 0 {
 		text = text[:i]
@@ -153,14 +136,12 @@ type pasteBuf struct {
 // would add a delay that bought nothing.
 func coalescePastes() bool { return runtime.GOOS == "windows" }
 
-// takeKey offers a key to the paste buffer, reporting whether it was taken. A
-// taken key is not handled anywhere else — it is held, and the caller arms the
-// flush.
+// takeKey offers a key to the paste buffer, reporting whether it was taken; a taken
+// key is handled nowhere else, and the caller arms the flush.
 //
-// Only the keys a paste is made of are taken, and only while a pane is forwarding
-// to a remote program. Everywhere else — the host list, a card, the filter, the
-// file browser, scrollback — a key is a command, and holding one back would delay
-// a command to catch a paste that view has no use for anyway.
+// Only keys a paste is made of, and only while a pane forwards to a remote program.
+// Everywhere else a key is a command, and holding it back would delay that command
+// to catch a paste the view has no use for.
 func (m *model) takeKey(msg tea.KeyMsg) bool {
 	if !m.pasteCoalesce || !pastable(msg) || m.cardOpen() || !m.forwardingPane() {
 		return false
@@ -268,27 +249,20 @@ func (m *model) flushPaste() {
 
 // looksPasted reports whether a burst is a paste rather than typing.
 //
-// A burst of one key never is: it is the key that was pressed, and nothing else.
-// This matters most for Enter — a typed Enter usually goes quiet for the gap and
-// arrives here alone, and reading it as a one-newline paste sends it *bracketed*
-// (ESC[200~ CR ESC[201~) to a shell whose readline has asked for bracketed
-// paste. Bracketed text is inserted, not executed: the command line just typed
-// never runs, no output ever appears, and every further Enter does the same —
-// the terminal looks dead from the first command on.
+// A burst of one key never is. This matters most for Enter: a typed Enter arrives
+// alone, and reading it as a one-newline paste sends it *bracketed* to a readline
+// that asked for bracketed paste — where it is inserted rather than executed, so
+// the command never runs and the terminal looks dead from then on.
 //
-// Past one key, a newline settles it on its own: nothing types two lines in a
-// few milliseconds, and multi-line text is what this whole file exists for. It
-// is genuinely in the burst with the text before it only during a paste — a
-// typed Enter after typed characters has the human-sized gap in front of it,
-// which ended their burst already. Failing that it takes
-// pasteRun characters, not all of them the same — which rules out both of the ways
-// typing can arrive this fast. A key held down until it repeats produces a run of
-// one character; a fast digraph produces two.
+// Past one key a newline settles it: nothing types two lines in milliseconds, and a
+// typed Enter after typed characters has a human-sized gap in front of it that ended
+// their burst already. Failing that it takes pasteRun characters, not all the same,
+// which rules out both fast-typing shapes — a held-down key repeats one character, a
+// fast digraph produces two.
 //
-// Being wrong in this direction is cheap and being wrong in the other is not. A
-// short paste replayed as keystrokes is exactly what typing it would have done — no
-// newline in it means no indenting to get wrong — whereas "dw" typed quickly in
-// vim and sent as a paste is inserted as text instead of deleting a word.
+// Erring this way is cheap; erring the other way is not. A short paste replayed as
+// keystrokes is exactly what typing it would have done, whereas "dw" typed quickly
+// in vim and sent as a paste inserts text instead of deleting a word.
 func looksPasted(keys []tea.KeyMsg) bool {
 	if len(keys) < 2 {
 		return false
@@ -303,14 +277,14 @@ func looksPasted(keys []tea.KeyMsg) bool {
 	return len(keys) >= pasteRun && len(distinct) > 1
 }
 
-// pasteRun is how many characters a burst with no newline in it takes before it is
-// read as a paste. Four is past anything a hand produces inside pasteGap, and short
-// enough to catch a one-line paste — a command, a path, a token — as one.
+// pasteRun is how many characters a newline-less burst takes before it reads as a
+// paste. Four is past anything a hand produces inside pasteGap, and short enough to
+// catch a one-line paste whole.
 const pasteRun = 4
 
-// pasteString assembles the buffered keys into the text they stand for. Enter is a
-// newline here rather than a carriage return: SendPaste normalises line endings
-// for the pty itself, and this is text until it gets there.
+// pasteString assembles the buffered keys into text. Enter becomes a newline rather
+// than a CR: SendPaste normalises line endings for the pty, and this is text until
+// it gets there.
 func pasteString(keys []tea.KeyMsg) string {
 	var b strings.Builder
 	for _, k := range keys {

@@ -12,24 +12,20 @@ import (
 	"hop/internal/store"
 )
 
-// A session whose connection has dropped is not closed and forgotten — it is
-// marked dead and left on screen. The panes keep the last screen the host drew,
-// which is the thing you want to read when a link goes down (the command that was
-// running, the error the server printed on its way out), and the session is what
-// 'r' then reconnects.
+// A dropped session is marked dead and left on screen rather than closed: the panes
+// keep the last screen the host drew — the command that was running, the error on
+// the way out — and 'r' reconnects it.
 //
-// Two things notice the loss, and both funnel into markDead:
+// Two things notice the loss, both funnelling into markDead:
 //
-//   - sessionLostMsg, from the watcher parked on the connection's Lost channel
-//     (see watchClientCmd). This is the general case, and keepalives in sshx are
-//     what make it fire on a blackholed link rather than only on a clean reset.
+//   - sessionLostMsg, from the watcher on the connection's Lost channel (see
+//     watchClientCmd). sshx's keepalives are what make it fire on a blackholed link
+//     and not just a clean reset.
 //   - a shell or editor exiting while its connection is already gone. Every channel
-//     on a dropped connection ends at once, so those exits arrive too, and they must
-//     not be mistaken for somebody typing "exit" — that would tear the session down
-//     and take the reconnect offer with it.
+//     ends at once on a dropped connection, and those exits must not be read as
+//     somebody typing "exit" — that would take the reconnect offer down with it.
 //
-// Whichever gets there first wins; markDead is idempotent, and the other exits are
-// then ignored because the session is dead.
+// Whichever arrives first wins; markDead is idempotent.
 
 // reconnectPlan is what a session was holding when its connection dropped, kept so
 // the reconnect can put it back. It is captured at the moment 'r' is pressed rather
@@ -144,14 +140,14 @@ func (s *session) plan(browsingFirst bool) reconnectPlan {
 // reconnect dials a dead session's host again and puts back what was open on it.
 //
 // The dead session is closed and dropped first, so the new connection starts from
-// nothing: its shells are new processes, and a half-torn-down old session sharing
-// the pane would be a second source of truth about what is open. What carries over
-// is the plan — how many shells, and the browser's directory.
+// nothing — a half-torn-down old session would be a second source of truth about
+// what is open. Only the plan carries over: how many shells, and the browser's
+// directory.
 //
-// The plan is parked in m.pending rather than threaded through the dial, because the
-// dial can take a detour: a host key to confirm, a 2FA code to type. Those replay
-// the dial through their own retry paths, and a plan waiting under the alias is
-// picked up by whichever landing eventually arrives.
+// It is parked in m.pending rather than threaded through the dial, because the dial
+// can detour through a host-key confirmation or a 2FA code. Those replay it through
+// their own retry paths, and the waiting plan is picked up by whichever landing
+// arrives.
 func (m *model) reconnect(h store.Host) tea.Cmd {
 	s := m.sessions[h.Alias]
 	if s == nil || !s.dead {
@@ -200,14 +196,12 @@ func (m *model) reconnect(h store.Host) tea.Cmd {
 	return m.withSpinner(connectCmd(h, "", m.prompter(h.Alias), false, m.nextShID, cols, rows, m.notify))
 }
 
-// applyPlan puts back the rest of what a reconnected session was holding, once its
-// new connection has landed. The piece the reconnect dialed first is already there,
-// so this fills in the difference: the remaining shell tabs, and the browser when a
-// shell was the one that went first.
+// applyPlan fills in the rest of what a reconnected session was holding, once its
+// new connection has landed: the remaining shell tabs, and the browser when a shell
+// was dialed first.
 //
-// Editor tabs are not restored, for the reason reconnectPlan gives; they are counted
-// in the status instead, so what was dropped is said out loud rather than quietly
-// missing.
+// Editor tabs are not restored (see reconnectPlan); they are counted in the status
+// instead, so what was dropped is said out loud rather than quietly missing.
 func (m *model) applyPlan(alias string) tea.Cmd {
 	plan, ok := m.pending[alias]
 	if !ok {

@@ -8,20 +8,18 @@ import (
 	"hop/internal/terminal"
 )
 
-// Mouse support, and the one rule behind all of it: the pointer never does
-// anything the keyboard cannot. Every gesture below is an existing binding reached
-// by pointing at the thing instead of naming it — a click in the sidebar is ctrl+o,
-// a double-click on a host is enter, the wheel over a shell is shift+↑, the wheel
-// over the browser is j/k. Nothing is mouse-only, so a session over a link that
-// eats mouse reports (or a terminal with them switched off) loses no capability.
+// Mouse support, under one rule: the pointer never does anything the keyboard
+// cannot. Every gesture is an existing binding reached by pointing instead of
+// naming — a click in the sidebar is ctrl+o, a double-click on a host is enter, the
+// wheel over a shell is shift+↑. Nothing is mouse-only, so a terminal with mouse
+// reports off loses no capability.
 //
-// The one place the pointer is *forwarded* rather than translated is a remote
-// program that has asked for it — vim with `set mouse=a`, htop, less. hop honours
-// that ask the same way it honours a key: see terminal.Pane.MouseEnabled.
+// The pointer is *forwarded* rather than translated only to a remote program that
+// asked for it (vim with `set mouse=a`, htop): see terminal.Pane.MouseEnabled.
 //
-// The cards are deliberately keyboard-only. They are modal and they are small, the
-// keys are named along their foot, and a click that fell through one onto the list
-// behind it would be exactly the trap handleKey's ordering exists to prevent.
+// The cards are deliberately keyboard-only — they are modal and small, their keys
+// are named along the foot, and a click falling through onto the list behind is the
+// trap handleKey's ordering exists to prevent.
 
 // doubleClickWindow is how long after a click a second one on the same row counts
 // as "open this" rather than two independent clicks. It is the same window the
@@ -121,15 +119,13 @@ func (m *model) dragView() string {
 }
 
 // clickChord reports whether this click completes a double-click on the same thing
-// in the same region, and arms the window when it does not. A double is spent once
-// claimed, so a third click in a fast sequence starts a fresh pair rather than
-// opening a second time.
+// in the same region, arming the window when it does not. A double is spent once
+// claimed, so a third fast click starts a fresh pair.
 //
-// id identifies what was clicked — the host's index in the filtered list, the
-// browser entry's index in the listing — and deliberately not the screen row it was
-// drawn on. Both of those lists re-scroll around the cursor a click has just moved,
-// so the row under the pointer can hold a different thing by the time the second
-// click arrives; keying on the row would then open something nobody pointed at.
+// id is what was clicked (the host's index in the filtered list, the entry's index
+// in the listing) and deliberately not the screen row: both lists re-scroll around
+// the cursor the first click just moved, so keying on the row would open something
+// nobody pointed at.
 func (m *model) clickChord(z zone, id int) bool {
 	double := !m.lastClick.IsZero() && z == m.lastClickZone && id == m.lastClickID &&
 		time.Since(m.lastClick) <= doubleClickWindow
@@ -193,13 +189,9 @@ func (m *model) clickList(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 // listRowAt maps a screen row to an index into m.filtered, or false when the row
-// holds no host: the sidebar's border, its HOSTS heading, a PINNED / HOSTS section
-// heading, the filter prompt, or the blank space under a short list.
-//
-// It runs renderList's bookkeeping backwards — the header row, the box's top
-// border, the heading (when the sections have not taken it), and the filter prompt
-// when there is one — and then the same scroll window renderRows draws with, so the
-// host that answers is the host under the pointer.
+// holds no host (a border, a section heading, the filter prompt, the space under a
+// short list). It runs renderList's bookkeeping backwards and then applies the same
+// scroll window renderRows draws with.
 func (m *model) listRowAt(y int) (int, bool) {
 	// The screen's header row, then the sidebar's top border, then its heading.
 	first := 2 + m.listTitleRows()

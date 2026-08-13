@@ -1,24 +1,13 @@
 package terminal
 
-// Working-directory tracking for a shell pane.
-//
-// A remote shell's current directory is not something SSH tells anyone: it lives
-// inside the shell process, and the only thing that leaves it is what the shell
-// chooses to print. The convention every terminal emulator settled on for that is
-// OSC 7 — an escape sequence carrying the cwd as a file:// URL, emitted from the
-// prompt hook:
+// Working-directory tracking for a shell pane. SSH does not report the remote
+// cwd; only the shell can, which it does over OSC 7:
 //
 //	ESC ] 7 ; file://host/current/dir BEL      (or ST, ESC \, as the terminator)
 //
-// So there are two halves here. scanOSC7 watches the server's byte stream for
-// that sequence as it flows past into the emulator, which is what makes the pane
-// know where its shell stands. TrackCwd is the other half: it installs the prompt
-// hook that produces the sequence, for shells that have not got one already.
-//
-// Everything about this is best effort. A shell that emits no OSC 7 leaves the
-// cwd empty, and the callers treat empty as "I do not know" rather than as an
-// error — the VS Code binding falls back to opening the host's default directory,
-// which is what it always did before any of this existed.
+// oscScanner watches the output stream for it; TrackCwd installs the prompt hook
+// that emits it. All best effort: no report leaves Cwd empty, which callers treat
+// as "unknown" rather than as an error.
 
 import (
 	"fmt"
@@ -30,9 +19,8 @@ import (
 	"hop/internal/sshx"
 )
 
-// Cwd is the shell's current directory as last reported over OSC 7, or "" when
-// nothing has reported one: the shell has no prompt hook, it has not drawn a
-// prompt yet, or this pane is not a shell at all.
+// Cwd is the shell's current directory as last reported over OSC 7, or "" if
+// nothing has reported one.
 func (p *Pane) Cwd() string {
 	p.cwdMu.Lock()
 	defer p.cwdMu.Unlock()
@@ -47,60 +35,35 @@ func (p *Pane) setCwd(dir string) {
 	p.cwdMu.Unlock()
 }
 
-// maxOSCPayload caps how much of an OSC sequence is buffered while waiting for
-// its terminator. Real OSC 7 payloads are a path; anything longer than this is
-// either a different (long) OSC — a title, a hyperlink — or a sequence whose
-// terminator never arrived, and neither is worth holding bytes for. The overflow
-// is dropped, not truncated into a wrong path: a payload that stops being
-// buffered is failed outright.
-//
-// maxClipPayload is the same cap for the one OSC that is legitimately long: a
-// clipboard write (OSC 52), whose payload is base64 and therefore a third larger
-// than the text it carries. A yank of a whole file is a normal thing to do, so
-// the cap is generous; it is still a cap, because the payload is buffered in
-// memory while the remote writes it and the remote is not to be trusted with an
-// unbounded one.
+// Caps on a buffered OSC payload — the remote is not to be trusted with an
+// unbounded one. An over-long payload is failed outright, never truncated into a
+// wrong path. maxClipPayload is generous because OSC 52 carries base64 and
+// yanking a whole file is a normal thing to do.
 const (
 	maxOSCPayload  = 4096
 	maxClipPayload = 1 << 20
 )
 
-// oscScanner is an incremental scanner for the OSC sequences hop acts on in a
-// byte stream — OSC 7 (the working directory) and OSC 52 (a clipboard write). It
-// is fed the same bytes the emulator parses, in whatever chunks the network
-// delivers them, and it carries its state across chunks — a sequence split down
-// the middle of its payload (or between its ESC and the ']') is found all the
-// same.
-//
-// It is deliberately not a full ANSI parser. It only needs to recognise two
-// sequences, and it ignores every other OSC by matching their introducers, so
-// the emulator remains the only thing that interprets the stream.
+// oscScanner incrementally scans the output stream for the two OSCs hop acts on:
+// OSC 7 (working directory) and OSC 52 (clipboard write). State carries across
+// chunks, so a sequence split mid-payload is still found. Deliberately not a full
+// ANSI parser — the emulator stays the only thing that interprets the stream.
 type oscScanner struct {
 	state oscState
 	buf   []byte
-	// clip is the text of the last clipboard write (OSC 52) seen, and clipSet says
-	// there was one — a distinction that matters, because clearing the clipboard is
-	// something a remote program does deliberately. Both are taken by tookClipboard.
-	//
-	// Last one wins, deliberately: two writes in a single read of the stream are two
-	// copies in a row, and the clipboard would have ended up holding the second of
-	// them anyway. It is not the OSC 7 arrangement — a directory is a fact about the
-	// shell — but it is what a clipboard is.
+	// clip is the last clipboard write (OSC 52) seen; clipSet distinguishes "none"
+	// from a deliberate clear. Last one wins: two writes in one chunk are two copies
+	// in a row, and the second is what the clipboard would hold anyway.
 	clip    string
 	clipSet bool
 	// over is set when the current payload outgrew maxOSCPayload, so the rest of
 	// it is consumed and discarded rather than buffered.
 	over bool
-	// ris is set when a full terminal reset (RIS, ESC c — what `reset` and `tput
-	// reset` send) went past, and cleared by tookReset.
-	//
-	// It is the one sequence in here that has nothing to do with OSC 7, and it is
-	// watched here because this is the only ANSI-aware pass hop makes over the stream
-	// besides the emulator's own — and because the emulator will not say: its
-	// fullReset rewrites the whole mode map directly, without the EnableMode /
-	// DisableMode callbacks that every other mode change comes through. Anything
-	// shadowing those modes (see mouseState) would otherwise still believe whatever
-	// the program before the reset had asked for.
+	// ris is set when a full terminal reset (RIS, ESC c — what `reset` sends) went
+	// past, and cleared by tookReset. Watched here because the emulator will not
+	// report it: fullReset rewrites the mode map directly, without the EnableMode /
+	// DisableMode callbacks every other mode change comes through, so anything
+	// shadowing those modes (see mouseState) would keep the pre-reset state.
 	ris bool
 }
 
@@ -206,12 +169,9 @@ func (s *oscScanner) push(c byte) {
 	s.buf = append(s.buf, c)
 }
 
-// cap is how much of the payload in hand is worth buffering. It is decided from
-// the introducer, which is the first thing in the payload: a clipboard write gets
-// room for a clipboard, everything else gets room for a path. Until three bytes
-// have arrived the introducer is not known yet, and the larger cap is used —
-// nothing is discarded on the strength of a guess, and the smaller one is applied
-// as soon as the payload proves not to be a clipboard write.
+// cap picks the buffer limit from the payload's introducer: a clipboard write
+// gets room for a clipboard, everything else room for a path. Before the
+// introducer has arrived the larger cap applies — nothing is discarded on a guess.
 func (s *oscScanner) cap() int {
 	if len(s.buf) < len(oscClipPrefix) || string(s.buf[:len(oscClipPrefix)]) == oscClipPrefix {
 		return maxClipPayload
@@ -250,19 +210,12 @@ func (s *oscScanner) tookClipboard() (string, bool) {
 	return text, true
 }
 
-// parseOSC7 pulls the directory out of an OSC payload, or reports that this is
-// not an OSC 7 carrying one.
+// parseOSC7 pulls the directory out of a "7;file://<host>/<path>" payload.
 //
-// The payload is "7;file://<host>/<path>". The host is ignored: it names the
-// machine the path is on, which the caller already knows — the shell that emitted
-// it is on the far end of this very session — and shells disagree about whether
-// to send a hostname, a FQDN or nothing at all.
-//
-// The path arrives percent-encoded by the encoders that bother (a space as %20);
-// an unescape that fails is taken literally instead, since a shell that emitted a
-// bare "%" in a directory name is describing a real directory. Control characters
-// are refused outright: the result is rendered in the status line and passed to
-// another program's command line, and neither should be made to carry them.
+// The host is ignored — the caller already knows it, and shells disagree about
+// sending a hostname, a FQDN or nothing. A percent-unescape that fails falls back
+// to the literal path. Control characters are refused: the result reaches the
+// status line and another program's command line.
 func parseOSC7(payload string) (string, bool) {
 	rest, ok := strings.CutPrefix(payload, "7;")
 	if !ok {
@@ -286,29 +239,15 @@ func parseOSC7(payload string) (string, bool) {
 	return dir, true
 }
 
-// The shell integration hop installs: a function that emits OSC 7, hung off the
-// prompt so it runs before every prompt the shell draws. There is one per shell
-// rather than one line that detects the shell it landed in, because this line is
-// typed at a real prompt and is echoed there — it is the one part of this feature
-// the user sees, so it is kept as short as a shell will allow. TrackCwd has
-// already established which shell it is talking to by the time it picks one.
+// The prompt hooks hop types into a fresh shell: a function emitting OSC 7, hung
+// off the prompt. One per shell rather than one self-detecting line, because this
+// line is echoed at a real prompt and is the only part of the feature the user
+// sees — so it is kept short.
 //
-// Each begins with:
-//
-//	\x15    kill the line, in case the user had started typing into the prompt
-//	        this is about to be submitted at. Their half-typed line would be
-//	        corrupted by what follows either way; this way it is at least not
-//	        also run.
-//	' '     a leading space, for the shells configured to keep such lines out of
-//	        history (bash's HISTCONTROL=ignorespace, zsh's HIST_IGNORE_SPACE).
-//
-// and ends with a call, so the pane knows where the shell is standing without
-// waiting for the next prompt, and a carriage return, which submits it.
-//
-// A hook the user's own rc-file installs is left in place: this one is prepended
-// to PROMPT_COMMAND rather than replacing it, and appended to zsh's
-// precmd_functions. (TrackCwd does not send it at all when the shell is already
-// reporting — see there.)
+// Each begins with \x15 (kill-line, so a half-typed line is not submitted along
+// with it) and a space (for HISTCONTROL=ignorespace / HIST_IGNORE_SPACE), and
+// ends with a call plus CR, so the cwd is known without waiting for the next
+// prompt. A hook from the user's own rc-file is preserved, not replaced.
 const (
 	bashCwdHook = "\x15 hop_cwd() { printf '\\033]7;file://%s%s\\033\\\\' \"${HOSTNAME:-}\" \"$PWD\"; }; " +
 		"PROMPT_COMMAND=\"hop_cwd${PROMPT_COMMAND:+;$PROMPT_COMMAND}\"; hop_cwd\r"
@@ -317,12 +256,9 @@ const (
 		"precmd_functions+=(hop_cwd); hop_cwd\r"
 )
 
-// cwdHookFor returns the hook to type into this login shell, or "" for a shell
-// that has none — every shell but bash and zsh, which are left untouched rather
-// than sent a line they would answer with a parse error.
-//
-// The name may arrive with the leading "-" a login shell is invoked under, and
-// with whatever whitespace the probe's output carried.
+// cwdHookFor returns the hook for this login shell, or "" for anything but bash
+// and zsh — they would answer with a parse error. The name may arrive with the
+// leading "-" of a login shell and with the probe output's whitespace.
 func cwdHookFor(shell string) string {
 	switch strings.TrimPrefix(path.Base(strings.TrimSpace(shell)), "-") {
 	case "bash":
@@ -333,54 +269,37 @@ func cwdHookFor(shell string) string {
 	return ""
 }
 
-// loginShellCmd asks the remote which login shell the account has, preferring the
-// passwd entry over $SHELL (which an exec channel inherits from the daemon and is
-// occasionally stale). It runs under an explicit `sh -c` rather than the account's
-// own shell, because the account's own shell is exactly what is in question: fish
-// and pwsh would fail to parse this, and a syntax error is a worse answer than an
-// empty one.
+// loginShellCmd asks the remote for the account's login shell, preferring the
+// passwd entry over the occasionally stale $SHELL an exec channel inherits. It
+// runs under an explicit `sh -c` because the account's own shell is what is in
+// question — under fish or pwsh this would be a syntax error.
 const loginShellCmd = `sh -c 'p=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7); ` +
 	`[ -n "$p" ] || p="$SHELL"; printf %s "$p"'`
 
-// hookDelay bounds how long TrackCwd waits for the shell's first output before
-// sending the hook. Typing at a pty that has not finished starting is safe — the
-// bytes queue in the tty buffer — but the shell echoes what it reads, and a line
-// read while the login banner is still printing interleaves with it. Waiting for
-// the first byte is enough to land after the banner has started; the timeout is
-// there so a shell that prints nothing at all (a bare `sh` with an empty prompt)
-// still gets the hook.
+// hookDelay bounds the wait for the shell's first output before the hook is sent.
+// Typing early is safe (the bytes queue in the tty buffer) but the echo would
+// interleave with a login banner still printing. The timeout covers a shell that
+// prints nothing at all.
 const hookDelay = 2 * time.Second
 
-// hookGrace is how long TrackCwd gives an already-integrated shell to say so
-// before typing a hook into it. A user whose own rc-file emits OSC 7 gets nothing
-// typed into their prompt at all, which is the best version of this feature — and
-// the report that proves it arrives with the first prompt, just after the first
-// output. The wait is short because it is also the window in which the user might
-// start typing.
+// hookGrace is how long an already-integrated shell gets to say so before a hook
+// is typed into it — a user whose rc-file emits OSC 7 should get nothing typed at
+// all. Short, because it is also a window in which the user might start typing.
 const hookGrace = 300 * time.Millisecond
 
-// TrackCwd installs the OSC 7 prompt hook in this pane's shell, so Cwd starts
-// reporting where the shell stands. It returns immediately: the probe and the
-// injection happen on a goroutine of their own, and both are best effort.
+// TrackCwd installs the OSC 7 prompt hook in this shell pane, so Cwd starts
+// reporting. It returns immediately; the probe and injection run on their own
+// goroutine, best effort throughout.
 //
-// Three shells get nothing typed into them:
+// Three shells get nothing typed into them: one that is neither bash nor zsh (a
+// parse error), one already reporting OSC 7 from the user's own rc-file, and one
+// whose screen is owned by a full-screen program.
 //
-//   - one whose login shell is neither bash nor zsh, because the line would only be
-//     a parse error there;
-//   - one that is reporting OSC 7 already, from the user's own rc-file — it needs no
-//     help, and a hook it does not need is noise in its first prompt for nothing;
-//   - one whose screen is owned by a full-screen program rather than a prompt.
-//
-// That last guard is the one that matters most. The login shell hop probed is what
-// the account *has*, not necessarily what is on the other end of this pty: a
-// `.bash_profile` ending in `exec tmux attach`, or an sshd with a ForceCommand, both
-// answer "bash" to the probe and then hand the session to something else entirely.
-// Typing a shell command into that is at best noise and at worst — vim in insert
-// mode — an edit to somebody's file. A full-screen program takes the alt screen, so
-// that is what is checked, and the cwd simply stays unknown behind one.
-//
-// It is for shell panes. An editor pane runs one program to completion and has no
-// prompt to hang a hook off.
+// That last guard matters most. The probe reports what the account *has*, not what
+// is on this pty: a `.bash_profile` ending in `exec tmux attach`, or an sshd
+// ForceCommand, both answer "bash" and then hand the session elsewhere. Typing into
+// that is noise at best and — vim in insert mode — an edit to someone's file at
+// worst. Full-screen programs take the alt screen, so that is what is checked.
 func (p *Pane) TrackCwd(cli *sshx.Client, startDir string) {
 	if cli == nil {
 		return
@@ -420,26 +339,22 @@ func (p *Pane) TrackCwd(cli *sshx.Client, startDir string) {
 	}()
 }
 
-// startupLine is the one line hop types at the fresh shell's prompt: the cd into
-// the host's default directory, the OSC 7 prompt hook, or both — in that order, so
-// the hook's trailing call reports the directory the session actually starts in.
+// startupLine is the single line typed at a fresh shell's prompt: the cd into the
+// host's default directory, the OSC 7 hook, or both — cd first, so the hook's
+// trailing call reports where the session actually starts.
 //
-// The two are joined with ";" rather than "&&" because a function definition is
-// not a valid right-hand side of "&&" in bash, and because a cd that fails should
-// still leave a shell that reports where it ended up.
+// Joined with ";" rather than "&&": a function definition is not a valid right-hand
+// side of "&&" in bash, and a failed cd should still leave a reporting shell.
 //
-// A cd that fails is not silenced. The shell prints its own "no such file or
-// directory", which both tells the user their default directory is wrong and — by
-// putting text hop did not type into the echoed span — stops the erase, so the
-// line stays on screen with the reason next to it. A default directory that is
-// simply gone should be visible, not swallowed.
+// A failed cd is deliberately not silenced. The shell's own "no such file or
+// directory" lands inside the echoed span, which stops eraseEcho — so the line
+// stays on screen with the reason next to it instead of being swallowed.
 func startupLine(dir, hook string) string {
 	if dir == "" {
 		return hook
 	}
-	// The "\x15 " prefix is the hooks' own: a kill-line, so a half-typed line is not
-	// submitted with this one, and a space, for the shells configured to keep such
-	// lines out of history. The joined line needs it exactly once, at its front.
+	// The hooks' own "\x15 " prefix (kill-line + history-hiding space); the joined
+	// line needs it exactly once, at the front.
 	cd := "\x15 cd " + shellQuotePath(dir)
 	if hook == "" {
 		return cd + "\r"
@@ -447,12 +362,9 @@ func startupLine(dir, hook string) string {
 	return cd + "; " + strings.TrimPrefix(hook, "\x15 ")
 }
 
-// shellQuotePath renders dir as a single word for the shell, so a directory with
-// a space or a quote in it is one argument and nothing in it is executed.
-//
-// A leading "~" is left outside the quotes — a quoted tilde is a literal one, and
-// "~/work" is what people type. Nothing else expands: "$VAR" in a default
-// directory stays the four characters it looks like.
+// shellQuotePath renders dir as a single shell word, so a space or quote in it
+// stays one argument and nothing in it is executed. A leading "~" is left outside
+// the quotes, since a quoted tilde is a literal one; nothing else expands.
 func shellQuotePath(dir string) string {
 	prefix := ""
 	switch {
@@ -465,8 +377,8 @@ func shellQuotePath(dir string) string {
 }
 
 // isClosed reports whether the pane has been closed under us. Every wait in the
-// injection sequence is followed by one of these: the sequence spans seconds, and a
-// shell tab is closed with one keystroke.
+// injection sequence is followed by one: the sequence spans seconds, and closing a
+// shell tab takes one keystroke.
 func (p *Pane) isClosed() bool {
 	select {
 	case <-p.closed:
@@ -476,29 +388,22 @@ func (p *Pane) isClosed() bool {
 	}
 }
 
-// injectHook types the hook at the shell's prompt and then takes the line the
-// shell echoed back off the screen, so the integration leaves no trace of itself
-// in the pane.
+// injectHook types the hook at the shell's prompt, then removes the line the shell
+// echoed back, so the integration leaves no trace in the pane.
 //
-// The echo cannot be prevented: the shell's line editor draws what it reads, and
-// it is the shell's screen while it does. But it is *hop's* screen afterwards — the
-// emulator is in this process — so the lines the echo occupied are deleted from it
-// once the hook has run, and the prompt below them slides up to where the first one
-// was. What is left is what was there before: the login banner, and a prompt.
-//
-// Nothing is erased on a guess. The rows are only deleted when what is on them is
-// the line hop typed and nothing else — see eraseEcho. A visible line is a blemish;
-// erasing the host's own output would be a defect.
+// The echo cannot be prevented — the shell's line editor draws what it reads — but
+// the emulator is in this process, so the rows can be deleted afterwards and the
+// prompt slid up. Nothing is erased on a guess: see eraseEcho. A leftover line is a
+// blemish; erasing the host's own output would be a defect.
 func (p *Pane) injectHook(line string, expectReport bool) {
 	pos := p.emu.CursorPosition()
 	top, sbBefore := pos.Y, p.emu.ScrollbackLen()
 
 	p.writeString(line)
 
-	// The report is the tell that the hook ran. It is not the tell that the screen is
-	// ready to be measured: the hook's own trailing call emits it while the echoed
-	// line is still the current one, before the shell has printed the newline and the
-	// prompt that follow. So the report is waited for first, and then the screen is.
+	// The report says the hook ran, not that the screen is ready to measure: it is
+	// emitted while the echoed line is still current, before the newline and prompt
+	// that follow. So wait for the report first, then for the screen.
 	if expectReport && !p.reportsCwd(hookRunWindow) {
 		return
 	}
@@ -515,10 +420,9 @@ func (p *Pane) injectHook(line string, expectReport bool) {
 // — before its echo is left where it is.
 const hookRunWindow = 3 * time.Second
 
-// The screen is settled when the cursor has moved below the row the echo started
-// on — the shell has finished the line and drawn a fresh prompt under it — and has
-// then stayed put for promptQuiet. Measuring before that would count too few rows,
-// and an erase that spans too few rows leaves half the echo behind.
+// The screen is settled once the cursor has moved below the echo's first row and
+// stayed put for promptQuiet. Measuring earlier counts too few rows, and an erase
+// spanning too few rows leaves half the echo behind.
 const (
 	promptWait  = 3 * time.Second
 	promptQuiet = 90 * time.Millisecond
@@ -555,28 +459,22 @@ func (p *Pane) waitPromptBelow(top, sbBefore int) bool {
 	return false
 }
 
-// eraseEcho deletes the rows the hook was echoed onto, moving what follows up into
-// their place — but only once it has read those rows back and found the hook and
-// nothing else on them.
+// eraseEcho deletes the rows the hook was echoed onto and pulls what follows up —
+// but only after reading those rows back and finding the hook and nothing else.
 //
-// The read-back is the whole safety of this. top is a row index measured *before*
-// the hook was written, and the host is free to print in the meantime: a box with a
-// slow dynamic MOTD is still writing lines when the hook goes in, and those lines
-// land inside the span. Trusting the span would delete them. So the span is
-// confirmed against the text hop typed, and a span holding anything else is left
-// exactly where it is.
+// The read-back is the whole safety of this: top was measured *before* the hook was
+// written, and the host prints in the meantime (a slow dynamic MOTD lands inside
+// the span). Trusting the span would delete that output.
 //
-// sbBefore is the scrollback length at that same moment: the difference against the
-// current one is how far the screen scrolled in between, which is what makes top
-// stale and has to be taken off it.
+// sbBefore is the scrollback length at that same moment; the difference against the
+// current one is how far the screen scrolled, which has to come off top.
 func (p *Pane) eraseEcho(top, sbBefore int, hook string) {
 	cur := p.emu.CursorPosition()
 	top -= p.emu.ScrollbackLen() - sbBefore
 	if top < 0 {
-		// The span starts above the screen: it scrolled while the hook was going in.
-		// Clamping to the first visible row is only useful when the echo itself is still
-		// there to be recognised — holdsEchoOnly requires it to begin on that row — so a
-		// screen that scrolled past the echo keeps it, in history, out of sight.
+		// The span scrolled off the top. Clamping only helps while the echo is still
+		// there to recognise (holdsEchoOnly requires it to begin on the clamped row), so
+		// a screen that scrolled past it keeps the echo in history, out of sight.
 		top = 0
 	}
 
@@ -588,9 +486,8 @@ func (p *Pane) eraseEcho(top, sbBefore int, hook string) {
 		return
 	}
 
-	// Park the cursor on the first row to go, delete n rows (which pulls the prompt
-	// row up to it), then put the cursor back on that prompt, at the column it was
-	// on. CUP is 1-based; the emulator's positions are not.
+	// Park on the first row to go, delete n rows (pulling the prompt up to it), then
+	// restore the cursor onto that prompt. CUP is 1-based; emulator positions are not.
 	_, _ = p.emu.Write([]byte(fmt.Sprintf("\x1b[%d;1H\x1b[%dM\x1b[%d;%dH",
 		top+1, n, top+1, cur.X+1)))
 	if p.onOutput != nil {
@@ -599,20 +496,16 @@ func (p *Pane) eraseEcho(top, sbBefore int, hook string) {
 }
 
 // holdsEchoOnly reports whether rows [top, bottom) hold the echo of hook and
-// nothing besides it.
+// nothing else.
 //
-// The echo is one long line the shell wrapped across those rows, so read back and
-// joined end to end they hold the hook's text verbatim: a prompt, and then the line
-// as it was typed. What is checked is exactly that — from the hook's first characters
-// onward, the span must be a prefix of the hook. A MOTD line, a background job's
-// output, anything else that printed into the span breaks that prefix, and the erase
-// is declined.
+// The echo is one long line wrapped across those rows, so joined end to end they
+// read as a prompt followed by the hook verbatim. From the hook's first characters
+// onward the span must be a prefix of the hook; a MOTD line or a background job's
+// output breaks that prefix and the erase is declined.
 //
-// Spaces are dropped from both sides of the comparison rather than matched. A row is
-// as wide as the screen, so the wrap can fall on one of the hook's own spaces, and
-// whether the emulator hands that row back with it or pads the next one is not
-// something worth depending on. Nothing else is dropped, so text that does not
-// belong to the hook still fails.
+// Spaces are dropped from both sides rather than matched, because the wrap can fall
+// on one of the hook's own spaces and whether the emulator keeps or pads it is not
+// worth depending on. Nothing else is dropped.
 func (p *Pane) holdsEchoOnly(top, bottom int, hook string) bool {
 	typed := squeeze(strings.TrimSuffix(strings.TrimPrefix(hook, "\x15"), "\r"))
 	head := typed
@@ -631,19 +524,18 @@ func (p *Pane) holdsEchoOnly(top, bottom int, hook string) bool {
 	if i < 0 {
 		return false
 	}
-	// The echo has to begin on the span's *first* row, after the prompt and nothing
-	// else. Without this, a span whose start was clamped up to row 0 would pass on the
-	// strength of an echo further down it and take the rows above — the login banner —
-	// along with it.
+	// The echo must begin on the span's *first* row, right after the prompt. Without
+	// this, a span clamped up to row 0 would pass on an echo further down it and take
+	// the login banner above along with it.
 	if i >= len(squeeze(stripSGR(rowAt(rows, top)))) {
 		return false
 	}
 	return strings.HasPrefix(typed, echo[i:])
 }
 
-// echoHeadLen is how much of the typed line is used to find where the echo starts
-// within the prompt row. Long enough to be unmistakable, short enough to survive the
-// row boundary the prompt may push it over.
+// echoHeadLen is how much of the typed line locates the echo's start within the
+// prompt row: long enough to be unmistakable, short enough to survive the row
+// boundary the prompt may push it over.
 const echoHeadLen = 16
 
 // rowAt returns row i, or "" when the screen has no such row.
@@ -660,9 +552,8 @@ func squeeze(s string) string {
 	return strings.ReplaceAll(s, " ", "")
 }
 
-// stripSGR removes the escape sequences a rendered row carries, leaving the
-// characters that occupy cells. It is the inverse of what Render adds, and only
-// needs to handle what Render emits: CSI sequences and OSCs.
+// stripSGR removes the escape sequences a rendered row carries, leaving the cells'
+// characters. Only needs to handle what Render emits: CSI sequences and OSCs.
 func stripSGR(row string) string {
 	var b strings.Builder
 	for i := 0; i < len(row); {
@@ -706,8 +597,8 @@ func (p *Pane) reportsCwd(timeout time.Duration) bool {
 		if p.Cwd() != "" {
 			return true
 		}
-		// A closed pane will report nothing further, and the caller must not carry on
-		// typing into a session that has gone.
+		// A closed pane reports nothing further, and the caller must not keep typing
+		// into a session that is gone.
 		if p.isClosed() || time.Now().After(deadline) {
 			return false
 		}

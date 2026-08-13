@@ -40,18 +40,13 @@ type Pane struct {
 	sess *sshx.Session
 	mu   sync.Mutex // guards ALL writes to sess.Stdin
 
-	// scrollOffset is how far the scrollback window is lifted off the live bottom,
-	// measured in lines: 0 is live (the current screen), N is scrolled N lines up
-	// into history. It is the one piece of pane state that carries NO mutex, and on
-	// purpose.
+	// scrollOffset is how far the scrollback window is lifted off the live bottom, in
+	// lines: 0 is live, N is N lines up into history.
 	//
-	// Bubble Tea's Update and View both run on the single UI goroutine, and those are
-	// the only two places this field is ever touched — the scroll methods below are
-	// called from Update, ViewScrollback reads it from View. The output pump never so
-	// much as looks at it. So there is no second goroutine to race with, and the only
-	// shared thing the scroll methods reach through — the emulator — is a SafeEmulator,
-	// concurrency-safe in its own right. A mutex here would guard against a contender
-	// that does not exist.
+	// Deliberately the one piece of pane state with no mutex. Bubble Tea's Update and
+	// View share one goroutine and are the only places it is touched (scroll methods
+	// from Update, ViewScrollback from View); the output pump never looks at it, and
+	// the emulator it reaches through is a SafeEmulator. There is no contender.
 	scrollOffset int
 
 	// mouse is the mouse reporting the far end has asked for, tracked through the
@@ -100,22 +95,18 @@ type Pane struct {
 	closeOnce sync.Once
 }
 
-// New creates an emulator sized w x h, binds it to sess, and starts the two
-// data pumps described in DATA FLOW:
+// New creates an emulator sized w x h, binds it to sess, and starts the two data
+// pumps described in DATA FLOW:
 //
 //	remote output (sess.Stdout) -> emu.Write()      (feeds the parser, drives the screen)
 //	emu auto-responses (emu.Read via io.Copy) -> sess.Stdin  (e.g. cursor reports)
 //
-// Note: the emulator's InputPipe()/Read() pair is the terminal->host response
-// channel (a loopback pipe), NOT the parser feed. Server output must go through
-// Write(), which advances the ANSI parser; SafeEmulator.Write is concurrency-safe.
+// The emulator's InputPipe()/Read() pair is the terminal->host response channel, NOT
+// the parser feed: server output must go through Write().
 //
-// onOutput (may be nil) is invoked after each chunk of server output has been
-// parsed into the emulator. The TUI uses it to trigger an immediate repaint, so
-// keystroke echoes render as soon as bytes arrive rather than waiting on a timer
-// (this is what removes the perceived typing lag).
-//
-// Both goroutines run until their streams close (session teardown / Close).
+// onOutput (may be nil) fires after each chunk is parsed; the TUI repaints on it, so
+// keystroke echoes render as bytes arrive rather than on a timer. Both goroutines run
+// until their streams close.
 func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 	emu := vt.NewSafeEmulator(w, h)
 	p := &Pane{
@@ -140,21 +131,15 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 			p.mouse.setMode(mode, false)
 			p.paste.setMode(mode, false)
 		},
-		// Leaving the alt screen ends the full-screen program that owned it, and hop
-		// stops believing whatever that program asked for. It is meant to say so
-		// itself — the modes go off before the screen is handed back — but a program
-		// that was killed, or that restored the screen and nothing else, never does,
-		// and the shell underneath it is then left "asking" for the mouse it knows
-		// nothing about. Every drag over that shell would be encoded and typed into
-		// it. So the ask is dropped with the screen it was made on, which is also
-		// what the modes mean: they belong to the program, and the program is gone.
+		// Leaving the alt screen ends the program that owned it, so its mode requests go
+		// with it. A program that was killed never withdraws them itself, and the shell
+		// underneath is then left "asking" for a mouse it knows nothing about — every
+		// drag would be encoded and typed into it.
 		//
-		// This is a callback rather than a check after the chunk is parsed, because
-		// the modes the *next* program sets are in that same chunk: quitting vim over
-		// SSH arrives as one read of vim's teardown followed by the shell's prompt,
-		// and readline announces bracketed paste (?2004h) before every line it reads.
-		// Clearing afterwards threw that announcement away and left hop pasting
-		// unbracketed into a shell that would run each line of it.
+		// A callback rather than a check after the chunk is parsed, because the *next*
+		// program's modes are in that same chunk: quitting vim arrives as one read of
+		// vim's teardown plus the shell's prompt, and readline announces bracketed paste
+		// (?2004h) before every line. Clearing afterwards discarded that announcement.
 		AltScreen: func(on bool) {
 			if on {
 				return
@@ -346,25 +331,18 @@ func (p *Pane) Resize(w, h int) {
 	_ = p.sess.Resize(w, h)
 }
 
-// Close tears down the emulator and the underlying SSH session. The two pumps
-// started in New unblock once these streams close, and neither touches the emulator
-// again afterwards.
+// Close tears down the emulator and the underlying SSH session; the two pumps from
+// New unblock once these streams close.
 //
-// It closes the emulator's *input pipe* rather than calling emu.Close(), and that is
-// the whole point of the dance: emu.Close() sets an unguarded `closed` flag that the
-// response pump — parked inside emu.Read for the life of the pane — is reading at
-// that very moment, and SafeEmulator locks neither one (its Read passes straight
-// through, and it has no Close of its own). Closing a pane while its pump was alive
-// was therefore a data race, which -race reported on any test that closed one.
+// It closes the emulator's *input pipe* rather than calling emu.Close(): that sets an
+// unguarded `closed` flag which the response pump, parked in emu.Read, is reading at
+// that moment, and SafeEmulator locks neither — a data race -race reported on any
+// test that closed a pane. Closing the pipe achieves the same end (Read returns EOF,
+// the goroutine goes) without writing anything. The skipped flag guards a Write that
+// is unreachable anyway, since the session closes just below.
 //
-// Closing the pipe does the one thing emu.Close() was wanted for — Read returns EOF,
-// the copy finishes, the goroutine goes — and it writes nothing, so there is nothing
-// left to race on. The flag is all that is skipped, and it guards a Write that can no
-// longer be reached: the session is closed just below, so no further output arrives
-// to be parsed. Nothing leaks — the emulator is memory, and it goes with the pane.
-//
-// The fallback keeps the old behaviour if vt ever stops handing back a Closer: a
-// benign race beats a stranded goroutine holding a dead session open.
+// The fallback keeps the old behaviour if vt stops handing back a Closer: a benign
+// race beats a stranded goroutine holding a dead session open.
 func (p *Pane) Close() error {
 	// First, so anything still working on this pane — the shell-integration goroutine,
 	// which may be parked for seconds waiting on a prompt — gives up before the
@@ -415,17 +393,15 @@ func keyToBytes(msg tea.KeyMsg) []byte {
 	return b
 }
 
-// modifiedKeyBytes maps a cursor/navigation key carrying a ctrl and/or shift
-// modifier to its xterm sequence, and reports whether the event was one.
+// modifiedKeyBytes maps a cursor/navigation key carrying ctrl and/or shift to its
+// xterm sequence, and reports whether the event was one.
 //
-// The encoding is CSI 1 ; <mod> <final> for the arrows and home/end, and
-// CSI <n> ; <mod> ~ for the tilde-terminated keys (pgup/pgdown), where <mod> is
-// 1 + a bitmask: shift 1, alt 2, ctrl 4. So ctrl+left is ESC[1;5D, shift+right
-// ESC[1;2C, ctrl+shift+left ESC[1;6D, ctrl+alt+left ESC[1;7D.
+// The encoding is CSI 1 ; <mod> <final> for arrows and home/end, CSI <n> ; <mod> ~
+// for the tilde-terminated keys, where <mod> is 1 + a bitmask (shift 1, alt 2,
+// ctrl 4): ctrl+left is ESC[1;5D, shift+right ESC[1;2C, ctrl+shift+left ESC[1;6D.
 //
-// Without this, ctrl+left fell through keyBytes' ctrl+<letter> branch ("left" is
-// not one letter) and off the end of the function as nil, so nothing at all
-// reached the remote and word-wise motion looked dead inside a pane.
+// Without this, ctrl+left fell past keyBytes' ctrl+<letter> branch and returned nil,
+// so word-wise motion looked dead inside a pane.
 func modifiedKeyBytes(msg tea.KeyMsg) ([]byte, bool) {
 	var final byte // 'A'/'B'/'C'/'D'/'H'/'F', or 0 for a tilde key
 	var tilde int  // the CSI parameter of a tilde key (5 pgup, 6 pgdown)
@@ -631,21 +607,17 @@ func (p *Pane) AtBottom() bool {
 }
 
 // ViewScrollback renders the windowed view at the current scroll offset, exactly
-// emu.Height() lines tall so it slots into the layout in place of View() with no
-// change to the surrounding geometry. Unlike View() it lays down NO cursor: this is
-// history being read, not a live line being edited, and a cursor adrift in old
-// output would only mislead.
+// emu.Height() lines tall so it drops into the layout in place of View(). Unlike
+// View() it lays down no cursor — this is history being read, and a cursor adrift in
+// old output would mislead.
 //
-// The trick is to treat scrollback and the live screen as one tall virtual buffer:
-// the sbLen lines of history first, then the h lines of the current screen, indexed
-// 0 .. sbLen+h-1. The window is a height-h slice of that buffer whose top sits at
-// virtual index sbLen-offset — so at offset 0 the top is at sbLen, the window is
-// exactly the live screen, and this returns what View() would minus the cursor
-// (a property the tests pin down). Lift the offset and the same slice walks up into
-// history.
+// Scrollback and the live screen are treated as one tall virtual buffer: sbLen lines
+// of history, then h lines of screen. The window is a height-h slice whose top sits
+// at virtual index sbLen-offset, so offset 0 is exactly the live screen (a property
+// the tests pin down) and lifting the offset walks up into history.
 //
-// Widths are left alone, as View() leaves them: lipgloss pads the lines out when it
-// draws the pane border, and pre-padding here would fight it.
+// Widths are left alone, as View() leaves them: lipgloss pads when it draws the pane
+// border, and pre-padding here would fight it.
 func (p *Pane) ViewScrollback() string {
 	h := p.emu.Height()
 	offset := p.clampOffset()

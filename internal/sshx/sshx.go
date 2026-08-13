@@ -1,17 +1,14 @@
-// Package sshx implements the pure-Go SSH engine for hop.
+// Package sshx implements the pure-Go SSH engine for hop, over
+// golang.org/x/crypto/ssh.
 //
-// It authenticates by public key, offering the running OpenSSH agent — the named
-// pipe \\.\pipe\openssh-ssh-agent on Windows, the $SSH_AUTH_SOCK unix socket
-// everywhere else (see agent_windows.go / agent_unix.go) — and private keys read
-// from disk (see keys.go), and speaks SSH via golang.org/x/crypto/ssh. Host-key
-// verification uses a TOFU (trust-on-first-use) wrapper around the user's
-// ~/.ssh/known_hosts file.
+// It authenticates by public key, offering both the running OpenSSH agent (see
+// agent_windows.go / agent_unix.go) and private keys from disk (see keys.go).
+// Host-key verification is a TOFU wrapper around ~/.ssh/known_hosts.
 //
-// When the caller supplies a Prompter (see prompt.go), keys are followed by the
-// interactive methods — keyboard-interactive and password — which is what a host
-// running two-factor auth asks its verification code over. Those questions are
-// answered inside the handshake rather than by retrying the dial, because a
-// one-time code cannot be replayed.
+// With a Prompter (see prompt.go), keys are followed by keyboard-interactive and
+// password — how a 2FA host asks for its verification code. Those are answered
+// inside the handshake rather than by retrying the dial, since a one-time code
+// cannot be replayed.
 package sshx
 
 import (
@@ -112,15 +109,10 @@ func newClient(cl *ssh.Client) *Client {
 	return c
 }
 
-// Keepalive parameters, matching what plain ssh does with ServerAliveInterval /
-// ServerAliveCountMax set: probe the server every interval, and give up on it
-// after this many probes in a row go unanswered.
-//
-// Without them a connection that is blackholed rather than reset — a laptop
-// suspended, a VPN dropped, a NAT entry expired — is never noticed: nothing is
-// being written, so TCP has no reason to complain, and the shell just stops
-// updating forever. The probe is what makes the loss detectable at all, which is
-// what everything below the UI's reconnect offer stands on.
+// Keepalive parameters, matching ssh's ServerAliveInterval / ServerAliveCountMax.
+// Without them a blackholed connection — suspended laptop, dropped VPN, expired NAT
+// entry — is never noticed: nothing is written, so TCP never complains and the
+// shell just stops updating. The probe is what the UI's reconnect offer stands on.
 const (
 	keepaliveInterval = 15 * time.Second
 	keepaliveTimeout  = 10 * time.Second
@@ -214,34 +206,23 @@ func AgentAuth() (ssh.AuthMethod, error) {
 	return ssh.PublicKeysCallback(ag.Signers), nil
 }
 
-// authMethods assembles the auth to offer for h. Public keys come from two
-// sources: the OpenSSH agent's identities, and private keys read from disk — the
-// host's IdentityFile if it names one, otherwise the default ~/.ssh keys.
+// authMethods assembles the auth to offer for h: the agent's identities plus
+// private keys from disk (the host's IdentityFile, else the default ~/.ssh keys).
 //
-// Neither source is required, only their union: a running agent that holds no
-// identities is the normal state on macOS (launchd always exports
-// $SSH_AUTH_SOCK), and an agent with the right key loaded makes the key files
-// irrelevant. Failing only when both come up empty is what makes hop connect
-// wherever plain `ssh` does.
+// Neither source is required, only their union — an agent holding no identities is
+// normal on macOS, and an agent with the right key makes the files irrelevant.
+// Failing only when both are empty is what makes hop connect wherever ssh does.
 //
-// The two sets are merged into a *single* publickey method rather than offered
-// as two. The SSH client tries each method name at most once — a second
-// "publickey" entry is skipped outright — so agent-then-keys as separate methods
-// would let an empty agent swallow the attempt and never reach the key files.
+// The two are merged into a *single* publickey method, because the client tries
+// each method name at most once: offered separately, an empty agent would swallow
+// the attempt and the key files would never be reached.
 //
-// With a prompter, the interactive methods follow the keys, in the order plain
-// ssh prefers them. keyboard-interactive is what a host running
-// pam_google_authenticator asks its verification code over; a hardened
-// `AuthenticationMethods publickey,keyboard-interactive` server answers the
-// public key with a *partial* success and then requires it, which the client
-// handles by carrying on down this list. Both are wrapped in
-// ssh.RetryableAuthMethod so a mistyped code is another prompt rather than a
-// failed dial — the retry stays inside the one handshake, which matters because
-// a fresh dial would need a fresh code.
-//
-// A prompter also makes "no keys at all" survivable: interactive auth is a way
-// in on its own, so the no-auth error is only reached when there is nothing left
-// to offer.
+// With a prompter, keyboard-interactive and password follow, in ssh's own order. A
+// hardened `AuthenticationMethods publickey,keyboard-interactive` server answers
+// the key with a *partial* success and then requires them. Both are wrapped in
+// ssh.RetryableAuthMethod, so a mistyped code is another prompt inside the same
+// handshake — a fresh dial would need a fresh code. A prompter also makes "no keys
+// at all" survivable.
 func authMethods(h store.Host, p Prompter) ([]ssh.AuthMethod, error) {
 	signers, agentErr := agentSigners()
 
@@ -410,14 +391,10 @@ func (c *Client) Command(cmd string, cols, rows int) (*Session, error) {
 	return c.startPTY(cols, rows, func(s *ssh.Session) error { return s.Start(cmd) })
 }
 
-// Output runs cmd on a channel of its own — no pty, nothing interactive — and
-// returns what it wrote to stdout. It is for the small questions hop asks a host
-// about itself, where the answer is a line of text rather than a session: which
-// login shell the account has, and anything else of that shape.
-//
-// stderr is discarded. A command that fails is an error here, and what it
-// complained about on the way out is not something the caller can act on; the
-// callers of this treat "no answer" and "a bad answer" the same way.
+// Output runs cmd on a channel of its own — no pty — and returns its stdout. It is
+// for the small questions hop asks a host about itself, like which login shell the
+// account has. stderr is discarded: callers treat "no answer" and "a bad answer"
+// alike.
 func (c *Client) Output(cmd string) (string, error) {
 	sess, err := c.ssh.NewSession()
 	if err != nil {
@@ -573,16 +550,14 @@ func hostKeyDB() (*knownhosts.HostKeyDB, string, error) {
 	return db, khPath, nil
 }
 
-// tofuHostKeyCallback verifies the presented key against db. A key already known
-// is accepted; a genuine key change is rejected outright.
+// tofuHostKeyCallback verifies the presented key against db: a known key is
+// accepted, a changed one rejected outright.
 //
-// A first-contact host is handled by trustedFP. When it is empty the key is not
-// trusted: the callback returns an *UnknownHostKeyError and writes nothing, so
-// the caller can ask the user before anything is committed. When it holds a
-// fingerprint the user has approved, a presented key matching it is appended to
-// khPath and accepted (its fingerprint reported through recorded so the UI can
-// confirm what was trusted); a presented key that does not match is refused, as
-// it means the key changed since the fingerprint was approved.
+// First contact is decided by trustedFP. Empty means untrusted — the callback
+// returns an *UnknownHostKeyError and writes nothing, so the caller can ask the
+// user first. Holding a user-approved fingerprint, a matching key is appended to
+// khPath and accepted (reported through recorded); a non-matching one is refused,
+// since the key changed after the fingerprint was approved.
 func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath, trustedFP string, recorded *string) ssh.HostKeyCallback {
 	inner := db.HostKeyCallback()
 

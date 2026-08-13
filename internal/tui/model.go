@@ -131,9 +131,8 @@ type model struct {
 	editing bool
 
 	// scrolling is true when the focused shell pane is in scrollback mode: keys drive
-	// the history viewport (see handleScrollbackKey) instead of going to the remote
-	// shell, and the pane renders ViewScrollback() rather than View(). Only meaningful
-	// while focused; entering requires a shell on the main screen with scrollback to show.
+	// the history viewport (see handleScrollbackKey) and the pane renders
+	// ViewScrollback(). Only meaningful while focused.
 	scrolling bool
 
 	// sidebarHidden is true while the host list is collapsed (ctrl+b), giving the
@@ -141,8 +140,7 @@ type model struct {
 	// setting: hop opens on its host list, which is where you start from.
 	sidebarHidden bool
 
-	// help is true while the keybinding card is up. Like the settings popover it
-	// is modal, and it floats over the screen rather than replacing it.
+	// help is true while the keybinding card is up.
 	help bool
 
 	// updateLatest is the newer release the startup check found, or "" — the
@@ -156,40 +154,37 @@ type model struct {
 
 	// cfg is the user's settings, as loaded at startup and edited in the popover.
 	cfg config.Config
-	// mouseOn is what hop has last asked the *terminal* for, which is not the same
-	// as cfg.Mouse until Init has run: reporting is switched on by a sequence sent to
-	// the user's terminal, so the setting and the state of the world are tracked
-	// separately and reconciled in applyMouse.
+	// mouseOn is what hop last asked the *terminal* for, which is not cfg.Mouse until
+	// Init has run: reporting is switched on by a sequence, so the setting and the
+	// state of the world are tracked separately and reconciled in applyMouse.
 	mouseOn bool
 	// settings is the settings popover's own state (cursor, text entry).
 	settings settingsUI
 
-	// hostForm is the add/edit host card's own state; confirm is the delete
-	// confirmation's. Like settings and help they are modal — each takes every key
-	// while it is up — and float over the screen rather than replacing it.
+	// hostForm is the add/edit host card's state; confirm is the delete
+	// confirmation's.
 	hostForm hostFormUI
 	confirm  confirmUI
 
-	// importer is the SSH-config import card's state. It is modal like the rest, and
-	// it is the one card hop opens by itself: a first run with no hosts comes up on
-	// it rather than on an empty list telling you to go and run `hop import`.
+	// importer is the SSH-config import card's state. It is the one card hop opens by
+	// itself: a first run with no hosts comes up on it rather than on an empty list
+	// telling you to go and run `hop import`.
 	importer importUI
 
 	// tunnels is the per-host forwarding manager. In list mode it starts/stops and
 	// removes definitions; in edit mode it owns the five fields of one definition.
 	tunnels tunnelUI
 
-	// hostKey is the new-host-key confirmation card's state. It is modal like the
-	// others, and it stands in for what used to be a silent trust-on-first-use: an
-	// unknown key now pauses the dial here until the user approves the fingerprint.
+	// hostKey is the new-host-key confirmation card's state: an unknown key pauses the
+	// dial here until the user approves the fingerprint, rather than being trusted
+	// silently on first use.
 	hostKey hostKeyUI
 
-	// auth is the interactive-authentication card's state — the 2FA verification
-	// code or password a dial is waiting on. It is modal like the rest, but unlike
-	// the host-key card it holds a dial *open* rather than replaying it, so it must
-	// always answer (see authprompt.go). prompts is the channel dials ask over, with
-	// one permanently-armed receiver; authQueue holds challenges from other hosts
-	// that arrived while the card was busy.
+	// auth is the interactive-authentication card's state — the 2FA code or password a
+	// dial is waiting on. Unlike the host-key card it holds a dial *open* rather than
+	// replaying it, so it must always answer (see authprompt.go). prompts is the
+	// channel dials ask over, with one permanently-armed receiver; authQueue holds
+	// challenges that arrived from other hosts while the card was busy.
 	auth      authUI
 	prompts   chan authPromptMsg
 	authQueue []authPromptMsg
@@ -243,11 +238,10 @@ func Run(st *store.Store) error {
 	}
 	m.applyClipboard()
 	m.applyFilter()
-	// First run: an empty store almost always means the hosts are sitting in an
-	// OpenSSH config hop has not been pointed at yet, so offer the import here
-	// instead of sending the user back to the shell for `hop import`. The offer is
-	// only made when there is a config file to import — with nothing to read, the
-	// card would be a dead end and the empty list says what to do instead.
+	// First run: an empty store usually means the hosts are in an OpenSSH config hop
+	// has not been pointed at yet, so offer the import instead of sending the user
+	// back to the shell for `hop import`. Only when there is a config to read — with
+	// nothing to import the card would be a dead end.
 	if len(hosts) == 0 && haveSSHConfig() {
 		m.openImport(true)
 	}
@@ -257,21 +251,18 @@ func Run(st *store.Store) error {
 }
 
 func (m *model) Init() tea.Cmd {
-	// A single perpetual subscriber to pane output: it blocks until a live pane
-	// signals new output, emits a redraw, and re-arms (see the redrawMsg case).
-	// Alongside it, a permanent subscriber to authentication challenges (a dial
-	// asking for a 2FA code blocks until it is received), and a one-shot update
-	// check — off the UI thread, so a slow or unreachable GitHub never delays the
-	// first paint.
+	// A single perpetual subscriber to pane output: blocks until a live pane signals,
+	// emits a redraw, re-arms (see the redrawMsg case). Alongside it a permanent
+	// subscriber to auth challenges, and a one-shot update check off the UI thread so
+	// a slow GitHub never delays the first paint.
 	//
-	// The mouse is switched on here rather than as a program option, so that the one
-	// path — applyMouse — decides it at startup and on every later settings change.
+	// The mouse is switched on here rather than as a program option, so applyMouse is
+	// the one path deciding it at startup and on every later settings change.
 	return tea.Batch(waitForOutput(m.notify), waitAuthPrompt(m.prompts), updateCheckCmd(), m.applyMouse())
 }
 
-// Update dispatches the message and then arms the timer for any status line the
-// dispatch put up, so every message that reports something gets its message
-// retired without each of them having to remember to say so.
+// Update dispatches the message, then arms the expiry timer for any status line the
+// dispatch put up — so no handler has to remember to retire its own message.
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	gen := m.statusGen
 	next, cmd := m.update(msg)
