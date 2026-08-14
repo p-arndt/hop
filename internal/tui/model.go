@@ -93,6 +93,10 @@ type model struct {
 	// selection.go.
 	sel selection
 
+	// dragGen numbers the autoscroll chains a drag starts, so a tick armed for an edge
+	// the pointer has since left is dropped. See dragAutoScroll.
+	dragGen int
+
 	// filter input state.
 	filtering bool
 	filter    string
@@ -288,6 +292,10 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Informational only: an empty version leaves the footer hint off.
 		m.updateLatest = msg.latest
 		return m, nil
+
+	case dragScrollMsg:
+		// One more line under a drag held against a pane edge.
+		return m, m.dragScrollTick(msg.gen)
 
 	case statusExpiredMsg:
 		// Only if it is still the message this timer was armed for.

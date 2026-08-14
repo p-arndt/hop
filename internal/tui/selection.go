@@ -8,6 +8,9 @@ package tui
 //   - a drag selects from where the button went down to where the pointer is, flowing
 //     over row ends rather than covering a rectangle (see terminal.Span);
 //   - releasing copies;
+//   - a drag held against the top or bottom row of the pane keeps going, scrolling the
+//     view under the pointer — the selection is not limited to what was on screen when
+//     the button went down (see dragAutoScroll);
 //   - anything else clears it — a keystroke, a scroll, a click elsewhere — since a stale
 //     highlight over a screen that has moved is worse than no highlight.
 //
@@ -30,6 +33,10 @@ type selection struct {
 	dragging bool
 	anchor   terminal.Cell
 	head     terminal.Cell
+	// edge is which way a drag held against a pane edge is scrolling the view: -1 for
+	// up, +1 for down, 0 while the pointer is somewhere in the middle. It is what says
+	// a repeat is already armed, so motion does not start a second clock.
+	edge int
 }
 
 // span is the selection as an ordered span, or the empty span when there is none.
@@ -64,6 +71,7 @@ func (m *model) endSelection(view string) {
 		return
 	}
 	m.sel.dragging = false
+	m.sel.edge = 0
 
 	text := terminal.PlainText(view, m.sel.span(), m.paneW)
 	if strings.TrimSpace(text) == "" {

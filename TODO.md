@@ -60,6 +60,7 @@ the package it works in — this file tracks *what*, not *why*.
 - [x] **Host list keymap trimmed to the step keys** via `keymap.Scope`; the browser keeps the full motion table.
 - [x] **Mouse support (scroll/click)** routed by region (`internal/tui/mouse.go`); every gesture is an existing binding reached by pointing. A remote program that asks for the mouse gets the pointer verbatim (`internal/terminal/mouse.go`). Cards are keyboard-only; `,` → Mouse → off gives the pointer back.
 - [x] **Mouse text selection** (`internal/terminal/selection.go` + `internal/tui/selection.go`) over shells, scrollback and editor panes, landing on the clipboard at release. `ctrl+g` hands mouse reporting back to the terminal live.
+- [x] **Drag autoscroll:** a selection drag held against a pane's top or bottom row scrolls the view under the pointer (into scrollback and back), so a selection is not limited to one screenful; a drag that wanders off the pane keeps its events.
 - [x] **Copy/paste into the remote shell:** no key of its own — paste the way your terminal pastes and hop marks it as a paste (bracketed when the far end asked). Windows has no marked paste, so the burst is recognised by shape (`internal/tui/paste.go`). Copy is OSC 52 → `internal/clipboard`; a remote asking to *read* the clipboard is never answered. Setting: `,` → Remote clipboard.
 - [ ] Cursor: respect hidden state and cursor style (block/bar/underline); optional blink.
 - [ ] Narrow-terminal handling: header/footer truncation and min-size behavior.

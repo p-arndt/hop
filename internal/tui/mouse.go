@@ -76,6 +76,12 @@ func (m *model) routeMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if m.modalCard() != "" {
 		return m, nil
 	}
+	// A drag that ran off the pane is still that drag: it keeps its events wherever the
+	// pointer went, or crossing into the sidebar would clear the selection halfway
+	// through making it.
+	if m.sel.dragging {
+		return m.mousePane(msg)
+	}
 	switch m.zoneAt(msg.X, msg.Y) {
 	case zoneList:
 		return m.mouseList(msg)
@@ -214,7 +220,12 @@ func (m *model) mousePane(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	x, y, ok := m.paneLocal(msg.X, msg.Y)
 	if !ok {
-		return m, nil
+		// Off the pane with the button down: the drag continues at the edge it left by,
+		// which is also what puts it on the edge row autoscroll watches.
+		if !m.sel.dragging {
+			return m, nil
+		}
+		x, y = m.clampToPane(msg.X, msg.Y)
 	}
 
 	if m.listHasFocus() {
@@ -249,6 +260,12 @@ func (m *model) paneLocal(x, y int) (int, int, bool) {
 	return lx, ly, true
 }
 
+// clampToPane maps a screen cell to the nearest cell inside the pane's content box —
+// paneLocal for a pointer that has left it, which is where a drag off the edge lands.
+func (m *model) clampToPane(x, y int) (int, int) {
+	return clamp(x-m.listWidth()-1, 0, max(m.paneW-1, 0)), clamp(y-2, 0, max(m.paneH-1, 0))
+}
+
 // clickIntoPane gives the keyboard to what the pane is showing: its shell, or the
 // browser on a session that has no shell of its own.
 func (m *model) clickIntoPane(s *session) {
@@ -264,8 +281,11 @@ func (m *model) clickIntoPane(s *session) {
 // it; below that, a remote program that asked for the mouse gets the event verbatim, and
 // one that did not leaves the wheel to hop's scrollback.
 func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, tea.Cmd) {
+	h := m.paneH
 	if len(s.shells) > 1 {
-		if y == 0 {
+		// A drag passing over the strip is still a drag: only a click that started
+		// nowhere else gets to switch tabs.
+		if y == 0 && !m.sel.dragging {
 			if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
 				if i, ok := m.tabAt(shellTabNames(s), s.activeSh, x); ok {
 					m.clearSelection()
@@ -275,8 +295,19 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 			return m, nil
 		}
 		y--
+		h--
 	}
 	p := s.shell().pane
+
+	// A drag held against the top or bottom row scrolls the view under it, so a
+	// selection is not limited to the screenful the button went down on.
+	if m.sel.dragging && msg.Action == tea.MouseActionMotion {
+		y = clamp(y, 0, max(h-1, 0))
+		if cmd := m.dragAutoScroll(s, dragEdge(y, h)); cmd != nil {
+			m.dragSelection(terminal.Cell{X: x, Y: y})
+			return m, cmd
+		}
+	}
 
 	// Paused in history, the wheel drives the history whatever the far end asked for: it
 	// is not being shown the live screen, so it is not being pointed at.
@@ -318,6 +349,85 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 		return m, nil
 	}
 	return m.mouseSelect(msg, x, y, p.View())
+}
+
+// ---- autoscroll while dragging ----
+
+// dragEdge reports which way a drag at row y of an h-row content box wants the view to
+// move: -1 while it is held on the top row, +1 on the bottom, 0 anywhere between.
+func dragEdge(y, h int) int {
+	switch {
+	case y <= 0:
+		return -1
+	case y >= h-1:
+		return 1
+	}
+	return 0
+}
+
+// dragAutoScroll keeps a drag going once it has reached an edge: it steps the view one
+// line now and hands back the tick that steps it again, since a pointer held still sends
+// no further motion. It returns nil when there is nothing left to scroll into — the top
+// of history, or the live bottom — which is where the selection simply stops growing.
+//
+// The generation is bumped on every change of direction, so the pending tick of an edge
+// the pointer has left is dropped rather than fighting the new one.
+func (m *model) dragAutoScroll(s *session, dir int) tea.Cmd {
+	if m.sel.edge == dir {
+		// Already going this way (or going nowhere): the armed tick carries it.
+		return nil
+	}
+	m.dragGen++
+	m.sel.edge = dir
+	if dir == 0 || !m.dragScrollStep(s, dir) {
+		m.sel.edge = 0
+		return nil
+	}
+	return dragScrollCmd(m.dragGen)
+}
+
+// dragScrollTick answers one autoscroll tick, re-arming itself while the pointer is
+// still held against the edge it was armed for.
+func (m *model) dragScrollTick(gen int) tea.Cmd {
+	if gen != m.dragGen || !m.sel.dragging || m.sel.edge == 0 {
+		return nil
+	}
+	if !m.dragScrollStep(m.sessions[m.active], m.sel.edge) {
+		m.sel.edge = 0
+		return nil
+	}
+	return dragScrollCmd(gen)
+}
+
+// dragScrollStep moves the focused shell's view one line in dir and reports whether it
+// moved. The anchor travels with the text it was put on: the view scrolled a line, so the
+// cell the button went down on is a line further down (or up) the screen than it was.
+func (m *model) dragScrollStep(s *session, dir int) bool {
+	if s == nil || s.shell() == nil {
+		return false
+	}
+	p := s.shell().pane
+	before := p.ScrollOffset()
+	if dir < 0 {
+		// Upward past the top of the live screen is what scrollback is for; a pane with
+		// no history, or a full-screen program, has nowhere to go.
+		if !m.scrolling() && !m.enterScrollback(s) {
+			return false
+		}
+		p.ScrollUp(1)
+	} else {
+		// Downward only matters while paused in history: the live screen is the bottom.
+		if !m.scrolling() {
+			return false
+		}
+		p.ScrollDown(1)
+	}
+	moved := p.ScrollOffset() - before
+	if moved == 0 {
+		return false
+	}
+	m.sel.anchor.Y += moved
+	return true
 }
 
 // mouseSelect is the pointer over a pane's text with nothing else claiming it: press

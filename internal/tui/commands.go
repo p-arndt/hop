@@ -51,6 +51,15 @@ func expireStatusCmd(gen int) tea.Cmd {
 	return tea.Tick(statusTTL, func(time.Time) tea.Msg { return statusExpiredMsg{gen: gen} })
 }
 
+// dragScrollRate is how often a drag held against a pane edge steps the view by a line:
+// slow enough to stop where you meant to, fast enough to cross a screen of history.
+const dragScrollRate = 60 * time.Millisecond
+
+// dragScrollCmd re-arms the autoscroll of the drag generation it was given.
+func dragScrollCmd(gen int) tea.Cmd {
+	return tea.Tick(dragScrollRate, func(time.Time) tea.Msg { return dragScrollMsg{gen: gen} })
+}
+
 // connectCmd performs the blocking SSH connect and shell start off the UI thread and
 // returns a connectedMsg. notify is handed to the pane so its output pump can wake the
 // UI. trustedFP is empty for a plain dial and the user-approved fingerprint when retrying

@@ -14,6 +14,11 @@ type redrawMsg struct{}
 // tickMsg drives the connect spinner, and runs only while a connect is in flight.
 type tickMsg time.Time
 
+// dragScrollMsg repeats one line of autoscroll while a selection drag is held against
+// the top or bottom row of a pane. gen is the drag chain it was armed for, so a tick
+// left over from a finished drag — or from the other edge — is dropped.
+type dragScrollMsg struct{ gen int }
+
 // updateAvailableMsg carries the result of the startup update check: the newer release's
 // version, or "" when hop is current or the check did not run.
 type updateAvailableMsg struct{ latest string }
