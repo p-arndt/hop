@@ -272,6 +272,15 @@ func (e *UnknownHostKeyError) Error() string {
 	return fmt.Sprintf("sshx: unknown host key for %s: %s %s", e.Hostname, e.KeyType, e.Fingerprint)
 }
 
+// SetJumpResolver installs the lookup that lets a host's ProxyJump name another host in
+// this store by its alias, so the bastion is dialled with its own user, port and key. Set
+// once at startup; without it a jump is taken as a bare hostname.
+func SetJumpResolver(r JumpResolver) { jumpResolver = r }
+
+// jumpResolver is process-wide because a dial is reached from several places (sessions,
+// reconnects, tunnels) and none of them should have to carry the store along.
+var jumpResolver JumpResolver
+
 // Connect resolves auth, host-key policy and address from h and dials. An unknown host
 // aborts with an error unwrapping to *UnknownHostKeyError and appends nothing to
 // known_hosts — the caller decides whether to trust the key and retries through
@@ -293,6 +302,30 @@ func ConnectTrusting(h store.Host, fingerprint string, p Prompter) (*Client, err
 // connect is the shared dial body. trustedFP is empty for a plain TOFU-guarded
 // dial and the user-approved fingerprint for a trusting retry.
 func connect(h store.Host, trustedFP string, p Prompter) (*Client, error) {
+	return connectTrust(h, &trustState{fingerprint: trustedFP}, p)
+}
+
+// trustState is one user approval as it travels through a dial. A jump dials two hosts,
+// and the approval belongs to exactly one of them: the first first-contact host it fits
+// consumes it, and every later unknown host in the same dial raises its own
+// *UnknownHostKeyError instead of being measured against a fingerprint approved for
+// somebody else. That is what turns a two-host first contact into two questions rather
+// than a loop or a bogus "possible key swap".
+type trustState struct {
+	fingerprint string
+	used        bool
+}
+
+// take returns the approved fingerprint once, then reports empty.
+func (t *trustState) take() string {
+	if t == nil || t.used || t.fingerprint == "" {
+		return ""
+	}
+	t.used = true
+	return t.fingerprint
+}
+
+func connectTrust(h store.Host, trust *trustState, p Prompter) (*Client, error) {
 	auths, err := authMethods(h, p)
 	if err != nil {
 		return nil, err
@@ -322,16 +355,90 @@ func connect(h store.Host, trustedFP string, p Prompter) (*Client, error) {
 		// answer with a type we have no entry for, which reads as a key mismatch. Empty
 		// for an unknown host means library defaults.
 		HostKeyAlgorithms: db.HostKeyAlgorithms(addr),
-		HostKeyCallback:   tofuHostKeyCallback(db, khPath, trustedFP, &newKey),
+		HostKeyCallback:   tofuHostKeyCallback(db, khPath, trust, &newKey),
 		Timeout:           dialTimeout,
 	}
 
-	cl, err := ConnectAddr(addr, cfg)
+	cl, err := dialWithProxy(h, addr, username, port, trust, cfg, p)
 	if err != nil {
 		return nil, err
 	}
 	cl.NewHostKey = newKey
 	return cl, nil
+}
+
+// dialWithProxy opens the transport to addr by whichever route h describes: through a
+// bastion, through a local proxy program, or straight over TCP. Only the route differs —
+// the same ClientConfig, and so the same auth and host-key checks, apply to all three.
+//
+// ProxyJump wins over ProxyCommand when both are set, which is the precedence ssh itself
+// applies.
+func dialWithProxy(h store.Host, addr, username string, port int, trust *trustState, cfg *ssh.ClientConfig, p Prompter) (*Client, error) {
+	switch {
+	case strings.TrimSpace(h.ProxyJump) != "":
+		return dialViaJump(h, addr, trust, cfg, p)
+	case strings.TrimSpace(h.ProxyCommand) != "":
+		conn, err := dialProxyCommand(h.ProxyCommand, h.HostName, port, username, h.Alias)
+		if err != nil {
+			return nil, err
+		}
+		return clientOverConn(conn, addr, cfg)
+	default:
+		return ConnectAddr(addr, cfg)
+	}
+}
+
+// dialViaJump logs into the bastion first, then dials addr from there over the bastion's
+// authenticated transport. The bastion's own host key is verified by its own dial, so a
+// compromised bastion still cannot pose as the target.
+//
+// The bastion client is closed when the target's connection ends; leaving it open would
+// hold a second SSH session per hop for the life of the process.
+//
+// The approval travels into the bastion's own dial, because the bastion is dialled first
+// and so is the first host a user meeting both for the first time is asked about. Without
+// it the retry would meet the same unknown bastion key and the fingerprint card would
+// reopen forever. trustState.take makes the approval single-use, so the target is then
+// asked about separately rather than measured against the bastion's fingerprint.
+func dialViaJump(h store.Host, addr string, trust *trustState, cfg *ssh.ClientConfig, p Prompter) (*Client, error) {
+	j, err := parseJump(h.ProxyJump)
+	if err != nil {
+		return nil, err
+	}
+
+	bastion, err := connectTrust(jumpTarget(j, jumpResolver), trust, p)
+	if err != nil {
+		return nil, fmt.Errorf("sshx: proxy jump via %s: %w", j.Host, err)
+	}
+
+	conn, err := bastion.ssh.Dial("tcp", addr)
+	if err != nil {
+		bastion.Close()
+		return nil, fmt.Errorf("sshx: proxy jump %s -> %s: %w", j.Host, addr, err)
+	}
+
+	cl, err := clientOverConn(conn, addr, cfg)
+	if err != nil {
+		bastion.Close()
+		return nil, err
+	}
+	go func() {
+		<-cl.Lost()
+		bastion.Close()
+	}()
+	return cl, nil
+}
+
+// clientOverConn completes the SSH handshake over an already-established stream. It
+// closes conn on failure, so a refused handshake does not leave the proxy program or the
+// bastion channel running.
+func clientOverConn(conn net.Conn, addr string, cfg *ssh.ClientConfig) (*Client, error) {
+	c, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("sshx: handshake with %s: %w", addr, err)
+	}
+	return newClient(ssh.NewClient(c, chans, reqs)), nil
 }
 
 // ConnectAddr dials addr with the supplied config. Tests pass their own host-key
@@ -517,7 +624,7 @@ func hostKeyDB() (*knownhosts.HostKeyDB, string, error) {
 // writes nothing, so the caller can ask the user. With a user-approved fingerprint, a
 // matching key is appended to khPath and reported through recorded; a non-matching one
 // is refused, since the key changed after approval.
-func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath, trustedFP string, recorded *string) ssh.HostKeyCallback {
+func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath string, trust *trustState, recorded *string) ssh.HostKeyCallback {
 	inner := db.HostKeyCallback()
 
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
@@ -529,6 +636,7 @@ func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath, trustedFP string, rec
 			return fmt.Errorf("sshx: host key mismatch for %s: %w", hostname, err)
 		case knownhosts.IsHostUnknown(err):
 			fp := ssh.FingerprintSHA256(key)
+			trustedFP := trust.take()
 			if trustedFP == "" {
 				return &UnknownHostKeyError{Hostname: hostname, Fingerprint: fp, KeyType: key.Type()}
 			}

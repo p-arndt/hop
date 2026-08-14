@@ -41,7 +41,7 @@ func callbackFor(t *testing.T, trustedFP string, recorded *string) (ssh.HostKeyC
 	if err != nil {
 		t.Fatalf("load known_hosts: %v", err)
 	}
-	return tofuHostKeyCallback(db, khPath, trustedFP, recorded), khPath
+	return tofuHostKeyCallback(db, khPath, &trustState{fingerprint: trustedFP}, recorded), khPath
 }
 
 var testAddr = &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 22}

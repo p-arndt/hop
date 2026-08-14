@@ -28,6 +28,9 @@ import (
 var server *dockerenv.TwoFactor
 
 func TestMain(m *testing.M) {
+	// A re-executed child standing in for a ProxyCommand never returns from this.
+	runProxyHelperIfRequested()
+
 	if !dockerenv.Enabled() {
 		os.Exit(m.Run())
 	}

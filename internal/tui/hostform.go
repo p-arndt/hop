@@ -33,6 +33,8 @@ var hostFormFields = [...]hostFormField{
 	{"Tags", "none"},
 	{"Group", "none"},
 	{"Default dir", "home"},
+	{"Proxy jump", "none"},
+	{"Proxy command", "none"},
 }
 
 // Field indices into hostFormFields and hostFormUI.buf.
@@ -45,6 +47,8 @@ const (
 	hfTags
 	hfGroup
 	hfDefaultDir
+	hfProxyJump
+	hfProxyCommand
 )
 
 // hostFormUI is the add/edit card's own state: one buffer per field, and in edit mode
@@ -89,6 +93,8 @@ func (m *model) openHostFormEdit(h store.Host) {
 	f.buf[hfTags] = strings.Join(h.Tags, ", ")
 	f.buf[hfGroup] = h.Group
 	f.buf[hfDefaultDir] = h.DefaultDir
+	f.buf[hfProxyJump] = h.ProxyJump
+	f.buf[hfProxyCommand] = h.ProxyCommand
 
 	m.hostForm = f
 	m.status = ""
@@ -173,6 +179,8 @@ func (m *model) submitHostForm() {
 		Tags:         splitFormTags(f.buf[hfTags]),
 		Group:        strings.TrimSpace(f.buf[hfGroup]),
 		DefaultDir:   strings.TrimSpace(f.buf[hfDefaultDir]),
+		ProxyJump:    strings.TrimSpace(f.buf[hfProxyJump]),
+		ProxyCommand: strings.TrimSpace(f.buf[hfProxyCommand]),
 		Visits:       f.visits,
 		LastConnect:  f.lastConnect,
 	}

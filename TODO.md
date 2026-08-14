@@ -49,7 +49,8 @@ the package it works in — this file tracks *what*, not *why*.
 - [x] **Interactive auth (2FA/OTP, passwords):** `sshx.Prompter` asks the UI from inside the handshake, so a retry does not spend a fresh TOTP code. `esc` cancels stickily.
 - [x] **End-to-end 2FA tests against a real server:** `internal/dockerenv` runs openssh-server + `libpam-google-authenticator` in four auth shapes. Opt-in via `HOP_DOCKER_E2E=1` (`just test-e2e`).
 - [x] **Reconnect handling:** keepalives detect a blackholed link, the dead session stays on screen with its last output, and `r` restores the shape of it (shell tabs, browser directory). Editor tabs are deliberately not reopened.
-- [ ] Deferred (not needed for current setup): ProxyJump/bastion, PuTTY session import.
+- [x] **ProxyCommand / ProxyJump** (issue #13): a host reachable only through a broker (AWS SSM, cloudflared, IAP) or a bastion. `internal/sshx/proxy.go` runs the proxy program as a `net.Conn` and stacks the jump over a first client; both imported from SSH-config and editable in the host form. ProxyCommand is split into argv without a shell — a line needing one is refused, not run.
+- [ ] Deferred (not needed for current setup): PuTTY session import.
 
 ## ⌨️ Terminal / UX polish
 

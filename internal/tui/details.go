@@ -53,6 +53,13 @@ func (m *model) renderDetails(w int) string {
 		{"user", stripControl(h.User)},
 		{"identity", stripControl(h.IdentityFile)},
 	}
+	// The route only earns a row when it is not the plain TCP dial — otherwise every
+	// host would carry a line saying nothing.
+	if h.ProxyJump != "" {
+		left = append(left, [2]string{"via", stripControl(h.ProxyJump)})
+	} else if h.ProxyCommand != "" {
+		left = append(left, [2]string{"via", stripControl(h.ProxyCommand)})
+	}
 	right := [][2]string{
 		{"last", relTime(h.LastConnect)},
 		{"visits", strconv.Itoa(h.Visits)},
