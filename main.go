@@ -52,16 +52,11 @@ func main() {
 	// the name would only ever be taken as a bare hostname, losing that host's own user,
 	// port and key.
 	sshx.SetJumpResolver(func(name string) (store.Host, bool) {
-		hosts, err := st.Hosts()
-		if err != nil {
+		h, ok, err := st.HostByAlias(name)
+		if err != nil || !ok {
 			return store.Host{}, false
 		}
-		for _, h := range hosts {
-			if h.Alias == name {
-				return h, true
-			}
-		}
-		return store.Host{}, false
+		return h, true
 	})
 
 	if len(args) == 0 {

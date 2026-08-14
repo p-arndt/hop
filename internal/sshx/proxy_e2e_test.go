@@ -424,3 +424,40 @@ func TestProxyJumpTrustsBastionOnRetry(t *testing.T) {
 		t.Fatalf("Output = %q, %v; want HELLO", out, err)
 	}
 }
+
+// A ProxyJump that names its own host, directly or around a ring of aliases, must end in
+// an error. Before the chain was recorded this recursed until the stack gave out, since
+// each hop resolved to a host carrying the same directive.
+func TestProxyJumpLoopIsRefused(t *testing.T) {
+	fakeHome(t)
+
+	prev := jumpResolver
+	t.Cleanup(func() { jumpResolver = prev })
+	// a jumps to b, b jumps back to a.
+	SetJumpResolver(func(name string) (store.Host, bool) {
+		switch name {
+		case "a":
+			return store.Host{Alias: "a", HostName: "a.invalid", Port: 22, ProxyJump: "b"}, true
+		case "b":
+			return store.Host{Alias: "b", HostName: "b.invalid", Port: 22, ProxyJump: "a"}, true
+		case "self":
+			return store.Host{Alias: "self", HostName: "self.invalid", Port: 22, ProxyJump: "self"}, true
+		}
+		return store.Host{}, false
+	})
+
+	for _, h := range []store.Host{
+		{Alias: "self", HostName: "self.invalid", Port: 22, ProxyJump: "self"},
+		{Alias: "a", HostName: "a.invalid", Port: 22, ProxyJump: "b"},
+	} {
+		t.Run(h.Alias, func(t *testing.T) {
+			_, err := Connect(h, nopPrompter{})
+			if err == nil {
+				t.Fatal("Connect = nil error, want a refused jump chain")
+			}
+			if !strings.Contains(err.Error(), "loop") {
+				t.Errorf("error = %v, want it to name the jump loop", err)
+			}
+		})
+	}
+}

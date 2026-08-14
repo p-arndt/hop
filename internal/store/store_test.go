@@ -780,3 +780,26 @@ func TestUpsertRoundTripsProxyFields(t *testing.T) {
 		t.Errorf("ProxyJump = %q after clearing, want empty", got)
 	}
 }
+
+func TestHostByAlias(t *testing.T) {
+	s := newStore(t)
+	if _, err := s.Add(Host{Alias: "bastion", HostName: "b.example.com", User: "ops", Port: 2222, Tags: []string{"edge"}}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	h, ok, err := s.HostByAlias("bastion")
+	if err != nil || !ok {
+		t.Fatalf("HostByAlias = %v, %v; want a host", ok, err)
+	}
+	if h.HostName != "b.example.com" || h.User != "ops" || h.Port != 2222 {
+		t.Errorf("HostByAlias = %+v, want the stored values", h)
+	}
+	if len(h.Tags) != 1 || h.Tags[0] != "edge" {
+		t.Errorf("Tags = %v, want [edge]", h.Tags)
+	}
+
+	// A miss is not an error: the jump resolver falls back to a bare hostname.
+	if _, ok, err := s.HostByAlias("nope"); err != nil || ok {
+		t.Errorf("HostByAlias(nope) = %v, %v; want false, nil", ok, err)
+	}
+}

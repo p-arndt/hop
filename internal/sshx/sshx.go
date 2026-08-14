@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -302,30 +303,59 @@ func ConnectTrusting(h store.Host, fingerprint string, p Prompter) (*Client, err
 // connect is the shared dial body. trustedFP is empty for a plain TOFU-guarded
 // dial and the user-approved fingerprint for a trusting retry.
 func connect(h store.Host, trustedFP string, p Prompter) (*Client, error) {
-	return connectTrust(h, &trustState{fingerprint: trustedFP}, p)
+	return connectTrust(h, &dialState{fingerprint: trustedFP}, p)
 }
 
-// trustState is one user approval as it travels through a dial. A jump dials two hosts,
-// and the approval belongs to exactly one of them: the first first-contact host it fits
-// consumes it, and every later unknown host in the same dial raises its own
-// *UnknownHostKeyError instead of being measured against a fingerprint approved for
-// somebody else. That is what turns a two-host first contact into two questions rather
-// than a loop or a bogus "possible key swap".
-type trustState struct {
+// maxJumpDepth bounds how many bastions one dial may stack. A chain this long is already
+// past anything real; the limit is here so a mistake ends in an error rather than a
+// blown stack.
+const maxJumpDepth = 10
+
+// dialState is what one dial carries across the hosts it touches — the target and any
+// bastions in front of it.
+//
+// fingerprint is one user approval. A jump dials two hosts, and the approval belongs to
+// exactly one of them: the first first-contact host it fits consumes it, and every later
+// unknown host in the same dial raises its own *UnknownHostKeyError instead of being
+// measured against a fingerprint approved for somebody else. That is what turns a
+// two-host first contact into two questions rather than a loop or a bogus "possible key
+// swap".
+//
+// jumps are the bastion addresses already dialled. A ProxyJump may name a host in the
+// store, and that host may name another — so the chain can close on itself, and without
+// this record `a` jumping to `b` jumping back to `a` would recurse until the stack gave
+// out.
+type dialState struct {
 	fingerprint string
 	used        bool
+	jumps       []string
+}
+
+// enterJump records addr as the next bastion in this chain, refusing a repeat or a chain
+// past maxJumpDepth.
+func (d *dialState) enterJump(addr string) error {
+	for _, seen := range d.jumps {
+		if seen == addr {
+			return fmt.Errorf("sshx: proxy jump loop: %s appears twice in the chain %s", addr, strings.Join(append(d.jumps, addr), " -> "))
+		}
+	}
+	if len(d.jumps) >= maxJumpDepth {
+		return fmt.Errorf("sshx: proxy jump chain longer than %d hops: %s", maxJumpDepth, strings.Join(d.jumps, " -> "))
+	}
+	d.jumps = append(d.jumps, addr)
+	return nil
 }
 
 // take returns the approved fingerprint once, then reports empty.
-func (t *trustState) take() string {
-	if t == nil || t.used || t.fingerprint == "" {
+func (d *dialState) take() string {
+	if d == nil || d.used || d.fingerprint == "" {
 		return ""
 	}
-	t.used = true
-	return t.fingerprint
+	d.used = true
+	return d.fingerprint
 }
 
-func connectTrust(h store.Host, trust *trustState, p Prompter) (*Client, error) {
+func connectTrust(h store.Host, trust *dialState, p Prompter) (*Client, error) {
 	auths, err := authMethods(h, p)
 	if err != nil {
 		return nil, err
@@ -373,7 +403,7 @@ func connectTrust(h store.Host, trust *trustState, p Prompter) (*Client, error) 
 //
 // ProxyJump wins over ProxyCommand when both are set, which is the precedence ssh itself
 // applies.
-func dialWithProxy(h store.Host, addr, username string, port int, trust *trustState, cfg *ssh.ClientConfig, p Prompter) (*Client, error) {
+func dialWithProxy(h store.Host, addr, username string, port int, trust *dialState, cfg *ssh.ClientConfig, p Prompter) (*Client, error) {
 	switch {
 	case strings.TrimSpace(h.ProxyJump) != "":
 		return dialViaJump(h, addr, trust, cfg, p)
@@ -400,13 +430,22 @@ func dialWithProxy(h store.Host, addr, username string, port int, trust *trustSt
 // it the retry would meet the same unknown bastion key and the fingerprint card would
 // reopen forever. trustState.take makes the approval single-use, so the target is then
 // asked about separately rather than measured against the bastion's fingerprint.
-func dialViaJump(h store.Host, addr string, trust *trustState, cfg *ssh.ClientConfig, p Prompter) (*Client, error) {
+func dialViaJump(h store.Host, addr string, trust *dialState, cfg *ssh.ClientConfig, p Prompter) (*Client, error) {
 	j, err := parseJump(h.ProxyJump)
 	if err != nil {
 		return nil, err
 	}
 
-	bastion, err := connectTrust(jumpTarget(j, jumpResolver), trust, p)
+	bh := jumpTarget(j, jumpResolver)
+	bastionPort := bh.Port
+	if bastionPort == 0 {
+		bastionPort = 22
+	}
+	if err := trust.enterJump(net.JoinHostPort(bh.HostName, strconv.Itoa(bastionPort))); err != nil {
+		return nil, err
+	}
+
+	bastion, err := connectTrust(bh, trust, p)
 	if err != nil {
 		return nil, fmt.Errorf("sshx: proxy jump via %s: %w", j.Host, err)
 	}
@@ -624,7 +663,7 @@ func hostKeyDB() (*knownhosts.HostKeyDB, string, error) {
 // writes nothing, so the caller can ask the user. With a user-approved fingerprint, a
 // matching key is appended to khPath and reported through recorded; a non-matching one
 // is refused, since the key changed after approval.
-func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath string, trust *trustState, recorded *string) ssh.HostKeyCallback {
+func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath string, trust *dialState, recorded *string) ssh.HostKeyCallback {
 	inner := db.HostKeyCallback()
 
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {

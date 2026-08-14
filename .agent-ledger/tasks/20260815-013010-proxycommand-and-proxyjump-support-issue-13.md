@@ -32,6 +32,9 @@ Let hop reach hosts that no direct TCP dial can: through a local broker program 
 - ProxyCommand values reaching hop can come from an imported ~/.ssh/config, i.e. a file hop did not author.
 
 ## Discoveries
+- A ProxyJump may name a host in the store whose own ProxyJump names the first, so the chain can close on itself; `dialViaJump` recursed until the stack gave out. `dialState` now records each bastion address and refuses a repeat or more than `maxJumpDepth` (10) hops.
+- End-to-end tests against in-process SSH servers (`proxy_e2e_test.go`) found three bugs the unit tests could not: `=` in the issue's own `--parameters portNumber=%p` was rejected as a shell metacharacter; `procConn.RemoteAddr()` returned the program name, so every ProxyCommand dial failed the known_hosts lookup; and an unknown bastion key looped the fingerprint card forever because the retry re-dialled the bastion untrusted.
+- The host-key approval is single-use per dial (`dialState.take`). A jump meeting two unknown hosts therefore asks twice — bastion, then target — instead of measuring the target against a fingerprint approved for the bastion and reporting a bogus "possible key swap".
 
 - x/crypto/ssh has no ProxyCommand concept but needs none: ssh.NewClientConn takes any net.Conn, so a subprocess's pipes and a bastion channel are the same shape. Both routes funnel through sshx.clientOverConn, which keeps auth and host-key policy identical to a direct dial.
 

@@ -277,6 +277,36 @@ func (s *Store) Hosts() ([]Host, error) {
 	return hosts, nil
 }
 
+// HostByAlias returns the single host with this alias. It exists so a lookup by name
+// costs one indexed row rather than Hosts()'s whole table plus every forward — the jump
+// resolver asks on each dial, and a bastion is one host out of however many are stored.
+// Forwards are deliberately not loaded: nothing that looks a host up by name runs its
+// tunnels.
+func (s *Store) HostByAlias(alias string) (Host, bool, error) {
+	var (
+		h    Host
+		tags string
+	)
+	err := s.db.QueryRow(`
+		SELECT id, alias, hostname, user, port, identity_file, tags, grp, visits, last_connect,
+		       pinned, pin_order, COALESCE(default_dir, ''),
+		       COALESCE(proxy_command, ''), COALESCE(proxy_jump, '')
+		FROM hosts WHERE alias = ?`, alias).Scan(
+		&h.ID, &h.Alias, &h.HostName, &h.User, &h.Port,
+		&h.IdentityFile, &tags, &h.Group, &h.Visits, &h.LastConnect,
+		&h.Pinned, &h.PinOrder, &h.DefaultDir,
+		&h.ProxyCommand, &h.ProxyJump,
+	)
+	if err == sql.ErrNoRows {
+		return Host{}, false, nil
+	}
+	if err != nil {
+		return Host{}, false, err
+	}
+	h.Tags = splitTags(tags)
+	return h, true, nil
+}
+
 // Upsert inserts or updates a host keyed by its Alias and returns the row id.
 func (s *Store) Upsert(h Host) (int64, error) {
 	port := h.Port
