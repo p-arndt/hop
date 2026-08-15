@@ -18,7 +18,7 @@ body = """
     ## Unreleased
 {% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
-    ### {{ group | upper_first }}
+    ### {{ group | striptags | trim | upper_first }}
     {% for commit in commits %}
         - {{ commit.message | upper_first }}{% if commit.remote.username %} by @{{ commit.remote.username }}{% endif %}\
     {% endfor %}
@@ -33,21 +33,38 @@ conventional_commits = true
 filter_unconventional = true
 split_commits = false
 
+# Groups are ordered, not alphabetical: Tera's `group_by` sorts by the group
+# string, so each one carries a `<!-- N -->` sort key that the template strips
+# back out with `striptags`. Renaming a group is safe; changing its number is
+# what moves it. Breaking changes lead, housekeeping trails, and the first
+# matching parser wins — so the `!` rules have to come before the type rules,
+# or `feat!:` would be swallowed by `^feat`.
 commit_parsers = [
-    { message = "^feat", group = "🚀 Features" },
-    { message = "^fix", group = "🐛 Bug Fixes" },
-    { message = "^perf", group = "⚡ Performance" },
-    { message = "^refactor", group = "🚜 Refactor" },
-    { message = "^doc", group = "📚 Documentation" },
-    { message = "^test", group = "🧪 Testing" },
-    { message = "^security", group = "🔒 Security" },
-    { message = "^(build|ci)", group = "🛠️ Build & CI" },
+    # Both Conventional Commits spellings of a breaking change: the `!` marker
+    # after the type, and the `BREAKING CHANGE:` footer in the body.
+    { message = "^[a-zA-Z]+(\\(.+\\))?!", group = "<!-- 0 -->💥 Breaking Changes" },
+    { body = ".*BREAKING[ -]CHANGE", group = "<!-- 0 -->💥 Breaking Changes" },
+
+    { message = "^feat", group = "<!-- 1 -->🚀 Features" },
+    { message = "^fix", group = "<!-- 2 -->🐛 Bug Fixes" },
+    { message = "^security", group = "<!-- 3 -->🔒 Security" },
+    { message = "^perf", group = "<!-- 4 -->⚡ Performance" },
+    { message = "^refactor", group = "<!-- 5 -->🚜 Refactor" },
+    { message = "^doc", group = "<!-- 6 -->📚 Documentation" },
+    { message = "^test", group = "<!-- 7 -->🧪 Testing" },
+    { message = "^(build|ci)", group = "<!-- 8 -->🛠️ Build & CI" },
+
+    # The version-bump commit stamp creates is noise in its own release notes.
     { message = "^chore\\(release\\)", skip = true },
-    { message = "^chore|^style", group = "🧹 Miscellaneous" },
     { message = "^release", skip = true },
+    { message = "^Merge", skip = true },
+
+    # Everything else that is still conventionally shaped lands at the bottom
+    # rather than disappearing: `other:` is used in this repo, and an unmatched
+    # commit would otherwise be dropped without a trace.
+    { message = "^(chore|style|other)", group = "<!-- 9 -->🧹 Other" },
 ]
 
-# Skip the automated "release: vX.Y.Z" commit produced by scripts/release.mjs.
 commit_preprocessors = []
 filter_commits = false
 tag_pattern = "v[0-9]*"
