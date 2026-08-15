@@ -15,106 +15,87 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/p-arndt/selfupdate"
 )
 
-func TestCompareVersions(t *testing.T) {
-	cases := []struct {
-		a, b string
-		want int
-	}{
-		{"0.2.1", "0.2.1", 0},
-		{"v0.2.2", "0.2.1", 1},
-		{"0.2.1", "0.2.2", -1},
-		{"1.0.0", "0.9.9", 1},
-		{"0.10.0", "0.9.0", 1}, // numeric, not lexical
-		{"1.2.0", "1.2", 0},    // missing field treated as 0
-		{"0.2.2", "0.2.2-pre.1", 1},
-		{"0.2.2-pre.1", "0.2.2", -1},
-		{"0.2.2-pre.2", "0.2.2-pre.1", 1},
-		{"0.2.2-pre.10", "0.2.2-pre.2", 1}, // numeric prerelease identifiers
-		{"0.2.2+build.5", "0.2.2", 0},      // build metadata ignored
+// The mechanics of downloading, verifying and swapping the binary belong to
+// github.com/p-arndt/selfupdate and are tested there. What is hop's to get wrong
+// is the wiring: that the asset names the release workflow writes are the ones
+// the updater looks for, and that the user-facing strings still name hop's own
+// subcommand and opt-out variable. That is what this file covers, offline,
+// through the three Config seams.
+
+// assetNames mirrors .github/workflows/release.yml verbatim: the archive it
+// builds for this platform and the checksums file it writes beside it. If either
+// side of that contract moves, these tests fail rather than a user's `hop
+// self-update`.
+func assetNames(version string) (archive, binary, checksums string) {
+	archive = fmt.Sprintf("hop_%s_%s_%s.tar.gz", version, runtime.GOOS, runtime.GOARCH)
+	binary = "hop"
+	if runtime.GOOS == "windows" {
+		archive = fmt.Sprintf("hop_%s_%s_%s.zip", version, runtime.GOOS, runtime.GOARCH)
+		binary = "hop.exe"
 	}
-	for _, c := range cases {
-		if got := CompareVersions(c.a, c.b); got != c.want {
-			t.Errorf("CompareVersions(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
-		}
-	}
+	return archive, binary, fmt.Sprintf("hop_%s_checksums.txt", version)
 }
 
-func TestIsNewer(t *testing.T) {
-	if !IsNewer("0.2.2", "0.2.1") {
-		t.Error("0.2.2 should be newer than 0.2.1")
-	}
-	if IsNewer("0.2.1", "0.2.1") {
-		t.Error("equal versions are not newer")
-	}
-	if IsNewer("0.2.2", "dev") {
-		t.Error("dev builds never see an update")
-	}
-}
-
-// The names must match exactly what .github/workflows/release.yml publishes —
-// a drift here means `hop self-update` looks for an asset no release has.
-func TestArchiveAndBinaryNames(t *testing.T) {
-	if got := ArchiveName("0.2.2", "linux", "amd64"); got != "hop_0.2.2_linux_amd64.tar.gz" {
-		t.Errorf("linux archive name = %q", got)
-	}
-	if got := ArchiveName("0.2.2", "windows", "arm64"); got != "hop_0.2.2_windows_arm64.zip" {
-		t.Errorf("windows archive name = %q", got)
-	}
-	if got := ChecksumsName("0.2.2"); got != "hop_0.2.2_checksums.txt" {
-		t.Errorf("checksums name = %q", got)
-	}
-	if got := BinaryName("windows"); got != "hop.exe" {
-		t.Errorf("windows binary name = %q", got)
-	}
-	if got := BinaryName("darwin"); got != "hop" {
-		t.Errorf("unix binary name = %q", got)
-	}
-}
-
-func TestVerifyChecksum(t *testing.T) {
-	archive := []byte("pretend archive bytes")
-	sum := sha256.Sum256(archive)
-	name := "hop_0.2.2_linux_amd64.tar.gz"
-	good := fmt.Sprintf("%s  %s\notherhash  other.txt\n", hex.EncodeToString(sum[:]), name)
-
-	if err := verifyChecksum(archive, name, []byte(good)); err != nil {
-		t.Errorf("valid checksum rejected: %v", err)
-	}
-	// binary-mode "*" prefix on the name must be tolerated
-	star := fmt.Sprintf("%s *%s\n", hex.EncodeToString(sum[:]), name)
-	if err := verifyChecksum(archive, name, []byte(star)); err != nil {
-		t.Errorf("star-prefixed name rejected: %v", err)
-	}
-	if err := verifyChecksum([]byte("tampered"), name, []byte(good)); err == nil {
-		t.Error("tampered archive should fail checksum")
-	}
-	if err := verifyChecksum(archive, "missing.tar.gz", []byte(good)); err == nil {
-		t.Error("missing name should fail")
-	}
-}
-
-// makeTarGz builds a gzip'd tar containing one file.
-func makeTarGz(t *testing.T, name string, content []byte) []byte {
+// fakeRelease serves a complete GitHub release — the metadata and every asset —
+// from one loopback server, and returns its base URL. Loopback is the one host
+// the updater will talk to over plain http, precisely so this works.
+func fakeRelease(t *testing.T, tag string, assets map[string][]byte) string {
 	t.Helper()
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gz)
-	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(content))}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tw.Write(content); err != nil {
-		t.Fatal(err)
-	}
-	tw.Close()
-	gz.Close()
-	return buf.Bytes()
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if name := strings.TrimPrefix(r.URL.Path, "/assets/"); name != r.URL.Path {
+			body, ok := assets[name]
+			if !ok {
+				http.Error(w, "no such asset", http.StatusNotFound)
+				return
+			}
+			w.Write(body)
+			return
+		}
+		type asset struct {
+			Name string `json:"name"`
+			URL  string `json:"browser_download_url"`
+		}
+		out := struct {
+			Tag    string  `json:"tag_name"`
+			Assets []asset `json:"assets"`
+		}{Tag: tag}
+		for name := range assets {
+			out.Assets = append(out.Assets, asset{Name: name, URL: srv.URL + "/assets/" + name})
+		}
+		json.NewEncoder(w).Encode(out)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
 }
 
-// makeZip builds a zip containing one file.
-func makeZip(t *testing.T, name string, content []byte) []byte {
+// releaseAssets builds what the release job uploads: the platform archive with
+// the binary inside, and sha256 over the archive — not over the binary in it.
+func releaseAssets(t *testing.T, version string, binary []byte) map[string][]byte {
+	t.Helper()
+	archiveName, binName, checksumsName := assetNames(version)
+
+	archive := tarGz(t, binName, binary)
+	if runtime.GOOS == "windows" {
+		archive = zipped(t, binName, binary)
+	}
+	sum := sha256.Sum256(archive)
+
+	return map[string][]byte{
+		archiveName:   archive,
+		checksumsName: []byte(fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), archiveName)),
+	}
+}
+
+func zipped(t *testing.T, name string, content []byte) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
@@ -125,246 +106,185 @@ func makeZip(t *testing.T, name string, content []byte) []byte {
 	if _, err := w.Write(content); err != nil {
 		t.Fatal(err)
 	}
-	zw.Close()
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return buf.Bytes()
 }
 
-func TestExtractBinary(t *testing.T) {
-	content := []byte("#!binary-content")
-
-	tgz := makeTarGz(t, "hop", content)
-	got, err := extractBinary(tgz, "hop", false)
-	if err != nil {
-		t.Fatalf("tar.gz extract: %v", err)
-	}
-	if !bytes.Equal(got, content) {
-		t.Errorf("tar.gz content = %q, want %q", got, content)
-	}
-
-	zipped := makeZip(t, "hop.exe", content)
-	got, err = extractBinary(zipped, "hop.exe", true)
-	if err != nil {
-		t.Fatalf("zip extract: %v", err)
-	}
-	if !bytes.Equal(got, content) {
-		t.Errorf("zip content = %q, want %q", got, content)
-	}
-
-	// A binary that isn't present must be an error, not empty success.
-	if _, err := extractBinary(makeTarGz(t, "README.md", content), "hop", false); err == nil {
-		t.Error("expected error when binary absent from archive")
-	}
-}
-
-func TestReplaceExecutable(t *testing.T) {
-	dir := t.TempDir()
-	exe := filepath.Join(dir, "hop"+exeSuffix())
-	if err := os.WriteFile(exe, []byte("old binary"), 0o755); err != nil {
+func tarGz(t *testing.T, name string, content []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(content))}); err != nil {
 		t.Fatal(err)
 	}
-	newBin := []byte("brand new binary")
-	if err := replaceExecutable(exe, newBin); err != nil {
-		t.Fatalf("replaceExecutable: %v", err)
-	}
-	got, err := os.ReadFile(exe)
-	if err != nil {
+	if _, err := tw.Write(content); err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(got, newBin) {
-		t.Errorf("after replace, content = %q, want %q", got, newBin)
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
 	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }
 
-// On Windows the running binary is renamed aside rather than overwritten, and
-// the leftover is swept up on the next start — so the swap must leave exactly
-// one usable hop behind, and CleanupLeftovers must not touch anything else.
-func TestReplaceExecutableLeavesNoStaleCopyOnUnix(t *testing.T) {
+// testUpdater wires all three seams: a fake release, a throwaway binary to
+// install over instead of the test binary, and a cache in a temp dir so the
+// user's real one is never touched. It returns the stand-in binary's path.
+func testUpdater(t *testing.T, apiBase string) (*selfupdate.Updater, string) {
+	t.Helper()
+
+	exe := filepath.Join(t.TempDir(), "hop")
 	if runtime.GOOS == "windows" {
-		t.Skip("the .old file is expected on windows")
+		exe += ".exe"
 	}
-	dir := t.TempDir()
-	exe := filepath.Join(dir, "hop")
-	if err := os.WriteFile(exe, []byte("old binary"), 0o755); err != nil {
+	if err := os.WriteFile(exe, []byte("the old binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := replaceExecutable(exe, []byte("new")); err != nil {
-		t.Fatal(err)
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 {
-		t.Errorf("expected only the replaced binary, got %d entries", len(entries))
-	}
-}
+	cache := filepath.Join(t.TempDir(), "update-check.json")
 
-func exeSuffix() string {
-	if runtime.GOOS == "windows" {
-		return ".exe"
-	}
-	return ""
-}
-
-// TestSelfUpdateEndToEnd exercises the full check → download → verify → install
-// path against a fake GitHub, swapping a real temp "binary" on disk.
-func TestSelfUpdateEndToEnd(t *testing.T) {
-	goos, goarch := runtime.GOOS, runtime.GOARCH
-	binName := BinaryName(goos)
-	newContent := []byte("the updated hop binary")
-
-	var archive []byte
-	if goos == "windows" {
-		archive = makeZip(t, binName, newContent)
-	} else {
-		archive = makeTarGz(t, binName, newContent)
-	}
-	version := "9.9.9"
-	archiveName := ArchiveName(version, goos, goarch)
-	sum := sha256.Sum256(archive)
-	checksums := fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), archiveName)
-
-	mux := http.NewServeMux()
-	var base string
-	mux.HandleFunc("/repos/p-arndt/hop/releases/latest", func(w http.ResponseWriter, r *http.Request) {
-		rel := Release{
-			Tag: "v" + version,
-			Assets: []Asset{
-				{Name: archiveName, URL: base + "/dl/archive"},
-				{Name: ChecksumsName(version), URL: base + "/dl/sums"},
-			},
-		}
-		json.NewEncoder(w).Encode(rel)
+	up, err := New(selfupdate.Config{
+		APIBase:        apiBase,
+		StatePath:      func() (string, error) { return cache, nil },
+		ExecutablePath: func() (string, error) { return exe, nil },
 	})
-	mux.HandleFunc("/dl/archive", func(w http.ResponseWriter, r *http.Request) { w.Write(archive) })
-	mux.HandleFunc("/dl/sums", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(checksums)) })
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	base = srv.URL
-
-	c := &Client{HTTP: srv.Client(), APIBase: srv.URL, Owner: "p-arndt", Repo: "hop"}
-
-	// Point the updater at a temp file standing in for the running binary.
-	dir := t.TempDir()
-	fakeExe := filepath.Join(dir, binName)
-	if err := os.WriteFile(fakeExe, []byte("old binary"), 0o755); err != nil {
+	if err != nil {
 		t.Fatal(err)
 	}
-	orig := executablePath
-	t.Cleanup(func() { executablePath = orig })
-	executablePath = func() (string, error) { return fakeExe, nil }
+	return up, exe
+}
 
-	res, err := c.SelfUpdate(context.Background(), "0.2.1", false)
+// The whole path against the workflow's own asset names: check, download,
+// verify, swap.
+func TestSelfUpdateInstallsNewerRelease(t *testing.T) {
+	up, exe := testUpdater(t, fakeRelease(t, "v1.2.0", releaseAssets(t, "1.2.0", []byte("the new binary"))))
+
+	res, err := up.SelfUpdate(context.Background(), "1.0.0", false)
 	if err != nil {
-		t.Fatalf("SelfUpdate: %v", err)
+		t.Fatal(err)
 	}
 	if !res.Updated {
-		t.Fatal("expected Updated=true")
+		t.Fatalf("Updated = false, want true (result: %+v)", res)
 	}
-	if res.Latest != version {
-		t.Errorf("Latest = %q, want %q", res.Latest, version)
+	if got, _ := os.ReadFile(exe); string(got) != "the new binary" {
+		t.Errorf("installed binary = %q, want the new binary", got)
 	}
-	got, err := os.ReadFile(fakeExe)
+}
+
+// `hop check-update` reports what it found and writes nothing.
+func TestCheckOnlyDoesNotInstall(t *testing.T) {
+	up, exe := testUpdater(t, fakeRelease(t, "v1.2.0", releaseAssets(t, "1.2.0", []byte("the new binary"))))
+
+	res, err := up.SelfUpdate(context.Background(), "1.0.0", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(got, newContent) {
-		t.Errorf("binary not swapped: got %q", got)
-	}
-}
-
-// check-update must report the newer version without touching the binary — it
-// is the half of the feature users run before they are ready to swap.
-func TestSelfUpdateCheckOnlyDoesNotInstall(t *testing.T) {
-	version := "9.9.9"
-	mux := http.NewServeMux()
-	mux.HandleFunc("/repos/p-arndt/hop/releases/latest", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(Release{Tag: "v" + version})
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	c := &Client{HTTP: srv.Client(), APIBase: srv.URL, Owner: "p-arndt", Repo: "hop"}
-
-	// If checkOnly leaked into the install path it would fail here looking for
-	// assets the release doesn't have — the assertion is that it returns clean.
-	res, err := c.SelfUpdate(context.Background(), "0.2.1", true)
-	if err != nil {
-		t.Fatalf("SelfUpdate(checkOnly): %v", err)
-	}
 	if res.Updated {
-		t.Error("check-only must not install")
+		t.Error("Updated = true in check-only mode")
 	}
-	if res.Latest != version {
-		t.Errorf("Latest = %q, want %q", res.Latest, version)
+	if res.Latest != "1.2.0" {
+		t.Errorf("Latest = %q, want 1.2.0", res.Latest)
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "the old binary" {
+		t.Error("check-only wrote to the binary")
 	}
 }
 
-func TestSelfUpdateAlreadyLatest(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/repos/p-arndt/hop/releases/latest", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(Release{Tag: "v0.2.1"})
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	c := &Client{HTTP: srv.Client(), APIBase: srv.URL, Owner: "p-arndt", Repo: "hop"}
+// A `go build` of the working tree is usually ahead of the last tag, so it is
+// never updated over — a `go run .` must not install a release on top of itself.
+func TestDevBuildIsRefused(t *testing.T) {
+	up, exe := testUpdater(t, fakeRelease(t, "v1.2.0", releaseAssets(t, "1.2.0", []byte("the new binary"))))
 
-	res, err := c.SelfUpdate(context.Background(), "0.2.1", false)
+	if _, err := up.SelfUpdate(context.Background(), "dev", false); err == nil {
+		t.Fatal("a dev build was updated")
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "the old binary" {
+		t.Error("a dev build was written over")
+	}
+}
+
+// Only a strictly newer release counts, so a re-published or rolled-back tag
+// cannot walk a user backwards.
+func TestSameVersionIsNotAnUpdate(t *testing.T) {
+	up, _ := testUpdater(t, fakeRelease(t, "v1.0.0", releaseAssets(t, "1.0.0", []byte("the same binary"))))
+
+	res, err := up.SelfUpdate(context.Background(), "1.0.0", false)
 	if err != nil {
-		t.Fatalf("SelfUpdate: %v", err)
+		t.Fatal(err)
 	}
-	if res.Updated {
-		t.Error("should not update when already on latest")
-	}
-}
-
-func TestSelfUpdateRejectsDevBuild(t *testing.T) {
-	c := NewClient(nil)
-	if _, err := c.SelfUpdate(context.Background(), "dev", false); err == nil {
-		t.Error("dev build should be refused before any network call")
+	if res.Updated || IsNewer(res.Latest, res.Current) {
+		t.Errorf("1.0.0 treated as an update over itself: %+v", res)
 	}
 }
 
-func TestSelfUpdateChecksumMismatch(t *testing.T) {
-	goos, goarch := runtime.GOOS, runtime.GOARCH
-	binName := BinaryName(goos)
-	var archive []byte
-	if goos == "windows" {
-		archive = makeZip(t, binName, []byte("content"))
-	} else {
-		archive = makeTarGz(t, binName, []byte("content"))
-	}
-	version := "9.9.9"
-	archiveName := ArchiveName(version, goos, goarch)
-	badSums := fmt.Sprintf("%s  %s\n", "0000000000000000000000000000000000000000000000000000000000000000", archiveName)
+// noticeUpdater points the notice at a cache seeded with a check that just
+// happened, so nothing goes near the network.
+func noticeUpdater(t *testing.T, latest string) *selfupdate.Updater {
+	t.Helper()
 
-	mux := http.NewServeMux()
-	var base string
-	mux.HandleFunc("/repos/p-arndt/hop/releases/latest", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(Release{Tag: "v" + version, Assets: []Asset{
-			{Name: archiveName, URL: base + "/dl/archive"},
-			{Name: ChecksumsName(version), URL: base + "/dl/sums"},
-		}})
+	cache := filepath.Join(t.TempDir(), "update-check.json")
+	data, err := json.Marshal(struct {
+		LastCheck time.Time `json:"last_check"`
+		Latest    string    `json:"latest"`
+	}{LastCheck: time.Now(), Latest: latest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cache, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	up, err := New(selfupdate.Config{
+		APIBase:   "http://127.0.0.1:1", // unreachable: a fresh check would be a bug
+		StatePath: func() (string, error) { return cache, nil },
 	})
-	mux.HandleFunc("/dl/archive", func(w http.ResponseWriter, r *http.Request) { w.Write(archive) })
-	mux.HandleFunc("/dl/sums", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(badSums)) })
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	base = srv.URL
-	c := &Client{HTTP: srv.Client(), APIBase: srv.URL, Owner: "p-arndt", Repo: "hop"}
-
-	dir := t.TempDir()
-	fakeExe := filepath.Join(dir, binName)
-	os.WriteFile(fakeExe, []byte("old binary"), 0o755)
-	orig := executablePath
-	t.Cleanup(func() { executablePath = orig })
-	executablePath = func() (string, error) { return fakeExe, nil }
-
-	if _, err := c.SelfUpdate(context.Background(), "0.2.1", false); err == nil {
-		t.Fatal("expected checksum mismatch error")
+	if err != nil {
+		t.Fatal(err)
 	}
-	// The original binary must be untouched after a failed verify.
-	got, _ := os.ReadFile(fakeExe)
-	if string(got) != "old binary" {
-		t.Errorf("binary changed despite failed update: %q", got)
+	return up
+}
+
+// The hint has to name hop's subcommand — the library's derived default would
+// say `hop update`, which hop does not have.
+func TestNoticeNamesHopSelfUpdate(t *testing.T) {
+	var out bytes.Buffer
+	noticeUpdater(t, "1.2.0").NotifyIfAvailable(&out, "1.0.0")
+
+	want := "A newer hop is available: 1.2.0 (you have 1.0.0). Run `hop self-update` to upgrade."
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("notice = %q, want it to contain %q", out.String(), want)
+	}
+}
+
+// The opt-out users were told about keeps working.
+func TestNoticeRespectsHopOptOut(t *testing.T) {
+	t.Setenv("HOP_NO_UPDATE_CHECK", "1")
+
+	up := noticeUpdater(t, "1.2.0")
+	if got := up.DisableEnvName(); got != "HOP_NO_UPDATE_CHECK" {
+		t.Errorf("DisableEnvName = %q, want HOP_NO_UPDATE_CHECK", got)
+	}
+
+	var out bytes.Buffer
+	up.NotifyIfAvailable(&out, "1.0.0")
+	if out.Len() != 0 {
+		t.Errorf("notice = %q with the opt-out set, want silence", out.String())
+	}
+	if got := Refresh("1.0.0"); got != "" {
+		t.Errorf("Refresh = %q with the opt-out set, want \"\"", got)
+	}
+}
+
+// The TUI's startup check reports the newer version, and nothing when current.
+func TestRefreshReportsNewerVersion(t *testing.T) {
+	if got := noticeUpdater(t, "1.2.0").Refresh("1.0.0"); got != "1.2.0" {
+		t.Errorf("Refresh = %q, want 1.2.0", got)
+	}
+	if got := noticeUpdater(t, "1.0.0").Refresh("1.0.0"); got != "" {
+		t.Errorf("Refresh = %q on the latest version, want \"\"", got)
 	}
 }

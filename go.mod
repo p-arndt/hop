@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/vt v0.0.0-20260705004817-2cc9a8fe1146
 	github.com/kevinburke/ssh_config v1.6.0
+	github.com/p-arndt/selfupdate v0.0.0-20260815010710-47f21e81fa4c
 	github.com/pkg/sftp v1.13.11
 	github.com/sahilm/fuzzy v0.1.3
 	github.com/skeema/knownhosts v1.3.2

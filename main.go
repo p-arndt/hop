@@ -5,12 +5,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"hop/internal/buildinfo"
 	"hop/internal/sshx"
@@ -83,22 +81,17 @@ func main() {
 	update.NotifyIfAvailable(os.Stderr, buildinfo.Version)
 }
 
-// updateTimeout bounds the whole check-download-verify-install cycle, generously: the
-// user explicitly asked for it.
-const updateTimeout = 60 * time.Second
-
 // cmdUpdate backs `hop self-update` and, with checkOnly, `hop check-update`: the first
 // replaces the running binary once the checksum verifies, the second only reports.
 func cmdUpdate(checkOnly bool) {
 	current := buildinfo.Version
-	client := update.NewClient(&http.Client{Timeout: updateTimeout})
-	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), update.UpdateTimeout)
 	defer cancel()
 
 	if !checkOnly {
 		fmt.Printf("Current version: %s. Checking for updates…\n", current)
 	}
-	res, err := client.SelfUpdate(ctx, current, checkOnly)
+	res, err := update.SelfUpdate(ctx, current, checkOnly)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "hop:", err)
 		os.Exit(1)
