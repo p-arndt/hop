@@ -35,6 +35,9 @@ func main() {
 	}
 }
 
+// normalizeEOL makes a file comparable regardless of how Git checked it out.
+func normalizeEOL(s string) string { return strings.ReplaceAll(s, "\r\n", "\n") }
+
 func run(root string, check bool) error {
 	docs, err := LoadDocs(filepath.Join(root, "docs"))
 	if err != nil {
@@ -52,9 +55,9 @@ func run(root string, check bool) error {
 		}
 		var got string
 		if o.site {
-			got, err = RenderSite(string(tmpl), docs)
+			got, err = RenderSite(normalizeEOL(string(tmpl)), docs)
 		} else {
-			got, err = RenderMarkdownFile(string(tmpl), docs, o.fallback, o.target)
+			got, err = RenderMarkdownFile(normalizeEOL(string(tmpl)), docs, o.fallback, o.target)
 		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", o.tmpl, err)
@@ -63,7 +66,10 @@ func run(root string, check bool) error {
 
 		dst := filepath.Join(root, o.dst)
 		old, _ := os.ReadFile(dst)
-		if string(old) == got {
+		// Compared after normalising line endings: a Windows checkout has these
+		// files as CRLF while docsgen writes LF, and byte equality would call
+		// an identical file out of date.
+		if normalizeEOL(string(old)) == got {
 			continue
 		}
 		if check {

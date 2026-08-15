@@ -1,0 +1,6 @@
+# The generated docs are compared byte for byte by tools/docsgen -check, and
+# docsgen writes LF. Without this, a Windows checkout turns them into CRLF and
+# the check reports an identical file as out of date.
+* text=auto eol=lf
+*.png binary
+*.gif binary

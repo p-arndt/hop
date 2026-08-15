@@ -262,6 +262,19 @@ func TestSiteFalseKeepsASectionOffThePage(t *testing.T) {
 	}
 }
 
+// TestCRLFCheckoutIsStillUpToDate pins the fix for a Windows-only CI failure:
+// Git checks these files out as CRLF there, docsgen writes LF, and a byte
+// comparison called an identical file out of date.
+func TestCRLFCheckoutIsStillUpToDate(t *testing.T) {
+	const lf = "a\nb\n"
+	if got := normalizeEOL("a\r\nb\r\n"); got != lf {
+		t.Errorf("normalizeEOL = %q, want %q", got, lf)
+	}
+	if got := normalizeEOL(lf); got != lf {
+		t.Errorf("normalizeEOL must leave LF alone, got %q", got)
+	}
+}
+
 // TestGeneratedFilesAreUpToDate is the guard that makes docs/ the source: it
 // fails when index.html, README.md or KEYBINDINGS.md has drifted from it.
 func TestGeneratedFilesAreUpToDate(t *testing.T) {
