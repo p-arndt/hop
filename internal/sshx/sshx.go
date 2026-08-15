@@ -10,6 +10,7 @@
 package sshx
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -450,7 +451,12 @@ func dialViaJump(h store.Host, addr string, trust *dialState, cfg *ssh.ClientCon
 		return nil, fmt.Errorf("sshx: proxy jump via %s: %w", j.Host, err)
 	}
 
-	conn, err := bastion.ssh.Dial("tcp", addr)
+	// Bounded like a direct TCP connect, and for the same reason: the target may simply
+	// not be there, and the bastion will sit on the request rather than say so.
+	// ClientConfig.Timeout does not reach here — ssh.Dial is the only thing that reads it.
+	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
+	defer cancel()
+	conn, err := bastion.ssh.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		bastion.Close()
 		return nil, fmt.Errorf("sshx: proxy jump %s -> %s: %w", j.Host, addr, err)

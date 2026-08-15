@@ -12,10 +12,10 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"hop/internal/store"
@@ -25,6 +25,31 @@ import (
 // message. Enough for the sentence that explains the failure ("An error occurred (
 // TargetNotConnected)"), not enough for a runaway program to eat memory.
 const proxyStderrLimit = 4 << 10
+
+// proxyFirstByteTimeout bounds, in nanoseconds, how long a proxy program may stay silent
+// before hop gives up on it. It stands in for the TCP connect timeout a direct dial gets from
+// ClientConfig.Timeout, which does not apply here: that field is read only by ssh.Dial,
+// and a proxied dial goes through ssh.NewClientConn instead.
+//
+// The first byte is the server's version banner, sent before any authentication, so this
+// is safe to bound even though the handshake around it deliberately is not — a user
+// reading a code off their phone is answering long after this has elapsed.
+// It is atomic because a watchdog from an earlier dial may still be reading it while a
+// test shortens it for the next.
+var proxyFirstByteTimeout = func() *atomic.Int64 {
+	v := new(atomic.Int64)
+	v.Store(int64(30 * time.Second))
+	return v
+}()
+
+// firstByteTimeout is the current watchdog window.
+func firstByteTimeout() time.Duration { return time.Duration(proxyFirstByteTimeout.Load()) }
+
+// proxyFirstByteTimeoutForTest shortens the watchdog and returns the restore func.
+func proxyFirstByteTimeoutForTest(d time.Duration) func() {
+	prev := proxyFirstByteTimeout.Swap(int64(d))
+	return func() { proxyFirstByteTimeout.Store(prev) }
+}
 
 // dialProxyCommand runs cmdline and returns its stdin/stdout as a net.Conn carrying the
 // SSH transport, which is exactly what OpenSSH's ProxyCommand contract is.
@@ -40,8 +65,10 @@ func dialProxyCommand(cmdline, host string, port int, user, alias string) (net.C
 		return nil, err
 	}
 
+	// The one piece of shell expansion hop does for a proxy command: without it a
+	// `~/bin/tunnel` fails to exec, and there is nothing ambiguous about what it means.
 	for i := range argv {
-		argv[i] = expandTilde(argv[i])
+		argv[i] = expandHome(argv[i])
 	}
 
 	cmd := exec.Command(argv[0], argv[1:]...)
@@ -83,7 +110,7 @@ func dialProxyCommand(cmdline, host string, port int, user, alias string) (net.C
 		errRead.Close()
 	}()
 
-	return &procConn{
+	pc := &procConn{
 		cmd:     cmd,
 		r:       stdout,
 		w:       stdin,
@@ -91,7 +118,10 @@ func dialProxyCommand(cmdline, host string, port int, user, alias string) (net.C
 		errRead: errRead,
 		name:    argv[0],
 		target:  tcpAddr(net.JoinHostPort(host, strconv.Itoa(port))),
-	}, nil
+		alive:   make(chan struct{}),
+	}
+	pc.watchFirstByte()
+	return pc, nil
 }
 
 // expandProxyTokens substitutes ssh's ProxyCommand tokens. It walks the string once so a
@@ -134,7 +164,7 @@ func expandProxyTokens(s, host string, port int, user, alias string) string {
 // and `~`. They occur unquoted in ordinary commands — the issue's own
 // `--parameters portNumber=%p` is one — and passing them through as literal argv is what
 // running without a shell means. A leading `~/` is the one expansion done here (see
-// expandTilde), because a path is useless without it.
+// expandHome), because a path is useless without it.
 const shellMeta = "|&;<>()$`\n"
 
 // ErrProxyNeedsShell is returned for a ProxyCommand that only a shell could run.
@@ -211,20 +241,6 @@ func splitProxyCommand(cmdline string) ([]string, error) {
 	return argv, nil
 }
 
-// expandTilde resolves a leading "~/" against the home directory, the one piece of shell
-// expansion hop does for a proxy command: without it a `~/bin/tunnel` fails to exec, and
-// there is nothing ambiguous about what it means. A bare "~user/…" is left alone.
-func expandTilde(s string) string {
-	if !strings.HasPrefix(s, "~/") && !strings.HasPrefix(s, `~\`) {
-		return s
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return s
-	}
-	return filepath.Join(home, s[2:])
-}
-
 // isEscapable reports whether a backslash before c means "take c literally". Everything
 // else leaves the backslash standing as a path separator.
 func isEscapable(c byte) bool {
@@ -243,6 +259,12 @@ type procConn struct {
 	// even when a grandchild still holds the write end.
 	errRead *os.File
 	name    string
+	// alive is closed by the first successful read, which is what stops the watchdog
+	// below. Until then a silent proxy is on the clock.
+	alive     chan struct{}
+	aliveOnce sync.Once
+	timedOut  atomic.Bool
+	silentFor atomic.Int64 // the window that elapsed, for the message
 	// target is the host:port this stream reaches. RemoteAddr must report it rather than
 	// the proxy program, because the host-key check reads the remote address to decide
 	// which known_hosts entry applies — a program name there fails the lookup outright.
@@ -251,8 +273,32 @@ type procConn struct {
 	once sync.Once
 }
 
+// watchFirstByte kills the connection if the proxy has said nothing by
+// proxyFirstByteTimeout. Closing it is what unblocks the read parked in the handshake,
+// so the dial fails with a message rather than hanging.
+func (p *procConn) watchFirstByte() {
+	go func() {
+		window := firstByteTimeout()
+		t := time.NewTimer(window)
+		defer t.Stop()
+		select {
+		case <-p.alive:
+		case <-t.C:
+			p.timedOut.Store(true)
+			p.silentFor.Store(int64(window))
+			p.Close()
+		}
+	}()
+}
+
 func (p *procConn) Read(b []byte) (int, error) {
 	n, err := p.r.Read(b)
+	if n > 0 {
+		p.aliveOnce.Do(func() { close(p.alive) })
+	}
+	if p.timedOut.Load() {
+		return n, fmt.Errorf("sshx: proxy %s sent nothing within %s", p.name, time.Duration(p.silentFor.Load()))
+	}
 	if err != nil && err != io.EOF {
 		return n, err
 	}
@@ -277,6 +323,7 @@ func (p *procConn) Write(b []byte) (int, error) { return p.w.Write(b) }
 func (p *procConn) Close() error {
 	var err error
 	p.once.Do(func() {
+		p.aliveOnce.Do(func() { close(p.alive) })
 		p.w.Close()
 		p.r.Close()
 		if p.errRead != nil {

@@ -38,7 +38,7 @@ Let hop reach hosts that no direct TCP dial can: through a local broker program 
 
 - x/crypto/ssh has no ProxyCommand concept but needs none: ssh.NewClientConn takes any net.Conn, so a subprocess's pipes and a bastion channel are the same shape. Both routes funnel through sshx.clientOverConn, which keeps auth and host-key policy identical to a direct dial.
 
-- procConn cannot honour deadlines - os/exec pipes have none. SetDeadline returns an error rather than a silent nil; x/crypto/ssh never sets one on a conn it did not dial itself, so the handshake is unaffected. This is why ClientConfig.Timeout has no effect on a proxied dial.
+- procConn cannot honour deadlines - os/exec pipes have none, so ClientConfig.Timeout (read only by ssh.Dial) has no effect on a proxied dial. Replaced by a first-byte watchdog: the server banner arrives before any authentication, so bounding it is safe even though the handshake around it deliberately is not. The jump leg uses ssh.Client.DialContext with the same dialTimeout.
 
 - A proxy that refuses (aws ssm against a stopped instance) writes its diagnosis to stderr and exits; without capturing it the dial fails as a bare EOF with no cause. procConn keeps a bounded 4KB stderr buffer and substitutes it for the EOF.
 
@@ -80,6 +80,6 @@ Let hop reach hosts that no direct TCP dial can: through a local broker program 
 
 ## Handoff
 
-- For an e2e bastion test, internal/dockerenv already runs openssh-server; a second container plus ProxyJump between them would cover dialViaJump.
+- dialViaJump is covered end-to-end against in-process SSH servers (proxy_e2e_test.go: dials through a bastion, resolves an alias, two-step host-key first contact, refused forwarding, jump loop) rather than the two-container Docker rig first sketched here. The in-process servers are real ssh.NewServerConn peers, so the handshake and direct-tcpip channel are real; what they do not exercise is OpenSSH's own implementation of them.
+- Residual gap, deliberately not closed: no test runs against a real sshd bastion. The realistic failure it would add is AllowTcpForwarding no, which TestProxyJumpBastionRefusesForwarding now stages directly. A Docker rig would mostly re-test x/crypto against OpenSSH, which internal/dockerenv already does for auth.
 
-- sshx.dialProxyCommand ignores ClientConfig.Timeout (procConn has no deadlines) — a hanging broker hangs the dial. Bound it in dialWithProxy if that shows up.

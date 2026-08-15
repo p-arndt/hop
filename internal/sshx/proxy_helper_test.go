@@ -14,3 +14,9 @@ func failingProxyCommand() string {
 func forkingProxyCommand() string {
 	return `sh -c 'sleep 60 & cat'`
 }
+
+// silentProxyCommand starts, holds the connection open and says nothing — a broker that
+// has connected to something that is not an SSH server, or is simply wedged.
+func silentProxyCommand() string {
+	return `sh -c 'sleep 60'`
+}

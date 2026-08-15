@@ -229,6 +229,9 @@ func (nopPrompter) Ask(Challenge) ([]string, error) {
 type echoSSHServer struct {
 	addr    string
 	hostKey ssh.PublicKey
+	// refuseForwarding makes the server reject direct-tcpip, as a hardened sshd with
+	// `AllowTcpForwarding no` does — the common reason a real bastion turns a jump away.
+	refuseForwarding bool
 }
 
 func startEchoSSHServer(t *testing.T) *echoSSHServer {
@@ -252,20 +255,20 @@ func startEchoSSHServer(t *testing.T) *echoSSHServer {
 	}
 	t.Cleanup(func() { ln.Close() })
 
+	srv := &echoSSHServer{addr: ln.Addr().String(), hostKey: signer.PublicKey()}
 	go func() {
 		for {
 			nc, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			go serveEchoConn(nc, cfg)
+			go serveEchoConn(nc, cfg, srv.refuseForwarding)
 		}
 	}()
-
-	return &echoSSHServer{addr: ln.Addr().String(), hostKey: signer.PublicKey()}
+	return srv
 }
 
-func serveEchoConn(nc net.Conn, cfg *ssh.ServerConfig) {
+func serveEchoConn(nc net.Conn, cfg *ssh.ServerConfig, refuseForwarding bool) {
 	sc, chans, reqs, err := ssh.NewServerConn(nc, cfg)
 	if err != nil {
 		nc.Close()
@@ -279,6 +282,10 @@ func serveEchoConn(nc net.Conn, cfg *ssh.ServerConfig) {
 		case "session":
 			go serveEchoSession(nch)
 		case "direct-tcpip":
+			if refuseForwarding {
+				nch.Reject(ssh.Prohibited, "administratively prohibited: open failed")
+				continue
+			}
 			go serveDirectTCPIP(nch)
 		default:
 			nch.Reject(ssh.UnknownChannelType, nch.ChannelType())
@@ -487,5 +494,86 @@ func TestProxyCommandCloseSurvivesGrandchild(t *testing.T) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("Close blocked: a grandchild still holding stderr must not hang the reap")
+	}
+}
+
+// A proxy that starts, stays silent and never speaks SSH must fail rather than hang: the
+// first byte is the server banner, and ClientConfig.Timeout does not reach a proxied dial.
+func TestProxyCommandSilentProxyTimesOut(t *testing.T) {
+	if silentProxyCommand() == "" {
+		t.Skip("no shell available to stage a silent proxy")
+	}
+
+	prev := proxyFirstByteTimeoutForTest(200 * time.Millisecond)
+	t.Cleanup(prev)
+
+	fakeHome(t)
+	h := store.Host{Alias: "quiet", HostName: "quiet.invalid", Port: 22, ProxyCommand: silentProxyCommand()}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := Connect(h, nopPrompter{})
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Connect = nil error, want the silent proxy to time out")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("Connect hung on a silent proxy")
+	}
+}
+
+// A tilde in a proxy command is expanded by the same helper that expands IdentityFile —
+// one rule for the package, rather than two that drift.
+func TestProxyCommandExpandsTilde(t *testing.T) {
+	home := fakeHome(t)
+	for _, in := range []string{"~/bin/tunnel", `~\bin\tunnel`} {
+		got := expandHome(in)
+		if !strings.HasPrefix(got, home) {
+			t.Errorf("expandHome(%q) = %q, want it under %q", in, got, home)
+		}
+	}
+	if got := expandHome("~"); got != home {
+		t.Errorf("expandHome(\"~\") = %q, want %q", got, home)
+	}
+	if got := expandHome("~otheruser/x"); got != "~otheruser/x" {
+		t.Errorf("expandHome(~otheruser/x) = %q, want it untouched", got)
+	}
+}
+
+// A hardened bastion (`AllowTcpForwarding no`) rejects the direct-tcpip channel. The
+// failure must name the jump and say the bastion refused, not surface as an opaque
+// channel error — this is the most common reason a real ProxyJump does not work, and the
+// message is the only thing telling the user to look at the bastion's sshd_config.
+func TestProxyJumpBastionRefusesForwarding(t *testing.T) {
+	home := fakeHome(t)
+	target := startEchoSSHServer(t)
+	bastion := startEchoSSHServer(t)
+	bastion.refuseForwarding = true
+
+	targetHost, targetPort := splitAddr(t, target.addr)
+	bastionHost, bastionPort := splitAddr(t, bastion.addr)
+	trustHostKey(t, home, targetHost, targetPort, target.hostKey)
+	trustHostKey(t, home, bastionHost, bastionPort, bastion.hostKey)
+
+	h := store.Host{
+		Alias:     "db01",
+		HostName:  targetHost,
+		Port:      targetPort,
+		ProxyJump: net.JoinHostPort(bastionHost, strconv.Itoa(bastionPort)),
+	}
+
+	_, err := Connect(h, nopPrompter{})
+	if err == nil {
+		t.Fatal("Connect = nil error, want the refused forwarding to fail the dial")
+	}
+	if !strings.Contains(err.Error(), "proxy jump") {
+		t.Errorf("error = %v, want it to name the proxy jump", err)
+	}
+	if !strings.Contains(err.Error(), "administratively prohibited") {
+		t.Errorf("error = %v, want it to carry the bastion's reason", err)
 	}
 }
