@@ -7,3 +7,10 @@ package sshx
 func failingProxyCommand() string {
 	return `sh -c 'echo TargetNotConnected >&2'`
 }
+
+// forkingProxyCommand is a proxy that leaves a long-lived grandchild holding the stderr
+// it inherited, then blocks — the shape `aws ssm` has, since it starts
+// session-manager-plugin and stays attached to it.
+func forkingProxyCommand() string {
+	return `sh -c 'sleep 60 & cat'`
+}

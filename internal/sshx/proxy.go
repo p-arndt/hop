@@ -54,22 +54,43 @@ func dialProxyCommand(cmdline, host string, port int, user, alias string) (net.C
 	if err != nil {
 		return nil, fmt.Errorf("sshx: proxy stdout: %w", err)
 	}
-	// The proxy's own diagnostics go here, not to hop's terminal: a broker that refuses
-	// explains itself on stderr, and without keeping it the dial fails as a bare EOF.
+	// The proxy's own diagnostics are kept, not sent to hop's terminal: a broker that
+	// refuses explains itself on stderr, and without keeping it the dial fails as a bare
+	// EOF.
+	//
+	// stderr is an *os.File hop owns rather than a plain io.Writer, because os/exec only
+	// spawns its own copying goroutine for the latter — and cmd.Wait then blocks until
+	// that copy ends, which never happens while a grandchild still holds the pipe. A
+	// broker that forks a helper (`aws ssm` starts session-manager-plugin) would hang
+	// Close forever. Owning the pipe means Close can shut the read end itself.
 	errBuf := &boundedBuffer{limit: proxyStderrLimit}
-	cmd.Stderr = errBuf
+	errRead, errWrite, err := os.Pipe()
+	if err != nil {
+		return nil, fmt.Errorf("sshx: proxy stderr pipe: %w", err)
+	}
+	cmd.Stderr = errWrite
 
 	if err := cmd.Start(); err != nil {
+		errRead.Close()
+		errWrite.Close()
 		return nil, fmt.Errorf("sshx: start proxy %q: %w", argv[0], err)
 	}
+	// The child holds its own descriptor now; hop's copy must go or the reader below
+	// would never see EOF even after the program exits.
+	errWrite.Close()
+	go func() {
+		io.Copy(errBuf, errRead)
+		errRead.Close()
+	}()
 
 	return &procConn{
-		cmd:    cmd,
-		r:      stdout,
-		w:      stdin,
-		stderr: errBuf,
-		name:   argv[0],
-		target: tcpAddr(net.JoinHostPort(host, strconv.Itoa(port))),
+		cmd:     cmd,
+		r:       stdout,
+		w:       stdin,
+		stderr:  errBuf,
+		errRead: errRead,
+		name:    argv[0],
+		target:  tcpAddr(net.JoinHostPort(host, strconv.Itoa(port))),
 	}, nil
 }
 
@@ -160,7 +181,7 @@ func splitProxyCommand(cmdline string) ([]string, error) {
 			switch {
 			case c == '"':
 				quote = 0
-			case c == '\\' && i+1 < len(cmdline) && (cmdline[i+1] == '"' || cmdline[i+1] == '\\'):
+			case c == '\\' && i+1 < len(cmdline) && isEscapable(cmdline[i+1]):
 				escaped = true
 			default:
 				cur.WriteByte(c)
@@ -168,7 +189,7 @@ func splitProxyCommand(cmdline string) ([]string, error) {
 		case c == '\'' || c == '"':
 			quote = c
 			inWord = true
-		case c == '\\':
+		case c == '\\' && i+1 < len(cmdline) && isEscapable(cmdline[i+1]):
 			escaped = true
 		case c == ' ' || c == '\t':
 			flush()
@@ -204,6 +225,12 @@ func expandTilde(s string) string {
 	return filepath.Join(home, s[2:])
 }
 
+// isEscapable reports whether a backslash before c means "take c literally". Everything
+// else leaves the backslash standing as a path separator.
+func isEscapable(c byte) bool {
+	return c == '"' || c == '\'' || c == ' ' || c == '\t' || c == '\\'
+}
+
 // procConn adapts a running program's pipes to net.Conn. Only Read, Write and Close
 // carry meaning for an SSH transport; the address and deadline methods exist to satisfy
 // the interface, and the deadlines report failure rather than pretending to be set.
@@ -212,7 +239,10 @@ type procConn struct {
 	r      io.ReadCloser
 	w      io.WriteCloser
 	stderr *boundedBuffer
-	name   string
+	// errRead is hop's end of the stderr pipe, closed by Close so the copier above stops
+	// even when a grandchild still holds the write end.
+	errRead *os.File
+	name    string
 	// target is the host:port this stream reaches. RemoteAddr must report it rather than
 	// the proxy program, because the host-key check reads the remote address to decide
 	// which known_hosts entry applies — a program name there fails the lookup outright.
@@ -238,13 +268,20 @@ func (p *procConn) Read(b []byte) (int, error) {
 
 func (p *procConn) Write(b []byte) (int, error) { return p.w.Write(b) }
 
-// Close shuts both pipes and kills the program. The wait is what reaps it; without one
+// Close shuts the pipes and kills the program. The wait is what reaps it; without one
 // every failed dial would leave a broker process behind.
+//
+// It cannot hang on a grandchild: the only descriptor hop waits on is the stderr read
+// end, and that is closed here, while cmd.Wait itself only waits on the process now that
+// no io.Writer copier stands between them.
 func (p *procConn) Close() error {
 	var err error
 	p.once.Do(func() {
 		p.w.Close()
 		p.r.Close()
+		if p.errRead != nil {
+			p.errRead.Close()
+		}
 		if p.cmd.Process != nil {
 			p.cmd.Process.Kill()
 		}

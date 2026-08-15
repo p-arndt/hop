@@ -43,6 +43,10 @@ func TestSplitProxyCommand(t *testing.T) {
 		{"issue 13 ssm line", "aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p",
 			[]string{"aws", "ssm", "start-session", "--target", "%h", "--document-name", "AWS-StartSSHSession", "--parameters", "portNumber=%p"}},
 		{"glob stays literal argv", "cmd a*b", []string{"cmd", "a*b"}},
+		// hop is Windows-first: an unquoted path must keep its separators.
+		{"unquoted windows path", `C:\Windows\System32\OpenSSH\ssh.exe -W h:22 b`,
+			[]string{`C:\Windows\System32\OpenSSH\ssh.exe`, "-W", "h:22", "b"}},
+		{"escaped backslash", `cmd a\\b`, []string{"cmd", `a\b`}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

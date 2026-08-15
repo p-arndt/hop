@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/skeema/knownhosts"
 	"golang.org/x/crypto/ssh"
@@ -459,5 +460,32 @@ func TestProxyJumpLoopIsRefused(t *testing.T) {
 				t.Errorf("error = %v, want it to name the jump loop", err)
 			}
 		})
+	}
+}
+
+// A broker that forks a helper — `aws ssm` starts session-manager-plugin — leaves the
+// grandchild holding the stderr pipe after the child is killed. Close must still return:
+// with stderr as a plain io.Writer, os/exec's own copier kept cmd.Wait blocked on that
+// descriptor forever.
+func TestProxyCommandCloseSurvivesGrandchild(t *testing.T) {
+	if forkingProxyCommand() == "" {
+		t.Skip("no shell available to fork a grandchild")
+	}
+
+	conn, err := dialProxyCommand(forkingProxyCommand(), "h", 22, "u", "alias")
+	if err != nil {
+		t.Fatalf("dialProxyCommand: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		conn.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Close blocked: a grandchild still holding stderr must not hang the reap")
 	}
 }
