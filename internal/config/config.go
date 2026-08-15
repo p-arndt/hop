@@ -1,10 +1,9 @@
-// Package config holds hop's user settings: a small JSON file next to the hosts
-// database, edited from the in-app settings popover or by hand.
+// Package config holds hop's user settings: a small JSON file next to the hosts database,
+// edited from the settings popover or by hand.
 //
-// Loading never fails hard. A missing file is the normal first-run case, and a
-// corrupt one is not worth refusing to start over — either way hop falls back to
-// defaults and carries on, so a stray keystroke in an editor cannot lock you out
-// of your own hosts.
+// Loading never fails hard. A missing file is the normal first-run case and a corrupt one
+// falls back to defaults, so a stray keystroke in an editor cannot lock you out of your
+// own hosts.
 package config
 
 import (
@@ -14,12 +13,11 @@ import (
 	"path/filepath"
 )
 
-// Config is the full set of user settings. Every field has a meaningful zero
-// value, which is what makes a partial (or absent) file safe to load.
+// Config is the full set of user settings. Every field has a meaningful zero value, which
+// is what makes a partial or absent file safe to load.
 type Config struct {
-	// Editor is the command run on the *remote* host to edit a file, flags and
-	// all ("nvim", "vim -R"). Empty means: prefer the remote $EDITOR, and probe
-	// the remote PATH when it is unset.
+	// Editor is the command run on the remote host to edit a file, flags and all. Empty
+	// prefers the remote $EDITOR, and probes the remote PATH when that is unset.
 	Editor string `json:"editor"`
 
 	// DownloadDir is where the browser's "d" puts files. Empty means <home>/Downloads.
@@ -32,11 +30,28 @@ type Config struct {
 	// all ("code"). Empty means the desktop default (start / open / xdg-open).
 	OpenWith string `json:"openWith"`
 
-	// VimKeys turns on the vim motions in the host list and the file browser —
-	// hjkl, gg/G, H/M/L, ctrl+d/u/f/b. False (the default) leaves those letters
-	// unbound, so navigation is the arrows, enter and esc: hop asks for vim rather
-	// than assuming it.
+	// VimKeys turns on the vim motions in the host list and the file browser. False, the
+	// default, leaves those letters unbound: hop asks for vim rather than assuming it.
 	VimKeys bool `json:"vimKeys"`
+
+	// Mouse turns on mouse reporting: the wheel and clicks everywhere, and the pointer
+	// forwarded to a remote program that asked for it. It defaults to on — the one field
+	// whose zero value is not its default, which is safe because Load starts from
+	// Default() and unmarshals over it.
+	//
+	// While hop reports the mouse it does the selecting itself: a drag over a pane
+	// highlights and copies (see internal/tui/selection.go). ctrl+g hands the pointer back
+	// for a selection that spans hop's own furniture; this setting hands it back for good.
+	Mouse bool `json:"mouse"`
+
+	// Clipboard lets a program on a remote host put text on your clipboard over OSC 52 —
+	// a yank in a remote vim, or tmux's set-clipboard. Like Mouse it defaults to on, and
+	// for the same reason that is safe.
+	//
+	// The channel is one-way and hop keeps it that way: a remote asking to read the
+	// clipboard is never answered (see internal/terminal/clipboard.go). But anything on
+	// the far end can write it, not only what you started.
+	Clipboard bool `json:"clipboard"`
 }
 
 // DefaultAccent is hop's pink.
@@ -47,11 +62,13 @@ func Default() Config {
 	return Config{
 		DownloadDir: defaultDownloadDir(),
 		Accent:      DefaultAccent,
+		Mouse:       true,
+		Clipboard:   true,
 	}
 }
 
-// defaultDownloadDir is <home>/Downloads, falling back to the home directory
-// itself when there is no Downloads folder, and to "." when there is no home.
+// defaultDownloadDir is <home>/Downloads, falling back to the home directory when there
+// is no Downloads folder and to "." when there is no home.
 func defaultDownloadDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -64,8 +81,7 @@ func defaultDownloadDir() string {
 	return dl
 }
 
-// Path is the config file's location: <UserConfigDir>/hop/config.json, alongside
-// hop.db.
+// Path is the config file's location, alongside hop.db.
 func Path() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -74,9 +90,8 @@ func Path() (string, error) {
 	return filepath.Join(dir, "hop", "config.json"), nil
 }
 
-// Load reads the config file, filling anything absent from Default. It returns
-// defaults (and no error) when the file does not exist or cannot be parsed — see
-// the package comment.
+// Load reads the config file, filling anything absent from Default, and returns defaults
+// when the file does not exist or cannot be parsed.
 func Load() Config {
 	path, err := Path()
 	if err != nil {
@@ -87,8 +102,8 @@ func Load() Config {
 		return Default()
 	}
 
-	// Start from the defaults so a file that omits a key still gets a sane value
-	// for it, rather than the type's zero.
+	// Start from the defaults, so a file that omits a key gets a sane value for it rather
+	// than the type's zero.
 	cfg := Default()
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Default()
@@ -107,9 +122,8 @@ func (c Config) normalized() Config {
 	return c
 }
 
-// Save writes the config file, creating its directory. The write goes to a temp
-// file that is then renamed over the target, so an interrupted save cannot leave
-// a half-written file behind.
+// Save writes the config file, creating its directory. The write goes to a temp file
+// renamed over the target, so an interrupted save leaves nothing half-written.
 func (c Config) Save() error {
 	path, err := Path()
 	if err != nil {

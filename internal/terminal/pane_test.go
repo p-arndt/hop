@@ -32,10 +32,9 @@ func newSigner(t *testing.T) ssh.Signer {
 	return signer
 }
 
-// startTestServer spins up an in-process SSH server on 127.0.0.1:0 that accepts
-// any public key. On a session channel it accepts pty-req and shell requests,
-// writes a ready banner, then echoes everything it receives. It returns the
-// listener address; the server runs until the listener is closed via t.Cleanup.
+// startTestServer spins up an in-process SSH server on 127.0.0.1:0 that accepts any
+// public key, answers pty-req and shell, writes a banner and echoes what it receives. It
+// returns the listener address and runs until t.Cleanup closes it.
 func startTestServer(t *testing.T, hostKey ssh.Signer) string {
 	t.Helper()
 
@@ -88,10 +87,8 @@ func serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
 	}
 }
 
-// handleSession accepts pty-req plus shell and exec, then writes a banner and
-// echoes input. exec echoes the command line it was given, which is how the
-// editor path is checked: what hop asks the remote host to run is visible in the
-// pane it renders.
+// handleSession accepts pty-req plus shell and exec, writes a banner and echoes input.
+// exec echoes the command line it was given, which is how the editor path is checked.
 func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
 	for req := range reqs {
 		switch req.Type {
@@ -158,9 +155,8 @@ func waitForView(term *Pane, want string, timeout time.Duration) bool {
 	return strings.Contains(term.View(), want)
 }
 
-// TestEmbeddedRoundTrip proves the full embedded-terminal chain end to end
-// without any external sshd: in-process SSH server -> sshx.Client/Session ->
-// terminal.Pane VT emulator, including a keystroke round-trip via echo.
+// TestEmbeddedRoundTrip proves the embedded-terminal chain end to end without an external
+// sshd: SSH server -> sshx.Session -> terminal.Pane, keystroke round-trip included.
 func TestEmbeddedRoundTrip(t *testing.T) {
 	hostKey := newSigner(t)
 	clientKey := newSigner(t)
@@ -203,12 +199,10 @@ func TestEmbeddedRoundTrip(t *testing.T) {
 // Closing a pane while its pumps are running must be quiet and complete: the two
 // goroutines New starts go away, and nothing touches the emulator on the way out.
 //
-// Both halves are the point. The goroutines are what a pane costs, and hop closes
-// panes all the time — every 'exit', every 'd', every quit — so a pane that left its
-// pumps behind would bleed a goroutine and a live session per shell. And the tear-down
-// used to be a data race (see Pane.Close): the response pump sits inside emu.Read for
-// the life of the pane, reading the very flag emu.Close() writes. This test is run
-// under -race in CI, which is what makes that half of it mean anything.
+// hop closes panes constantly, so one that left its pumps behind would bleed a goroutine
+// and a live session per shell. The tear-down was also a data race (see Pane.Close): the
+// response pump sits inside emu.Read reading the flag emu.Close() writes. CI runs this
+// under -race, which is what makes that half mean anything.
 func TestCloseStopsThePumps(t *testing.T) {
 	hostKey := newSigner(t)
 	clientKey := newSigner(t)
@@ -261,10 +255,9 @@ func TestCloseStopsThePumps(t *testing.T) {
 	}
 }
 
-// TestCommandPaneRoundTrip is the editor-pane chain: sshx.Command runs a program
-// on a remote pty and terminal.Pane renders it, exactly as a shell pane does. The
-// editor tabs in the TUI are nothing more than this, with "vi <file>" as the
-// command — so if this holds, an editor can draw inside hop.
+// TestCommandPaneRoundTrip is the editor-pane chain: sshx.Command runs a program on a
+// remote pty and terminal.Pane renders it. The TUI's editor tabs are this with "vi
+// <file>" as the command.
 func TestCommandPaneRoundTrip(t *testing.T) {
 	hostKey := newSigner(t)
 	clientKey := newSigner(t)

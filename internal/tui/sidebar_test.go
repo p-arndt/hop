@@ -90,11 +90,11 @@ func TestSidebarSurvivesResize(t *testing.T) {
 func TestSidebarTogglesFromEveryMode(t *testing.T) {
 	modes := map[string]func(m *model){
 		"navigation": func(m *model) {},
-		"shell":      func(m *model) { m.active, m.focused = "web1", true },
-		"browser":    func(m *model) { m.active, m.browsing = "web1", true },
-		"editor":     func(m *model) { m.active, m.editing = "web1", true },
+		"shell":      func(m *model) { m.active, m.mode = "web1", modeShell },
+		"browser":    func(m *model) { m.active, m.mode = "web1", modeBrowser },
+		"editor":     func(m *model) { m.active, m.mode = "web1", modeEditor },
 		"filter":     func(m *model) { m.filtering = true },
-		"scrollback": func(m *model) { m.active, m.focused, m.scrolling = "web1", true, true },
+		"scrollback": func(m *model) { m.active, m.mode = "web1", modeScrollback },
 	}
 	for name, setup := range modes {
 		t.Run(name, func(t *testing.T) {
@@ -107,8 +107,8 @@ func TestSidebarTogglesFromEveryMode(t *testing.T) {
 				t.Fatalf("ctrl+b did not collapse the sidebar in %s mode", name)
 			}
 			// Nothing else moved: the key is layout, not a way out of the mode.
-			if m.focused != (name == "shell" || name == "scrollback") ||
-				m.browsing != (name == "browser") || m.editing != (name == "editor") {
+			if m.focused() != (name == "shell" || name == "scrollback") ||
+				m.browsing() != (name == "browser") || m.editing() != (name == "editor") {
 				t.Fatalf("ctrl+b changed the mode in %s", name)
 			}
 		})
@@ -144,12 +144,12 @@ func TestSidebarToggleBreaksTheEscChord(t *testing.T) {
 
 	m.handleKey(key(t, "esc"))
 	m.handleKey(toggleKey())
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("ctrl+b left the pending esc armed")
 	}
 
 	m.handleKey(key(t, "esc"))
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("esc-ctrl+b-esc left the pane, want it treated as two lone escs")
 	}
 }

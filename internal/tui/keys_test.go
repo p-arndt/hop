@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"hop/internal/config"
+	"hop/internal/store"
 )
 
 // key builds the tea.KeyMsg whose String() is name.
@@ -59,11 +61,15 @@ func key(t *testing.T, name string) tea.KeyMsg {
 // list and a viewport where listRows() == 15. The vim motions are switched on:
 // they are what most of these tests are about, and they are off by default.
 func newNavModel(n int) *model {
-	filtered := make([]int, n)
-	for i := range filtered {
-		filtered[i] = i
+	hosts := make([]store.Host, n)
+	for i := range hosts {
+		hosts[i] = store.Host{Alias: fmt.Sprintf("h%d", i), HostName: "example.test"}
 	}
-	return &model{filtered: filtered, height: 20, cfg: config.Config{VimKeys: true}}
+	m := &model{hosts: hosts, height: 20, cfg: config.Config{VimKeys: true}}
+	// applyFilter is what fills the filtered list *and* the drawn rows the paging
+	// arithmetic is measured in; with no filter it is every host, in order.
+	m.applyFilter()
+	return m
 }
 
 func TestNavVimMotions(t *testing.T) {
@@ -247,7 +253,7 @@ func TestNavForwardKeysOnEmptyList(t *testing.T) {
 func newPaneModel() *model {
 	return &model{
 		active:   "web1",
-		focused:  true,
+		mode:     modeShell,
 		sessions: map[string]*session{},
 		height:   20,
 	}
@@ -257,18 +263,18 @@ func TestPaneDoubleEscLeaves(t *testing.T) {
 	m := newPaneModel()
 
 	m.handleKey(key(t, "esc"))
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("a single esc left the pane, want it forwarded to the shell")
 	}
-	if m.lastEsc.IsZero() {
+	if m.chords.esc.IsZero() {
 		t.Fatal("first esc did not arm the double-esc window")
 	}
 
 	m.handleKey(key(t, "esc"))
-	if m.focused {
+	if m.focused() {
 		t.Fatal("double esc did not leave the pane")
 	}
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("lastEsc not reset on leaving the pane")
 	}
 }
@@ -279,13 +285,13 @@ func TestPaneSlowEscsStayInPane(t *testing.T) {
 	m := newPaneModel()
 
 	m.handleKey(key(t, "esc"))
-	m.lastEsc = time.Now().Add(-2 * doubleEscWindow) // as if the user paused
+	m.chords.esc = time.Now().Add(-2 * doubleEscWindow) // as if the user paused
 	m.handleKey(key(t, "esc"))
 
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("two slow escs left the pane, want both forwarded to the shell")
 	}
-	if m.lastEsc.IsZero() {
+	if m.chords.esc.IsZero() {
 		t.Fatal("the second esc should re-arm the window")
 	}
 }
@@ -296,27 +302,28 @@ func TestPaneEscSequenceBrokenByOtherKey(t *testing.T) {
 
 	m.handleKey(key(t, "esc"))
 	m.handleKey(key(t, "j"))
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("an intervening key did not clear the pending esc")
 	}
 
 	m.handleKey(key(t, "esc"))
-	if !m.focused {
+	if !m.focused() {
 		t.Fatal("esc-j-esc left the pane, want it treated as two lone escs")
 	}
 }
 
-// ctrl+o still leaves the pane, and clears any half-finished esc chord.
+// ctrl+o then o leaves the pane, and clears any half-finished esc chord.
 func TestPaneCtrlOLeaves(t *testing.T) {
 	m := newPaneModel()
 
 	m.handleKey(key(t, "esc"))
 	m.handleKey(key(t, "ctrl+o"))
+	m.handleKey(runeKey('o'))
 
-	if m.focused {
+	if m.focused() {
 		t.Fatal("ctrl+o did not leave the pane")
 	}
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("lastEsc not reset on leaving the pane")
 	}
 }
@@ -326,15 +333,15 @@ func TestBrowsingDoubleEscLeaves(t *testing.T) {
 	m := newBrowseModel()
 
 	m.handleKey(key(t, "esc"))
-	if !m.browsing {
+	if !m.browsing() {
 		t.Fatal("a lone esc left the browser, want it to only arm the window")
 	}
 
 	m.handleKey(key(t, "esc"))
-	if m.browsing {
+	if m.browsing() {
 		t.Fatal("double esc did not leave the browser")
 	}
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("lastEsc not reset on leaving the browser")
 	}
 }
@@ -347,7 +354,7 @@ func TestBrowsingEscOtherEscIsNotAChord(t *testing.T) {
 	m.handleKey(key(t, "j"))
 	m.handleKey(key(t, "esc"))
 
-	if !m.browsing {
+	if !m.browsing() {
 		t.Fatal("esc-j-esc left the browser, want it treated as two lone escs")
 	}
 }
@@ -357,10 +364,10 @@ func TestBrowsingSlowDoubleEscStays(t *testing.T) {
 	m := newBrowseModel()
 
 	m.handleKey(key(t, "esc"))
-	m.lastEsc = time.Now().Add(-2 * doubleEscWindow)
+	m.chords.esc = time.Now().Add(-2 * doubleEscWindow)
 	m.handleKey(key(t, "esc"))
 
-	if !m.browsing {
+	if !m.browsing() {
 		t.Fatal("a slow double esc left the browser, want the window to have expired")
 	}
 }
@@ -371,10 +378,10 @@ func TestBrowsingCtrlOLeaves(t *testing.T) {
 	m.handleKey(key(t, "esc"))
 	m.handleKey(key(t, "ctrl+o"))
 
-	if m.browsing {
+	if m.browsing() {
 		t.Fatal("ctrl+o did not leave the browser")
 	}
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("lastEsc not reset on leaving the browser")
 	}
 }
@@ -382,7 +389,7 @@ func TestBrowsingCtrlOLeaves(t *testing.T) {
 // newBrowseModel builds a model in browsing mode with no live session, so keys
 // that would reach the browser are simply dropped.
 func newBrowseModel() *model {
-	return &model{active: "web1", browsing: true, sessions: map[string]*session{}, height: 20}
+	return &model{active: "web1", mode: modeBrowser, sessions: map[string]*session{}, height: 20}
 }
 
 // A letter typed into the filter is literal text: the filter owns every rune while
@@ -402,4 +409,13 @@ func TestFilterSwallowsMotionLetters(t *testing.T) {
 	if m.cursor != before {
 		t.Fatalf("cursor = %d, want %d", m.cursor, before)
 	}
+}
+
+// paneModeIf is the test fixtures' "start in this mode, or in the list" — the
+// shape a table of models with and without a live pane keeps needing.
+func paneModeIf(cond bool, mode paneMode) paneMode {
+	if cond {
+		return mode
+	}
+	return modeList
 }

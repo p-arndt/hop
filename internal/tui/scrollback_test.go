@@ -16,11 +16,11 @@ func TestScrollbackExitKeysWithoutSession(t *testing.T) {
 	for _, k := range []string{"esc", "q", "enter", "left"} {
 		t.Run(k, func(t *testing.T) {
 			m := newPaneModel()
-			m.scrolling = true
+			m.mode = modeScrollback
 
 			m.handleKey(key(t, k))
 
-			if m.scrolling {
+			if m.scrolling() {
 				t.Fatalf("%q did not leave scrollback mode", k)
 			}
 		})
@@ -33,12 +33,12 @@ func TestScrollbackMotionKeysWithoutSession(t *testing.T) {
 	for _, k := range []string{"up", "down", "k", "j", "pgup", "pgdown", "g", "G"} {
 		t.Run(k, func(t *testing.T) {
 			m := newPaneModel()
-			m.scrolling = true
+			m.mode = modeScrollback
 
 			// Must not panic; with no shell the handler clears the mode and returns.
 			m.handleKey(key(t, k))
 
-			if m.scrolling {
+			if m.scrolling() {
 				t.Fatalf("%q left scrollback armed with no session behind it", k)
 			}
 		})
@@ -53,7 +53,7 @@ func TestScrollbackEntryChordWithoutShell(t *testing.T) {
 
 	m.handleKey(key(t, "shift+up"))
 
-	if m.scrolling {
+	if m.scrolling() {
 		t.Fatal("shift+up entered scrollback with no shell to scroll")
 	}
 }
@@ -63,17 +63,17 @@ func TestScrollbackEntryChordWithoutShell(t *testing.T) {
 func TestLeaveClearsScrolling(t *testing.T) {
 	t.Run("leavePane", func(t *testing.T) {
 		m := newPaneModel()
-		m.scrolling = true
+		m.mode = modeScrollback
 		m.leavePane()
-		if m.scrolling {
+		if m.scrolling() {
 			t.Fatal("leavePane left scrollback armed")
 		}
 	})
 	t.Run("leaveAll", func(t *testing.T) {
 		m := newPaneModel()
-		m.scrolling = true
+		m.mode = modeScrollback
 		m.leaveAll()
-		if m.scrolling {
+		if m.scrolling() {
 			t.Fatal("leaveAll left scrollback armed")
 		}
 	})
@@ -84,14 +84,14 @@ func TestLeaveClearsScrolling(t *testing.T) {
 // pane uses, so lastEsc must stay zero.
 func TestScrollbackRoutesAwayFromShell(t *testing.T) {
 	m := newPaneModel()
-	m.scrolling = true
+	m.mode = modeScrollback
 
 	m.handleKey(key(t, "esc"))
 
-	if m.scrolling {
+	if m.scrolling() {
 		t.Fatal("esc did not leave scrollback mode")
 	}
-	if !m.lastEsc.IsZero() {
+	if !m.chords.esc.IsZero() {
 		t.Fatal("esc armed the double-esc chord; it should have been the scrollback handler's exit")
 	}
 }

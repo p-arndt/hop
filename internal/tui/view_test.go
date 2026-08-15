@@ -30,9 +30,9 @@ func viewModel(w, h int) *model {
 	return m
 }
 
-// Whatever the window and whatever is up, the screen is exactly the window: every
-// line fits across it, and there are exactly as many lines as it is tall. A view
-// that overruns either way corrupts the terminal rather than merely looking wrong.
+// Whatever the window and whatever is up, the screen is exactly the window: every line
+// fits across it, and there are as many lines as it is tall. A view that overruns either
+// way corrupts the terminal rather than merely looking wrong.
 func TestViewFitsTheWindow(t *testing.T) {
 	sizes := []struct{ w, h int }{
 		{120, 34}, // a comfortable terminal
@@ -45,9 +45,23 @@ func TestViewFitsTheWindow(t *testing.T) {
 		"filter":   func(m *model) { m.filtering = true; m.filter = "pi"; m.applyFilter() },
 		"help":     func(m *model) { m.help = true },
 		"settings": func(m *model) { m.openSettings() },
+		"tunnel manager": func(m *model) {
+			m.hosts[0].Forwards = []store.Forward{{ID: 1, Kind: store.ForwardLocal, BindHost: "127.0.0.1", BindPort: 15432, TargetHost: "db.internal", TargetPort: 5432}}
+			m.openTunnels(m.hosts[0])
+		},
+		"tunnel editor": func(m *model) {
+			m.openTunnels(m.hosts[0])
+			m.handleKey(key(t, "a"))
+		},
 		"connecting": func(m *model) {
 			m.connecting["raspberrypi"] = true
 			m.setStatus(statusErr, "connect web1 failed: dial tcp: connection refused")
+		},
+		// A dropped session: the pane keeps its banner and its last screen, and both
+		// have to fit the window like everything else.
+		"dropped": func(m *model) {
+			m.sessions["web1"] = &session{dead: true, lostWhy: "ssh: unexpected packet in response to channel open"}
+			m.active, m.mode = "web1", modeShell
 		},
 		"no hosts":          func(m *model) { m.hosts = nil; m.applyFilter() },
 		"sidebar collapsed": func(m *model) { m.toggleSidebar() },
@@ -70,6 +84,35 @@ func TestViewFitsTheWindow(t *testing.T) {
 					}
 				}
 			})
+		}
+	}
+}
+
+// A pane holding lines wider than the box it is drawn in still leaves the screen exactly
+// the size of the window.
+//
+// lipgloss grows a box to fit its content and wraps an over-wide line onto another row,
+// so one such row makes the screen taller than the window and the terminal scrolls hop's
+// header off the top. Lines get that wide ordinarily: scrollback holds each at the width
+// the pane had when it was pushed.
+func TestPaneContentWiderThanTheBoxDoesNotGrowTheScreen(t *testing.T) {
+	m := viewModel(100, 20)
+	m.active = "web1"
+	m.mode = modeShell
+
+	// A pane laid out for a much wider window than the model now has — which is what
+	// a resize leaves behind in the lines already in scrollback.
+	wide := strings.Repeat("x", m.paneW*2-1)
+	pane := fakePaneWith(t, m.paneW*2, m.paneH, wide+"\r\n"+wide, wide)
+	m.sessions["web1"] = &session{shells: []*shellTab{{id: 1, pane: pane}}}
+
+	lines := strings.Split(m.View(), "\n")
+	if len(lines) != 20 {
+		t.Fatalf("view is %d lines, want 20 — the over-wide rows wrapped and grew the pane", len(lines))
+	}
+	for i, ln := range lines {
+		if got := lipgloss.Width(ln); got > 100 {
+			t.Fatalf("line %d is %d cells wide, want at most 100", i, got)
 		}
 	}
 }
@@ -195,20 +238,26 @@ func TestSpinnerStopsWhenNothingIsConnecting(t *testing.T) {
 	}
 }
 
-// A focused pane can open another shell on the host it is already on, without
-// going back to the list for S — and the footer says so, on the first shell as
-// much as the second: the key that makes the second one is no use to you only
-// after you have one.
+// A focused pane can open another shell on the host it is already on, and the footer says
+// so on the first shell as much as the second.
 func TestNewShellFromAFocusedPane(t *testing.T) {
 	m := viewModel(120, 34)
 	m.notify = make(chan struct{}, 1)
 	m.sessions["web1"] = &session{}
-	m.active, m.focused = "web1", true
+	m.active, m.mode = "web1", modeShell
 
-	if foot := m.renderFooter(); !strings.Contains(foot, "alt+0") {
-		t.Fatalf("the focused pane's footer does not name the new-shell key:\n%s", foot)
+	// The pane's footer names the leader, and the leader's own footer names the key
+	// that makes a second shell — on the first shell as much as the second.
+	if foot := m.renderFooter(); !strings.Contains(foot, "leader") {
+		t.Fatalf("the focused pane's footer does not name the leader:\n%s", foot)
 	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlO})
+	if foot := m.renderFooter(); !strings.Contains(foot, "new shell") {
+		t.Fatalf("the open leader's footer does not name the new-shell key:\n%s", foot)
+	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}}) // close it again
 
+	// alt+0 stays bound as an alias, for the terminals that deliver it.
 	altZero := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("0"), Alt: true}
 	_, cmd := m.Update(altZero)
 	if cmd == nil {

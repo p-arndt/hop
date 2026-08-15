@@ -18,16 +18,13 @@ import (
 	"hop/internal/store"
 )
 
-// recordingPrompter answers with a fixed set of replies and remembers every
-// challenge it was handed, so a test can assert both what the user saw and what
-// went back on the wire.
+// recordingPrompter answers with fixed replies and remembers every challenge, so a test
+// can assert both what the user saw and what went back on the wire.
 type recordingPrompter struct {
 	answers []string
 	err     error
-	// answer, when set, decides the reply per challenge — for cases where it
-	// depends on what was asked (a password prompt and a code prompt want
-	// different things) or on how often it has been asked (a retry after a wrong
-	// code).
+	// answer, when set, decides the reply per challenge: for cases depending on what was
+	// asked, or on how often it has been asked.
 	answer func(Challenge) ([]string, error)
 
 	mu   sync.Mutex
@@ -55,9 +52,8 @@ func (p *recordingPrompter) challenges() []Challenge {
 
 // ---- authMethods wiring ----
 
-// A prompter adds the two interactive methods after the keys, which is what lets
-// a `AuthenticationMethods publickey,keyboard-interactive` host finish the second
-// factor on the connection the key already got partway through.
+// A prompter adds the two interactive methods after the keys, which is what lets a
+// publickey,keyboard-interactive host finish the second factor on the same connection.
 func TestAuthMethodsAddsInteractiveMethods(t *testing.T) {
 	home := fakeHome(t)
 	writeKey(t, filepath.Join(home, ".ssh", "id_ed25519"), "")
@@ -180,9 +176,8 @@ func TestKeyboardInteractiveRejectsWrongAnswerCount(t *testing.T) {
 
 // ---- cancellation ----
 
-// One cancel ends the whole dial. Without this the client would move on to the
-// next method the server offers and put a second prompt in front of the user
-// they have already dismissed once.
+// One cancel ends the whole dial: otherwise the client moves on to the next method and
+// puts a second prompt in front of a user who dismissed the first.
 func TestStickyCancelRefusesLaterQuestions(t *testing.T) {
 	inner := &recordingPrompter{err: ErrAuthCanceled}
 	s := &stickyCancel{p: inner}
@@ -198,8 +193,7 @@ func TestStickyCancelRefusesLaterQuestions(t *testing.T) {
 	}
 }
 
-// An error that is not a cancel does not stick: a prompter that failed once (a
-// transient UI problem) may still be asked again, which is what makes
+// An error that is not a cancel does not stick, which is what makes
 // ssh.RetryableAuthMethod's re-prompt on a mistyped code work.
 func TestStickyCancelDoesNotStickOnOtherErrors(t *testing.T) {
 	inner := &recordingPrompter{err: errors.New("something else")}
@@ -215,9 +209,8 @@ func TestStickyCancelDoesNotStickOnOtherErrors(t *testing.T) {
 
 // ---- end to end, against a server that demands a code ----
 
-// A host that offers only keyboard-interactive is connected to by answering it.
-// This is the whole path: no keys anywhere, authMethods offering the interactive
-// method, the callback carrying the server's prompt out and the code back in.
+// A host offering only keyboard-interactive is connected to by answering it — the whole
+// path, with no keys anywhere.
 func TestConnectAnswersKeyboardInteractive(t *testing.T) {
 	const code = "123456"
 	p := &recordingPrompter{answers: []string{code}}
@@ -248,9 +241,8 @@ func TestConnectAnswersKeyboardInteractive(t *testing.T) {
 	}
 }
 
-// Dismissing the prompt fails the dial with ErrAuthCanceled, still recognisable
-// through the ssh package's wrapping — that is what the UI keys off to report a
-// cancel rather than a failure.
+// Dismissing the prompt fails the dial with ErrAuthCanceled, still recognisable through
+// the ssh package's wrapping, which is what the UI keys off.
 func TestConnectReportsCanceledAuth(t *testing.T) {
 	p := &recordingPrompter{err: ErrAuthCanceled}
 
@@ -283,12 +275,10 @@ func TestConnectWithoutPrompterOrKeysStillExplains(t *testing.T) {
 	}
 }
 
-// serveInteractive starts an SSH server on loopback that authenticates through
-// cb and nothing else, and returns the store.Host that reaches it. It points
-// $HOME at a temp dir holding a known_hosts entry for the server's key, so the
-// dial gets past host-key verification without a TOFU prompt and without going
-// anywhere near the developer's real ~/.ssh. There is no client key in that
-// home, which is what makes these tests exercise the interactive path.
+// serveInteractive starts an SSH server on loopback authenticating through cb alone, and
+// returns the store.Host that reaches it. $HOME points at a temp dir holding a
+// known_hosts entry for the server's key and no client key, which keeps the dial off the
+// developer's ~/.ssh and on the interactive path.
 func serveInteractive(t *testing.T, cb func(ssh.ConnMetadata, ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error)) store.Host {
 	t.Helper()
 	disableAgent(t)

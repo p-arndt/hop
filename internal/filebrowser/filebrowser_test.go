@@ -1,6 +1,7 @@
 package filebrowser
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,13 +57,17 @@ func (f *fakeClient) List(string) ([]sftpx.Entry, error) { return f.entries, nil
 
 func (f *fakeClient) Download(remote, local string) (int64, error) {
 	f.downloads = append(f.downloads, [2]string{remote, local})
+	// Create the local file like the real client would: fetch quarantines the
+	// copy after downloading, and the xattr call needs a file to land on.
+	if err := os.WriteFile(local, nil, 0o644); err != nil {
+		return 0, err
+	}
 	return 0, nil
 }
 func (f *fakeClient) Close() error { return nil }
 
-// newTestBrowser builds a Browser over n synthetic entries with a viewport tall
-// enough for 10 content rows, rooted at /home/u. The vim motions are switched on:
-// they are what most of these tests are about, and they are off by default.
+// newTestBrowser builds a Browser over n synthetic entries with room for 10 content rows,
+// rooted at /home/u. The vim motions are switched on, being what most of these test.
 func newTestBrowser(n int) (*Browser, *fakeClient) {
 	ents := make([]sftpx.Entry, n)
 	for i := range ents {
@@ -243,9 +248,8 @@ func fileTestBrowser(t *testing.T) (*Browser, *fakeClient, string, string) {
 	}, fc, tmp, dl
 }
 
-// stubOpen swaps the default-app launcher for a command that starts and exits
-// immediately (the test binary itself, told to run no tests), recording the path
-// it was handed. It restores the original when the test ends.
+// stubOpen swaps the default-app launcher for a command that starts and exits at once,
+// recording the path it was handed, and restores the original when the test ends.
 func stubOpen(t *testing.T) (opened, openedWith *string) {
 	t.Helper()
 	var p, with string
@@ -375,9 +379,9 @@ func TestDownloadKey(t *testing.T) {
 	}
 }
 
-// A server-supplied entry name must not be able to place a download outside
-// the chosen directory (path separators, ".."), address an NTFS stream (":"),
-// or name a device (CON) — for "d" and "o" alike: both write locally.
+// A server-supplied entry name must not place a download outside the chosen directory,
+// address an NTFS stream, or name a device — for "d" and "o" alike, since both write
+// locally.
 func TestRejectsUnsafeRemoteNames(t *testing.T) {
 	for _, name := range []string{
 		`..`, `..\..\evil.exe`, `../../evil`, `sub/file`, `C:evil`,
@@ -440,9 +444,8 @@ func TestViewStripsControlCharacters(t *testing.T) {
 	}
 }
 
-// executableName must flag exactly the names the OS default handler would run,
-// judging by the last extension only, and see through the trailing dot/space
-// Windows strips while normalizing a name.
+// executableName must flag exactly the names the OS default handler would run, judging by
+// the last extension only, and see through the trailing dot or space Windows strips.
 func TestExecutableName(t *testing.T) {
 	cases := []struct {
 		name string
@@ -454,6 +457,11 @@ func TestExecutableName(t *testing.T) {
 		{"evil.exe .", true},   // trailing dot and space are stripped by Windows
 		{"setup.MSI", true},
 		{"shortcut.lnk", true},
+		{"invoices.terminal", true}, // macOS: Terminal profile runs its CommandString on open
+		{"notes.pdf.Command", true},
+		{"backup.scpt", true},
+		{"photo.fileloc", true},
+		{"report.desktop", true}, // Linux: xdg-open may honor the Exec= line
 		{"report.pdf", false},
 		{"main.go", false},
 		{"README", false},         // no extension at all
@@ -466,25 +474,26 @@ func TestExecutableName(t *testing.T) {
 	}
 }
 
-// "o" on a file whose name carries an executable extension must refuse when the
-// launch would reach the OS default handler (empty OpenWith): handing it over
-// would execute it via ShellExecute. Nothing is fetched and nothing is launched.
+// "o" on a file with an executable extension must refuse when the launch would reach the
+// OS default handler, which would execute it. Nothing is fetched and nothing is launched.
 func TestOpenInAppRefusesExecutable(t *testing.T) {
 	b, fc, _, _ := fileTestBrowser(t)
 	opened, _ := stubOpen(t)
 
-	b.entries[1].Name = "invoice.pdf.hta"
-	b.cursor = 1
-	b.Handle(key(t, "o"))
+	for _, name := range []string{"invoice.pdf.hta", "invoices-2026.terminal", "report.desktop"} {
+		b.entries[1].Name = name
+		b.cursor = 1
+		b.Handle(key(t, "o"))
 
-	if len(fc.downloads) != 0 {
-		t.Fatalf("o on an executable fetched %v, want a refusal before any download", fc.downloads)
-	}
-	if *opened != "" {
-		t.Fatalf("o on an executable launched the default app on %q", *opened)
-	}
-	if !b.statusErr {
-		t.Fatalf("o on an executable: status = %q, want an error", b.status)
+		if len(fc.downloads) != 0 {
+			t.Fatalf("o on %q fetched %v, want a refusal before any download", name, fc.downloads)
+		}
+		if *opened != "" {
+			t.Fatalf("o on %q launched the default app on %q", name, *opened)
+		}
+		if !b.statusErr {
+			t.Fatalf("o on %q: status = %q, want an error", name, b.status)
+		}
 	}
 }
 
@@ -561,5 +570,59 @@ func TestCursorStaysVisible(t *testing.T) {
 			t.Fatalf("after %q: cursor %d outside window [%d,%d)",
 				k, b.cursor, b.scroll, b.scroll+b.contentRows())
 		}
+	}
+}
+
+// pickyClient lists only the directories it knows, so a start directory can be
+// made to fail the way a host's default directory does once it is renamed away.
+type pickyClient struct {
+	fakeClient
+	ok map[string]bool
+}
+
+func (p *pickyClient) List(dir string) ([]sftpx.Entry, error) {
+	if !p.ok[dir] {
+		return nil, fmt.Errorf("stat %s: no such file or directory", dir)
+	}
+	return p.entries, nil
+}
+
+// A start directory that lists is where the browser opens.
+func TestNewOpensInTheStartDir(t *testing.T) {
+	c := &pickyClient{ok: map[string]bool{"/srv/app": true, "/home/u": true}}
+	b, err := New(c, "/srv/app", Options{DownloadDir: t.TempDir()}, 40, 13)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if b.Path() != "/srv/app" {
+		t.Fatalf("cwd = %q, want /srv/app", b.Path())
+	}
+	if b.Status() != "" {
+		t.Fatalf("status = %q, want none", b.Status())
+	}
+}
+
+// One that does not — a default directory removed on the server — lands in the home
+// directory instead, with the reason on the status line.
+func TestNewFallsBackWhenTheStartDirIsGone(t *testing.T) {
+	c := &pickyClient{ok: map[string]bool{"/home/u": true}}
+	b, err := New(c, "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if b.Path() != "/home/u" {
+		t.Fatalf("cwd = %q, want the home directory /home/u", b.Path())
+	}
+	if !strings.Contains(b.Status(), "/srv/gone") {
+		t.Fatalf("status = %q, want it to name the directory that failed", b.Status())
+	}
+}
+
+// With neither a listable start directory nor a listable home there is nothing to
+// show, and New says so rather than handing back an empty browser.
+func TestNewFailsWhenNothingLists(t *testing.T) {
+	c := &pickyClient{ok: map[string]bool{}}
+	if _, err := New(c, "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13); err == nil {
+		t.Fatal("New on a host that lists nothing: got nil error, want non-nil")
 	}
 }

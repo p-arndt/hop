@@ -56,7 +56,7 @@ func TestNoUpdateHintWhenCurrent(t *testing.T) {
 func TestNoUpdateHintWhileFocused(t *testing.T) {
 	m := viewModel(120, 34)
 	m.update(updateAvailableMsg{latest: "9.9.9"})
-	m.active, m.focused = "web1", true
+	m.active, m.mode = "web1", modeShell
 	if got := m.renderFooter(); strings.Contains(got, "9.9.9") {
 		t.Errorf("focused footer should stay a key legend, got %q", got)
 	}

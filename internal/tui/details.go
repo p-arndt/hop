@@ -10,13 +10,12 @@ import (
 	"hop/internal/store"
 )
 
-// detailsMaxW is the widest the details card lets itself get. Past it the two
-// columns of facts drift so far apart that the eye stops pairing them.
+// detailsMaxW is the widest the details card gets: past it the two columns of facts
+// drift so far apart that the eye stops pairing them.
 const detailsMaxW = 74
 
-// renderDetails is the card shown in the right pane when no session is on screen:
-// what the host under the cursor is, what hop is currently holding open on it,
-// and what the keys would do to it.
+// renderDetails is the card shown in the right pane when no session is on screen: what
+// the host under the cursor is, what hop holds open on it, and what the keys would do.
 func (m *model) renderDetails(w int) string {
 	h, ok := m.selectedHost()
 	if !ok {
@@ -24,25 +23,27 @@ func (m *model) renderDetails(w int) string {
 	}
 
 	const pad = "  "
-	// The card is a column of text, not a banner: on a wide pane it keeps a
-	// readable measure rather than stretching its two columns to opposite edges.
+	// A column of text, not a banner: on a wide pane it keeps a readable measure.
 	inner := clamp(w-4, 20, detailsMaxW)
 
 	var b strings.Builder
 	b.WriteString("\n")
 
-	// Title row: the alias on the left, its state on the right, pushed apart to
-	// the full width of the card.
-	// Host fields can arrive from an untrusted SSH config or a paste into the
-	// form, so strip escape sequences before they reach the terminal.
+	// The alias on the left, its state on the right. Host fields can arrive from an
+	// untrusted SSH config or a paste, so escape sequences are stripped.
 	title := titleStyle.Render(stripControl(h.Alias))
 	badge := m.hostBadge(h)
 	gap := max(inner-lipgloss.Width(title)-lipgloss.Width(badge), 1)
-	b.WriteString(pad + title + strings.Repeat(" ", gap) + badge + "\n")
-	b.WriteString(pad + rule(inner) + "\n\n")
+	b.WriteString(pad)
+	b.WriteString(title)
+	b.WriteString(strings.Repeat(" ", gap))
+	b.WriteString(badge)
+	b.WriteString("\n")
+	b.WriteString(pad)
+	b.WriteString(rule(inner))
+	b.WriteString("\n\n")
 
-	// The facts, in two columns: what you connect to on the left, what you know
-	// about having connected before on the right.
+	// What you connect to on the left, what you know about having connected on the right.
 	port := h.Port
 	if port == 0 {
 		port = 22
@@ -51,6 +52,12 @@ func (m *model) renderDetails(w int) string {
 		{"host", fmt.Sprintf("%s:%d", stripControl(h.HostName), port)},
 		{"user", stripControl(h.User)},
 		{"identity", stripControl(h.IdentityFile)},
+	}
+	// Only a non-default route earns a row.
+	if h.ProxyJump != "" {
+		left = append(left, [2]string{"via", stripControl(h.ProxyJump)})
+	} else if h.ProxyCommand != "" {
+		left = append(left, [2]string{"via", stripControl(h.ProxyCommand)})
 	}
 	right := [][2]string{
 		{"last", relTime(h.LastConnect)},
@@ -70,27 +77,61 @@ func (m *model) renderDetails(w int) string {
 	), pad))
 	b.WriteString("\n")
 
-	// What is open on the connection. This is the answer to "what am I about to
-	// close?", and it is on screen before you reach for 'd' rather than after.
+	// Saved forwards belong on the dashboard whether running or not: a green dot is a live
+	// listener, a hollow one is defined and ready to start with t.
+	if len(h.Forwards) > 0 {
+		b.WriteString(pad)
+		b.WriteString(sectionCap.Render("TUNNELS"))
+		b.WriteString("\n")
+		limit := min(len(h.Forwards), 4)
+		for _, f := range h.Forwards[:limit] {
+			dot := idleDot
+			if s := m.sessions[h.Alias]; s != nil && !s.dead && s.tunnels[f.ID] != nil {
+				dot = connectedDot
+			}
+			b.WriteString(pad)
+			b.WriteString(dot)
+			b.WriteString(" ")
+			b.WriteString(dimStyle.Render(truncate(forwardText(f), inner-2)))
+			b.WriteString("\n")
+		}
+		if more := len(h.Forwards) - limit; more > 0 {
+			b.WriteString(pad)
+			b.WriteString(faint.Render(fmt.Sprintf("  … %d more", more)))
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
+	// What is open on the connection — the answer to "what am I about to close?".
 	if s := m.sessions[h.Alias]; s != nil {
 		if parts := s.summary(); len(parts) > 0 {
-			b.WriteString(pad + sectionCap.Render("OPEN") + "\n")
-			b.WriteString(pad + accentText.Render("▸ ") + dimStyle.Render(strings.Join(parts, faint.Render(" · "))) + "\n\n")
+			b.WriteString(pad)
+			b.WriteString(sectionCap.Render("OPEN"))
+			b.WriteString("\n")
+			b.WriteString(pad)
+			b.WriteString(accentText.Render("▸ "))
+			b.WriteString(dimStyle.Render(strings.Join(parts, faint.Render(" · "))))
+			b.WriteString("\n\n")
 		}
 	}
 
-	b.WriteString(pad + sectionCap.Render("ACTIONS") + "\n")
+	b.WriteString(pad)
+	b.WriteString(sectionCap.Render("ACTIONS"))
+	b.WriteString("\n")
 	b.WriteString(indent(m.actionGrid(h, inner), pad))
 	b.WriteString("\n")
-	b.WriteString(pad + keyHint("?", "every key hop knows"))
+	b.WriteString(pad)
+	b.WriteString(keyHint("?", "every key hop knows"))
 
 	return clampLines(b.String(), w)
 }
 
-// hostBadge is the host's state, spelled out beside its name: idle, dialing, or
-// connected.
+// hostBadge is the host's state beside its name: idle, dialing, or connected.
 func (m *model) hostBadge(h store.Host) string {
 	switch {
+	case m.sessions[h.Alias] != nil && m.sessions[h.Alias].dead:
+		return deadDot + " " + redText.Render("connection lost")
 	case m.sessions[h.Alias] != nil:
 		return connectedDot + " " + greenText.Render("connected")
 	case m.connecting[h.Alias]:
@@ -100,9 +141,9 @@ func (m *model) hostBadge(h store.Host) string {
 	}
 }
 
-// actionGrid lays the host keys out in two columns, the ones that open something
-// on the left and the ones that act on what is already open on the right. The
-// labels track the host's state: there is no "focus shell" on a host with none.
+// actionGrid lays the host keys out in two columns: the ones that open something on the
+// left, the ones that act on what is open on the right. The labels track the host's
+// state — there is no "focus shell" on a host with none.
 func (m *model) actionGrid(h store.Host, w int) string {
 	s := m.sessions[h.Alias]
 	live := s != nil
@@ -111,9 +152,14 @@ func (m *model) actionGrid(h store.Host, w int) string {
 		{"enter", "connect"},
 		{"S", "new shell"},
 		{"f", "sftp browser"},
+		{"t", "start / stop tunnels"},
 	}
-	right := [][2]string{{"o", "open in vs code"}}
-	if live && s.shell() != nil {
+	right := [][2]string{{"o", "open in vs code"}, {"T", "manage tunnels"}}
+	switch {
+	case live && s.dead:
+		// The one key that matters on a dropped session goes where "focus shell" was.
+		right = append(right, [2]string{"r", "reconnect"})
+	case live && s.shell() != nil:
 		right = append(right, [2]string{"s", "focus shell"})
 	}
 	if live {
@@ -127,30 +173,47 @@ func (m *model) actionGrid(h store.Host, w int) string {
 	)
 }
 
-// renderNoHost is what the right pane says with nothing under the cursor: on a
-// fresh install there is no host to describe, so it describes hop instead.
+// renderNoHost is what the right pane says with nothing under the cursor: on a fresh
+// install there is no host to describe, so it describes hop.
 func (m *model) renderNoHost(w int) string {
 	var b strings.Builder
 	b.WriteString("\n\n")
-	b.WriteString("  " + titleStyle.Render("hop") + dimStyle.Render(" — jump between your servers") + "\n\n")
+	b.WriteString("  ")
+	b.WriteString(titleStyle.Render("hop"))
+	b.WriteString(dimStyle.Render(" — jump between your servers"))
+	b.WriteString("\n\n")
 	if len(m.hosts) == 0 {
-		b.WriteString("  " + dimStyle.Render("No hosts yet. Import the ones you") + "\n")
-		b.WriteString("  " + dimStyle.Render("already have in ~/.ssh/config:") + "\n\n")
-		b.WriteString("  " + keyHint("i", "import ~/.ssh/config") + "\n\n")
-		b.WriteString("  " + faint.Render("…or ") + keyHint("a", "add one by hand") + "\n")
+		b.WriteString("  ")
+		b.WriteString(dimStyle.Render("No hosts yet. Import the ones you"))
+		b.WriteString("\n")
+		b.WriteString("  ")
+		b.WriteString(dimStyle.Render("already have in ~/.ssh/config:"))
+		b.WriteString("\n\n")
+		b.WriteString("  ")
+		b.WriteString(keyHint("i", "import ~/.ssh/config"))
+		b.WriteString("\n\n")
+		b.WriteString("  ")
+		b.WriteString(faint.Render("…or "))
+		b.WriteString(keyHint("a", "add one by hand"))
+		b.WriteString("\n")
 	} else {
-		b.WriteString("  " + dimStyle.Render("Select a host on the left.") + "\n\n")
-		b.WriteString("  " + keyHint("/", "filter the list") + "\n")
-		b.WriteString("  " + keyHint("?", "every key hop knows") + "\n")
+		b.WriteString("  ")
+		b.WriteString(dimStyle.Render("Select a host on the left."))
+		b.WriteString("\n\n")
+		b.WriteString("  ")
+		b.WriteString(keyHint("/", "filter the list"))
+		b.WriteString("\n")
+		b.WriteString("  ")
+		b.WriteString(keyHint("?", "every key hop knows"))
+		b.WriteString("\n")
 	}
 	return clampLines(b.String(), w)
 }
 
 // ---- column helpers ----
 
-// kvColumn renders label/value pairs as a column, labels aligned, and drops a
-// pair whose value is empty — a host with no identity file should not have an
-// empty row where one would be.
+// kvColumn renders label/value pairs as a column with the labels aligned, dropping a pair
+// whose value is empty.
 func kvColumn(pairs [][2]string, w int) string {
 	labelW := 0
 	for _, p := range pairs {
@@ -171,9 +234,8 @@ func kvColumn(pairs [][2]string, w int) string {
 	return strings.Join(lines, "\n")
 }
 
-// keyColumn renders key/label pairs as a column of keycaps with their labels
-// aligned — the keycaps are pills of different widths, so the labels have to be
-// padded to a common column rather than merely spaced.
+// keyColumn renders key/label pairs as a column of keycaps with the labels aligned. The
+// keycaps are pills of different widths, so the labels are padded to a common column.
 func keyColumn(pairs [][2]string, w int) string {
 	capW := 0
 	for _, p := range pairs {

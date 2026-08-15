@@ -1,14 +1,10 @@
-// Command demoserver is a throwaway SSH server for recording hop's README demo.
+// Command demoserver is a throwaway SSH server for recording hop's README demo, so the
+// GIF shows connecting, running commands, browsing and editing without a real host,
+// credentials or data. Everything it serves is invented (see content.go): a fake shell,
+// an in-memory filesystem over SFTP, and a fake vi.
 //
-// It exists so a recording can show hop connecting, running commands, browsing
-// files and editing one — without a real host, real credentials or real data
-// anywhere near the GIF. Everything it serves is invented (see content.go): a fake
-// interactive shell, an in-memory filesystem over SFTP, and a fake vi.
-//
-// It accepts every client without authentication and serves a host key generated
-// on the spot, so it must only ever listen on loopback. That is not a
-// configuration choice: the listen address is checked at startup and a non-loopback
-// address is refused.
+// It accepts every client without authentication and serves a host key generated on the
+// spot, so it only ever listens on loopback — checked at startup, not configurable.
 //
 //	demoserver -addr 127.0.0.1:2222 -known-hosts <path> -seed-db <path>
 //
@@ -57,10 +53,8 @@ func run(addr, khPath, seedDB, clientKey string) error {
 		return err
 	}
 
-	// hop needs at least one signer to offer before it will dial (an agent identity
-	// or a key on disk), and the recording runs with a HOME of its own that has
-	// neither. A throwaway key put there keeps the demo off the user's real keys and
-	// their agent entirely — this server accepts whatever is offered anyway.
+	// hop needs at least one signer to offer before it will dial, and the recording runs
+	// with a HOME of its own that has none. This server accepts whatever is offered.
 	if clientKey != "" {
 		if err := writeClientKey(clientKey); err != nil {
 			return err
@@ -97,8 +91,8 @@ func run(addr, khPath, seedDB, clientKey string) error {
 	return nil
 }
 
-// acceptLoop serves every connection on ln until it is closed. It is separate from
-// run so a test can drive the server over a listener of its own.
+// acceptLoop serves every connection on ln until it is closed, separate from run so a
+// test can drive the server over its own listener.
 func acceptLoop(ln net.Listener, signer ssh.Signer) {
 	cfg := &ssh.ServerConfig{NoClientAuth: true}
 	cfg.AddHostKey(signer)
@@ -126,9 +120,8 @@ func requireLoopback(addr string) error {
 	return nil
 }
 
-// newHostKey generates a throwaway ed25519 host key. It is never written to disk:
-// each run gets a fresh key, and the known_hosts file the runner points hop at is
-// rewritten to match.
+// newHostKey generates a throwaway ed25519 host key, never written to disk: each run gets
+// a fresh one and the known_hosts file is rewritten to match.
 func newHostKey() (ssh.Signer, error) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -141,9 +134,8 @@ func newHostKey() (ssh.Signer, error) {
 	return signer, nil
 }
 
-// writeClientKey generates an unencrypted ed25519 key at p, in the OpenSSH format
-// hop's keySigners reads. It is regenerated on every run and lives only in the
-// recording's throwaway HOME.
+// writeClientKey generates an unencrypted ed25519 key at p, in the format hop's
+// keySigners reads. Regenerated every run, inside the recording's throwaway HOME.
 func writeClientKey(p string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return fmt.Errorf("client key dir: %w", err)
@@ -162,9 +154,8 @@ func writeClientKey(p string) error {
 	return nil
 }
 
-// writeKnownHosts records the generated key for the address we are listening on, so
-// hop's first-contact confirmation card does not appear mid-recording. (The card has
-// its own scene in the tape, driven separately.)
+// writeKnownHosts records the generated key for the address being listened on, so hop's
+// first-contact card does not appear mid-recording. It has its own scene in the tape.
 func writeKnownHosts(p string, addr net.Addr, key ssh.PublicKey) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return fmt.Errorf("known_hosts dir: %w", err)
@@ -174,8 +165,8 @@ func writeKnownHosts(p string, addr net.Addr, key ssh.PublicKey) error {
 		return fmt.Errorf("split listen addr: %w", err)
 	}
 
-	// hop dials the alias' hostname, so the entry has to name the same host:port
-	// pair the demo hosts use — "localhost", not the resolved 127.0.0.1.
+	// hop dials the alias' hostname, so the entry names the same host:port pair the demo
+	// hosts use — "localhost", not the resolved 127.0.0.1.
 	addrs := []string{net.JoinHostPort("localhost", port), net.JoinHostPort(host, port)}
 	var b strings.Builder
 	for _, a := range addrs {
@@ -188,9 +179,8 @@ func writeKnownHosts(p string, addr net.Addr, key ssh.PublicKey) error {
 	return nil
 }
 
-// seed writes the sample host list into a hop database. Every host points at this
-// server (so any of them connects), but only the aliases are on screen — which is
-// what makes the list look like somebody's real fleet without being one.
+// seed writes the sample host list into a hop database. Every host points at this server,
+// but only the aliases are on screen, so the list reads as somebody's real fleet.
 func seed(dbPath string, addr net.Addr) error {
 	_, portStr, err := net.SplitHostPort(addr.String())
 	if err != nil {
@@ -230,8 +220,7 @@ func seed(dbPath string, addr net.Addr) error {
 		}); err != nil {
 			return fmt.Errorf("seed %s: %w", h.alias, err)
 		}
-		// Touch once per visit: frecency is stored, not computed from a field we
-		// could set directly.
+		// Once per visit: frecency is stored, not computed from a field we could set.
 		for i := 0; i < h.visits; i++ {
 			if err := st.Touch(h.alias); err != nil {
 				return fmt.Errorf("touch %s: %w", h.alias, err)
@@ -272,8 +261,8 @@ func serve(nc net.Conn, cfg *ssh.ServerConfig, fs *demoFS) {
 	wg.Wait()
 }
 
-// ptyReq is the payload of a pty-req, whose first fields are all we need: the size
-// the fake editor lays out to.
+// ptyReq is the payload of a pty-req; the first fields are all we need — the size the
+// fake editor lays out to.
 type ptyReq struct {
 	Term          string
 	Cols, Rows    uint32
@@ -349,11 +338,9 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, fs *demoFS) {
 	}
 }
 
-// runExec answers an exec request. hop's only exec is the editor command it builds
-// in remoteEditorCmd — a shell one-liner ending in `exec ${ed:-vi} '<path>'` — so
-// the path is pulled out of it and the fake editor opens that file. Anything else
-// falls through to the command table, which is what makes `hop`'s own probes (and a
-// stray command in a tape) behave.
+// runExec answers an exec request. hop's only exec is remoteEditorCmd's one-liner, ending
+// in `exec ${ed:-vi} '<path>'`, so the path is pulled out and the fake editor opens it.
+// Anything else falls through to the command table.
 func runExec(ch ssh.Channel, fs *demoFS, cmd string, cols, rows int) {
 	if p, ok := editorTarget(cmd); ok {
 		f, err := fs.lookup(p)
@@ -390,8 +377,7 @@ func editorTarget(cmd string) (string, bool) {
 	return p, true
 }
 
-// exit sends the exit-status the client waits for before treating the channel as
-// finished — hop closes an editor tab when its command exits.
+// exit sends the exit-status the client waits for: hop closes an editor tab on it.
 func exit(ch ssh.Channel, code uint32) {
 	ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Code uint32 }{code}))
 }

@@ -1,14 +1,20 @@
 # hop — keybindings
 
-hop has three input modes. The footer always shows the keys for the mode you are
-in, and every mode returns to navigation with `ctrl+o` (from a terminal pane or
-the file browser, `esc` `esc` also works).
+Every key hop binds, by mode. The reasoning behind a binding lives next to the code
+that implements it — mostly `internal/tui/keys.go`.
 
-| Mode | You are here when | Who owns your keystrokes |
-| --- | --- | --- |
-| **Navigation** | the host list is focused (the default) | hop |
-| **Browsing** | you opened the SFTP browser with `f` | hop |
-| **Terminal** | you connected to a host with `enter` or `s` | the **remote shell** |
+**Two rules explain most of this:**
+
+- **Inside a pane, `ctrl+o` is hop's leader.** It does nothing on its own and it is
+  on no clock — it opens a menu in the footer and waits. `ctrl+o` `o` goes **out**.
+- **Outside a pane** — in the browser, in a card — `ctrl+o` simply goes back. There is
+  no remote program competing for keys there, so there is nothing to lead.
+- **Inside a pane, everything else is the remote's.** hop reserves as few keys as it
+  can, because every one it takes is one the shell or editor no longer gets.
+
+> **macOS:** hop's bindings use `ctrl` and `shift`, which every terminal delivers.
+> The `alt+…` chords listed below are *aliases* and need one setting — see
+> [macOS and the alt keys](#macos-and-the-alt-keys).
 
 ---
 
@@ -23,165 +29,93 @@ the file browser, `esc` `esc` also works).
 | `s` | focus the existing session for this host |
 | `S` | open **another** shell on this host, alongside the ones already open |
 | `f` | open the SFTP browser |
-| `o` | open the host in VS Code Remote |
+| `t` | start all defined tunnels, or stop them when any are running |
+| `T` | manage this host's tunnel definitions |
+| `o` | open the host in VS Code Remote, in the directory its shell is standing in |
 | `d` | disconnect the session |
+| `r` | reconnect a session whose connection dropped, reopening what it held |
 | `a` | add a host |
 | `e` | edit the host under the cursor |
 | `x` | delete the host under the cursor (asks first) |
+| `p` | pin the host to the **PINNED** section at the top, or unpin it |
+| `shift+k` / `shift+j` | move a pinned host up / down inside that section |
 | `i` | import hosts from an OpenSSH config (`~/.ssh/config` by default) |
 | `/` | filter hosts (`enter` applies, `esc` clears) |
 | `,` | settings |
 | `?` | the keys card |
 | `ctrl+b` | hide / show the sidebar |
+| `ctrl+g` | hand the mouse to your terminal (and take it back) |
 | `q` / `ctrl+c` | quit |
 
-With **vim keys** turned on (`,` → *Vim keys*, off by default), these are bound as
-well:
+| Key | Action |
+| --- | --- |
+| `1` … `9` | go straight to that shell of the host under the cursor |
+
+With **vim keys** on (`,` → *Vim keys*, off by default): `j`/`k` move, `l` connects
+as `enter` does, `h` goes back as `esc` does.
+
+The list binds the **step** keys and nothing more. The jumps and ctrl chords (`gg`,
+`G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`/`ctrl+f`) belong to the file browser, which walks
+directories that run past a screen; the host list does not scroll, so each of them
+landed a `j` or two from the cursor while holding a letter the list wants as a command.
+
+## Terminal — a live shell
 
 | Key | Action |
 | --- | --- |
-| `j` / `k` | move down / up |
-| `l` | connect — as `enter` does |
-| `h` | back — as `esc` does |
+| `esc` `esc` | back to hop (two presses within 400 ms) |
+| `shift+→` / `shift+←` | next / previous shell on this host (wraps) |
+| `ctrl+o` `o` | **out** — back to hop |
+| `ctrl+o` `1` … `9` | go straight to that shell, without leaving the pane |
+| `ctrl+o` `0` | open **another** shell on this host, without leaving the pane |
+| `ctrl+o` `c` | open **this directory** in VS Code Remote |
+| `shift+↑` / `shift+pgup` | scroll back into the pane's history |
+| `ctrl+b` | hide / show the sidebar — the pane takes the whole window |
+| `ctrl+g` | hand the mouse to your terminal (and take it back) |
+| `alt+0`, `alt+←/→`, `alt+1…9` | aliases for the above, where your terminal sends them |
+| *everything else* | sent to the remote shell |
 
-Forward and back then use the same keys as the browser: `enter`/`l`/`right`
-descends into the thing under the cursor, `h`/`left` backs out of it.
+`←` is **not** a way out: readline needs it, `alt+b`/`alt+f` word motions are built on
+it, and every full-screen program navigates with it. `alt+o` is deliberately unbound —
+a terminal sends it as `esc` then `o`, which is vim's "leave insert mode, open a line".
 
-The list binds the **step** keys and nothing more. The jumps and the ctrl chords —
-`gg`, `G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`/`ctrl+f` — belong to the file browser,
-which walks directories that actually run past a screen. The host list does not
-scroll (every host is on screen), so each of them landed a `j` or two from where
-the cursor already was, and those letters are worth more to the list as commands.
-Paging is `pgdn`/`pgup`.
+### How the leader works
 
-## The sidebar — `ctrl+b`
+`ctrl+o` inside a pane has **no effect of its own**, and no timeout. It opens the
+leader, the footer becomes the menu, and hop waits as long as you take:
 
-`ctrl+b` hides the host list and gives the whole window to the pane; `ctrl+b` again
-brings it back. It is bound in **every** mode except while a card is up — from a
-focused shell, from the browser, from an editor tab — because the moment you want
-the columns is the moment you are reading something wide on the far side of them.
-The terminals reflow to the new width immediately, both ways.
+| after `ctrl+o` | |
+| --- | --- |
+| `o` | out — back to hop |
+| `1` … `9` | that tab, selected **in place** |
+| `0` | another shell on this host |
+| `c` | this directory in VS Code Remote |
+| anything else | closes the leader and does nothing |
 
-Two consequences worth knowing:
+A key that names no chord is **swallowed**, not passed to the remote: while the leader
+is open hop has the keyboard, and a program that received the tail of an abandoned
+chord would act on a key you were not typing at it. The leader also outranks `ctrl+b`
+and `ctrl+g`, which are otherwise held in every mode.
 
-- It resets on restart. hop opens on its host list, which is where you start from,
-  so the collapse is a session thing rather than a setting.
-- hop holds `ctrl+b` in a shell pane, so a **remote tmux never sees its prefix**.
-  That is the usual deal between a multiplexer and the one above it — `ctrl+o`
-  still leaves the pane, and no other key is taken. It is also why `ctrl+b` is no
-  longer bound as a page-up anywhere: paging back is `pgup`.
+This is the tmux and wezterm arrangement, and the reason for it is worth stating: a
+leader that *also acts* forces a timeout, and every value for that timeout is wrong —
+too short and the chords are unreachable, too long and leaving feels broken. Earlier
+versions of hop tried both and neither worked. Paying one extra keystroke for `out`
+buys back all of the timing.
 
-## Import — the SSH config card
-
-`i` opens the import card, a modal like the rest: one field, pre-filled with
-`~/.ssh/config`, so the usual answer is a single `enter`.
+### Scrolling back through history
 
 | Key | Action |
 | --- | --- |
-| `enter` | import from the path shown |
-| `esc` | close, importing nothing |
-| `ctrl+u` | clear the path |
-| `backspace` / any text | edit the path (a leading `~` is expanded) |
+| `↑` / `↓`, `j` / `k` | up / down one line |
+| `pgup` / `pgdn`, `ctrl+f` | up / down a page (`ctrl+b` is the sidebar) |
+| `ctrl+u` / `ctrl+d` | up / down half a page |
+| `g` / `home` | jump to the oldest line |
+| `G` / `end` | back to the live bottom (and leave scrollback) |
+| `esc` / `q` / `enter` / `ctrl+o` / `←` | back to the live shell |
+| *anything else* | leave scrollback and type it at the prompt |
 
-The **first run** opens this card by itself: with no hosts yet and an
-`~/.ssh/config` on disk, hop offers the import instead of showing an empty list and
-telling you to go back to the shell for `hop import`. `esc` skips it — an empty list
-is not an error, and `a` adds a host by hand.
-
-It stays bound once the list is full, because importing is a **sync**, not a
-one-time step: each host is upserted, so a re-import refreshes what the config
-knows (hostname, user, port, identity file) and leaves hosts hop added itself
-untouched. Wildcard patterns (`Host *`) are skipped.
-
-`hop import [path]` on the command line does exactly the same thing.
-
-## Authentication — the 2FA / password card
-
-Some hosts want more than your key. A server running `pam_google_authenticator`
-asks for a verification code; one with `PasswordAuthentication yes` asks for a
-password. Either way hop shows a card with the server's own prompt on it, at the
-moment the server asks.
-
-| Key | Action |
-| --- | --- |
-| `enter` | submit — or, on a round with several questions, move to the next one |
-| `esc` | cancel; the connect is abandoned |
-| `tab` / `shift+tab` | move between fields when the server asked more than one thing |
-| `ctrl+u` | clear the field |
-| `backspace` / any text | type the answer |
-
-What you type is **masked** unless the server says it may be echoed, which for a
-code or a password it does not.
-
-This card is more modal than the others: a dial is parked *inside the SSH
-handshake* waiting for it, so it takes every key and it always answers — submit or
-cancel. That is also why it cannot work the way the host-key card does, closing
-the connection and dialling again with your answer: a one-time code is valid for
-about thirty seconds, cannot be used twice, and PAM rate-limits attempts, so a
-replayed dial would burn a code every time. The question is answered in place
-instead.
-
-A wrong code re-prompts on the same connection rather than failing the dial (three
-attempts, which is what the server's own rate limit allows). Cancelling once ends
-the attempt outright — it does not move you on to the next method the server
-offers.
-
-Nothing is stored, and nothing needs to be: hop holds **one connection per host**,
-and every extra shell (`S`), the SFTP browser (`f`) and every editor tab are
-channels on it. You are asked once per host, per hop run.
-
-Two hosts connecting at once each get their turn — the second card comes up when
-the first is answered.
-
-## Settings — the popover
-
-`,` opens the settings card, floating over whatever is on screen (it works from the
-host list and from the file browser; a terminal pane and an editor own every key,
-so it is not reachable from those). It is modal: while it is up, keys go to it.
-
-| Key | Action |
-| --- | --- |
-| `↑` / `↓` (`k` / `j`) | move between settings |
-| `←` / `→` (`h` / `l`) | pick a color (accent), or flip a switch (vim keys) |
-| `enter` / `i` | edit the selected setting — or flip it, if it is a switch |
-| `enter` (while editing) | save |
-| `esc` (while editing) | cancel the edit |
-| `ctrl+u` (while editing) | clear the value |
-| `r` | reset the setting to its default |
-| `esc` / `q` / `,` | close |
-
-The popover honours the vim setting like everything else — with it off, `hjkl` do
-nothing here either. Turning the keys off from this very card cannot strand you: the
-arrows and `enter` drive every row and are never gated, and they are what the hint
-line at the foot of the card names. While you are *typing* a value, the gate is off:
-`h` is then a letter of the value, not a motion.
-
-The accent is a **swatch picker**, not a number to be looked up: `←`/`→` walk a
-palette of twelve colors — pink, magenta, red, orange, yellow, green, teal, cyan,
-blue, indigo, purple, gray — each drawn in the color it actually is, and each
-applied to hop the instant you land on it. Nothing to confirm; you judge a color by
-seeing it. `enter` still opens text entry if you want a specific 256-code or a
-`#hex`, and a value that isn't in the palette gets its own swatch on the strip, so
-what's in force is always on screen.
-
-Settings are written to `%AppData%\hop\config.json` (next to `hop.db`) the moment
-you save one, and applied on the spot — a new accent recolours hop immediately.
-The file is plain JSON and can be edited by hand; if it is missing or malformed,
-hop starts on defaults rather than refusing to start.
-
-| Setting | What it is | Blank means |
-| --- | --- | --- |
-| Editor | the command `enter` runs on the remote host, e.g. `nvim`, `vim -R` | auto: remote `$EDITOR`, else probe for nvim/vim/vi/nano |
-| Download dir | where `d` puts a file | `~/Downloads` |
-| Accent color | picked from the swatch strip with `←`/`→`, or typed | `212`, hop's pink |
-| Open with | the local command `o` opens a file with, e.g. `code -n` | the OS default app |
-| Vim keys | the vim motions in the list and the browser — a switch, `←`/`→` or `enter` | **off** — the arrows, `enter` and `esc` are all of navigation |
-
-**Vim keys are opt-in.** They are a dozen plain letters, and hop holding `h` and `l`
-for "out of" and "into a host" is a surprise to anyone who did not ask for it — so
-it asks. Turn the switch on and the motions below appear in the host list, in the
-file browser, and in the keys card (`?`), which always lists the keyboard you
-actually have rather than the one hop could give you.
+Off while a full-screen program owns the screen, and when there is no history yet.
 
 ## Browsing — the SFTP file browser
 
@@ -198,226 +132,164 @@ actually have rather than the one hop could give you.
 | `ctrl+b` | hide / show the sidebar |
 | `ctrl+o` | back to hop |
 | `esc` `esc` | back to hop (two presses within 400 ms) |
+With **vim keys** on the browser keeps the *whole* motion set (the host list only the
+step keys): `j`/`k`, `gg`, `G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`, `ctrl+f`, plus `l` to
+descend and `h` to back out.
 
-With **vim keys** turned on — the browser keeps the *whole* motion set, the host
-list only the step keys:
-
-| Key | Action |
-| --- | --- |
-| `j` / `k` | move down / up |
-| `gg` | jump to first entry |
-| `G` | jump to last entry |
-| `H` / `M` / `L` | jump to top / middle / bottom **of the visible window** |
-| `ctrl+d` / `ctrl+u` | half a page down / up |
-| `ctrl+f` | a full page down (`pgup` pages back — `ctrl+b` is the sidebar) |
-| `l` | enter a directory / open a file — as `enter` does |
-| `h` | up one directory — as `left` does |
+`left` at the top of the tree pops back to hop rather than doing nothing.
 
 ## Editing — editor tabs
 
-`enter` on a file opens it in an editor **inside hop**, in the same right-hand pane
-the browser lives in, with a tab strip above it listing every open file.
-
 | Key | Action |
 | --- | --- |
-| `alt+→` / `alt+l` | next tab (wraps) |
-| `alt+←` / `alt+h` | previous tab (wraps) |
-| `alt+1` … `alt+9` | jump straight to that tab |
+| `shift+→` / `shift+←` | next / previous tab (wraps) |
+| `ctrl+o` `1` … `9` | go straight to that tab, without leaving |
+| `ctrl+o` `o` | back to the file browser |
 | `:q` (i.e. quit the editor) | close the tab |
-| `ctrl+o` | back to the file browser |
 | `esc` `esc` | back to the file browser (two presses within 400 ms) |
+| `alt+←/→`, `alt+h/l`, `alt+1…9` | aliases, where your terminal sends them |
+| *everything else* | sent to the remote editor |
 
-Every other key goes to the editor — it is a full-screen terminal program and owns
-its own keymap. Only alt combinations are reserved, because neither vim nor nano
-binds them.
+`enter` on a file in the browser runs `${EDITOR:-vi}` **on the host**, on a second SSH
+channel with a pty. Nothing is downloaded: `:w` writes the real remote file. To edit
+locally instead, use `d` (download) or `o` (open in the local default app).
 
-### How it works
+Jumping to a tab by number is `ctrl+o` then the digit, which selects it in place.
+`ctrl+o` `o` goes back to the browser.
 
-The editor runs **on the remote host**, not locally: hop opens a second SSH channel
-on the connection it already has and runs `${EDITOR:-vi} <file>` on a pty, then
-renders that pty in a pane exactly as it renders a remote shell. So there is no
-download and no copy — you are editing the real file, and `:w` writes straight back
-to the server.
+## The cards
 
-If the remote `$EDITOR` is unset (it usually is over SSH, since the rc-file that
-sets it is never sourced for a non-interactive command), hop probes the remote
-`PATH` for `nvim`, `vim`, `vi`, then `nano`, falling back to `vi` — POSIX requires
-it to exist.
+All of them are modal: while a card is up it takes every key, and `esc` closes it.
 
-Tabs are independent editor processes, so leaving with `ctrl+o` keeps them all
-running: come back and every file is where you left it, cursor included. A tab is
-closed by quitting its editor.
+**Import** (`i`) — `enter` imports from the path shown, `ctrl+u` clears it, any text
+edits it (a leading `~` is expanded).
 
-### Editing locally instead
+**Tunnels** (`T`) — `↑`/`↓` select, `enter`/`space` start or stop the selected one,
+`a` adds, `e` edits (a running old definition is stopped on save), `x` deletes, `t`
+closes the card and starts/stops the whole set.
 
-`o` is the escape hatch for files a terminal editor is no good for — a PDF, an
-image. It downloads the file to a scratch directory under the system temp dir and
-hands that copy to the desktop (`start` on Windows, `open` on macOS, `xdg-open`
-elsewhere), returning immediately so hop stays usable. Unlike `enter`, this edits a
-*local copy*: nothing is written back to the remote host.
+**Authentication** (2FA / password, opens by itself) — `enter` submits or moves to the
+next question, `tab`/`shift+tab` move between fields, `ctrl+u` clears, `esc` cancels
+and abandons the connect.
 
-### Leaving the browser
+**Host key** (opens by itself) — `y` trusts the fingerprint and retries the dial,
+`n`/`esc` trusts nothing.
 
-`left` is pure motion: it walks up the directory tree and stops at `/`. It never
-leaves the browser, because the directory you open in is usually your home
-directory — so a `left` there would drop you back to hop exactly when you meant
-to go up to `/home`.
+**Add / edit host** (`a` / `e`) and **delete** (`x`) — `↑`/`↓` or `tab` move between
+fields, `enter` saves, `esc` cancels.
 
-Leaving is always explicit, with the same two chords the terminal pane uses:
-`ctrl+o`, or `esc` `esc` within 400 ms. Unlike in a pane, a lone `esc` here is
-swallowed rather than forwarded: the browser has no use for it.
-
-## Terminal — a live shell on a remote host
+## When a connection drops
 
 | Key | Action |
 | --- | --- |
-| `ctrl+o` | back to hop |
-| `esc` `esc` | back to hop (two presses within 400 ms) |
-| `alt+0` | open **another** shell on this host, and go to it |
-| `alt+→` / `alt+←` | next / previous shell on this host (wraps) |
-| `alt+1` … `alt+9` | jump straight to that shell |
-| `shift+↑` / `shift+pgup` | scroll back into the pane's history (see below) |
-| `ctrl+b` | hide / show the sidebar — the pane takes the whole window |
-| *everything else* | sent to the remote shell |
+| `r` / `enter` | reconnect: dial again and reopen what was open |
+| `d` / `x` | drop the session — the pane goes, the host is idle again |
+| `ctrl+o` / `esc` / `q` | back to the host list, leaving the pane on screen |
 
-### Several shells on one host
+The pane keeps the last screen the host drew, so the command that was running is still
+there to read. Shell tabs and the browser's directory come back on reconnect; editor
+tabs do not (an editor holds a buffer, and reopening the file on a fresh pty would look
+like nothing was lost), and the status says how many were left behind.
 
-`S` in the host list, or `alt+0` from inside the pane, opens another shell on a
-host you are already connected to. It is a second **channel** on the connection
-hop already holds — no new handshake, no second authentication — and it appears
-as a tab strip above the pane (`shell 1 │ shell 2 │ …`), which shows up only once
-there is a second shell to switch to. The new shell arrives focused, so `alt+0`
-is one key from "I need another terminal here" to typing in it.
+## Settings — the popover
 
-Switch with `alt+←`/`alt+→`, or jump with `alt+1`…`alt+9`. Unlike the editor, the
-alt+**letters** are *not* bound here: readline owns them (`alt+b` walks back a
-word, `alt+l` downcases one), and taking them would break the shell. The
-alt+**digits** are the one exception hop makes, and `alt+0` is why the new-shell
-key is a digit rather than the more memorable `alt+n`: it costs the remote shell
-nothing that `alt+1`…`alt+9` has not already cost it.
-
-The other key hop keeps from the shell is `ctrl+b`, the sidebar toggle — the same
-key tmux and screen use for "this one is for the multiplexer". A remote tmux
-therefore never sees its prefix through hop; nothing else is taken.
-
-Type `exit` to close a shell: its tab goes away, the rest keep running. When the
-last one exits, the connection is done and the host goes back to idle in the list
-— unless its SFTP browser or an editor tab is still open on it, which keeps the
-connection alive. `d` still tears down the whole host at once: every shell, the
-browser and the editors.
-
-### Scrolling back through history
-
-`shift+↑` pauses the live shell and steps one line up into its scrollback;
-`shift+pgup` does it a page at a time. Both are deliberately chords a bare shell
-never sends, so they can be hop's without taking anything the shell wants — and
-both decline (falling through to the shell) when there is nothing to show: on the
-alt screen a full-screen program owns its own scrolling, and with nothing scrolled
-off there is no history to see. The footer advertises `shift+↑ scrollback` exactly
-when the key is live.
-
-Once paused, the keyboard drives the history viewport rather than the remote shell,
-and the mode chip reads `⇅ scrollback <offset>/<len>` so you can see where you are:
+`,` opens it from the list, a pane or the browser.
 
 | Key | Action |
 | --- | --- |
-| `↑` / `↓`, `j` / `k` | up / down one line |
-| `pgup` / `pgdn`, `ctrl+f` | up / down a page (`ctrl+b` is the sidebar) |
-| `ctrl+u` / `ctrl+d` | up / down half a page |
-| `g` / `home` | jump to the oldest line |
-| `G` / `end` | back to the live bottom (and leave scrollback) |
-| `esc` / `q` / `enter` / `ctrl+o` / `←` | back to the live shell |
-| *anything else* | leave scrollback and type it at the prompt |
+| `↑` / `↓` (`k` / `j`) | move between settings |
+| `←` / `→` (`h` / `l`) | pick a color (accent), or flip a switch |
+| `enter` / `i` | edit the selected setting — or flip it, if it is a switch |
+| `enter` / `esc` / `ctrl+u` (while editing) | save / cancel / clear |
+| `r` | reset the setting to its default |
+| `esc` / `q` / `,` | close |
 
-Reaching the live bottom by scrolling down is itself a way out — the point of
-scrollback is to look at what went by, so arriving at the tail means you are done.
-`ctrl+o` here only leaves scrollback, back to the live shell; a second `ctrl+o` then
-leaves the pane, the consistent "back one level" the rest of hop keeps to.
-
-### Why `left` is not a way out
-
-`left` backs out of a host in the list and out of a directory in the browser, but
-inside a shell it is the **shell's key, always**. It moves the readline cursor back
-over a typo, it is what `alt+b`/`alt+f` word motions and every full-screen program
-(`vim`, `htop`, `less`) are built on, and hop taking it — even at what hop believes
-is an empty prompt — breaks editing on every server you connect to.
-
-hop used to claim `left` at a bare prompt, on the theory that the key was a no-op
-there. It is not reliable: hop sees keystrokes going out and pixels coming back, not
-the buffer readline is holding, so anything it could not count (a `ctrl+w`, a
-tab-completion, a program that reads arrows inline) left it thinking the prompt was
-bare when it was not — and `left` ejected you out of the line you were editing.
-
-`ctrl+o` — a chord no common shell binds — is the unconditional way out, and works no
-matter what is on the line or what is running. `esc` `esc` is the fast one.
-
-### How double-esc works, and what it costs
-
-A lone `esc` **is still forwarded to the shell.** hop cannot know a second `esc`
-is coming without swallowing the first one and waiting out the timer, which would
-put a 400 ms lag on every `esc` you press in vim. So the rule is:
-
-| You press | The shell receives | hop does |
+| Setting | What it is | Blank means |
 | --- | --- | --- |
-| `esc` | `esc` | arms the window |
-| `esc` `esc` (fast) | `esc` | leaves the pane on the second |
-| `esc` … pause … `esc` | `esc` `esc` | nothing |
-| `esc` `j` `esc` | `esc` `j` `esc` | nothing — any key breaks the chord |
+| Editor | the command `enter` runs on the remote host, e.g. `nvim`, `vim -R` | auto: remote `$EDITOR`, else probe for nvim/vim/vi/nano |
+| Download dir | where `d` puts a file | `~/Downloads` |
+| Accent color | picked from the swatch strip with `←`/`→`, or typed | `212`, hop's pink |
+| Open with | the local command `o` opens a file with, e.g. `code -n` | the OS default app |
+| Vim keys | the vim motions in the list and the browser — a switch | **off** |
+| Mouse | wheel, click and drag-to-copy — a switch | **on** (`ctrl+g` lends the pointer back for a moment) |
+| Remote clipboard | a yank on the remote host (OSC 52) lands on yours — a switch | **on** |
 
-The trade-off: **if you mash `esc` twice quickly in vim, you will land back in
-the host list.** The shell will have seen one of those escapes, which in normal
-mode is a harmless no-op, so nothing is lost — press `enter` or `s` to drop
-straight back into the session. If that bothers you, `ctrl+o` is unambiguous and
-never fires by accident.
+## The mouse
 
----
+Every gesture is an existing binding reached by pointing, so nothing is mouse-only.
 
-## Notes on the vim motions
+| Gesture | Where | What it does |
+| --- | --- | --- |
+| wheel | the host list | moves the selection, one host a notch |
+| wheel | a shell pane | pauses into its scrollback, three lines a notch; scrolling back to the live bottom returns to the shell |
+| wheel | the SFTP browser | moves the cursor three entries a notch |
+| click | the host list | stands on that host — and, from a pane, hands the keyboard back, as `ctrl+o` does |
+| click | a pane the list has the keyboard in | takes it: the pointer's `s` or `f` |
+| click | a tab strip | switches to that shell or file tab |
+| drag | a pane | selects text; it lands on the clipboard when you let go |
+| double-click | a host, or a browser entry | opens it — `enter`, by pointing |
 
-- **They are off until you turn them on**, in the settings popover (`,` → *Vim
-  keys*). Off, they are not bound to anything else either: a stray `l` in the host
-  list does nothing at all. `pgdn`/`pgup` are *not* part of the switch — they page
-  without being vim, so turning vim off never costs you a way to page.
-- **The two views bind different amounts of the keyboard**, never different
-  meanings. The browser has all of it; the host list has the step keys, `hjkl` and
-  the page keys. A key the list binds does there what it does in the browser.
-- **`gg` is a real two-key motion** — in the browser. A lone `g` arms it; the next
-  `g` jumps to the top. Any other key in between cancels it, so `g` `j` is just a
-  `j`. In the host list it is not bound, and a `g` there arms nothing.
-- **`ctrl+b` is not a motion anywhere.** It is the sidebar toggle in every mode, so
-  paging back is `pgup` (and `ctrl+f`'s partner is missing on purpose).
-- **Half and full pages are viewport-relative**, matching vim: `ctrl+d` moves by
-  half the visible rows, `ctrl+f` by all of them. Both are clamped to at least
-  one row, so they still work in a very short terminal.
-- **`H`/`M`/`L` move within the visible window**, not the whole list. In a long
-  directory, `L` lands on the last row *on screen*, while `G` lands on the last
-  entry in the directory.
-- **The cursor never leaves the visible window.** Every motion re-clamps the
-  scroll offset to keep it in view; `TestCursorStaysVisible` pins that invariant.
-- Motions are inert on an empty listing rather than driving the cursor negative.
+A remote program that asks for the mouse (vim with `set mouse=a`, htop) gets the
+pointer verbatim instead. The cards are keyboard-only. `ctrl+g` hands mouse reporting
+back to your terminal for a moment — for a selection spanning the sidebar and a pane,
+or anything else that wants your terminal's own pointer.
+
+## Copy and paste
+
+Paste has no key of its own: **paste the way your terminal pastes**, and hop marks it
+as a paste for the remote program — which is what stops vim indenting a pasted block
+into a staircase.
+
+Copying *out* of a pane is a drag (above), or your terminal's own selection after
+`ctrl+g`. A yank on the remote host travels to your clipboard over OSC 52, unless you
+turn *Remote clipboard* off. A remote asking to **read** your clipboard is never
+answered.
+
+## macOS and the alt keys
+
+hop's own bindings are `ctrl` and `shift` chords, which every terminal sends — nothing
+below is needed to use hop.
+
+The `alt+…` aliases are another matter. On macOS, `Option`+letter types a *character*
+(`ø`, `é`, `∑`) instead of sending the ESC-prefixed meta key hop reads, so every
+`alt+…` binding is simply absent until the terminal is told otherwise:
+
+- **Terminal.app** — Settings → Profiles → Keyboard → *Use Option as Meta key*
+- **iTerm2** — Settings → Profiles → Keys → Left Option key: *Esc+*
+- **Ghostty** — `macos-option-as-alt = true`
+- **VS Code's terminal** — `"terminal.integrated.macOptionIsMeta": true`
+
+This is also why `shift+k`/`shift+j` reorder pinned hosts, and why the sidebar is
+`ctrl+b` and the mouse toggle `ctrl+g` rather than the `alt` mnemonics they would
+otherwise be.
+
+## How double-esc works, and what it costs
+
+In a pane, the **first** `esc` is still sent to the remote — it has to be, because a
+lone `esc` belongs to the shell (it drops vim out of insert mode) and hop cannot know a
+second one is coming without swallowing the first. A second `esc` within 400 ms leaves
+the pane; the stray extra one is harmless, since in vim's normal mode it is a no-op.
+
+If that bothers you, `ctrl+o` `o` leaves and sends nothing to the remote at all.
+
+## What hop takes from the remote
+
+The full list, so there are no surprises: `ctrl+o`, `ctrl+b`, `ctrl+g`, `shift+←/→`,
+`shift+↑`, `shift+pgup`, and the first `esc` of a double. Everything else reaches the
+program on the other end.
+
+Two costs worth naming: a remote `tmux` never sees its own `ctrl+b` prefix through hop,
+and `shift+←/→` no longer reaches the remote as a selection motion.
 
 ## Where a binding lives
 
-The host list and the file browser move on the same keys, so they do not each spell
-that keyboard out. `internal/keymap` holds it: one table, one row per key, saying
-what the key *means* (a `Motion`), whether the vim setting owns it, and whether the
-host list binds it as well as the browser. Both views resolve keys through it —
-passing `keymap.Full` or `keymap.List` — and act on the motion they get back: what a
-key means is decided in one place, what it does is decided by the view, which is the
-only part that knows how tall it is or what is under the cursor.
-
-So:
-
-| To add… | Touch |
+| Mode | Handler |
 | --- | --- |
-| a motion key, in one or both views | the `bindings` table in `internal/keymap` (the `list` column is the split) |
-| a key hop holds in *every* mode | `toggleSidebarKey`'s branch in `handleKey`, `internal/tui/keys.go` |
-| what a motion *does* to the list | `model.move` in `internal/tui/keys.go` |
-| what a motion *does* to the browser | `Browser.move` in `internal/filebrowser` |
-| a command key (`d`, `o`, `r`, `f`, …) | the command switch in whichever view owns it |
-| a setting | the `settingsFields` table in `internal/tui/settings.go` |
-
-A mode with no motions of its own — the settings popover — asks `keymap.Vim(key)`
-instead, which is the same table answering the narrower question: *is this a key the
-vim setting owns?* That is why turning the setting off is one fact in the config
-rather than a flag threaded through three switch statements.
+| host list | `handleNavKey` (`internal/tui/keys.go`) |
+| shell pane | `handleShellKey` |
+| scrollback | `handleScrollbackKey` |
+| SFTP browser | `handleBrowserKey` → `filebrowser.Handle` |
+| editor tabs | `handleEditorKey` |
+| filter | `handleFilterKey` |
+| the cards | `handleHelpKey`, `settings.go`, `hostform.go`, `confirm.go`, `importer.go`, `tunnels.go`, `hostkey.go`, `authprompt.go` |
+| shared motions | `internal/keymap` (scoped: the list gets the step keys, the browser all of them) |

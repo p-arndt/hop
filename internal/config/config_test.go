@@ -6,12 +6,9 @@ import (
 	"testing"
 )
 
-// isolate points os.UserConfigDir at a throwaway directory and returns the
-// directory the config file will actually land in, so the tests never touch the
-// real one. Each platform reads a different variable — %AppData% on Windows,
-// $XDG_CONFIG_HOME on Linux, $HOME/Library/Application Support on macOS (which
-// ignores XDG entirely) — so all three are redirected and the resulting
-// directory is derived from Path() rather than assumed.
+// isolate points os.UserConfigDir at a throwaway directory and returns where the config
+// file will land, so the tests never touch the real one. Each platform reads a different
+// variable, so all three are redirected and the directory comes from Path().
 func isolate(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -118,5 +115,54 @@ func TestSaveLeavesNoTempFile(t *testing.T) {
 		if e.Name() != "config.json" {
 			t.Fatalf("Save left %q behind, want only config.json", e.Name())
 		}
+	}
+}
+
+// Mouse is the one field whose default is not its zero value, which is safe because Load
+// starts from Default() and unmarshals over it: a file that omits the key comes back with
+// the mouse on, and only one that says otherwise switches it off.
+func TestLoadMouseDefaultsOn(t *testing.T) {
+	dir := isolate(t)
+	path := filepath.Join(dir, "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"editor":"nano"}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !Load().Mouse {
+		t.Fatal("a config with no mouse key loaded with the mouse off, want on")
+	}
+
+	if err := os.WriteFile(path, []byte(`{"mouse":false}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if Load().Mouse {
+		t.Fatal(`a config saying "mouse": false loaded with the mouse on`)
+	}
+}
+
+// The remote clipboard is the other field of that kind: a config omitting the key must
+// not come back with it off, nor must a file that switched it off be ignored.
+func TestLoadClipboardDefaultsOn(t *testing.T) {
+	dir := isolate(t)
+	path := filepath.Join(dir, "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"editor":"nano"}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !Load().Clipboard {
+		t.Fatal("a config with no clipboard key loaded with it off, want on")
+	}
+
+	if err := os.WriteFile(path, []byte(`{"clipboard":false}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if Load().Clipboard {
+		t.Fatal(`a config saying "clipboard": false loaded with it on`)
 	}
 }

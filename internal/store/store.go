@@ -25,6 +25,61 @@ type Host struct {
 	Group        string
 	Visits       int
 	LastConnect  int64
+	// DefaultDir is the remote directory a session starts in: shells cd there on connect
+	// and the file browser opens there. Blank means wherever the login shell lands.
+	DefaultDir string
+	// ProxyCommand is a local program whose stdin/stdout carry the SSH transport, as
+	// OpenSSH's directive: how a host behind a broker (AWS SSM, cloudflared) is dialled.
+	ProxyCommand string
+	// ProxyJump is a bastion to tunnel through: an alias in this store, or a bare
+	// [user@]host[:port]. Set alongside ProxyCommand it wins, as in ssh.
+	ProxyJump string
+	// Pinned lifts a host out of the frecency order into the PINNED section; PinOrder is
+	// its place inside it, 1-based and dense (see renumberPins), and zero when unpinned.
+	Pinned   bool
+	PinOrder int
+
+	// Forwards are the TCP tunnels defined for this host, loaded with it so View never
+	// queries, and stored in their own table so editing a host never rewrites them.
+	Forwards []Forward
+}
+
+// ForwardKind is which side of the SSH connection owns the listening socket: a local
+// forward listens on the machine running hop, a remote one on the server.
+type ForwardKind string
+
+const (
+	ForwardLocal  ForwardKind = "local"
+	ForwardRemote ForwardKind = "remote"
+)
+
+// Forward is one persisted TCP port-forwarding definition.
+type Forward struct {
+	ID         int64
+	HostID     int64
+	Kind       ForwardKind
+	BindHost   string
+	BindPort   int
+	TargetHost string
+	TargetPort int
+}
+
+// Validate rejects definitions that cannot name TCP endpoints. BindHost may be blank:
+// the runtime applies the loopback default for the forward's side.
+func (f Forward) Validate() error {
+	if f.Kind != ForwardLocal && f.Kind != ForwardRemote {
+		return fmt.Errorf("forward kind must be local or remote")
+	}
+	if f.BindPort < 1 || f.BindPort > 65535 {
+		return fmt.Errorf("bind port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(f.TargetHost) == "" {
+		return fmt.Errorf("target host can't be empty")
+	}
+	if f.TargetPort < 1 || f.TargetPort > 65535 {
+		return fmt.Errorf("target port must be between 1 and 65535")
+	}
+	return nil
 }
 
 // Store wraps the SQLite database holding hosts.
@@ -43,8 +98,121 @@ CREATE TABLE IF NOT EXISTS hosts (
 	tags          TEXT,
 	grp           TEXT,
 	visits        INTEGER DEFAULT 0,
-	last_connect  INTEGER DEFAULT 0
+	last_connect  INTEGER DEFAULT 0,
+	pinned        INTEGER DEFAULT 0,
+	pin_order     INTEGER DEFAULT 0,
+	default_dir   TEXT DEFAULT '',
+	proxy_command TEXT DEFAULT '',
+	proxy_jump    TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS forwards (
+	id          INTEGER PRIMARY KEY,
+	host_id     INTEGER NOT NULL,
+	kind        TEXT NOT NULL CHECK (kind IN ('local', 'remote')),
+	bind_host   TEXT,
+	bind_port   INTEGER NOT NULL,
+	target_host TEXT NOT NULL,
+	target_port INTEGER NOT NULL,
+	FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE,
+	UNIQUE (host_id, kind, bind_host, bind_port)
 );`
+
+// addedColumns are the columns that arrived after the first release. CREATE TABLE IF NOT
+// EXISTS is a no-op on a database that already has the table, hence migrate's ALTER pass.
+var addedColumns = []struct{ name, ddl string }{
+	{"pinned", `ALTER TABLE hosts ADD COLUMN pinned INTEGER DEFAULT 0`},
+	{"pin_order", `ALTER TABLE hosts ADD COLUMN pin_order INTEGER DEFAULT 0`},
+	{"default_dir", `ALTER TABLE hosts ADD COLUMN default_dir TEXT DEFAULT ''`},
+	{"proxy_command", `ALTER TABLE hosts ADD COLUMN proxy_command TEXT DEFAULT ''`},
+	{"proxy_jump", `ALTER TABLE hosts ADD COLUMN proxy_jump TEXT DEFAULT ''`},
+}
+
+// migrate adds any column in addedColumns the table lacks. It asks PRAGMA table_info
+// rather than swallowing the duplicate-column error, which is a driver-specific string
+// that would hide real failures.
+func migrate(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(hosts)`)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var (
+			cid       int
+			name, typ string
+			notNull   int
+			dflt      sql.NullString
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, c := range addedColumns {
+		if have[c.name] {
+			continue
+		}
+		if _, err := db.Exec(c.ddl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// hostColumns is the read projection shared by Hosts and HostByAlias; hostInsert the
+// write one shared by Upsert and Add. Both pair with a helper below, so a new column is
+// two edits rather than a hunt through four queries that must agree.
+const hostColumns = `id, alias, hostname, user, port, identity_file, tags, grp, visits, last_connect,
+	       pinned, pin_order, COALESCE(default_dir, ''),
+	       COALESCE(proxy_command, ''), COALESCE(proxy_jump, '')`
+
+const hostInsert = `
+	INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect, default_dir, proxy_command, proxy_jump)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+// rowScanner is what *sql.Row and *sql.Rows have in common.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanHost reads one hostColumns row.
+func scanHost(sc rowScanner) (Host, error) {
+	var (
+		h    Host
+		tags string
+	)
+	if err := sc.Scan(
+		&h.ID, &h.Alias, &h.HostName, &h.User, &h.Port,
+		&h.IdentityFile, &tags, &h.Group, &h.Visits, &h.LastConnect,
+		&h.Pinned, &h.PinOrder, &h.DefaultDir,
+		&h.ProxyCommand, &h.ProxyJump,
+	); err != nil {
+		return Host{}, err
+	}
+	h.Tags = splitTags(tags)
+	return h, nil
+}
+
+// hostInsertArgs binds h to hostInsert's placeholders, applying ssh's default port.
+func hostInsertArgs(h Host) []any {
+	port := h.Port
+	if port == 0 {
+		port = 22
+	}
+	return []any{
+		h.Alias, h.HostName, h.User, port, h.IdentityFile, joinTags(h.Tags), h.Group,
+		h.Visits, h.LastConnect, h.DefaultDir, h.ProxyCommand, h.ProxyJump,
+	}
+}
 
 // Open opens (creating if needed) the hop database at
 // <UserConfigDir>/hop/hop.db and ensures the schema exists.
@@ -71,8 +239,12 @@ func OpenAt(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	// Drop the table behind the withdrawn "recent directories" feature, so a
-	// database written by an older build does not keep its browsing history.
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	// Drop the table behind the withdrawn "recent directories" feature, so an older
+	// database does not keep its browsing history.
 	if _, err := db.Exec(`DROP TABLE IF EXISTS dirs`); err != nil {
 		db.Close()
 		return nil, err
@@ -85,64 +257,97 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// Hosts returns all hosts sorted by Visits desc then LastConnect desc.
+// Hosts returns all hosts: the pinned ones in the user's order, then the rest by Visits
+// desc then LastConnect desc.
 func (s *Store) Hosts() ([]Host, error) {
 	rows, err := s.db.Query(`
-		SELECT id, alias, hostname, user, port, identity_file, tags, grp, visits, last_connect
+		SELECT ` + hostColumns + `
 		FROM hosts
-		ORDER BY visits DESC, last_connect DESC`)
+		ORDER BY pinned DESC, pin_order ASC, visits DESC, last_connect DESC`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
 	var hosts []Host
 	for rows.Next() {
-		var (
-			h    Host
-			tags string
-		)
-		if err := rows.Scan(
-			&h.ID, &h.Alias, &h.HostName, &h.User, &h.Port,
-			&h.IdentityFile, &tags, &h.Group, &h.Visits, &h.LastConnect,
-		); err != nil {
+		h, err := scanHost(rows)
+		if err != nil {
 			return nil, err
 		}
-		h.Tags = splitTags(tags)
 		hosts = append(hosts, h)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+
+	byID := make(map[int64]int, len(hosts))
+	for i := range hosts {
+		byID[hosts[i].ID] = i
+	}
+	forwardRows, err := s.db.Query(`
+		SELECT id, host_id, kind, bind_host, bind_port, target_host, target_port
+		FROM forwards
+		ORDER BY host_id, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer forwardRows.Close()
+	for forwardRows.Next() {
+		var f Forward
+		if err := forwardRows.Scan(&f.ID, &f.HostID, &f.Kind, &f.BindHost, &f.BindPort, &f.TargetHost, &f.TargetPort); err != nil {
+			return nil, err
+		}
+		if i, ok := byID[f.HostID]; ok {
+			hosts[i].Forwards = append(hosts[i].Forwards, f)
+		}
+	}
+	if err := forwardRows.Err(); err != nil {
 		return nil, err
 	}
 	return hosts, nil
 }
 
+// HostByAlias returns the single host with this alias — one indexed row, rather than
+// Hosts()'s whole table plus every forward, since the jump resolver asks on each dial.
+// Forwards are not loaded: nothing looking a host up by name runs its tunnels.
+func (s *Store) HostByAlias(alias string) (Host, bool, error) {
+	h, err := scanHost(s.db.QueryRow(`
+		SELECT `+hostColumns+`
+		FROM hosts WHERE alias = ?`, alias))
+	if err == sql.ErrNoRows {
+		return Host{}, false, nil
+	}
+	if err != nil {
+		return Host{}, false, err
+	}
+	return h, true, nil
+}
+
 // Upsert inserts or updates a host keyed by its Alias and returns the row id.
 func (s *Store) Upsert(h Host) (int64, error) {
-	port := h.Port
-	if port == 0 {
-		port = 22
-	}
-	tags := joinTags(h.Tags)
-
-	_, err := s.db.Exec(`
-		INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	// visits and last_connect are deliberately absent from the update: an edit must not
+	// reset the frecency Touch has been accumulating.
+	_, err := s.db.Exec(hostInsert+`
 		ON CONFLICT(alias) DO UPDATE SET
 			hostname      = excluded.hostname,
 			user          = excluded.user,
 			port          = excluded.port,
 			identity_file = excluded.identity_file,
 			tags          = excluded.tags,
-			grp           = excluded.grp`,
-		h.Alias, h.HostName, h.User, port, h.IdentityFile, tags, h.Group, h.Visits, h.LastConnect,
+			grp           = excluded.grp,
+			default_dir   = excluded.default_dir,
+			proxy_command = excluded.proxy_command,
+			proxy_jump    = excluded.proxy_jump`,
+		hostInsertArgs(h)...,
 	)
 	if err != nil {
 		return 0, err
 	}
 
-	// On an ON CONFLICT update LastInsertId is unreliable, so resolve the id
-	// authoritatively by alias.
+	// LastInsertId is unreliable on an ON CONFLICT update; resolve by alias instead.
 	var rowID int64
 	if qerr := s.db.QueryRow(`SELECT id FROM hosts WHERE alias = ?`, h.Alias).Scan(&rowID); qerr != nil {
 		return 0, qerr
@@ -150,12 +355,10 @@ func (s *Store) Upsert(h Host) (int64, error) {
 	return rowID, nil
 }
 
-// Add inserts a new host, failing when the alias is already taken. Unlike Upsert
-// it never overwrites: it is the path for "create a host the user believes is new",
-// so a stale in-memory list cannot silently clobber a host that was added since —
-// from the CLI, say, while the TUI was open. The UNIQUE constraint on alias is the
-// real guarantee; the pre-check is only there to turn a driver-specific constraint
-// error into a message worth reading. Returns the new row id.
+// Add inserts a new host, failing when the alias is taken. Unlike Upsert it never
+// overwrites, so a stale in-memory list cannot clobber a host added since — from the
+// CLI, say. The UNIQUE constraint is the real guarantee; the pre-check only turns a
+// driver-specific error into a readable one. Returns the new row id.
 func (s *Store) Add(h Host) (int64, error) {
 	var exists int
 	if err := s.db.QueryRow(`SELECT 1 FROM hosts WHERE alias = ?`, h.Alias).Scan(&exists); err == nil {
@@ -164,32 +367,133 @@ func (s *Store) Add(h Host) (int64, error) {
 		return 0, err
 	}
 
-	port := h.Port
-	if port == 0 {
-		port = 22
-	}
-
-	res, err := s.db.Exec(`
-		INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		h.Alias, h.HostName, h.User, port, h.IdentityFile, joinTags(h.Tags), h.Group, h.Visits, h.LastConnect,
-	)
+	res, err := s.db.Exec(hostInsert, hostInsertArgs(h)...)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-// Delete removes the host with the given alias.
+// Delete removes the host with the given alias, closing the hole a pinned one leaves in
+// the pin order.
 func (s *Store) Delete(alias string) error {
-	_, err := s.db.Exec(`DELETE FROM hosts WHERE alias = ?`, alias)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM forwards WHERE host_id = (SELECT id FROM hosts WHERE alias = ?)`, alias); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM hosts WHERE alias = ?`, alias); err != nil {
+		return err
+	}
+	if err := renumberPins(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// AddForward persists a new forwarding definition for hostID. A host cannot have two
+// forwards competing for the same listener on the same side.
+func (s *Store) AddForward(hostID int64, f Forward) (int64, error) {
+	f = normalizeForward(hostID, f)
+	if err := f.Validate(); err != nil {
+		return 0, err
+	}
+	var exists int
+	if err := s.db.QueryRow(`SELECT 1 FROM hosts WHERE id = ?`, hostID).Scan(&exists); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, fmt.Errorf("forward: no such host")
+		}
+		return 0, err
+	}
+	res, err := s.db.Exec(`
+		INSERT INTO forwards (host_id, kind, bind_host, bind_port, target_host, target_port)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		hostID, f.Kind, f.BindHost, f.BindPort, f.TargetHost, f.TargetPort)
+	if err != nil {
+		return 0, fmt.Errorf("add forward: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+// UpdateForward replaces an existing definition, preserving its identity so a running
+// tunnel can be matched and stopped first.
+func (s *Store) UpdateForward(f Forward) error {
+	f = normalizeForward(f.HostID, f)
+	if err := f.Validate(); err != nil {
+		return err
+	}
+	res, err := s.db.Exec(`
+		UPDATE forwards
+		SET kind = ?, bind_host = ?, bind_port = ?, target_host = ?, target_port = ?
+		WHERE id = ? AND host_id = ?`,
+		f.Kind, f.BindHost, f.BindPort, f.TargetHost, f.TargetPort, f.ID, f.HostID)
+	if err != nil {
+		return fmt.Errorf("update forward: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("update forward: no such forward")
+	}
+	return nil
+}
+
+func normalizeForward(hostID int64, f Forward) Forward {
+	f.HostID = hostID
+	f.BindHost = strings.TrimSpace(f.BindHost)
+	if f.BindHost == "" {
+		f.BindHost = "127.0.0.1"
+	}
+	if f.BindHost == "*" {
+		f.BindHost = "0.0.0.0"
+	}
+	f.TargetHost = strings.TrimSpace(f.TargetHost)
+	return f
+}
+
+// upsertImportedForward syncs one OpenSSH LocalForward/RemoteForward by its listening
+// endpoint. User-created definitions go through AddForward and still get a duplicate
+// error; re-importing is allowed to update the target behind an existing listener.
+func (s *Store) upsertImportedForward(hostID int64, f Forward) error {
+	f = normalizeForward(hostID, f)
+	if err := f.Validate(); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO forwards (host_id, kind, bind_host, bind_port, target_host, target_port)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(host_id, kind, bind_host, bind_port) DO UPDATE SET
+			target_host = excluded.target_host,
+			target_port = excluded.target_port`,
+		hostID, f.Kind, f.BindHost, f.BindPort, f.TargetHost, f.TargetPort)
 	return err
 }
 
-// Rename changes a host's alias from oldAlias to newAlias, preserving its visit
-// count and connect history (a plain Upsert of a new alias would start them from
-// zero). It is a no-op when the two are equal, and fails when newAlias is already
-// taken or oldAlias does not exist.
+// DeleteForward removes one definition belonging to hostID.
+func (s *Store) DeleteForward(hostID, id int64) error {
+	res, err := s.db.Exec(`DELETE FROM forwards WHERE id = ? AND host_id = ?`, id, hostID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("delete forward: no such forward")
+	}
+	return nil
+}
+
+// Rename changes a host's alias, preserving its visit count and connect history, which
+// a plain Upsert of a new alias would zero. A no-op when the two are equal; it fails when
+// newAlias is taken or oldAlias does not exist.
 func (s *Store) Rename(oldAlias, newAlias string) error {
 	if oldAlias == newAlias {
 		return nil
@@ -216,6 +520,147 @@ func (s *Store) Rename(oldAlias, newAlias string) error {
 	return nil
 }
 
+// SetPinned pins or unpins a host. A newly pinned host goes to the end of the section:
+// pinning is "keep this where I can find it", and reshuffling would fight the order set
+// with MovePin. It fails when there is no such host.
+func (s *Store) SetPinned(alias string, pinned bool) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var (
+		id  int64
+		was bool
+	)
+	if err := tx.QueryRow(`SELECT id, pinned FROM hosts WHERE alias = ?`, alias).Scan(&id, &was); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("pin: no such host %q", alias)
+		}
+		return err
+	}
+	if was == pinned {
+		return nil
+	}
+
+	if pinned {
+		var next int
+		if err := tx.QueryRow(`SELECT COALESCE(MAX(pin_order), 0) + 1 FROM hosts WHERE pinned = 1`).Scan(&next); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE hosts SET pinned = 1, pin_order = ? WHERE id = ?`, next, id); err != nil {
+			return err
+		}
+	} else if _, err := tx.Exec(`UPDATE hosts SET pinned = 0, pin_order = 0 WHERE id = ?`, id); err != nil {
+		return err
+	}
+
+	if err := renumberPins(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// MovePin moves a pinned host delta places within the pinned section (-1 up, +1 down)
+// and reports whether it moved. An unpinned host, or one already at the end, is a no-op
+// rather than an error: it is a held-down key hitting the edge of the list.
+func (s *Store) MovePin(alias string, delta int) (bool, error) {
+	if delta == 0 {
+		return false, nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	// In draw order, so "up" here is up on screen.
+	rows, err := tx.Query(`SELECT id, alias FROM hosts WHERE pinned = 1 ORDER BY pin_order ASC, visits DESC, last_connect DESC`)
+	if err != nil {
+		return false, err
+	}
+	var (
+		ids []int64
+		at  = -1
+	)
+	for rows.Next() {
+		var (
+			id int64
+			a  string
+		)
+		if err := rows.Scan(&id, &a); err != nil {
+			rows.Close()
+			return false, err
+		}
+		if a == alias {
+			at = len(ids)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return false, err
+	}
+	rows.Close()
+
+	if at < 0 {
+		return false, nil
+	}
+	to := at + delta
+	if to < 0 || to >= len(ids) {
+		return false, nil
+	}
+
+	id := ids[at]
+	ids = append(ids[:at], ids[at+1:]...)
+	ids = append(ids[:to], append([]int64{id}, ids[to:]...)...)
+
+	if err := writePinOrder(tx, ids); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// renumberPins rewrites pin_order as 1..n over the pinned hosts in their current order,
+// so a delete or unpin cannot leave a hole for MovePin's arithmetic. A host pinned before
+// this column existed sorts by frecency, the order it was already in.
+func renumberPins(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT id FROM hosts WHERE pinned = 1 ORDER BY pin_order ASC, visits DESC, last_connect DESC`)
+	if err != nil {
+		return err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	return writePinOrder(tx, ids)
+}
+
+// writePinOrder stamps ids with pin_order 1..n, in the order given.
+func writePinOrder(tx *sql.Tx, ids []int64) error {
+	for i, id := range ids {
+		if _, err := tx.Exec(`UPDATE hosts SET pin_order = ? WHERE id = ?`, i+1, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Touch increments the visit count and records the current connect time.
 func (s *Store) Touch(alias string) error {
 	_, err := s.db.Exec(
@@ -225,9 +670,8 @@ func (s *Store) Touch(alias string) error {
 	return err
 }
 
-// ImportSSHConfig parses an OpenSSH config file and upserts each concrete
-// Host alias (wildcard patterns containing '*' or '?' are skipped).
-// It returns the number of hosts imported.
+// ImportSSHConfig parses an OpenSSH config file and upserts each concrete Host alias,
+// skipping wildcard patterns, and returns how many were imported.
 func (s *Store) ImportSSHConfig(path string) (int, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -252,6 +696,8 @@ func (s *Store) ImportSSHConfig(path string) (int, error) {
 			user, _ := cfg.Get(alias, "User")
 			portStr, _ := cfg.Get(alias, "Port")
 			identity, _ := cfg.Get(alias, "IdentityFile")
+			proxyCommand, _ := cfg.Get(alias, "ProxyCommand")
+			proxyJump, _ := cfg.Get(alias, "ProxyJump")
 
 			port := 22
 			if portStr != "" {
@@ -263,19 +709,93 @@ func (s *Store) ImportSSHConfig(path string) (int, error) {
 				hostName = alias
 			}
 
-			if _, err := s.Upsert(Host{
+			hostID, err := s.Upsert(Host{
 				Alias:        alias,
 				HostName:     hostName,
 				User:         user,
 				Port:         port,
 				IdentityFile: identity,
-			}); err != nil {
+				ProxyCommand: normalizeProxyCommand(proxyCommand),
+				ProxyJump:    strings.TrimSpace(proxyJump),
+			})
+			if err != nil {
 				return count, err
+			}
+			for _, directive := range []struct {
+				key  string
+				kind ForwardKind
+			}{{"LocalForward", ForwardLocal}, {"RemoteForward", ForwardRemote}} {
+				values, _ := cfg.GetAll(alias, directive.key)
+				for _, value := range values {
+					forward, ok := parseSSHForward(value, directive.kind)
+					if !ok {
+						continue // dynamic and Unix-socket forwarding are not TCP tunnels
+					}
+					if err := s.upsertImportedForward(hostID, forward); err != nil {
+						return count, err
+					}
+				}
 			}
 			count++
 		}
 	}
 	return count, nil
+}
+
+// parseSSHForward accepts OpenSSH's TCP forwarding shape, [bind_address:]port
+// host:hostport. Socket-path and dynamic forms are left to OpenSSH rather than
+// misrepresented as TCP definitions here.
+func parseSSHForward(value string, kind ForwardKind) (Forward, bool) {
+	fields := strings.Fields(value)
+	if len(fields) != 2 {
+		return Forward{}, false
+	}
+	bindHost, bindPort, ok := splitForwardEndpoint(fields[0], true)
+	if !ok {
+		return Forward{}, false
+	}
+	targetHost, targetPort, ok := splitForwardEndpoint(fields[1], false)
+	if !ok {
+		return Forward{}, false
+	}
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
+	return Forward{Kind: kind, BindHost: bindHost, BindPort: bindPort, TargetHost: targetHost, TargetPort: targetPort}, true
+}
+
+func splitForwardEndpoint(value string, portOnly bool) (string, int, bool) {
+	if portOnly {
+		if port, err := strconv.Atoi(value); err == nil && port >= 1 && port <= 65535 {
+			return "", port, true
+		}
+	}
+	host, portText, err := netSplitHostPortLoose(value)
+	if err != nil {
+		return "", 0, false
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 || (!portOnly && strings.TrimSpace(host) == "") {
+		return "", 0, false
+	}
+	return host, port, true
+}
+
+// netSplitHostPortLoose is net.SplitHostPort plus OpenSSH's unbracketed hostname:port
+// spelling. IPv6 remains bracketed, as OpenSSH documents it.
+func netSplitHostPortLoose(value string) (string, string, error) {
+	if strings.HasPrefix(value, "[") {
+		end := strings.LastIndex(value, "]:")
+		if end < 0 {
+			return "", "", fmt.Errorf("missing port")
+		}
+		return value[1:end], value[end+2:], nil
+	}
+	i := strings.LastIndex(value, ":")
+	if i < 0 {
+		return "", "", fmt.Errorf("missing port")
+	}
+	return value[:i], value[i+1:], nil
 }
 
 func joinTags(tags []string) string {
@@ -298,4 +818,14 @@ func splitTags(s string) []string {
 		return nil
 	}
 	return out
+}
+
+// normalizeProxyCommand maps ssh's "none" — how the directive is disabled — to blank, so
+// hop does not try to run a program by that name.
+func normalizeProxyCommand(v string) string {
+	v = strings.TrimSpace(v)
+	if strings.EqualFold(v, "none") {
+		return ""
+	}
+	return v
 }
