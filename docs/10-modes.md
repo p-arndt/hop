@@ -5,9 +5,17 @@ nav: How they fit together
 group: The three modes
 ---
 
-The footer always shows the keys for the mode you are in, and every mode returns to the host
-list — from a pane with [[ctrl+o]] [[o]], from the browser with [[ctrl+o]], and from either
-with a double [[esc]] inside 400 ms.
+Every mode returns to the host list — from a pane with [[ctrl+o]] [[o]], from the browser
+with [[ctrl+o]], and from either with a double [[esc]] inside 400 ms. In the list itself
+[[esc]] [[esc]] is the last level out: it quits hop.
+
+Two rows along the bottom say where you are and what to press. The **status bar** carries the
+place: the host, what you are doing on it, and the thing you are doing it to — the directory
+a shell is standing in, the file an editor tab holds, the listing the browser shows — with
+`user@host:port` and the tab count at its right-hand end. The **footer** below it is the key
+legend, and it is deliberately short: it names the keys the mode cannot be worked without,
+adds more as the window gets wider, and leaves the full table to [[?]] (the
+[key card](#cards)), which opens on the section for the mode you are in.
 
 :::modes
 | Mode | You're here when | Who owns your keystrokes | Read next |

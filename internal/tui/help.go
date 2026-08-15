@@ -7,11 +7,18 @@ import (
 )
 
 // helpSection is one group of bindings in the help card: a mode, and what the keys do in
-// it.
+// it. owner is the pane mode the section belongs to, which is how the card knows which
+// section to lead with; sections that belong to no single mode (MOUSE, HOST) leave it at
+// modeAny.
 type helpSection struct {
 	title string
 	keys  [][2]string
+	owner paneMode
 }
+
+// modeAny marks a section that is not one mode's own. It is deliberately not a paneMode
+// the model can be in, so it never matches the section the card is opening on.
+const modeAny paneMode = -1
 
 // The whole of hop's keyboard, grouped by the mode that owns it and split into the card's
 // two columns. The footer shows a slice of the same set: it says what is live now, this
@@ -28,8 +35,9 @@ func helpLeft(vim bool) []helpSection {
 			{"a", "add a new host"},
 			{"i", "import an ssh config"},
 			{"ctrl+b", "hide / show the sidebar"},
+			{"?", "this card"},
 			{"q", "quit hop"},
-		}...)},
+		}...), modeList},
 		{"HOST", [][2]string{
 			{"enter", "connect / focus its shell"},
 			{"S", "another shell, same connection"},
@@ -45,7 +53,7 @@ func helpLeft(vim bool) []helpSection {
 			{"d", "disconnect everything on it"},
 			{"r", "reconnect a dropped session"},
 			{",", "settings"},
-		}},
+		}, modeAny},
 		// The pointer does nothing the keyboard cannot, so this lists which key each
 		// gesture stands in for.
 		{"MOUSE", [][2]string{
@@ -54,7 +62,7 @@ func helpLeft(vim bool) []helpSection {
 			{"double-click", "open it — as enter"},
 			{"drag in a pane", "select text; copies on release"},
 			{"ctrl+g", "hand the mouse to your terminal"},
-		}},
+		}, modeAny},
 	}
 }
 
@@ -72,30 +80,34 @@ func helpRight(vim bool) []helpSection {
 			{"ctrl+o 1…9", "straight to that shell"},
 			{"ctrl+o 0", "another shell, same host"},
 			{"ctrl+o c", "this dir in VS Code"},
+			{"ctrl+o ?", "this card"},
 			{"shift+↑", "scroll back through history"},
 			{"ctrl+b", "hide / show the sidebar"},
 			{"…anything", "goes to the remote shell"},
-		}},
+		}, modeShell},
 		{"SFTP BROWSER", [][2]string{
 			open,
 			up,
 			{"o", "open the file locally"},
 			{"d", "download the file"},
 			{"r", "refresh"},
+			{"?", "this card"},
 			{"ctrl+o", "back to hop"},
-		}},
+		}, modeBrowser},
 		{"DROPPED SESSION", [][2]string{
 			{"r", "reconnect and reopen"},
 			{"d", "drop it"},
+			{"?", "this card"},
 			{"ctrl+o", "back to hop"},
-		}},
+		}, modeAny},
 		{"EDITOR", [][2]string{
 			{":q", "close the tab"},
 			{"shift+← →", "switch file tab"},
 			{"ctrl+o 1…9", "straight to that tab"},
 			{"ctrl+o o", "back to the browser"},
+			{"ctrl+o ?", "this card"},
 			{"…anything", "goes to the remote editor"},
-		}},
+		}, modeEditor},
 	}
 }
 
@@ -116,6 +128,41 @@ func motionKeys(vim bool) [][2]string {
 	}
 }
 
+// helpFor is the card's contents arranged for the mode you opened it from: the section
+// that owns that mode is lifted to the top of the left column, where it is the first
+// thing read, and named so helpColumn can mark it. The rest keep their order.
+//
+// This is what lets the footer be as short as it is. The footer names the two or three
+// keys a mode cannot be worked without and points here for the rest; that only holds if
+// "here" starts on the mode you were in, rather than on whichever section was written
+// first.
+func helpFor(vim bool, mode paneMode) (left, right []helpSection, lead string) {
+	left, right = helpLeft(vim), helpRight(vim)
+
+	// Scrollback has no section of its own — it is the shell's history, and its keys are
+	// listed with the shell's.
+	if mode == modeScrollback {
+		mode = modeShell
+	}
+
+	pull := func(col []helpSection) ([]helpSection, *helpSection) {
+		for i, sec := range col {
+			if sec.owner == mode {
+				return append(append([]helpSection{}, col[:i]...), col[i+1:]...), &sec
+			}
+		}
+		return col, nil
+	}
+
+	if rest, sec := pull(left); sec != nil {
+		return append([]helpSection{*sec}, rest...), right, sec.title
+	}
+	if rest, sec := pull(right); sec != nil {
+		return append([]helpSection{*sec}, left...), rest, sec.title
+	}
+	return left, right, ""
+}
+
 // Help card geometry: helpKeyW fits the longest key hop names, helpColW the longest
 // thing it says about one.
 const (
@@ -131,17 +178,17 @@ func (m *model) renderHelp() string {
 	// What the window holds once the card's border and padding are paid for.
 	room := max(m.width-2*cardPadX-2, 20)
 
-	left, right := helpLeft(m.cfg.VimKeys), helpRight(m.cfg.VimKeys)
+	left, right, lead := helpFor(m.cfg.VimKeys, m.mode)
 
 	w := min(2*helpColW+helpGutter, room)
-	body := helpColumn(left, min(helpColW, room)) + "\n\n" +
-		helpColumn(right, min(helpColW, room))
+	body := helpColumn(left, min(helpColW, room), lead) + "\n\n" +
+		helpColumn(right, min(helpColW, room), lead)
 
 	if room >= 2*helpColW+helpGutter {
 		body = lipgloss.JoinHorizontal(lipgloss.Top,
-			helpColumn(left, helpColW),
+			helpColumn(left, helpColW, lead),
 			strings.Repeat(" ", helpGutter),
-			helpColumn(right, helpColW),
+			helpColumn(right, helpColW, lead),
 		)
 	}
 
@@ -170,13 +217,18 @@ func (m *model) fitHelp(body string) string {
 
 // helpColumn renders sections as one column: a capped title with a rule out to the
 // column's edge, then its keys with the labels aligned.
-func helpColumn(sections []helpSection, w int) string {
+func helpColumn(sections []helpSection, w int, lead string) string {
 	var b strings.Builder
 	for i, sec := range sections {
 		if i > 0 {
 			b.WriteString("\n")
 		}
 		head := sectionCap.Render(sec.title) + " "
+		// The mode you opened the card from, called out: the card shows everything, and
+		// this is the part of it that is about the screen behind it.
+		if sec.title == lead {
+			head = titleStyle.Render(sec.title) + faint.Render(" · you are here") + " "
+		}
 		b.WriteString(padTo(head+rule(max(w-lipgloss.Width(head), 0)), w))
 		b.WriteString("\n")
 

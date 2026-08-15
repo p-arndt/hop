@@ -49,9 +49,10 @@ everything else as extra channels on that same connection: more shells, an SFTP 
 an editor running on the remote box, and any tunnels you defined. Nothing is a new window,
 nothing re-authenticates, and leaving a pane never tears down what is inside it.
 
-The header always tells you **where your keystrokes are going**. That is the single most
-disorienting thing about a TUI that embeds other people's programs, so it gets permanent
-screen space.
+A **status bar** above the footer always tells you **where you are and where your keystrokes
+are going** — the host, the mode, the directory or file, and the machine behind the alias.
+That is the single most disorienting thing about a TUI that embeds other people's programs,
+so it gets permanent screen space, directly above the keys that act on it.
 
 <table>
 <tr>
@@ -241,9 +242,17 @@ A missing or malformed config file starts hop on defaults rather than refusing t
 
 ## ⌨️ Keys
 
-The footer always shows the keys for the mode you are in, and every mode returns to the host
-list — from a pane with `ctrl+o` `o`, from the browser with `ctrl+o`, and from either
-with a double `esc` inside 400 ms.
+Every mode returns to the host list — from a pane with `ctrl+o` `o`, from the browser
+with `ctrl+o`, and from either with a double `esc` inside 400 ms. In the list itself
+`esc` `esc` is the last level out: it quits hop.
+
+Two rows along the bottom say where you are and what to press. The **status bar** carries the
+place: the host, what you are doing on it, and the thing you are doing it to — the directory
+a shell is standing in, the file an editor tab holds, the listing the browser shows — with
+`user@host:port` and the tab count at its right-hand end. The **footer** below it is the key
+legend, and it is deliberately short: it names the keys the mode cannot be worked without,
+adds more as the window gets wider, and leaves the full table to `?` (the
+[key card](KEYBINDINGS.md#the-cards)), which opens on the section for the mode you are in.
 
 | Mode | You're here when | Who owns your keystrokes | Read next |
 | --- | --- | --- | --- |
@@ -291,6 +300,7 @@ Everything else works in **all** of them: the [sidebar toggle](KEYBINDINGS.md#th
 | `ctrl+b` | hide / show the sidebar |
 | `ctrl+g` | hand the mouse to your terminal (and take it back) |
 | `q` `ctrl+c` | quit |
+| `esc` `esc` | quit (two presses within 400 ms — one esc only drops the selected host) |
 
 With [vim keys](KEYBINDINGS.md#vim-keys) on, `j`/`k` move, `l` connects as `enter` does, and `h` goes
 back as `esc` does.
@@ -341,6 +351,7 @@ the footer becomes the menu, and hop waits as long as you take:
 | `1` … `9` | that tab, selected **in place** |
 | `0` | another shell on this host |
 | `c` | this directory in VS Code Remote |
+| `?` | the key card |
 | anything else | closes the leader and does nothing |
 
 A key that names no chord is **swallowed**, not passed to the remote: while the leader is
@@ -363,6 +374,7 @@ which are otherwise held in every mode.
 | `←` `backspace` | up one directory |
 | `r` | refresh the listing |
 | `,` | settings |
+| `?` | the key card |
 | `ctrl+b` | hide / show the sidebar |
 | `ctrl+o` | back to hop |
 | `esc` `esc` | back to hop (two presses within 400 ms) |
@@ -449,6 +461,7 @@ VPN does not leave a pane quietly frozen.
 | --- | --- |
 | `r` `enter` | reconnect: dial again and reopen what was open |
 | `d` `x` | drop the session — the pane goes, the host is idle again |
+| `?` | the key card |
 | `ctrl+o` `esc` `q` | back to the host list, leaving the pane on screen |
 
 The pane keeps the last screen the host drew, under a banner saying what happened, so the

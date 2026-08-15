@@ -16,9 +16,17 @@ website and the README are all generated from `docs/*.md` by `just docs`.
 
 ## The three modes
 
-The footer always shows the keys for the mode you are in, and every mode returns to the host
-list — from a pane with `ctrl+o` `o`, from the browser with `ctrl+o`, and from either
-with a double `esc` inside 400 ms.
+Every mode returns to the host list — from a pane with `ctrl+o` `o`, from the browser
+with `ctrl+o`, and from either with a double `esc` inside 400 ms. In the list itself
+`esc` `esc` is the last level out: it quits hop.
+
+Two rows along the bottom say where you are and what to press. The **status bar** carries the
+place: the host, what you are doing on it, and the thing you are doing it to — the directory
+a shell is standing in, the file an editor tab holds, the listing the browser shows — with
+`user@host:port` and the tab count at its right-hand end. The **footer** below it is the key
+legend, and it is deliberately short: it names the keys the mode cannot be worked without,
+adds more as the window gets wider, and leaves the full table to `?` (the
+[key card](#the-cards)), which opens on the section for the mode you are in.
 
 | Mode | You're here when | Who owns your keystrokes | Read next |
 | --- | --- | --- | --- |
@@ -65,6 +73,7 @@ Everything else works in **all** of them: the [sidebar toggle](#the-sidebar--ctr
 | `ctrl+b` | hide / show the sidebar |
 | `ctrl+g` | hand the mouse to your terminal (and take it back) |
 | `q` `ctrl+c` | quit |
+| `esc` `esc` | quit (two presses within 400 ms — one esc only drops the selected host) |
 
 With [vim keys](#vim-keys) on, `j`/`k` move, `l` connects as `enter` does, and `h` goes
 back as `esc` does.
@@ -135,6 +144,7 @@ the footer becomes the menu, and hop waits as long as you take:
 | `1` … `9` | that tab, selected **in place** |
 | `0` | another shell on this host |
 | `c` | this directory in VS Code Remote |
+| `?` | the key card |
 | anything else | closes the leader and does nothing |
 
 A key that names no chord is **swallowed**, not passed to the remote: while the leader is
@@ -160,8 +170,9 @@ sends, and both decline (falling through to the shell) when there is nothing to 
 alt screen a full-screen program owns its own scrolling. The footer advertises
 `shift+↑` *scrollback* exactly when the key is live.
 
-Once paused, the keyboard drives the history viewport rather than the remote shell, and the
-mode chip reads `⇅ scrollback <offset>/<len>`.
+Once paused, the keyboard drives the history viewport rather than the remote shell. The
+[status bar](#the-three-modes) says `<host> › scrollback`, and how far back you are reading is the
+`⇅ <offset>/<len>` chip at its right-hand end.
 
 | Key | Action |
 | --- | --- |
@@ -171,6 +182,7 @@ mode chip reads `⇅ scrollback <offset>/<len>`.
 | `g` `home` | jump to the oldest line |
 | `G` `end` | back to the live bottom (and leave scrollback) |
 | `esc` `q` `enter` `ctrl+o` `←` | back to the live shell |
+| `?` | the key card |
 | *anything else* | leave scrollback and type it at the prompt |
 
 The wheel enters and drives scrollback too, three lines a notch, and scrolling back down to
@@ -217,6 +229,7 @@ lag on every `esc` you press in vim. So the rule is:
 | `←` `backspace` | up one directory |
 | `r` | refresh the listing |
 | `,` | settings |
+| `?` | the key card |
 | `ctrl+b` | hide / show the sidebar |
 | `ctrl+o` | back to hop |
 | `esc` `esc` | back to hop (two presses within 400 ms) |
@@ -343,7 +356,16 @@ All of them are modal: while a card is up it takes every key, and `esc` closes i
 | Host key | by itself | `y` trusts the fingerprint and retries, `n`/`esc` trusts nothing |
 | Add / edit host | `a` / `e` | `↑`/`↓` or `tab` move between fields, `enter` saves, `esc` cancels |
 | Delete host | `x` | `enter` confirms, `esc` cancels |
-| Keys | `?` | any key closes it |
+| Keys | `?` — `ctrl+o` `?` in a shell or editor | any key closes it |
+
+The **keys card** opens on the section for the mode you are in — the shell's keys from a
+shell, the browser's from the browser — and marks it *you are here*. That is what lets the
+footer stay short: it names the two or three keys a mode cannot be worked without and leaves
+the rest to this card, which is only a fair trade if the card starts where you are.
+
+`?` reaches it from every mode hop owns the keyboard in. In a **shell** or an **editor** a
+bare `?` is a question mark the remote is owed, so there it is `ctrl+o` `?` — the same
+key, one level in.
 
 The **host form** carries more than an address: a group, a default directory every session on
 that host starts in, an identity file, and `ProxyCommand` / `ProxyJump` for hosts you reach
@@ -359,6 +381,7 @@ VPN does not leave a pane quietly frozen.
 | --- | --- |
 | `r` `enter` | reconnect: dial again and reopen what was open |
 | `d` `x` | drop the session — the pane goes, the host is idle again |
+| `?` | the key card |
 | `ctrl+o` `esc` `q` | back to the host list, leaving the pane on screen |
 
 The pane keeps the last screen the host drew, under a banner saying what happened, so the

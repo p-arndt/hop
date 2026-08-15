@@ -226,19 +226,39 @@ func TestVSCodeReportsALaunchFailure(t *testing.T) {
 	}
 }
 
-// The footer only offers "vs code here" when there is a directory to open there.
+// The leader menu only offers "vs code here" when there is a directory to open there. The
+// resting shell footer names the leader rather than its keys, so this is where the chord
+// is written down — and where the condition has to hold.
 func TestFooterNamesTheChordOnlyWithADirectory(t *testing.T) {
 	m, _ := vscodeModel(t, 1, "/srv/app")
-	m.mode = modeShell
-	m.width = 200
+	m.mode, m.width = modeShell, 200
+	m.chords.leaderAlias = m.active
 	if !strings.Contains(m.renderFooter(), "vs code here") {
-		t.Fatalf("footer does not offer the chord with a directory to hand:\n%s", m.renderFooter())
+		t.Fatalf("the leader menu does not offer the chord with a directory to hand:\n%s", m.renderFooter())
 	}
 
 	bare, _ := vscodeModel(t, 1, "")
-	bare.mode = modeShell
-	bare.width = 200
+	bare.mode, bare.width = modeShell, 200
+	bare.chords.leaderAlias = bare.active
 	if strings.Contains(bare.renderFooter(), "vs code here") {
-		t.Fatalf("footer offers the chord with no directory to open:\n%s", bare.renderFooter())
+		t.Fatalf("the leader menu offers the chord with no directory to open:\n%s", bare.renderFooter())
+	}
+
+	// At rest on a narrow window the shell footer keeps to the way out, the leader and
+	// the card: the chord is one level in, which is what keeps the row readable when
+	// there is no room. A window wide enough to hold it gets it back — but still only
+	// with a directory to open.
+	m.chords.leaderAlias = ""
+	m.width = 60
+	if got := m.renderFooter(); strings.Contains(got, "vs code here") {
+		t.Fatalf("at 60 columns the shell footer should point at the leader, not list its keys:\n%s", got)
+	}
+	m.width = 200
+	if got := m.renderFooter(); !strings.Contains(got, "vs code here") {
+		t.Fatalf("a wide shell footer does not spend its room on the chord:\n%s", got)
+	}
+	bare.width = 200
+	if got := bare.renderFooter(); strings.Contains(got, "vs code here") {
+		t.Fatalf("a wide shell footer offers the chord with no directory to open:\n%s", got)
 	}
 }

@@ -139,15 +139,21 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.openSettings()
 
 	case "?":
-		m.help = true
-		m.clearStatus()
+		m.openHelp()
 
 	case "ctrl+o":
 		// Nothing to go back from: the list is where back leads.
 
 	case "esc":
 		// Not a motion: esc is the browser's double-tap chord, so the keymap leaves it
-		// to the mode that owns it.
+		// to the mode that owns it. In the list it does the same as everywhere else —
+		// one level out — and the list is the last level: the first esc drops the host
+		// you were reading about, a second one inside the window leaves hop. The window
+		// is what keeps a stray esc from quitting.
+		if m.escChord() {
+			m.closeAll()
+			return m, tea.Quit
+		}
 		m.leaveDetails()
 
 	case "S":
@@ -382,6 +388,12 @@ func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.openSettings()
 		return m, nil
 
+	case "?":
+		// As in the list: the browser binds no "?" of its own, so the card is free to
+		// take it, and the footer is free to name it.
+		m.openHelp()
+		return m, nil
+
 	case "esc":
 		// Nothing downstream wants an esc here, so swallow the first and arm the window.
 		if m.escChord() {
@@ -550,6 +562,11 @@ func (m *model) handleScrollbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		p.ScrollToBottom()
 		m.exitScrollback()
 
+	case "?":
+		// The footer names ? in every mode hop owns the keyboard in, and this is one:
+		// scrollback forwards nothing until you leave it.
+		m.openHelp()
+
 	case "q", "esc", "enter", "i", "ctrl+o", "left", "right":
 		// The deliberate ways out. ctrl+o only leaves scrollback, back to the live shell;
 		// a second one then leaves the pane. None of these reach the shell.
@@ -632,6 +649,14 @@ func (m *model) handleEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // ---- help card ----
 
+// openHelp raises the key card. Every mode's way in goes through here, so the card is
+// entered the same way from all of them — and so the section it opens on is decided in
+// one place (see renderHelp, which reads m.mode).
+func (m *model) openHelp() {
+	m.help = true
+	m.clearStatus()
+}
+
 // handleHelpKey keeps the help card modal: it swallows every key, and the usual ways
 // out close it.
 func (m *model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -700,6 +725,12 @@ func (m *model) handleLeader(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// This directory in VS Code Remote. Leaving is part of it: VS Code takes over.
 		m.leavePane()
 		m.openVSCodeAt(alias)
+		return m, nil
+
+	case key == "?":
+		// The way to the card from a pane. A bare "?" cannot be it: in a shell or an
+		// editor that key is text, and the remote is owed it.
+		m.openHelp()
 		return m, nil
 
 	case key == "0" && !editing:

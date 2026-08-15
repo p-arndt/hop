@@ -10,9 +10,10 @@ everything else as extra channels on that same connection: more shells, an SFTP 
 an editor running on the remote box, and any tunnels you defined. Nothing is a new window,
 nothing re-authenticates, and leaving a pane never tears down what is inside it.
 
-The header always tells you **where your keystrokes are going**. That is the single most
-disorienting thing about a TUI that embeds other people's programs, so it gets permanent
-screen space.
+A **status bar** above the footer always tells you **where you are and where your keystrokes
+are going** — the host, the mode, the directory or file, and the machine behind the alias.
+That is the single most disorienting thing about a TUI that embeds other people's programs,
+so it gets permanent screen space, directly above the keys that act on it.
 
 ::::shots only="site"
 :::figure src="assets/screens/hosts.png" alt="The hop host list with a details card for the host under the cursor" width="1500" height="800"

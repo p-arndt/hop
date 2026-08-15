@@ -16,7 +16,16 @@ All of them are modal: while a card is up it takes every key, and [[esc]] closes
 | Host key | by itself | [[y]] trusts the fingerprint and retries, [[n]]/[[esc]] trusts nothing |
 | Add / edit host | [[a]] / [[e]] | [[↑]]/[[↓]] or [[tab]] move between fields, [[enter]] saves, [[esc]] cancels |
 | Delete host | [[x]] | [[enter]] confirms, [[esc]] cancels |
-| Keys | [[?]] | any key closes it |
+| Keys | [[?]] — [[ctrl+o]] [[?]] in a shell or editor | any key closes it |
+
+The **keys card** opens on the section for the mode you are in — the shell's keys from a
+shell, the browser's from the browser — and marks it *you are here*. That is what lets the
+footer stay short: it names the two or three keys a mode cannot be worked without and leaves
+the rest to this card, which is only a fair trade if the card starts where you are.
+
+[[?]] reaches it from every mode hop owns the keyboard in. In a **shell** or an **editor** a
+bare [[?]] is a question mark the remote is owed, so there it is [[ctrl+o]] [[?]] — the same
+key, one level in.
 
 The **host form** carries more than an address: a group, a default directory every session on
 that host starts in, an identity file, and `ProxyCommand` / `ProxyJump` for hosts you reach

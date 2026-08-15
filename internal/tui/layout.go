@@ -3,8 +3,8 @@ package tui
 // sidebarWidth is the host list's preferred width, yielding to half of a narrow window.
 const sidebarWidth = 32
 
-// chromeRows is what the header and footer cost the body.
-const chromeRows = 2
+// chromeRows is what the header, status bar and footer cost the body.
+const chromeRows = 3
 
 // recomputeLayout derives the left/right pane inner sizes from the window size.
 func (m *model) recomputeLayout() {

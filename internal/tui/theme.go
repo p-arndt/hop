@@ -41,6 +41,9 @@ var (
 	headerBadge = lipgloss.NewStyle().Bold(true).Foreground(colInk).Background(accent).Padding(0, 1)
 	subtitle    = lipgloss.NewStyle().Foreground(colDim)
 	footerStyle = lipgloss.NewStyle().Foreground(colDim).Padding(0, 1)
+	// The status bar is a filled row rather than bare text: it is the seam between the
+	// panes and the key legend, and the fill is what stops the two reading as one block.
+	statusBar = lipgloss.NewStyle().Foreground(colDim).Background(colSurface).Padding(0, 1)
 
 	// Panes.
 	paneBorder = lipgloss.NewStyle().

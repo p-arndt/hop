@@ -12,8 +12,9 @@ sends, and both decline (falling through to the shell) when there is nothing to 
 alt screen a full-screen program owns its own scrolling. The footer advertises
 [[shift+↑]] *scrollback* exactly when the key is live.
 
-Once paused, the keyboard drives the history viewport rather than the remote shell, and the
-mode chip reads `⇅ scrollback <offset>/<len>`.
+Once paused, the keyboard drives the history viewport rather than the remote shell. The
+[status bar](#modes) says `<host> › scrollback`, and how far back you are reading is the
+`⇅ <offset>/<len>` chip at its right-hand end.
 
 | Key | Action |
 | --- | --- |
@@ -23,6 +24,7 @@ mode chip reads `⇅ scrollback <offset>/<len>`.
 | [[g]] [[home]] | jump to the oldest line |
 | [[G]] [[end]] | back to the live bottom (and leave scrollback) |
 | [[esc]] [[q]] [[enter]] [[ctrl+o]] [[←]] | back to the live shell |
+| [[?]] | the key card |
 | *anything else* | leave scrollback and type it at the prompt |
 
 The wheel enters and drives scrollback too, three lines a notch, and scrolling back down to

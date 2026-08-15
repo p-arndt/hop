@@ -30,6 +30,7 @@ label: Navigation mode
 | [[ctrl+b]] | hide / show the sidebar |
 | [[ctrl+g]] | hand the mouse to your terminal (and take it back) |
 | [[q]] [[ctrl+c]] | quit |
+| [[esc]] [[esc]] | quit (two presses within 400 ms — one esc only drops the selected host) |
 
 With [vim keys](#vim) on, [[j]]/[[k]] move, [[l]] connects as [[enter]] does, and [[h]] goes
 back as [[esc]] does.

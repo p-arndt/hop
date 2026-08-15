@@ -312,6 +312,11 @@ func (m *model) handleDeadPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.chords.esc = time.Time{}
 		m.clearStatus()
 
+	case "?":
+		// hop owns this keyboard outright — a dead pane forwards nothing — so the card
+		// is reachable by the key the footer names.
+		m.openHelp()
+
 	case "d", "x":
 		// Give up on it: the pane goes, the host goes back to idle. 'x' is bound here too
 		// because "delete" is the reflex — it drops the session, never the host.

@@ -13,6 +13,7 @@ VPN does not leave a pane quietly frozen.
 | --- | --- |
 | [[r]] [[enter]] | reconnect: dial again and reopen what was open |
 | [[d]] [[x]] | drop the session — the pane goes, the host is idle again |
+| [[?]] | the key card |
 | [[ctrl+o]] [[esc]] [[q]] | back to the host list, leaving the pane on screen |
 
 The pane keeps the last screen the host drew, under a banner saying what happened, so the

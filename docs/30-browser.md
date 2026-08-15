@@ -16,6 +16,7 @@ label: Browsing mode
 | [[←]] [[backspace]] | up one directory |
 | [[r]] | refresh the listing |
 | [[,]] | settings |
+| [[?]] | the key card |
 | [[ctrl+b]] | hide / show the sidebar |
 | [[ctrl+o]] | back to hop |
 | [[esc]] [[esc]] | back to hop (two presses within 400 ms) |

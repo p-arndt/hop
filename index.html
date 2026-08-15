@@ -511,9 +511,10 @@
       everything else as extra channels on that same connection: more shells, an SFTP browser,
       an editor running on the remote box, and any tunnels you defined. Nothing is a new window,
       nothing re-authenticates, and leaving a pane never tears down what is inside it.</p>
-      <p>The header always tells you <strong>where your keystrokes are going</strong>. That is the single most
-      disorienting thing about a TUI that embeds other people&rsquo;s programs, so it gets permanent
-      screen space.</p>
+      <p>A <strong>status bar</strong> above the footer always tells you <strong>where you are and where your keystrokes
+      are going</strong> — the host, the mode, the directory or file, and the machine behind the alias.
+      That is the single most disorienting thing about a TUI that embeds other people&rsquo;s programs,
+      so it gets permanent screen space, directly above the keys that act on it.</p>
       <div class="shots"><figure><img src="assets/screens/hosts.png" alt="The hop host list with a details card for the host under the cursor" width="1500" height="800" loading="lazy" decoding="async"><figcaption><strong>The host list.</strong> Status dot, group, and what <kbd>enter</kbd> would do to the host under the cursor.</figcaption></figure>
       <figure><img src="assets/screens/shell.png" alt="A live remote shell inside a hop pane" width="1500" height="800" loading="lazy" decoding="async"><figcaption><strong>A shell.</strong> A real terminal in the pane; the footer shows the ways back out.</figcaption></figure>
       <figure><img src="assets/screens/sftp.png" alt="The SFTP file browser inside hop" width="1500" height="800" loading="lazy" decoding="async"><figcaption><strong>The SFTP browser.</strong> <kbd>f</kbd>, over the connection that is already open.</figcaption></figure>
@@ -679,9 +680,16 @@
 
     <section id="modes">
       <h2>The three modes</h2>
-      <p>The footer always shows the keys for the mode you are in, and every mode returns to the host
-      list — from a pane with <kbd>ctrl+o</kbd> <kbd>o</kbd>, from the browser with <kbd>ctrl+o</kbd>, and from either
-      with a double <kbd>esc</kbd> inside 400 ms.</p>
+      <p>Every mode returns to the host list — from a pane with <kbd>ctrl+o</kbd> <kbd>o</kbd>, from the browser
+      with <kbd>ctrl+o</kbd>, and from either with a double <kbd>esc</kbd> inside 400 ms. In the list itself
+      <kbd>esc</kbd> <kbd>esc</kbd> is the last level out: it quits hop.</p>
+      <p>Two rows along the bottom say where you are and what to press. The <strong>status bar</strong> carries the
+      place: the host, what you are doing on it, and the thing you are doing it to — the directory
+      a shell is standing in, the file an editor tab holds, the listing the browser shows — with
+      <code>user@host:port</code> and the tab count at its right-hand end. The <strong>footer</strong> below it is the key
+      legend, and it is deliberately short: it names the keys the mode cannot be worked without,
+      adds more as the window gets wider, and leaves the full table to <kbd>?</kbd> (the
+      <a href="#cards">key card</a>), which opens on the section for the mode you are in.</p>
       <div class="modes"><div class="mode"><b>Navigation</b><span>the host list is focused (the default)</span><span class="who">keys go to hop</span><ul class="modelinks"><li><a href="#hostlist">Host list</a></li><li><a href="#import">SSH config import</a></li><li><a href="#hostkeys">Host keys</a></li></ul></div><div class="mode"><b>Terminal</b><span>you connected with <code>enter</code> or <code>s</code></span><span class="who">keys go to the <strong>remote shell</strong></span><ul class="modelinks"><li><a href="#terminal">Shells</a></li><li><a href="#scrollback">Scrollback</a></li></ul></div><div class="mode"><b>Browsing</b><span>you opened the SFTP browser with <code>f</code></span><span class="who">keys go to hop</span><ul class="modelinks"><li><a href="#browser">File browser</a></li><li><a href="#editor">Editor tabs</a></li></ul></div></div>
       <p>Everything else works in <strong>all</strong> of them: the <a href="#sidebar">sidebar toggle</a>, the
       <a href="#settings">settings popover</a>, the <a href="#tunnels">tunnels</a>, the <a href="#mouse">mouse</a> and the optional
@@ -795,6 +803,10 @@
       <tr>
       <td><kbd>q</kbd> <kbd>ctrl+c</kbd></td>
       <td>quit</td>
+      </tr>
+      <tr>
+      <td><kbd>esc</kbd> <kbd>esc</kbd></td>
+      <td>quit (two presses within 400 ms — one esc only drops the selected host)</td>
       </tr>
       </tbody>
       </table></div>
@@ -972,6 +984,10 @@
       <td>this directory in VS Code Remote</td>
       </tr>
       <tr>
+      <td><kbd>?</kbd></td>
+      <td>the key card</td>
+      </tr>
+      <tr>
       <td>anything else</td>
       <td>closes the leader and does nothing</td>
       </tr>
@@ -995,8 +1011,9 @@
       sends, and both decline (falling through to the shell) when there is nothing to show: on the
       alt screen a full-screen program owns its own scrolling. The footer advertises
       <kbd>shift+↑</kbd> <em>scrollback</em> exactly when the key is live.</p>
-      <p>Once paused, the keyboard drives the history viewport rather than the remote shell, and the
-      mode chip reads <code>⇅ scrollback &lt;offset&gt;/&lt;len&gt;</code>.</p>
+      <p>Once paused, the keyboard drives the history viewport rather than the remote shell. The
+      <a href="#modes">status bar</a> says <code>&lt;host&gt; › scrollback</code>, and how far back you are reading is the
+      <code>⇅ &lt;offset&gt;/&lt;len&gt;</code> chip at its right-hand end.</p>
       <div class="tablewrap"><table class="keytable">
       <thead>
       <tr>
@@ -1028,6 +1045,10 @@
       <tr>
       <td><kbd>esc</kbd> <kbd>q</kbd> <kbd>enter</kbd> <kbd>ctrl+o</kbd> <kbd>←</kbd></td>
       <td>back to the live shell</td>
+      </tr>
+      <tr>
+      <td><kbd>?</kbd></td>
+      <td>the key card</td>
       </tr>
       <tr>
       <td><em>anything else</em></td>
@@ -1128,6 +1149,10 @@
       <tr>
       <td><kbd>,</kbd></td>
       <td>settings</td>
+      </tr>
+      <tr>
+      <td><kbd>?</kbd></td>
+      <td>the key card</td>
       </tr>
       <tr>
       <td><kbd>ctrl+b</kbd></td>
@@ -1293,6 +1318,10 @@
       <tr>
       <td><kbd>d</kbd> <kbd>x</kbd></td>
       <td>drop the session — the pane goes, the host is idle again</td>
+      </tr>
+      <tr>
+      <td><kbd>?</kbd></td>
+      <td>the key card</td>
       </tr>
       <tr>
       <td><kbd>ctrl+o</kbd> <kbd>esc</kbd> <kbd>q</kbd></td>
@@ -1640,11 +1669,18 @@
       </tr>
       <tr>
       <td>Keys</td>
-      <td><kbd>?</kbd></td>
+      <td><kbd>?</kbd> — <kbd>ctrl+o</kbd> <kbd>?</kbd> in a shell or editor</td>
       <td>any key closes it</td>
       </tr>
       </tbody>
       </table></div>
+      <p>The <strong>keys card</strong> opens on the section for the mode you are in — the shell&rsquo;s keys from a
+      shell, the browser&rsquo;s from the browser — and marks it <em>you are here</em>. That is what lets the
+      footer stay short: it names the two or three keys a mode cannot be worked without and leaves
+      the rest to this card, which is only a fair trade if the card starts where you are.</p>
+      <p><kbd>?</kbd> reaches it from every mode hop owns the keyboard in. In a <strong>shell</strong> or an <strong>editor</strong> a
+      bare <kbd>?</kbd> is a question mark the remote is owed, so there it is <kbd>ctrl+o</kbd> <kbd>?</kbd> — the same
+      key, one level in.</p>
       <p>The <strong>host form</strong> carries more than an address: a group, a default directory every session on
       that host starts in, an identity file, and <code>ProxyCommand</code> / <code>ProxyJump</code> for hosts you reach
       through a bastion. Renaming the alias keeps the host&rsquo;s visit history, so it does not lose its
@@ -1834,7 +1870,7 @@
 [
 {"s":"What hop is","h":"","a":"#what","t":"What hop is"},
 {"s":"What hop is","h":"","a":"#what","t":"hop is a terminal UI over your SSH fleet. It holds one connection per host and opens everything else as extra channels on that same connection: more shells, an SFTP browser, an editor running on the remote box, and any tunnels you defined. Nothing is a new window, nothing re-authenticates, and leaving a pane never tears down what is inside it."},
-{"s":"What hop is","h":"","a":"#what","t":"The header always tells you where your keystrokes are going. That is the single most disorienting thing about a TUI that embeds other people’s programs, so it gets permanent screen space."},
+{"s":"What hop is","h":"","a":"#what","t":"A status bar above the footer always tells you where you are and where your keystrokes are going — the host, the mode, the directory or file, and the machine behind the alias. That is the single most disorienting thing about a TUI that embeds other people’s programs, so it gets permanent screen space, directly above the keys that act on it."},
 {"s":"What hop is","h":"","a":"#what","t":"The host list. Status dot, group, and what enter would do to the host under the cursor."},
 {"s":"What hop is","h":"","a":"#what","t":"A shell. A real terminal in the pane; the footer shows the ways back out."},
 {"s":"What hop is","h":"","a":"#what","t":"The SFTP browser. f, over the connection that is already open."},
@@ -1918,7 +1954,8 @@
 {"s":"Where things live","h":"","a":"#files","t":"A missing or malformed config file starts hop on defaults rather than refusing to start."},
 {"s":"The three modes","h":"","a":"#modes","t":"The three modes"},
 {"s":"The three modes","h":"","a":"#modes","t":"How they fit together"},
-{"s":"The three modes","h":"","a":"#modes","t":"The footer always shows the keys for the mode you are in, and every mode returns to the host list — from a pane with ctrl+o o, from the browser with ctrl+o, and from either with a double esc inside 400 ms."},
+{"s":"The three modes","h":"","a":"#modes","t":"Every mode returns to the host list — from a pane with ctrl+o o, from the browser with ctrl+o, and from either with a double esc inside 400 ms. In the list itself esc esc is the last level out: it quits hop."},
+{"s":"The three modes","h":"","a":"#modes","t":"Two rows along the bottom say where you are and what to press. The status bar carries the place: the host, what you are doing on it, and the thing you are doing it to — the directory a shell is standing in, the file an editor tab holds, the listing the browser shows — with user@host:port and the tab count at its right-hand end. The footer below it is the key legend, and it is deliberately short: it names the keys the mode cannot be worked without, adds more as the window gets wider, and leaves the full table to ? (the key card), which opens on the section for the mode you are in."},
 {"s":"The three modes","h":"","a":"#modes","t":"Everything else works in all of them: the sidebar toggle, the settings popover, the tunnels, the mouse and the optional vim keys."},
 {"s":"The three modes","h":"","a":"#modes","t":"Two rules explain most of the keyboard:"},
 {"s":"The three modes","h":"","a":"#modes","t":"Inside a pane, ctrl+o is hop’s leader. It does nothing on its own and it is on no clock — it opens a menu in the footer and waits. ctrl+o o goes out."},
@@ -1949,6 +1986,7 @@
 {"s":"Navigation — the host list","h":"","a":"#hostlist","t":"ctrl+b · hide / show the sidebar"},
 {"s":"Navigation — the host list","h":"","a":"#hostlist","t":"ctrl+g · hand the mouse to your terminal (and take it back)"},
 {"s":"Navigation — the host list","h":"","a":"#hostlist","t":"q ctrl+c · quit"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"esc esc · quit (two presses within 400 ms — one esc only drops the selected host)"},
 {"s":"Navigation — the host list","h":"","a":"#hostlist","t":"With vim keys on, j/k move, l connects as enter does, and h goes back as esc does."},
 {"s":"Navigation — the host list","h":"","a":"#hostlist","t":"Why the jump keys belong to the browser, not the list"},
 {"s":"Navigation — the host list","h":"","a":"#hostlist","t":"The list binds the step keys and nothing more. The jumps and the ctrl chords — gg, G, H/M/L, ctrl+d/ctrl+u/ctrl+f — belong to the file browser, which walks directories that actually run past a screen. The host list does not scroll, so each of them landed a j or two from where the cursor already was, while holding a letter the list wants as a command. Paging is pgdn/pgup."},
@@ -1996,6 +2034,7 @@
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"1 … 9 · that tab, selected in place"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"0 · another shell on this host"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"c · this directory in VS Code Remote"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"? · the key card"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"anything else · closes the leader and does nothing"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"A key that names no chord is swallowed, not passed to the remote: while the leader is open hop has the keyboard, and a program that received the tail of an abandoned chord would act on a key you were not typing at it. The leader also outranks ctrl+b and ctrl+g, which are otherwise held in every mode."},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"Why the leader does nothing on its own"},
@@ -2003,7 +2042,7 @@
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Scrolling back through history"},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Scrollback"},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"shift+↑ pauses the live shell and steps one line up into its scrollback; shift+pgup does it a page at a time. Both are deliberately chords a bare shell never sends, and both decline (falling through to the shell) when there is nothing to show: on the alt screen a full-screen program owns its own scrolling. The footer advertises shift+↑ scrollback exactly when the key is live."},
-{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Once paused, the keyboard drives the history viewport rather than the remote shell, and the mode chip reads ⇅ scrollback \u003coffset\u003e/\u003clen\u003e."},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Once paused, the keyboard drives the history viewport rather than the remote shell. The status bar says \u003chost\u003e › scrollback, and how far back you are reading is the ⇅ \u003coffset\u003e/\u003clen\u003e chip at its right-hand end."},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Key · Action"},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"↑ ↓ j k · up / down one line"},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"pgup pgdn ctrl+f · up / down a page (ctrl+b is the sidebar)"},
@@ -2011,6 +2050,7 @@
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"g home · jump to the oldest line"},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"G end · back to the live bottom (and leave scrollback)"},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"esc q enter ctrl+o ← · back to the live shell"},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"? · the key card"},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"anything else · leave scrollback and type it at the prompt"},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"The wheel enters and drives scrollback too, three lines a notch, and scrolling back down to the live bottom returns you to the shell."},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Why arriving at the bottom exits, and what ctrl+o does here"},
@@ -2035,6 +2075,7 @@
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"← backspace · up one directory"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"r · refresh the listing"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":", · settings"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"? · the key card"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+b · hide / show the sidebar"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+o · back to hop"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"esc esc · back to hop (two presses within 400 ms)"},
@@ -2077,6 +2118,7 @@
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"Key · Action"},
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"r enter · reconnect: dial again and reopen what was open"},
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"d x · drop the session — the pane goes, the host is idle again"},
+{"s":"When a connection drops","h":"","a":"#reconnect","t":"? · the key card"},
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"ctrl+o esc q · back to the host list, leaving the pane on screen"},
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"The pane keeps the last screen the host drew, under a banner saying what happened, so the command that was running is still there to read. Nothing is forwarded to the far end, because there is no far end."},
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"Shell tabs, the browser’s directory and the running tunnels come back on reconnect. Editor tabs do not — an editor holds a buffer, and reopening the file on a fresh pty would look like nothing was lost — and the status says how many were left behind."},
@@ -2167,7 +2209,9 @@
 {"s":"The cards","h":"","a":"#cards","t":"Host key · by itself · y trusts the fingerprint and retries, n/esc trusts nothing"},
 {"s":"The cards","h":"","a":"#cards","t":"Add / edit host · a / e · ↑/↓ or tab move between fields, enter saves, esc cancels"},
 {"s":"The cards","h":"","a":"#cards","t":"Delete host · x · enter confirms, esc cancels"},
-{"s":"The cards","h":"","a":"#cards","t":"Keys · ? · any key closes it"},
+{"s":"The cards","h":"","a":"#cards","t":"Keys · ? — ctrl+o ? in a shell or editor · any key closes it"},
+{"s":"The cards","h":"","a":"#cards","t":"The keys card opens on the section for the mode you are in — the shell’s keys from a shell, the browser’s from the browser — and marks it you are here. That is what lets the footer stay short: it names the two or three keys a mode cannot be worked without and leaves the rest to this card, which is only a fair trade if the card starts where you are."},
+{"s":"The cards","h":"","a":"#cards","t":"? reaches it from every mode hop owns the keyboard in. In a shell or an editor a bare ? is a question mark the remote is owed, so there it is ctrl+o ? — the same key, one level in."},
 {"s":"The cards","h":"","a":"#cards","t":"The host form carries more than an address: a group, a default directory every session on that host starts in, an identity file, and ProxyCommand / ProxyJump for hosts you reach through a bastion. Renaming the alias keeps the host’s visit history, so it does not lose its place in the frecency order."},
 {"s":"Development","h":"","a":"#dev","t":"Development"},
 {"s":"Development","h":"","a":"#dev","t":"just # list recipes just run list # go run . list just build # dev binary just test # go test ./... just test-e2e # + the Docker 2FA end-to-end tests (needs Docker) just vet just fmt # gofmt -w . just ci # fmt-check + vet + test (what CI runs) just docs # regenerate index.html, README.md and KEYBINDINGS.md from docs/ just demo # re-record assets/demo.gif + the stills (needs vhs) How the docs, the demo, the tests and the release are put together"},
