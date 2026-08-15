@@ -137,6 +137,18 @@ release BUMP="patch":
 # Docs
 # ---------------------------------------------------------------------------
 
+# Regenerate index.html, README.md and KEYBINDINGS.md from docs/*.md. The
+# markdown under docs/ is the only source for all three; `go test ./...` fails
+# if a generated file has drifted from it (tools/docsgen).
+
+# Render the docs.
+docs:
+    go run ./tools/docsgen
+
+# Fail if a generated doc is out of date.
+docs-check:
+    go run ./tools/docsgen -check
+
 # Re-records assets/demo.gif and assets/screens/*.png from demo/hop.tape. Needs
 # `vhs` (brew install vhs). Nothing real is recorded: the script points hop at a
 # throwaway HOME and a fake SSH server (tools/demoserver) that invents the hosts,

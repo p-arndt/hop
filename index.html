@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>hop — documentation</title>
-<meta name="description" content="hop: hop from server to server without ever leaving your terminal. Install, keys, settings and internals.">
+<meta name="description" content="hop: hop from server to server without ever leaving your terminal. Install, keys, tunnels, settings and internals — with an offline search.">
 <link rel="icon" href="assets/logo.png">
 <script>
   // Applied before first paint: otherwise a saved light/dark choice lands after
@@ -360,76 +360,58 @@
   summary { cursor: pointer; font-size: .92rem; font-weight: 600; }
   details > *:not(summary) { margin-top: .8rem; }
 
-  .status { display: inline-block; font-size: .7rem; letter-spacing: .08em; text-transform: uppercase;
-            border-radius: 999px; padding: .1rem .55rem; border: 1px solid currentColor; }
-  .status.done { color: var(--ok); }
-  .status.next { color: var(--warn); }
-
-  /* ---- ask-the-docs assistant ---------------------------------------- */
-  .askbtn {
-    position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 20;
-    display: flex; align-items: center; gap: .45rem;
-    background: var(--accent); color: var(--panel);
-    border: 0; border-radius: 999px; padding: .6rem 1rem;
-    font: inherit; font-size: .875rem; font-weight: 600;
-    box-shadow: var(--shadow); cursor: pointer;
+  .searchbtn {
+    flex: none;
+    display: flex; align-items: center; gap: .5rem;
+    width: 100%; text-align: left;
+    background: var(--panel); color: var(--ink-faint);
+    border: 1px solid var(--line-strong); border-radius: .4rem;
+    padding: .4rem .6rem; font: inherit; font-size: .85rem; cursor: pointer;
   }
-  .askbtn:hover { filter: brightness(1.08); }
-  .askbtn[hidden] { display: none; }
+  .searchbtn:hover { border-color: var(--accent-line); color: var(--ink); }
+  .searchbtn kbd { margin-left: auto; font-size: .7em; }
 
-  .askpanel {
-    position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 21;
-    width: min(26rem, calc(100vw - 2.5rem));
-    max-height: min(34rem, calc(100dvh - 2.5rem));
-    display: flex; flex-direction: column;
+  .searchwrap {
+    position: fixed; inset: 0; z-index: 40;
+    display: flex; justify-content: center;
+    padding: max(6vh, 2rem) 1rem 2rem;
+    background: rgba(20, 16, 24, .55);
+  }
+  .searchwrap[hidden] { display: none; }
+
+  .searchbox {
+    display: flex; flex-direction: column; min-height: 0;
+    width: min(40rem, 100%); max-height: min(32rem, 80dvh);
     background: var(--panel); border: 1px solid var(--line-strong);
     border-radius: .7rem; box-shadow: var(--shadow); overflow: hidden;
   }
-  .askpanel[hidden] { display: none; }
-  .askhead {
-    display: flex; align-items: center; gap: .5rem;
-    padding: .7rem .85rem; border-bottom: 1px solid var(--line);
-    background: var(--panel-2); flex: none;
-  }
-  .askhead b { font-size: .9rem; }
-  .askhead .sub { font-size: .72rem; color: var(--ink-faint); }
-  .askclose {
-    margin-left: auto; background: none; border: 0; color: var(--ink-faint);
-    font: inherit; font-size: 1.1rem; line-height: 1; cursor: pointer; padding: .2rem .3rem;
-  }
-  .askclose:hover { color: var(--ink); }
-
-  .askbody { flex: 1 1 auto; overflow-y: auto; padding: .85rem; min-height: 0; }
-  .askintro { font-size: .85rem; color: var(--ink-soft); }
-  .askintro p { max-width: none; margin: 0 0 .7rem; }
-  .askload {
-    background: var(--accent); color: var(--panel); border: 0; border-radius: .4rem;
-    padding: .5rem .9rem; font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer;
-  }
-  .askload:disabled { opacity: .6; cursor: default; }
-  .askbar { height: .3rem; border-radius: 999px; background: var(--panel-2); overflow: hidden; margin: .7rem 0 .35rem; }
-  .askbar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
-  .askstat { font-size: .75rem; color: var(--ink-faint); }
-
-  .msg { font-size: .87rem; margin-bottom: .8rem; }
-  .msg .who { font-size: .68rem; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-faint); display: block; margin-bottom: .2rem; }
-  .msg.you .bubble { background: var(--panel-2); border: 1px solid var(--line); border-radius: .45rem; padding: .45rem .65rem; }
-  .msg p { max-width: none; margin: 0 0 .5rem; }
-  .msg p:last-child { margin-bottom: 0; }
-
-  .askform { display: flex; gap: .45rem; padding: .7rem .85rem; border-top: 1px solid var(--line); flex: none; background: var(--panel-2); }
-  .askform input {
-    flex: 1; min-width: 0; font: inherit; font-size: .85rem;
+  .searchbox input {
+    flex: none; font: inherit; font-size: 1rem;
     background: var(--panel); color: var(--ink);
-    border: 1px solid var(--line-strong); border-radius: .4rem; padding: .4rem .6rem;
+    border: 0; border-bottom: 1px solid var(--line);
+    padding: .85rem 1rem; outline: none;
   }
-  .askform button {
-    background: var(--accent); color: var(--panel); border: 0; border-radius: .4rem;
-    padding: .4rem .8rem; font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer;
+  .searchbox input::placeholder { color: var(--ink-faint); }
+
+  .results { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: .35rem; }
+  .results a {
+    display: block; padding: .45rem .65rem; border-radius: .4rem;
+    color: inherit; text-decoration: none; border: 1px solid transparent;
   }
-  .askform button:disabled { opacity: .5; cursor: default; }
-  .asknote { font-size: .72rem; color: var(--ink-faint); padding: 0 .85rem .6rem; background: var(--panel-2); flex: none; }
-  @media print { .askbtn, .askpanel { display: none !important; } }
+  .results a[aria-selected="true"] { background: var(--accent-soft); border-color: var(--accent-line); }
+  .results .where {
+    font-size: .68rem; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--ink-faint); display: block; margin-bottom: .1rem;
+  }
+  .results .what { font-size: .88rem; color: var(--ink-soft); }
+  .results .what mark { background: none; color: var(--accent); font-weight: 600; }
+  .results .what kbd { font-size: .78em; }
+  .results .empty, .searchfoot { font-size: .78rem; color: var(--ink-faint); padding: .6rem .75rem; }
+  .searchfoot {
+    flex: none; border-top: 1px solid var(--line); background: var(--panel-2);
+    display: flex; gap: 1rem;
+  }
+  @media print { .searchbtn, .searchwrap { display: none !important; } }
 
   footer {
     margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--line);
@@ -449,6 +431,10 @@
       </span>
     </a>
 
+    <button class="searchbtn" id="searchbtn" type="button">
+      <span>Search…</span><kbd>ctrl+k</kbd>
+    </button>
+
     <nav aria-label="Sections">
       <ol>
         <li><div class="grp">Start</div></li>
@@ -459,28 +445,29 @@
         <li><a href="#quickstart">Quick start</a></li>
         <li><a href="#cli">CLI</a></li>
         <li><a href="#files">Where things live</a></li>
-
         <li><div class="grp">The three modes</div></li>
         <li><a href="#modes">How they fit together</a></li>
-
         <li><div class="grp">Navigation mode</div></li>
         <li><a href="#hostlist">Host list</a></li>
         <li><a href="#import">SSH config import</a></li>
-        <li><a href="#hostkeys">Host keys</a></li>
-
+        <li><a href="#hostkeys">Host keys &amp; auth</a></li>
         <li><div class="grp">Terminal mode</div></li>
         <li><a href="#terminal">Shells</a></li>
+        <li><a href="#leader">The leader</a></li>
         <li><a href="#scrollback">Scrollback</a></li>
-
+        <li><a href="#doubleesc">The double esc</a></li>
         <li><div class="grp">Browsing mode</div></li>
         <li><a href="#browser">File browser</a></li>
         <li><a href="#editor">Editor tabs</a></li>
-
         <li><div class="grp">Every mode</div></li>
+        <li><a href="#tunnels">Tunnels</a></li>
+        <li><a href="#reconnect">Reconnecting</a></li>
         <li><a href="#sidebar">Sidebar</a></li>
         <li><a href="#settings">Settings</a></li>
+        <li><a href="#mouse">Mouse</a></li>
+        <li><a href="#rest">The rest of the keyboard</a></li>
         <li><a href="#vim">Vim keys</a></li>
-
+        <li><a href="#cards">The cards</a></li>
         <li><div class="grp">Project</div></li>
         <li><a href="#dev">Development</a></li>
         <li><a href="#internals">Where a binding lives</a></li>
@@ -517,669 +504,1301 @@
       </figure>
     </header>
 
+
     <section id="what">
       <h2>What hop is</h2>
       <p>hop is a terminal UI over your SSH fleet. It holds one connection per host and opens
-        everything else as extra channels on that same connection: more shells, an SFTP browser,
-        an editor running on the remote box. Nothing is a new window, nothing re-authenticates,
-        and leaving a pane never tears down what's inside it.</p>
-      <div class="shots">
-        <figure>
-          <img src="assets/screens/hosts.png" alt="The hop host list with a details card for the host under the cursor" width="1500" height="800" loading="lazy" decoding="async">
-          <figcaption><b>The host list.</b> Status dot, group, and what <kbd>enter</kbd> would do to the host under the cursor.</figcaption>
-        </figure>
-        <figure>
-          <img src="assets/screens/shell.png" alt="A live remote shell inside a hop pane" width="1500" height="800" loading="lazy" decoding="async">
-          <figcaption><b>A shell.</b> A real terminal in the pane; the footer shows the three ways back out.</figcaption>
-        </figure>
-        <figure>
-          <img src="assets/screens/sftp.png" alt="The SFTP file browser inside hop" width="1500" height="800" loading="lazy" decoding="async">
-          <figcaption><b>The SFTP browser.</b> <kbd>f</kbd>, over the connection that's already open.</figcaption>
-        </figure>
-        <figure>
-          <img src="assets/screens/editor.png" alt="A file open in a remote editor tab inside hop" width="1500" height="800" loading="lazy" decoding="async">
-          <figcaption><b>A remote editor tab.</b> <kbd>enter</kbd> on a file runs the editor <em>on the server</em>, so <code>:w</code> writes the real file.</figcaption>
-        </figure>
-      </div>
+      everything else as extra channels on that same connection: more shells, an SFTP browser,
+      an editor running on the remote box, and any tunnels you defined. Nothing is a new window,
+      nothing re-authenticates, and leaving a pane never tears down what is inside it.</p>
+      <p>The header always tells you <strong>where your keystrokes are going</strong>. That is the single most
+      disorienting thing about a TUI that embeds other people&rsquo;s programs, so it gets permanent
+      screen space.</p>
+      <div class="shots"><figure><img src="assets/screens/hosts.png" alt="The hop host list with a details card for the host under the cursor" width="1500" height="800" loading="lazy" decoding="async"><figcaption><strong>The host list.</strong> Status dot, group, and what <kbd>enter</kbd> would do to the host under the cursor.</figcaption></figure>
+      <figure><img src="assets/screens/shell.png" alt="A live remote shell inside a hop pane" width="1500" height="800" loading="lazy" decoding="async"><figcaption><strong>A shell.</strong> A real terminal in the pane; the footer shows the ways back out.</figcaption></figure>
+      <figure><img src="assets/screens/sftp.png" alt="The SFTP file browser inside hop" width="1500" height="800" loading="lazy" decoding="async"><figcaption><strong>The SFTP browser.</strong> <kbd>f</kbd>, over the connection that is already open.</figcaption></figure>
+      <figure><img src="assets/screens/editor.png" alt="A file open in a remote editor tab inside hop" width="1500" height="800" loading="lazy" decoding="async"><figcaption><strong>A remote editor tab.</strong> <kbd>enter</kbd> on a file runs the editor <em>on the server</em>, so <code>:w</code> writes the real file.</figcaption></figure></div>
     </section>
 
     <section id="features">
       <h2>Features</h2>
-      <div class="grid">
-        <div class="card"><h4>Embedded SSH shells</h4><p>Real terminals in a pane: a pure-Go SSH client (<code>x/crypto/ssh</code>) feeding a real VT emulator (<code>x/vt</code>). Agent or private-key auth, resize, cursor, the lot.</p></div>
-        <div class="card"><h4>Multiple shells per host</h4><p><kbd>S</kbd> (or <kbd>alt+0</kbd>) opens another shell on a host you're already on — a second channel, so no new handshake and no second auth.</p></div>
-        <div class="card"><h4>SFTP file browser</h4><p><kbd>f</kbd> browses the remote filesystem over the connection you already have. Download with <kbd>d</kbd>, open locally with <kbd>o</kbd>.</p></div>
-        <div class="card"><h4>Remote editor tabs</h4><p><kbd>enter</kbd> on a file runs <code>$EDITOR</code> on the server on a second channel and renders it in a tab. No download, no copy.</p></div>
-        <div class="card"><h4>Scrollback</h4><p><kbd>shift+↑</kbd> pauses a shell into its history with vim-ish paging. Declines politely when a full-screen program owns the screen.</p></div>
-        <div class="card"><h4>Honest host keys</h4><p>An unknown key aborts the dial and shows a fingerprint card. A mismatch is always a hard error.</p></div>
-        <div class="card"><h4>SSH config import</h4><p><kbd>i</kbd> upserts every host from <code>~/.ssh/config</code>. It's a sync, not a one-shot — hosts you added by hand are left alone.</p></div>
-        <div class="card"><h4>Fuzzy find</h4><p><kbd>/</kbd> filters as you type, with the matched characters picked out so a surprising hit explains itself.</p></div>
-        <div class="card"><h4>Live settings</h4><p><kbd>,</kbd> opens a popover for editor, download dir, accent colour, open-with and vim keys. Applied on the spot.</p></div>
-        <div class="card"><h4>Frecency ordering</h4><p>The hosts you actually use float to the top of the list.</p></div>
-        <div class="card"><h4>Cross-platform</h4><p>Static, dependency-free binaries for Windows, macOS and Linux (amd64 + arm64). No cgo, no libc, no runtime.</p></div>
-        <div class="card"><h4>Opt-in vim keys</h4><p>Off by default, because <kbd>h</kbd>/<kbd>l</kbd> meaning "out of" and "into" a host surprises anyone who didn't ask for it.</p></div>
-      </div>
+      <div class="grid"><div class="card"><h4>🖥️ Embedded SSH shells</h4><p>Real terminals in a pane: a pure-Go SSH client (<code>x/crypto/ssh</code>) feeding a real VT emulator (<code>x/vt</code>). Agent or private-key auth, resize, cursor, the lot.</p></div><div class="card"><h4>🔑 2FA and passwords</h4><p>A card appears the moment the host asks. Nothing is stored, and one prompt per host covers everything riding that connection.</p></div><div class="card"><h4>🗂️ Multiple shells per host</h4><p><kbd>S</kbd> opens a second channel on the connection you already have — no new handshake, no second auth.</p></div><div class="card"><h4>📁 SFTP file browser</h4><p><kbd>f</kbd> browses the remote filesystem over that same connection. Download with <kbd>d</kbd>, open locally with <kbd>o</kbd>.</p></div><div class="card"><h4>⇄ Local &amp; remote tunnels</h4><p>Define forwards per host with <kbd>T</kbd>, start and stop them with <kbd>t</kbd>. Imported from your SSH config, restored on reconnect.</p></div><div class="card"><h4>🛰️ ProxyCommand &amp; ProxyJump</h4><p>Bastions and brokers (<code>aws ssm</code>, <code>cloudflared</code>, <code>gcloud</code>) work exactly as your SSH config describes them.</p></div><div class="card"><h4>✎ Remote editor tabs</h4><p><kbd>enter</kbd> on a file runs <code>$EDITOR</code> <em>on the server</em> in a tab. No download — <code>:w</code> writes the real file.</p></div><div class="card"><h4>📂 VS Code where you are</h4><p><kbd>ctrl+o</kbd> <kbd>c</kbd> opens VS Code Remote in the directory the shell is standing in, tracked over OSC 7.</p></div><div class="card"><h4>🏠 A directory to land in</h4><p>Give a host a default directory and every session on it starts there.</p></div><div class="card"><h4>⇅ Scrollback</h4><p><kbd>shift+↑</kbd> pauses a shell into its history, with vim-ish paging.</p></div><div class="card"><h4>🔁 Reconnect after a drop</h4><p>Drops are noticed, the last screen is kept, and <kbd>r</kbd> puts the shells, browser and tunnels back.</p></div><div class="card"><h4>🔐 Honest host keys</h4><p>An unknown key aborts the dial and shows a fingerprint card. A mismatch is always a hard error.</p></div><div class="card"><h4>📥 SSH config import</h4><p><kbd>i</kbd> syncs hosts from <code>~/.ssh/config</code> — a re-import refreshes, hand-added hosts are left alone.</p></div><div class="card"><h4>🔎 Fuzzy find</h4><p><kbd>/</kbd> filters as you type, with the matched characters picked out so a surprising hit explains itself.</p></div><div class="card"><h4>🖱️ Mouse</h4><p>Wheel, click and drag-to-copy everywhere; remote programs that want the pointer get it verbatim.</p></div><div class="card"><h4>📋 Copy and paste</h4><p>Bracketed paste (even on Windows), drag to copy, and remote yanks (OSC 52) land on your clipboard.</p></div><div class="card"><h4>⚙️ Live settings</h4><p><kbd>,</kbd> — editor, download dir, accent colour, vim keys, mouse, remote clipboard. Applied on the spot.</p></div><div class="card"><h4>🎯 Frecency ordering</h4><p>The hosts you actually use float to the top of the list.</p></div><div class="card"><h4>🪟 Cross-platform</h4><p>Static, dependency-free binaries for Windows, macOS and Linux (amd64 + arm64). No cgo, no libc, no runtime.</p></div><div class="card"><h4>⌨️ Opt-in vim keys</h4><p>Off by default. Flip one switch and the motions appear everywhere at once.</p></div></div>
+      <details><summary>The longer version of a few of these</summary><p><strong>2FA.</strong> The dial waits inside the handshake rather than restarting — a one-time code is
+      only good once. One prompt per host, since shells, SFTP, editors and tunnels ride the same
+      connection.</p>
+      <p><strong>ProxyCommand.</strong> The command runs <em>without a shell</em>: a line needing one is refused with a
+      clear error, so an imported config cannot smuggle in <code>sh -c</code>. <code>%h</code> <code>%p</code> <code>%r</code> <code>%n</code> are
+      expanded. A <code>ProxyJump</code> may name another hop host by alias and borrows its user, port and key.</p>
+      <p><strong>OSC 7.</strong> hop installs the prompt hook into bash/zsh itself — one line typed at the first
+      prompt, then wiped from the pane, so the session looks untouched. Nothing is typed into a
+      shell that already emits OSC 7, or while a full-screen program owns the screen. Where no
+      directory can be learned, the key still opens the host in its default directory and says so.</p>
+      <p><strong>Reconnect.</strong> Drops are found with keepalive probes rather than silence, so a suspended
+      laptop or a dead VPN does not leave a pane quietly frozen.</p></details>
     </section>
 
     <section id="install">
       <h2>Install</h2>
-      <h3>Download a binary</h3>
       <p>Grab the archive for your platform from the
-        <a href="https://github.com/p-arndt/hop/releases/latest">latest release</a> and put
-        <code>hop</code> somewhere on your <code>PATH</code>.</p>
-<pre><code><span class="c"># macOS / Linux</span>
-tar -xzf hop_*_darwin_arm64.tar.gz
-sudo mv hop /usr/local/bin/</code></pre>
-<pre><code><span class="c"># Windows</span>
-Expand-Archive hop_*_windows_amd64.zip -DestinationPath .
-<span class="c"># then move hop.exe onto your PATH</span></code></pre>
-      <p>Every release ships a <code>hop_&lt;version&gt;_checksums.txt</code>, so you can verify with
-        <code>sha256sum -c</code>.</p>
-
-      <h3>From source</h3>
-      <p>Needs <a href="https://go.dev/dl/">Go 1.26+</a> and optionally
-        <a href="https://github.com/casey/just"><code>just</code></a> ≥ 1.39.</p>
-<pre><code>git clone https://github.com/p-arndt/hop.git &amp;&amp; cd hop
-just build          <span class="c"># -> ./hop   (or: go build -o hop .)</span>
-just build-release  <span class="c"># stripped + version-stamped</span></code></pre>
+      <a href="https://github.com/p-arndt/hop/releases/latest">latest release</a> and put <code>hop</code> somewhere on
+      your <code>PATH</code>.</p>
+      <pre><code class="language-bash"># macOS / Linux
+      tar -xzf hop_*_darwin_arm64.tar.gz
+      sudo mv hop /usr/local/bin/
+      </code></pre>
+      <pre><code class="language-powershell"># Windows
+      Expand-Archive hop_*_windows_amd64.zip -DestinationPath .
+      <span class="c"># then move hop.exe onto your PATH</span>
+      </code></pre>
+      <p>Every release ships a <code>hop_&lt;version&gt;_checksums.txt</code>, so you can verify with <code>sha256sum -c</code>.</p>
+      <h3 id="from-source">From source</h3>
+      <p>Needs <a href="https://go.dev/dl/">Go 1.26+</a> and optionally <a href="https://github.com/casey/just"><code>just</code></a> ≥ 1.39.</p>
+      <pre><code class="language-bash">git clone https://github.com/p-arndt/hop.git &amp;&amp; cd hop
+      just build          <span class="c"># -&gt; ./hop   (or: go build -o hop .)</span>
+      just build-release  <span class="c"># stripped + version-stamped</span>
+      </code></pre>
     </section>
 
     <section id="update">
       <h2>Staying current</h2>
-<pre><code>hop check-update   <span class="c"># is there a newer release?</span>
-hop self-update    <span class="c"># download it, verify its checksum, swap this binary</span></code></pre>
-      <p><code>self-update</code> fetches the archive for <em>your</em> platform from the latest GitHub
-        release, checks its SHA-256 against that release's <code>checksums.txt</code>, and replaces the
-        running binary atomically. On Windows the old <code>hop.exe</code> is renamed aside and swept up
-        the next time hop starts. Source builds (<code>version = dev</code>) are refused: there's nothing
-        to compare them against.</p>
-      <div class="note"><p>hop also checks once a day in the background and mentions a newer version in
-        the footer and on the CLI. <b>HOP_NO_UPDATE_CHECK=1</b> turns that off; the two commands above
-        still work.</p></div>
+      <pre><code class="language-bash">hop check-update   <span class="c"># is there a newer release?</span>
+      hop self-update    <span class="c"># download it, verify its checksum, swap this binary</span>
+      </code></pre>
+      <p><code>self-update</code> fetches the archive for <em>your</em> platform from the latest GitHub release, checks
+      its SHA-256 against that release&rsquo;s <code>checksums.txt</code>, and replaces the running binary
+      atomically. On Windows the old <code>hop.exe</code> is renamed aside and swept up the next time hop
+      starts. Source builds (<code>version = dev</code>) are refused: there is nothing to compare them against.</p>
+      <div class="note"><p>hop also checks once a day in the background and mentions a newer version in the footer and
+      on the CLI. <code>HOP_NO_UPDATE_CHECK=1</code> turns that off; the two commands above still work.</p></div>
     </section>
 
     <section id="quickstart">
       <h2>Quick start</h2>
-<pre><code>hop            <span class="c"># launch the TUI</span></code></pre>
-      <p>On a first run with no hosts, hop offers to import <code>~/.ssh/config</code> for you: one
-        <kbd>enter</kbd> and your list is full. Then, in the TUI: <kbd>↑</kbd>/<kbd>↓</kbd> to move,
-        <kbd>enter</kbd> to connect, <kbd>ctrl+o</kbd> to come back out. That's the whole model.</p>
+      <pre><code class="language-bash">hop            <span class="c"># launch the TUI</span>
+      </code></pre>
+      <p>On a first run with no hosts, hop offers to import <code>~/.ssh/config</code> for you: one <kbd>enter</kbd> and
+      your list is full. Then, in the TUI: <kbd>↑</kbd>/<kbd>↓</kbd> to move, <kbd>enter</kbd> to connect, <kbd>ctrl+o</kbd>
+      <kbd>o</kbd> to come back out. That is the whole model.</p>
     </section>
 
     <section id="cli">
       <h2>CLI</h2>
-      <p>For when you're already in a shell.</p>
-      <div class="tablewrap">
-        <table>
-          <thead><tr><th class="k">Command</th><th>What it does</th></tr></thead>
-          <tbody>
-            <tr><td><code>hop</code></td><td>launch the TUI</td></tr>
-            <tr><td><code>hop import [path]</code></td><td>sync hosts from <code>~/.ssh/config</code>, or from another file</td></tr>
-            <tr><td><code>hop add web1 deploy@10.0.0.4:2222</code></td><td>add a host by alias and target</td></tr>
-            <tr><td><code>hop list</code></td><td>print <code>alias  user@host:port</code></td></tr>
-            <tr><td><code>hop check-update</code></td><td>is a newer release out?</td></tr>
-            <tr><td><code>hop self-update</code></td><td>upgrade this binary in place</td></tr>
-            <tr><td><code>hop version</code></td><td>print the version</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <p>For when you are already in a shell.</p>
+      <div class="tablewrap"><table>
+      <thead>
+      <tr>
+      <th>Command</th>
+      <th>What it does</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><code>hop</code></td>
+      <td>launch the TUI</td>
+      </tr>
+      <tr>
+      <td><code>hop import [path]</code></td>
+      <td>sync hosts from <code>~/.ssh/config</code>, or from another file</td>
+      </tr>
+      <tr>
+      <td><code>hop add web1 deploy@10.0.0.4:2222</code></td>
+      <td>add a host by alias and target</td>
+      </tr>
+      <tr>
+      <td><code>hop list</code></td>
+      <td>print <code>alias  user@host:port</code></td>
+      </tr>
+      <tr>
+      <td><code>hop check-update</code></td>
+      <td>is a newer release out?</td>
+      </tr>
+      <tr>
+      <td><code>hop self-update</code></td>
+      <td>upgrade this binary in place</td>
+      </tr>
+      <tr>
+      <td><code>hop version</code></td>
+      <td>print the version</td>
+      </tr>
+      </tbody>
+      </table></div>
     </section>
 
     <section id="files">
       <h2>Where things live</h2>
-      <div class="tablewrap">
-        <table>
-          <thead><tr><th>What</th><th>Path</th></tr></thead>
-          <tbody>
-            <tr><td>Host database</td><td class="path"><code>&lt;config dir&gt;/hop/hop.db</code> (SQLite)</td></tr>
-            <tr><td>Settings</td><td class="path"><code>&lt;config dir&gt;/hop/config.json</code> (plain JSON, hand-editable)</td></tr>
-            <tr><td>Update check cache</td><td class="path"><code>&lt;config dir&gt;/hop/update-check.json</code></td></tr>
-            <tr><td>Known hosts</td><td class="path">your usual <code>~/.ssh/known_hosts</code></td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="tablewrap">
-        <table>
-          <thead><tr><th>Platform</th><th>&lt;config dir&gt;</th></tr></thead>
-          <tbody>
-            <tr><td>Windows</td><td class="path"><code>%AppData%\hop\</code></td></tr>
-            <tr><td>macOS</td><td class="path"><code>~/Library/Application Support/hop/</code></td></tr>
-            <tr><td>Linux</td><td class="path"><code>~/.config/hop/</code></td></tr>
-          </tbody>
-        </table>
-      </div>
+      <div class="tablewrap"><table>
+      <thead>
+      <tr>
+      <th>What</th>
+      <th>Path</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Host database</td>
+      <td><code>&lt;config dir&gt;/hop/hop.db</code> (SQLite)</td>
+      </tr>
+      <tr>
+      <td>Settings</td>
+      <td><code>&lt;config dir&gt;/hop/config.json</code> (plain JSON, hand-editable)</td>
+      </tr>
+      <tr>
+      <td>Update check cache</td>
+      <td><code>&lt;config dir&gt;/hop/update-check.json</code> (last check + latest version seen)</td>
+      </tr>
+      <tr>
+      <td>Known hosts</td>
+      <td>your usual <code>~/.ssh/known_hosts</code></td>
+      </tr>
+      </tbody>
+      </table></div>
+      <div class="tablewrap"><table>
+      <thead>
+      <tr>
+      <th>Platform</th>
+      <th><code>&lt;config dir&gt;</code></th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Windows</td>
+      <td><code>%AppData%\hop\</code></td>
+      </tr>
+      <tr>
+      <td>macOS</td>
+      <td><code>~/Library/Application Support/hop/</code></td>
+      </tr>
+      <tr>
+      <td>Linux</td>
+      <td><code>~/.config/hop/</code></td>
+      </tr>
+      </tbody>
+      </table></div>
       <p>A missing or malformed config file starts hop on defaults rather than refusing to start.</p>
     </section>
 
     <section id="modes">
       <h2>The three modes</h2>
-      <p>The footer always shows the keys for the mode you're in, and every mode returns to the host
-        list with <kbd>ctrl+o</kbd> — from a terminal pane or the file browser,
-        <kbd>esc</kbd> <kbd>esc</kbd> also works.</p>
-      <div class="modes">
-        <div class="mode">
-          <b>Navigation</b>
-          <span>the host list is focused — the default</span>
-          <span class="who">keys go to hop</span>
-          <ul class="modelinks">
-            <li><a href="#hostlist">Host list</a></li>
-            <li><a href="#import">SSH config import</a></li>
-            <li><a href="#hostkeys">Host keys</a></li>
-          </ul>
-        </div>
-        <div class="mode">
-          <b>Terminal</b>
-          <span>you connected with <kbd>enter</kbd> or <kbd>s</kbd></span>
-          <span class="who">keys go to the remote shell</span>
-          <ul class="modelinks">
-            <li><a href="#terminal">Shells</a></li>
-            <li><a href="#scrollback">Scrollback</a></li>
-          </ul>
-        </div>
-        <div class="mode">
-          <b>Browsing</b>
-          <span>you opened the SFTP browser with <kbd>f</kbd></span>
-          <span class="who">keys go to hop</span>
-          <ul class="modelinks">
-            <li><a href="#browser">File browser</a></li>
-            <li><a href="#editor">Editor tabs</a></li>
-          </ul>
-        </div>
-      </div>
-      <p>Three things sit <b>outside</b> the modes because they work in all of them: the
-        <a href="#sidebar">sidebar toggle</a>, the <a href="#settings">settings popover</a>, and the
-        optional <a href="#vim">vim keys</a>.</p>
+      <p>The footer always shows the keys for the mode you are in, and every mode returns to the host
+      list — from a pane with <kbd>ctrl+o</kbd> <kbd>o</kbd>, from the browser with <kbd>ctrl+o</kbd>, and from either
+      with a double <kbd>esc</kbd> inside 400 ms.</p>
+      <div class="modes"><div class="mode"><b>Navigation</b><span>the host list is focused (the default)</span><span class="who">keys go to hop</span><ul class="modelinks"><li><a href="#hostlist">Host list</a></li><li><a href="#import">SSH config import</a></li><li><a href="#hostkeys">Host keys</a></li></ul></div><div class="mode"><b>Terminal</b><span>you connected with <code>enter</code> or <code>s</code></span><span class="who">keys go to the <strong>remote shell</strong></span><ul class="modelinks"><li><a href="#terminal">Shells</a></li><li><a href="#scrollback">Scrollback</a></li></ul></div><div class="mode"><b>Browsing</b><span>you opened the SFTP browser with <code>f</code></span><span class="who">keys go to hop</span><ul class="modelinks"><li><a href="#browser">File browser</a></li><li><a href="#editor">Editor tabs</a></li></ul></div></div>
+      <p>Everything else works in <strong>all</strong> of them: the <a href="#sidebar">sidebar toggle</a>, the
+      <a href="#settings">settings popover</a>, the <a href="#tunnels">tunnels</a>, the <a href="#mouse">mouse</a> and the optional
+      <a href="#vim">vim keys</a>.</p>
+      <p><strong>Two rules explain most of the keyboard:</strong></p>
+      <ul>
+      <li><strong>Inside a pane, <kbd>ctrl+o</kbd> is <a href="#leader">hop&rsquo;s leader</a>.</strong> It does nothing on its own and it
+      is on no clock — it opens a menu in the footer and waits. <kbd>ctrl+o</kbd> <kbd>o</kbd> goes <strong>out</strong>.</li>
+      <li><strong>Outside a pane</strong> — in the browser, in a card — <kbd>ctrl+o</kbd> simply goes back. There is no
+      remote program competing for keys there, so there is nothing to lead.</li>
+      <li><strong>Inside a pane, everything else is the remote&rsquo;s.</strong> hop reserves as few keys as it can,
+      because every one it takes is one the shell or editor no longer gets.</li>
+      </ul>
     </section>
 
     <section id="hostlist">
       <p class="sectlabel">Navigation mode</p>
       <h2>Navigation — the host list</h2>
-      <div class="tablewrap">
-        <table class="keytable">
-          <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
-          <tbody>
-            <tr><td><kbd>↓</kbd> <kbd>↑</kbd></td><td>move</td></tr>
-            <tr><td><kbd>pgdn</kbd> <kbd>pgup</kbd></td><td>a full page down / up</td></tr>
-            <tr><td><kbd>enter</kbd> <kbd>→</kbd></td><td>connect (opens a terminal pane), or focus the shell already open</td></tr>
-            <tr><td><kbd>esc</kbd> <kbd>←</kbd></td><td>back — leave the details view</td></tr>
-            <tr><td><kbd>s</kbd></td><td>focus the existing session for this host</td></tr>
-            <tr><td><kbd>S</kbd></td><td>open <b>another</b> shell on this host, alongside the ones already open</td></tr>
-            <tr><td><kbd>f</kbd></td><td>open the SFTP browser</td></tr>
-            <tr><td><kbd>o</kbd></td><td>open the host in VS Code Remote</td></tr>
-            <tr><td><kbd>d</kbd></td><td>disconnect the session</td></tr>
-            <tr><td><kbd>a</kbd> <kbd>e</kbd> <kbd>x</kbd></td><td>add / edit / delete a host (delete asks first)</td></tr>
-            <tr><td><kbd>i</kbd></td><td>import hosts from an OpenSSH config</td></tr>
-            <tr><td><kbd>/</kbd></td><td>filter hosts (<kbd>enter</kbd> applies, <kbd>esc</kbd> clears)</td></tr>
-            <tr><td><kbd>,</kbd> <kbd>?</kbd></td><td>settings / the keys card</td></tr>
-            <tr><td><kbd>ctrl+b</kbd></td><td>hide / show the sidebar</td></tr>
-            <tr><td><kbd>q</kbd> <kbd>ctrl+c</kbd></td><td>quit</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <details class="why">
-        <summary>Why the jump keys belong to the browser, not the list</summary>
-        <p>The list binds the <b>step</b> keys and nothing more. The jumps and the ctrl chords —
-          <kbd>gg</kbd>, <kbd>G</kbd>, <kbd>H</kbd>/<kbd>M</kbd>/<kbd>L</kbd>,
-          <kbd>ctrl+d</kbd>/<kbd>ctrl+u</kbd>/<kbd>ctrl+f</kbd> — belong to the file browser, which walks
-          directories that actually run past a screen. The host list does not scroll, so each of them
-          landed a <kbd>j</kbd> or two from where the cursor already was, and those letters are worth
-          more to the list as commands. Paging is <kbd>pgdn</kbd>/<kbd>pgup</kbd>.</p>
-      </details>
-      <figure style="max-width:34rem">
-        <img src="assets/screens/keys.png" alt="The keys card listing every binding hop binds" width="1500" height="800" loading="lazy" decoding="async">
-        <figcaption><b>Every key hop binds</b> — <kbd>?</kbd>. It lists the keyboard you actually have,
-          with vim motions included only if you turned them on.</figcaption>
-      </figure>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>Key</th>
+      <th>Action</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>↓</kbd> <kbd>↑</kbd></td>
+      <td>move</td>
+      </tr>
+      <tr>
+      <td><kbd>pgdn</kbd> <kbd>pgup</kbd></td>
+      <td>a full page down / up</td>
+      </tr>
+      <tr>
+      <td><kbd>enter</kbd> <kbd>→</kbd></td>
+      <td>connect (opens a terminal pane), or focus the shell already open</td>
+      </tr>
+      <tr>
+      <td><kbd>esc</kbd> <kbd>←</kbd></td>
+      <td>back — leave the details view</td>
+      </tr>
+      <tr>
+      <td><kbd>s</kbd></td>
+      <td>focus the existing session for this host</td>
+      </tr>
+      <tr>
+      <td><kbd>S</kbd></td>
+      <td>open <strong>another</strong> shell on this host, alongside the ones already open</td>
+      </tr>
+      <tr>
+      <td><kbd>1</kbd> … <kbd>9</kbd></td>
+      <td>go straight to that shell of the host under the cursor</td>
+      </tr>
+      <tr>
+      <td><kbd>f</kbd></td>
+      <td>open the SFTP browser</td>
+      </tr>
+      <tr>
+      <td><kbd>t</kbd></td>
+      <td>start all defined tunnels, or stop them when any are running</td>
+      </tr>
+      <tr>
+      <td><kbd>T</kbd></td>
+      <td>manage this host&rsquo;s tunnel definitions</td>
+      </tr>
+      <tr>
+      <td><kbd>o</kbd></td>
+      <td>open the host in VS Code Remote, in the directory its shell is standing in</td>
+      </tr>
+      <tr>
+      <td><kbd>d</kbd></td>
+      <td>disconnect the session</td>
+      </tr>
+      <tr>
+      <td><kbd>r</kbd></td>
+      <td>reconnect a session whose connection dropped, reopening what it held</td>
+      </tr>
+      <tr>
+      <td><kbd>a</kbd> <kbd>e</kbd> <kbd>x</kbd></td>
+      <td>add / edit / delete a host (delete asks first)</td>
+      </tr>
+      <tr>
+      <td><kbd>p</kbd></td>
+      <td>pin the host to the <strong>PINNED</strong> section at the top, or unpin it</td>
+      </tr>
+      <tr>
+      <td><kbd>shift+k</kbd> <kbd>shift+j</kbd></td>
+      <td>move a pinned host up / down inside that section</td>
+      </tr>
+      <tr>
+      <td><kbd>i</kbd></td>
+      <td>import hosts from an OpenSSH config (<code>~/.ssh/config</code> by default)</td>
+      </tr>
+      <tr>
+      <td><kbd>/</kbd></td>
+      <td>filter hosts (<kbd>enter</kbd> applies, <kbd>esc</kbd> clears)</td>
+      </tr>
+      <tr>
+      <td><kbd>,</kbd> <kbd>?</kbd></td>
+      <td>settings / the keys card</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+b</kbd></td>
+      <td>hide / show the sidebar</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+g</kbd></td>
+      <td>hand the mouse to your terminal (and take it back)</td>
+      </tr>
+      <tr>
+      <td><kbd>q</kbd> <kbd>ctrl+c</kbd></td>
+      <td>quit</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <p>With <a href="#vim">vim keys</a> on, <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>l</kbd> connects as <kbd>enter</kbd> does, and <kbd>h</kbd> goes
+      back as <kbd>esc</kbd> does.</p>
+      <details class="why"><summary>Why the jump keys belong to the browser, not the list</summary><p>The list binds the <strong>step</strong> keys and nothing more. The jumps and the ctrl chords — <kbd>gg</kbd>,
+      <kbd>G</kbd>, <kbd>H</kbd>/<kbd>M</kbd>/<kbd>L</kbd>, <kbd>ctrl+d</kbd>/<kbd>ctrl+u</kbd>/<kbd>ctrl+f</kbd> — belong to the file browser,
+      which walks directories that actually run past a screen. The host list does not scroll, so
+      each of them landed a <kbd>j</kbd> or two from where the cursor already was, while holding a letter
+      the list wants as a command. Paging is <kbd>pgdn</kbd>/<kbd>pgup</kbd>.</p></details>
+      <figure style="max-width:34rem"><img src="assets/screens/keys.png" alt="The keys card listing every binding hop binds" width="1500" height="800" loading="lazy" decoding="async"><figcaption><strong>Every key hop binds</strong> — <kbd>?</kbd>. It lists the keyboard you actually have, with vim motions
+      included only if you turned them on.</figcaption></figure>
     </section>
 
     <section id="import">
       <p class="sectlabel">Navigation mode</p>
       <h2>Import — the SSH config card</h2>
       <p><kbd>i</kbd> opens the import card, a modal like the rest: one field, pre-filled with
-        <code>~/.ssh/config</code>, so the usual answer is a single <kbd>enter</kbd>.</p>
-      <div class="tablewrap">
-        <table class="keytable">
-          <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
-          <tbody>
-            <tr><td><kbd>enter</kbd></td><td>import from the path shown</td></tr>
-            <tr><td><kbd>esc</kbd></td><td>close, importing nothing</td></tr>
-            <tr><td><kbd>ctrl+u</kbd></td><td>clear the path</td></tr>
-            <tr><td><kbd>backspace</kbd> / text</td><td>edit the path (a leading <code>~</code> is expanded)</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <p>The <b>first run</b> opens this card by itself: with no hosts yet and an <code>~/.ssh/config</code>
-        on disk, hop offers the import instead of showing an empty list. <kbd>esc</kbd> skips it — an empty
-        list is not an error, and <kbd>a</kbd> adds a host by hand.</p>
-      <p>It stays bound once the list is full, because importing is a <b>sync</b>, not a one-time step:
-        each host is upserted, so a re-import refreshes what the config knows (hostname, user, port,
-        identity file) and leaves hosts hop added itself untouched. Wildcard patterns
-        (<code>Host *</code>) are skipped. <code>hop import [path]</code> does exactly the same thing.</p>
+      <code>~/.ssh/config</code>, so the usual answer is a single <kbd>enter</kbd>.</p>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>Key</th>
+      <th>Action</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>enter</kbd></td>
+      <td>import from the path shown</td>
+      </tr>
+      <tr>
+      <td><kbd>esc</kbd></td>
+      <td>close, importing nothing</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+u</kbd></td>
+      <td>clear the path</td>
+      </tr>
+      <tr>
+      <td><kbd>backspace</kbd> / text</td>
+      <td>edit the path (a leading <code>~</code> is expanded)</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <p>The <strong>first run</strong> opens this card by itself: with no hosts yet and a <code>~/.ssh/config</code> on disk,
+      hop offers the import instead of showing an empty list. <kbd>esc</kbd> skips it — an empty list is
+      not an error, and <kbd>a</kbd> adds a host by hand.</p>
+      <p>It stays bound once the list is full, because importing is a <strong>sync</strong>, not a one-time step:
+      each host is upserted, so a re-import refreshes what the config knows (hostname, user, port,
+      identity file, <code>LocalForward</code>/<code>RemoteForward</code>, <code>ProxyCommand</code>/<code>ProxyJump</code>) and leaves hosts
+      hop added itself untouched. Wildcard patterns (<code>Host *</code>) are skipped. <code>hop import [path]</code>
+      does exactly the same thing.</p>
     </section>
 
     <section id="hostkeys">
       <p class="sectlabel">Navigation mode</p>
-      <h2>Host keys</h2>
-      <p>An unknown host key <b>aborts the dial</b> and shows a fingerprint card. <kbd>y</kbd> trusts it and
-        appends it to your usual <code>~/.ssh/known_hosts</code>; <kbd>n</kbd> trusts nothing. A
-        <em>mismatch</em> — a key that changed on a host you already know — is always a hard error, never a
-        prompt.</p>
+      <h2>Host keys and authentication</h2>
+      <p>An unknown host key <strong>aborts the dial</strong> and shows a fingerprint card. <kbd>y</kbd> trusts it and
+      retries, appending it to your usual <code>~/.ssh/known_hosts</code>; <kbd>n</kbd> or <kbd>esc</kbd> trusts nothing. A
+      <em>mismatch</em> — a key that changed on a host you already know — is always a hard error, never a
+      prompt.</p>
+      <p>When the host asks for a password or a one-time code, a card opens by itself: <kbd>enter</kbd>
+      submits or moves to the next question, <kbd>tab</kbd>/<kbd>shift+tab</kbd> move between fields, <kbd>ctrl+u</kbd>
+      clears, and <kbd>esc</kbd> cancels the connect. The dial <strong>waits inside the handshake</strong> rather than
+      restarting, because a one-time code is only good once — and you are asked once per host,
+      since shells, SFTP, editors and tunnels all ride that one connection. Nothing is stored.</p>
     </section>
 
     <section id="terminal">
       <p class="sectlabel">Terminal mode</p>
       <h2>Terminal — a live shell on a remote host</h2>
-      <div class="tablewrap">
-        <table class="keytable">
-          <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
-          <tbody>
-            <tr><td><kbd>ctrl+o</kbd></td><td>back to hop</td></tr>
-            <tr><td><kbd>esc</kbd> <kbd>esc</kbd></td><td>back to hop (two presses within 400 ms)</td></tr>
-            <tr><td><kbd>alt+0</kbd></td><td>open <b>another</b> shell on this host, and go to it</td></tr>
-            <tr><td><kbd>alt+→</kbd> <kbd>alt+←</kbd></td><td>next / previous shell on this host (wraps)</td></tr>
-            <tr><td><kbd>alt+1</kbd> … <kbd>alt+9</kbd></td><td>jump straight to that shell</td></tr>
-            <tr><td><kbd>shift+↑</kbd> <kbd>shift+pgup</kbd></td><td>scroll back into the pane's history</td></tr>
-            <tr><td><kbd>ctrl+b</kbd></td><td>hide / show the sidebar — the pane takes the whole window</td></tr>
-            <tr><td><em>everything else</em></td><td>sent to the remote shell</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>Key</th>
+      <th>Action</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>ctrl+o</kbd> <kbd>o</kbd></td>
+      <td><strong>out</strong> — back to hop</td>
+      </tr>
+      <tr>
+      <td><kbd>esc</kbd> <kbd>esc</kbd></td>
+      <td>back to hop (two presses within 400 ms)</td>
+      </tr>
+      <tr>
+      <td><kbd>shift+→</kbd> <kbd>shift+←</kbd></td>
+      <td>next / previous shell on this host (wraps)</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+o</kbd> <kbd>1</kbd> … <kbd>9</kbd></td>
+      <td>go straight to that shell, without leaving the pane</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+o</kbd> <kbd>0</kbd></td>
+      <td>open <strong>another</strong> shell on this host, without leaving the pane</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+o</kbd> <kbd>c</kbd></td>
+      <td>open <strong>this directory</strong> in VS Code Remote</td>
+      </tr>
+      <tr>
+      <td><kbd>shift+↑</kbd> <kbd>shift+pgup</kbd></td>
+      <td>scroll back into the pane&rsquo;s history</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+b</kbd></td>
+      <td>hide / show the sidebar — the pane takes the whole window</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+g</kbd></td>
+      <td>hand the mouse to your terminal (and take it back)</td>
+      </tr>
+      <tr>
+      <td><kbd>alt+0</kbd>, <kbd>alt+←</kbd>/<kbd>alt+→</kbd>, <kbd>alt+1</kbd>…<kbd>alt+9</kbd></td>
+      <td>aliases for the above, where your terminal sends them</td>
+      </tr>
+      <tr>
+      <td><em>everything else</em></td>
+      <td>sent to the remote shell</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <h3 id="several-shells-on-one-host">Several shells on one host</h3>
+      <div class="shots" style="grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)"><div><p><kbd>S</kbd> in the host list, or <kbd>ctrl+o</kbd> <kbd>0</kbd> from inside the pane, opens another shell on a
+      host you are already connected to. It is a second <strong>channel</strong> on the connection hop already
+      holds — no new handshake, no second authentication — and it appears as a tab strip above the
+      pane, which shows up only once there is a second shell to switch to. The new shell arrives
+      focused.</p>
+      <p>Type <code>exit</code> to close a shell: its tab goes away, the rest keep running. When the last one
+      exits, the connection is done and the host goes back to idle in the list — unless its SFTP
+      browser, an editor tab or a tunnel is still open on it, which keeps the connection alive.
+      <kbd>d</kbd> still tears down the whole host at once.</p></div>
+      <figure><img src="assets/screens/shells.png" alt="Two shells on one host shown as a tab strip" width="1500" height="800" loading="lazy" decoding="async"><figcaption>Two shells, one connection — no second handshake.</figcaption></figure></div>
+      <details class="why"><summary>Why <kbd>←</kbd> is not a way out</summary><p><kbd>←</kbd> backs out of a host in the list and out of a directory in the browser, but inside a
+      shell it is the <strong>shell&rsquo;s key, always</strong>. It moves the readline cursor back over a typo, it is
+      what word motions and every full-screen program are built on, and hop taking it — even at
+      what hop believes is an empty prompt — breaks editing on every server you connect to. hop
+      sees keystrokes going out and pixels coming back, not the buffer readline is holding, so
+      anything it could not count left it thinking the prompt was bare when it was not.</p>
+      <p><kbd>alt+o</kbd> is deliberately unbound for the same family of reasons: a terminal sends it as
+      <kbd>esc</kbd> then <kbd>o</kbd>, which is vim&rsquo;s &ldquo;leave insert mode, open a line&rdquo;.</p></details>
+    </section>
 
-      <h3>Several shells on one host</h3>
-      <div class="shots" style="grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)">
-        <div>
-          <p><kbd>S</kbd> in the host list, or <kbd>alt+0</kbd> from inside the pane, opens another shell on
-            a host you are already connected to. It is a second <b>channel</b> on the connection hop already
-            holds — no new handshake, no second authentication — and it appears as a tab strip above the
-            pane, which shows up only once there is a second shell to switch to. The new shell arrives
-            focused.</p>
-          <p>Unlike the editor, the alt+<b>letters</b> are <em>not</em> bound here: readline owns them
-            (<kbd>alt+b</kbd> walks back a word, <kbd>alt+l</kbd> downcases one). The alt+<b>digits</b> are
-            the one exception hop makes, and <kbd>alt+0</kbd> is why the new-shell key is a digit rather
-            than the more memorable <kbd>alt+n</kbd>.</p>
-        </div>
-        <figure>
-          <img src="assets/screens/shells.png" alt="Two shells on one host shown as a tab strip" width="1500" height="800" loading="lazy" decoding="async">
-          <figcaption>Two shells, one connection — no second handshake.</figcaption>
-        </figure>
-      </div>
-      <p>Type <code>exit</code> to close a shell: its tab goes away, the rest keep running. When the last
-        one exits, the connection is done and the host goes back to idle in the list — unless its SFTP
-        browser or an editor tab is still open on it, which keeps the connection alive. <kbd>d</kbd> still
-        tears down the whole host at once.</p>
-
-      <details class="why">
-        <summary>Why <kbd>←</kbd> is not a way out</summary>
-      <p><kbd>←</kbd> backs out of a host in the list and out of a directory in the browser, but inside a
-        shell it is the <b>shell's key, always</b>. It moves the readline cursor back over a typo, it is
-        what word motions and every full-screen program are built on, and hop taking it — even at what hop
-        believes is an empty prompt — breaks editing on every server you connect to. hop sees keystrokes
-        going out and pixels coming back, not the buffer readline is holding, so anything it could not
-        count left it thinking the prompt was bare when it was not.</p>
-      </details>
-
-      <details class="why">
-        <summary>How double-esc works, and what it costs</summary>
-      <p>A lone <kbd>esc</kbd> <b>is still forwarded to the shell.</b> hop cannot know a second
-        <kbd>esc</kbd> is coming without swallowing the first one and waiting out the timer, which would
-        put a 400 ms lag on every <kbd>esc</kbd> you press in vim. So the rule is:</p>
-      <div class="tablewrap">
-        <table>
-          <thead><tr><th>You press</th><th>The shell receives</th><th>hop does</th></tr></thead>
-          <tbody>
-            <tr><td><kbd>esc</kbd></td><td><kbd>esc</kbd></td><td>arms the window</td></tr>
-            <tr><td><kbd>esc</kbd> <kbd>esc</kbd> (fast)</td><td><kbd>esc</kbd></td><td>leaves the pane on the second</td></tr>
-            <tr><td><kbd>esc</kbd> … pause … <kbd>esc</kbd></td><td><kbd>esc</kbd> <kbd>esc</kbd></td><td>nothing</td></tr>
-            <tr><td><kbd>esc</kbd> <kbd>j</kbd> <kbd>esc</kbd></td><td><kbd>esc</kbd> <kbd>j</kbd> <kbd>esc</kbd></td><td>nothing — any key breaks the chord</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="note"><p><b>The trade-off:</b> if you mash <kbd>esc</kbd> twice quickly in vim, you will
-        land back in the host list. The shell will have seen one of those escapes, which in normal mode is
-        a harmless no-op, so nothing is lost — press <kbd>enter</kbd> or <kbd>s</kbd> to drop straight back
-        into the session. If that bothers you, <kbd>ctrl+o</kbd> never fires by accident.</p></div>
-      </details>
+    <section id="leader">
+      <p class="sectlabel">Terminal mode</p>
+      <h2>The leader — <kbd>ctrl+o</kbd></h2>
+      <p><kbd>ctrl+o</kbd> inside a pane has <strong>no effect of its own</strong>, and no timeout. It opens the leader,
+      the footer becomes the menu, and hop waits as long as you take:</p>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>after <kbd>ctrl+o</kbd></th>
+      <th></th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>o</kbd></td>
+      <td>out — back to hop</td>
+      </tr>
+      <tr>
+      <td><kbd>1</kbd> … <kbd>9</kbd></td>
+      <td>that tab, selected <strong>in place</strong></td>
+      </tr>
+      <tr>
+      <td><kbd>0</kbd></td>
+      <td>another shell on this host</td>
+      </tr>
+      <tr>
+      <td><kbd>c</kbd></td>
+      <td>this directory in VS Code Remote</td>
+      </tr>
+      <tr>
+      <td>anything else</td>
+      <td>closes the leader and does nothing</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <p>A key that names no chord is <strong>swallowed</strong>, not passed to the remote: while the leader is
+      open hop has the keyboard, and a program that received the tail of an abandoned chord would
+      act on a key you were not typing at it. The leader also outranks <kbd>ctrl+b</kbd> and <kbd>ctrl+g</kbd>,
+      which are otherwise held in every mode.</p>
+      <details class="why"><summary>Why the leader does nothing on its own</summary><p>This is the tmux and wezterm arrangement, and the reason for it is worth stating: a leader
+      that <em>also acts</em> forces a timeout, and every value for that timeout is wrong — too short and
+      the chords are unreachable, too long and leaving feels broken. Earlier versions of hop tried
+      both and neither worked. Paying one extra keystroke for <code>out</code> buys back all of the timing.</p></details>
     </section>
 
     <section id="scrollback">
       <p class="sectlabel">Terminal mode</p>
       <h2>Scrolling back through history</h2>
       <p><kbd>shift+↑</kbd> pauses the live shell and steps one line up into its scrollback;
-        <kbd>shift+pgup</kbd> does it a page at a time. Both are deliberately chords a bare shell never
-        sends, and both decline (falling through to the shell) when there is nothing to show: on the alt
-        screen a full-screen program owns its own scrolling. The footer advertises
-        <kbd>shift+↑ scrollback</kbd> exactly when the key is live.</p>
-      <p>Once paused, the keyboard drives the history viewport rather than the remote shell, and the mode
-        chip reads <code>⇅ scrollback &lt;offset&gt;/&lt;len&gt;</code>.</p>
-      <div class="tablewrap">
-        <table class="keytable">
-          <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
-          <tbody>
-            <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>j</kbd> <kbd>k</kbd></td><td>up / down one line</td></tr>
-            <tr><td><kbd>pgup</kbd> <kbd>pgdn</kbd> <kbd>ctrl+f</kbd></td><td>up / down a page (<kbd>ctrl+b</kbd> is the sidebar)</td></tr>
-            <tr><td><kbd>ctrl+u</kbd> <kbd>ctrl+d</kbd></td><td>up / down half a page</td></tr>
-            <tr><td><kbd>g</kbd> <kbd>home</kbd></td><td>jump to the oldest line</td></tr>
-            <tr><td><kbd>G</kbd> <kbd>end</kbd></td><td>back to the live bottom (and leave scrollback)</td></tr>
-            <tr><td><kbd>esc</kbd> <kbd>q</kbd> <kbd>enter</kbd> <kbd>ctrl+o</kbd> <kbd>←</kbd></td><td>back to the live shell</td></tr>
-            <tr><td><em>anything else</em></td><td>leave scrollback and type it at the prompt</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <details class="why">
-        <summary>Why arriving at the bottom exits, and what <kbd>ctrl+o</kbd> does here</summary>
-        <p>Reaching the live bottom by scrolling down is itself a way out — the point of scrollback is to
-          look at what went by, so arriving at the tail means you are done. <kbd>ctrl+o</kbd> here only
-          leaves scrollback; a second <kbd>ctrl+o</kbd> then leaves the pane, the consistent "back one
-          level" the rest of hop keeps to.</p>
-      </details>
+      <kbd>shift+pgup</kbd> does it a page at a time. Both are deliberately chords a bare shell never
+      sends, and both decline (falling through to the shell) when there is nothing to show: on the
+      alt screen a full-screen program owns its own scrolling. The footer advertises
+      <kbd>shift+↑</kbd> <em>scrollback</em> exactly when the key is live.</p>
+      <p>Once paused, the keyboard drives the history viewport rather than the remote shell, and the
+      mode chip reads <code>⇅ scrollback &lt;offset&gt;/&lt;len&gt;</code>.</p>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>Key</th>
+      <th>Action</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>j</kbd> <kbd>k</kbd></td>
+      <td>up / down one line</td>
+      </tr>
+      <tr>
+      <td><kbd>pgup</kbd> <kbd>pgdn</kbd> <kbd>ctrl+f</kbd></td>
+      <td>up / down a page (<kbd>ctrl+b</kbd> is the sidebar)</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+u</kbd> <kbd>ctrl+d</kbd></td>
+      <td>up / down half a page</td>
+      </tr>
+      <tr>
+      <td><kbd>g</kbd> <kbd>home</kbd></td>
+      <td>jump to the oldest line</td>
+      </tr>
+      <tr>
+      <td><kbd>G</kbd> <kbd>end</kbd></td>
+      <td>back to the live bottom (and leave scrollback)</td>
+      </tr>
+      <tr>
+      <td><kbd>esc</kbd> <kbd>q</kbd> <kbd>enter</kbd> <kbd>ctrl+o</kbd> <kbd>←</kbd></td>
+      <td>back to the live shell</td>
+      </tr>
+      <tr>
+      <td><em>anything else</em></td>
+      <td>leave scrollback and type it at the prompt</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <p>The wheel enters and drives scrollback too, three lines a notch, and scrolling back down to
+      the live bottom returns you to the shell.</p>
+      <details class="why"><summary>Why arriving at the bottom exits, and what <kbd>ctrl+o</kbd> does here</summary><p>Reaching the live bottom by scrolling down is itself a way out — the point of scrollback is
+      to look at what went by, so arriving at the tail means you are done. <kbd>ctrl+o</kbd> here only
+      leaves scrollback; a second <kbd>ctrl+o</kbd> then opens the leader, the consistent &ldquo;back one level&rdquo;
+      the rest of hop keeps to.</p></details>
+    </section>
+
+    <section id="doubleesc">
+      <p class="sectlabel">Terminal mode</p>
+      <h2>How double-esc works, and what it costs</h2>
+      <p>A lone <kbd>esc</kbd> <strong>is still forwarded to the shell.</strong> hop cannot know a second <kbd>esc</kbd> is
+      coming without swallowing the first one and waiting out the timer, which would put a 400 ms
+      lag on every <kbd>esc</kbd> you press in vim. So the rule is:</p>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>You press</th>
+      <th>The shell receives</th>
+      <th>hop does</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>esc</kbd></td>
+      <td><kbd>esc</kbd></td>
+      <td>arms the window</td>
+      </tr>
+      <tr>
+      <td><kbd>esc</kbd> <kbd>esc</kbd> (fast)</td>
+      <td><kbd>esc</kbd></td>
+      <td>leaves the pane on the second</td>
+      </tr>
+      <tr>
+      <td><kbd>esc</kbd> … pause … <kbd>esc</kbd></td>
+      <td><kbd>esc</kbd> <kbd>esc</kbd></td>
+      <td>nothing</td>
+      </tr>
+      <tr>
+      <td><kbd>esc</kbd> <kbd>j</kbd> <kbd>esc</kbd></td>
+      <td><kbd>esc</kbd> <kbd>j</kbd> <kbd>esc</kbd></td>
+      <td>nothing — any key breaks the chord</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <div class="note"><p><strong>The trade-off:</strong> if you mash <kbd>esc</kbd> twice quickly in vim, you will land back in the host
+      list. The shell will have seen one of those escapes, which in normal mode is a harmless
+      no-op, so nothing is lost — press <kbd>enter</kbd> or <kbd>s</kbd> to drop straight back into the session.
+      If that bothers you, <kbd>ctrl+o</kbd> <kbd>o</kbd> leaves and sends nothing to the remote at all.</p></div>
     </section>
 
     <section id="browser">
       <p class="sectlabel">Browsing mode</p>
       <h2>Browsing — the SFTP file browser</h2>
-      <div class="tablewrap">
-        <table class="keytable">
-          <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
-          <tbody>
-            <tr><td><kbd>↓</kbd> <kbd>↑</kbd></td><td>move</td></tr>
-            <tr><td><kbd>pgdn</kbd> <kbd>pgup</kbd></td><td>a full page down / up</td></tr>
-            <tr><td><kbd>enter</kbd> <kbd>→</kbd></td><td>enter a directory, or open a file in an editor tab</td></tr>
-            <tr><td><kbd>o</kbd></td><td>open the file in the local OS default app (GUI)</td></tr>
-            <tr><td><kbd>d</kbd></td><td>download the file to <code>~/Downloads</code></td></tr>
-            <tr><td><kbd>←</kbd> <kbd>backspace</kbd></td><td>up one directory</td></tr>
-            <tr><td><kbd>r</kbd></td><td>refresh the listing</td></tr>
-            <tr><td><kbd>,</kbd></td><td>settings</td></tr>
-            <tr><td><kbd>ctrl+b</kbd></td><td>hide / show the sidebar</td></tr>
-            <tr><td><kbd>ctrl+o</kbd></td><td>back to hop</td></tr>
-            <tr><td><kbd>esc</kbd> <kbd>esc</kbd></td><td>back to hop (two presses within 400 ms)</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <details class="why">
-        <summary>Why <kbd>←</kbd> never leaves the browser</summary>
-      <p><kbd>←</kbd> is pure motion: it walks up the directory tree and stops at <code>/</code>. It never
-        leaves the browser, because the directory you open in is usually your home directory — so a
-        <kbd>←</kbd> there would drop you back to hop exactly when you meant to go up to
-        <code>/home</code>. Leaving is always explicit: <kbd>ctrl+o</kbd>, or <kbd>esc</kbd> <kbd>esc</kbd>
-        within 400 ms. Unlike in a pane, a lone <kbd>esc</kbd> here is swallowed rather than forwarded.</p>
-      </details>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>Key</th>
+      <th>Action</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>↓</kbd> <kbd>↑</kbd></td>
+      <td>move</td>
+      </tr>
+      <tr>
+      <td><kbd>pgdn</kbd> <kbd>pgup</kbd></td>
+      <td>a full page down / up</td>
+      </tr>
+      <tr>
+      <td><kbd>enter</kbd> <kbd>→</kbd></td>
+      <td>enter a directory, or open a file in an editor tab</td>
+      </tr>
+      <tr>
+      <td><kbd>o</kbd></td>
+      <td>open the file in the local OS default app (GUI)</td>
+      </tr>
+      <tr>
+      <td><kbd>d</kbd></td>
+      <td>download the file to <code>~/Downloads</code></td>
+      </tr>
+      <tr>
+      <td><kbd>←</kbd> <kbd>backspace</kbd></td>
+      <td>up one directory</td>
+      </tr>
+      <tr>
+      <td><kbd>r</kbd></td>
+      <td>refresh the listing</td>
+      </tr>
+      <tr>
+      <td><kbd>,</kbd></td>
+      <td>settings</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+b</kbd></td>
+      <td>hide / show the sidebar</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+o</kbd></td>
+      <td>back to hop</td>
+      </tr>
+      <tr>
+      <td><kbd>esc</kbd> <kbd>esc</kbd></td>
+      <td>back to hop (two presses within 400 ms)</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <p>With <a href="#vim">vim keys</a> on the browser keeps the <em>whole</em> motion set (the host list only the
+      step keys): <kbd>j</kbd>/<kbd>k</kbd>, <kbd>gg</kbd>, <kbd>G</kbd>, <kbd>H</kbd>/<kbd>M</kbd>/<kbd>L</kbd>, <kbd>ctrl+d</kbd>/<kbd>ctrl+u</kbd>,
+      <kbd>ctrl+f</kbd>, plus <kbd>l</kbd> to descend and <kbd>h</kbd> to back out.</p>
+      <details class="why"><summary>Why <kbd>←</kbd> walks the tree instead of leaving</summary><p><kbd>←</kbd> is pure motion: it walks up the directory tree, and only at the top of it does it pop
+      back to hop. The directory you open in is usually your home directory — so a <kbd>←</kbd> that left
+      straight away would drop you back to hop exactly when you meant to go up to <code>/home</code>. Leaving
+      is otherwise always explicit: <kbd>ctrl+o</kbd>, or a <a href="#doubleesc">double esc</a> — though unlike in a
+      pane, a lone <kbd>esc</kbd> here is swallowed rather than forwarded.</p></details>
     </section>
 
     <section id="editor">
       <p class="sectlabel">Browsing mode</p>
       <h2>Editing — editor tabs</h2>
-      <p><kbd>enter</kbd> on a file opens it in an editor <b>inside hop</b>, in the same right-hand pane the
-        browser lives in, with a tab strip above it listing every open file.</p>
-      <div class="tablewrap">
-        <table class="keytable">
-          <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
-          <tbody>
-            <tr><td><kbd>alt+→</kbd> <kbd>alt+l</kbd></td><td>next tab (wraps)</td></tr>
-            <tr><td><kbd>alt+←</kbd> <kbd>alt+h</kbd></td><td>previous tab (wraps)</td></tr>
-            <tr><td><kbd>alt+1</kbd> … <kbd>alt+9</kbd></td><td>jump straight to that tab</td></tr>
-            <tr><td><code>:q</code></td><td>quit the editor — closes the tab</td></tr>
-            <tr><td><kbd>ctrl+o</kbd></td><td>back to the file browser</td></tr>
-            <tr><td><kbd>esc</kbd> <kbd>esc</kbd></td><td>back to the file browser (within 400 ms)</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <p>Every other key goes to the editor — it is a full-screen terminal program and owns its own keymap.
-        Only alt combinations are reserved, because neither vim nor nano binds them.</p>
-
-      <h3>How it works</h3>
-      <p>The editor runs <b>on the remote host</b>, not locally: hop opens a second SSH channel on the
-        connection it already has and runs <code>${EDITOR:-vi} &lt;file&gt;</code> on a pty, then renders
-        that pty in a pane exactly as it renders a remote shell. There is no download and no copy — you
-        are editing the real file, and <code>:w</code> writes straight back to the server.</p>
-      <p>If the remote <code>$EDITOR</code> is unset (it usually is over SSH, since the rc-file that sets
-        it is never sourced for a non-interactive command), hop probes the remote <code>PATH</code> for
-        <code>nvim</code>, <code>vim</code>, <code>vi</code>, then <code>nano</code>, falling back to
-        <code>vi</code> — POSIX requires it to exist.</p>
-      <p>Tabs are independent editor processes, so leaving with <kbd>ctrl+o</kbd> keeps them all running:
-        come back and every file is where you left it, cursor included.</p>
-
-      <h3>Editing locally instead</h3>
+      <p><kbd>enter</kbd> on a file opens it in an editor <strong>inside hop</strong>, in the same right-hand pane the
+      browser lives in, with a tab strip above it listing every open file.</p>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>Key</th>
+      <th>Action</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>shift+→</kbd> <kbd>shift+←</kbd></td>
+      <td>next / previous tab (wraps)</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+o</kbd> <kbd>1</kbd> … <kbd>9</kbd></td>
+      <td>go straight to that tab, without leaving</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+o</kbd> <kbd>o</kbd></td>
+      <td>back to the file browser</td>
+      </tr>
+      <tr>
+      <td><code>:q</code> (i.e. quit the editor)</td>
+      <td>close the tab</td>
+      </tr>
+      <tr>
+      <td><kbd>esc</kbd> <kbd>esc</kbd></td>
+      <td>back to the file browser (two presses within 400 ms)</td>
+      </tr>
+      <tr>
+      <td><kbd>alt+←</kbd>/<kbd>alt+→</kbd>, <kbd>alt+h</kbd>/<kbd>alt+l</kbd>, <kbd>alt+1</kbd>…<kbd>alt+9</kbd></td>
+      <td>aliases, where your terminal sends them</td>
+      </tr>
+      <tr>
+      <td><em>everything else</em></td>
+      <td>sent to the remote editor</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <h3 id="how-it-works">How it works</h3>
+      <p>The editor runs <strong>on the remote host</strong>, not locally: hop opens a second SSH channel on the
+      connection it already has and runs <code>${EDITOR:-vi} &lt;file&gt;</code> on a pty, then renders that pty in
+      a pane exactly as it renders a remote shell. There is no download and no copy — you are
+      editing the real file, and <code>:w</code> writes straight back to the server.</p>
+      <p>If the remote <code>$EDITOR</code> is unset (it usually is over SSH, since the rc-file that sets it is
+      never sourced for a non-interactive command), hop probes the remote <code>PATH</code> for <code>nvim</code>,
+      <code>vim</code>, <code>vi</code>, then <code>nano</code>, falling back to <code>vi</code> — POSIX requires it to exist.</p>
+      <p>Tabs are independent editor processes, so leaving with <kbd>ctrl+o</kbd> <kbd>o</kbd> keeps them all
+      running: come back and every file is where you left it, cursor included.</p>
+      <h3 id="editing-locally-instead">Editing locally instead</h3>
       <p><kbd>o</kbd> is the escape hatch for files a terminal editor is no good for — a PDF, an image. It
-        downloads the file to a scratch directory under the system temp dir and hands that copy to the
-        desktop (<code>start</code> on Windows, <code>open</code> on macOS, <code>xdg-open</code>
-        elsewhere), returning immediately so hop stays usable. Unlike <kbd>enter</kbd>, this edits a
-        <em>local copy</em>: nothing is written back to the remote host.</p>
+      downloads the file to a scratch directory under the system temp dir and hands that copy to
+      the desktop (<code>start</code> on Windows, <code>open</code> on macOS, <code>xdg-open</code> elsewhere), returning
+      immediately so hop stays usable. Unlike <kbd>enter</kbd>, this edits a <em>local copy</em>: nothing is
+      written back to the remote host. <kbd>d</kbd> downloads without opening anything.</p>
+    </section>
+
+    <section id="tunnels">
+      <p class="sectlabel">Every mode</p>
+      <h2>Tunnels — port forwarding</h2>
+      <p>Forwards are defined <strong>per host</strong> and ride the connection hop already holds, so a tunnel
+      costs no extra handshake and no second authentication.</p>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>Key</th>
+      <th>Where</th>
+      <th>Action</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>t</kbd></td>
+      <td>the host list</td>
+      <td>start every defined tunnel, or stop them all when any are running</td>
+      </tr>
+      <tr>
+      <td><kbd>T</kbd></td>
+      <td>the host list</td>
+      <td>open this host&rsquo;s tunnel manager</td>
+      </tr>
+      <tr>
+      <td><kbd>↑</kbd> <kbd>↓</kbd></td>
+      <td>the manager</td>
+      <td>select a definition</td>
+      </tr>
+      <tr>
+      <td><kbd>enter</kbd> <kbd>space</kbd></td>
+      <td>the manager</td>
+      <td>start or stop the selected one</td>
+      </tr>
+      <tr>
+      <td><kbd>a</kbd> <kbd>e</kbd> <kbd>x</kbd></td>
+      <td>the manager</td>
+      <td>add / edit / delete a definition</td>
+      </tr>
+      <tr>
+      <td><kbd>t</kbd></td>
+      <td>the manager</td>
+      <td>close the card and start or stop the whole set</td>
+      </tr>
+      <tr>
+      <td><kbd>esc</kbd></td>
+      <td>the manager</td>
+      <td>close</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <p>A definition is a direction (<strong>local</strong> or <strong>remote</strong>), a bind address and port, and the host
+      and port to reach on the far side. <code>LocalForward</code> and <code>RemoteForward</code> lines are picked up by
+      the <a href="#import">SSH config import</a>, so the forwards you already have keep working. Editing a
+      running definition stops the old one on save, and a <a href="#reconnect">reconnect</a> puts the set that
+      was running back up.</p>
+      <p>The status dot in the host list shows <code>⇄2</code> when two tunnels are up on that host.</p>
+    </section>
+
+    <section id="reconnect">
+      <p class="sectlabel">Every mode</p>
+      <h2>When a connection drops</h2>
+      <p>Drops are found with keepalive probes rather than silence, so a suspended laptop or a dead
+      VPN does not leave a pane quietly frozen.</p>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>Key</th>
+      <th>Action</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>r</kbd> <kbd>enter</kbd></td>
+      <td>reconnect: dial again and reopen what was open</td>
+      </tr>
+      <tr>
+      <td><kbd>d</kbd> <kbd>x</kbd></td>
+      <td>drop the session — the pane goes, the host is idle again</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+o</kbd> <kbd>esc</kbd> <kbd>q</kbd></td>
+      <td>back to the host list, leaving the pane on screen</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <p>The pane keeps the last screen the host drew, under a banner saying what happened, so the
+      command that was running is still there to read. Nothing is forwarded to the far end, because
+      there is no far end.</p>
+      <p>Shell tabs, the browser&rsquo;s directory and the running tunnels come back on reconnect. Editor
+      tabs do not — an editor holds a buffer, and reopening the file on a fresh pty would look like
+      nothing was lost — and the status says how many were left behind.</p>
     </section>
 
     <section id="sidebar">
       <p class="sectlabel">Every mode</p>
       <h2>The sidebar — <kbd>ctrl+b</kbd></h2>
-      <p><kbd>ctrl+b</kbd> hides the host list and gives the whole window to the pane; <kbd>ctrl+b</kbd>
-        again brings it back. It is bound in <b>every</b> mode except while a card is up — from a focused
-        shell, from the browser, from an editor tab — because the moment you want the columns is the
-        moment you are reading something wide on the far side of them. The terminals reflow to the new
-        width immediately, both ways.</p>
-      <details class="why">
-        <summary>What it costs a remote tmux, and why it resets on restart</summary>
-        <ul>
-          <li><b>It resets on restart.</b> hop opens on its host list, so the collapse is a session thing
-            rather than a setting.</li>
-          <li><b>A remote tmux never sees its prefix.</b> That is the usual deal between a multiplexer and
-            the one above it — <kbd>ctrl+o</kbd> still leaves the pane, and no other key is taken. It is
-            also why <kbd>ctrl+b</kbd> is no longer a page-up anywhere: paging back is <kbd>pgup</kbd>.</li>
-        </ul>
-      </details>
+      <p><kbd>ctrl+b</kbd> hides the host list and gives the whole window to the pane; <kbd>ctrl+b</kbd> again
+      brings it back. It is bound in <strong>every</strong> mode except while a card is up — from a focused
+      shell, from the browser, from an editor tab — because the moment you want the columns is the
+      moment you are reading something wide on the far side of them. The terminals reflow to the
+      new width immediately, both ways.</p>
+      <details class="why"><summary>What it costs a remote tmux, and why it resets on restart</summary><ul>
+      <li><strong>It resets on restart.</strong> hop opens on its host list, so the collapse is a session thing
+      rather than a setting.</li>
+      <li><strong>A remote tmux never sees its prefix.</strong> That is the usual deal between a multiplexer and
+      the one above it — <kbd>ctrl+o</kbd> <kbd>o</kbd> still leaves the pane, and no other key is taken. It is
+      also why <kbd>ctrl+b</kbd> is no longer a page-up anywhere: paging back is <kbd>pgup</kbd>.</li>
+      </ul></details>
     </section>
 
     <section id="settings">
       <p class="sectlabel">Every mode</p>
       <h2>Settings — the popover</h2>
       <p><kbd>,</kbd> opens the settings card, floating over whatever is on screen. It works from the host
-        list and from the file browser; a terminal pane and an editor own every key, so it is not reachable
-        from those. It is modal: while it is up, keys go to it.</p>
-      <div class="shots" style="grid-template-columns:minmax(0,1fr) minmax(0,1.1fr)">
-        <div class="tablewrap" style="margin:0">
-          <table class="keytable">
-            <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
-            <tbody>
-              <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>move between settings</td></tr>
-              <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>pick a colour (accent), or flip a switch</td></tr>
-              <tr><td><kbd>enter</kbd> <kbd>i</kbd></td><td>edit the selected setting — or flip it, if it is a switch</td></tr>
-              <tr><td><kbd>enter</kbd></td><td>save (while editing)</td></tr>
-              <tr><td><kbd>esc</kbd></td><td>cancel the edit</td></tr>
-              <tr><td><kbd>ctrl+u</kbd></td><td>clear the value</td></tr>
-              <tr><td><kbd>r</kbd></td><td>reset the setting to its default</td></tr>
-              <tr><td><kbd>esc</kbd> <kbd>q</kbd> <kbd>,</kbd></td><td>close</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <figure>
-          <img src="assets/screens/settings.png" alt="The hop settings popover with the accent colour swatch strip" width="1500" height="800" loading="lazy" decoding="async">
-          <figcaption>The accent is a swatch strip that recolours hop as you walk it.</figcaption>
-        </figure>
-      </div>
-      <div class="tablewrap">
-        <table>
-          <thead><tr><th>Setting</th><th>What it is</th><th>Blank means</th></tr></thead>
-          <tbody>
-            <tr><td>Editor</td><td>the command <kbd>enter</kbd> runs on the remote host, e.g. <code>nvim</code>, <code>vim -R</code></td><td>auto: remote <code>$EDITOR</code>, else probe for nvim/vim/vi/nano</td></tr>
-            <tr><td>Download dir</td><td>where <kbd>d</kbd> puts a file</td><td><code>~/Downloads</code></td></tr>
-            <tr><td>Accent colour</td><td>picked from the swatch strip with <kbd>←</kbd>/<kbd>→</kbd>, or typed</td><td><code>212</code>, hop's pink</td></tr>
-            <tr><td>Open with</td><td>the local command <kbd>o</kbd> opens a file with, e.g. <code>code -n</code></td><td>the OS default app</td></tr>
-            <tr><td>Vim keys</td><td>the vim motions in the list and the browser — a switch</td><td><b>off</b></td></tr>
-          </tbody>
-        </table>
-      </div>
-      <details class="why">
-        <summary>The swatch picker, and when a setting is written</summary>
-      <p>The accent is a <b>swatch picker</b>, not a number to be looked up: <kbd>←</kbd>/<kbd>→</kbd> walk
-        a palette of twelve colours — pink, magenta, red, orange, yellow, green, teal, cyan, blue, indigo,
-        purple, gray — each drawn in the colour it actually is, and each applied to hop the instant you
-        land on it. <kbd>enter</kbd> still opens text entry if you want a specific 256-code or a
-        <code>#hex</code>, and a value that isn't in the palette gets its own swatch on the strip.</p>
+      list, from a pane and from the file browser. It is modal: while it is up, keys go to it.</p>
+      <div class="shots" style="grid-template-columns:minmax(0,1fr) minmax(0,1.1fr)"><div><div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>Key</th>
+      <th>Action</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>↑</kbd> <kbd>↓</kbd> (<kbd>k</kbd> <kbd>j</kbd>)</td>
+      <td>move between settings</td>
+      </tr>
+      <tr>
+      <td><kbd>←</kbd> <kbd>→</kbd> (<kbd>h</kbd> <kbd>l</kbd>)</td>
+      <td>pick a colour (accent), or flip a switch</td>
+      </tr>
+      <tr>
+      <td><kbd>enter</kbd> <kbd>i</kbd></td>
+      <td>edit the selected setting — or flip it, if it is a switch</td>
+      </tr>
+      <tr>
+      <td><kbd>enter</kbd> <kbd>esc</kbd> <kbd>ctrl+u</kbd></td>
+      <td>while editing: save / cancel / clear</td>
+      </tr>
+      <tr>
+      <td><kbd>r</kbd></td>
+      <td>reset the setting to its default</td>
+      </tr>
+      <tr>
+      <td><kbd>esc</kbd> <kbd>q</kbd> <kbd>,</kbd></td>
+      <td>close</td>
+      </tr>
+      </tbody>
+      </table></div></div>
+      <figure><img src="assets/screens/settings.png" alt="The hop settings popover with the accent colour swatch strip" width="1500" height="800" loading="lazy" decoding="async"><figcaption>The accent is a swatch strip that recolours hop as you walk it.</figcaption></figure></div>
+      <div class="tablewrap"><table>
+      <thead>
+      <tr>
+      <th>Setting</th>
+      <th>What it is</th>
+      <th>Blank means</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Editor</td>
+      <td>the command <kbd>enter</kbd> runs on the remote host, e.g. <code>nvim</code>, <code>vim -R</code></td>
+      <td>auto: remote <code>$EDITOR</code>, else probe for nvim/vim/vi/nano</td>
+      </tr>
+      <tr>
+      <td>Download dir</td>
+      <td>where <kbd>d</kbd> puts a file</td>
+      <td><code>~/Downloads</code></td>
+      </tr>
+      <tr>
+      <td>Accent colour</td>
+      <td>picked from the swatch strip with <kbd>←</kbd>/<kbd>→</kbd>, or typed</td>
+      <td><code>212</code>, hop&rsquo;s pink</td>
+      </tr>
+      <tr>
+      <td>Open with</td>
+      <td>the local command <kbd>o</kbd> opens a file with, e.g. <code>code -n</code></td>
+      <td>the OS default app</td>
+      </tr>
+      <tr>
+      <td>Vim keys</td>
+      <td>the vim motions in the list and the browser — a switch</td>
+      <td><strong>off</strong></td>
+      </tr>
+      <tr>
+      <td>Mouse</td>
+      <td>wheel, click and drag-to-copy — a switch</td>
+      <td><strong>on</strong> (<kbd>ctrl+g</kbd> lends the pointer back for a moment)</td>
+      </tr>
+      <tr>
+      <td>Remote clipboard</td>
+      <td>a yank on the remote host (OSC 52) lands on yours — a switch</td>
+      <td><strong>on</strong></td>
+      </tr>
+      </tbody>
+      </table></div>
+      <details class="why"><summary>The swatch picker, and when a setting is written</summary><p>The accent is a <strong>swatch picker</strong>, not a number to be looked up: <kbd>←</kbd>/<kbd>→</kbd> walk a palette
+      of twelve colours — pink, magenta, red, orange, yellow, green, teal, cyan, blue, indigo,
+      purple, gray — each drawn in the colour it actually is, and each applied to hop the instant
+      you land on it. <kbd>enter</kbd> still opens text entry if you want a specific 256-code or a
+      <code>#hex</code>, and a value that is not in the palette gets its own swatch on the strip.</p>
       <p>Settings are written to <code>config.json</code> the moment you save one, and applied on the spot.
-        Turning vim keys off from this very card cannot strand you: the arrows and <kbd>enter</kbd> drive
-        every row and are never gated. While you are <em>typing</em> a value the gate is off —
-        <kbd>h</kbd> is then a letter of the value, not a motion.</p>
-      </details>
+      Turning vim keys off from this very card cannot strand you: the arrows and <kbd>enter</kbd> drive
+      every row and are never gated. While you are <em>typing</em> a value the gate is off — <kbd>h</kbd> is
+      then a letter of the value, not a motion.</p></details>
+    </section>
+
+    <section id="mouse">
+      <p class="sectlabel">Every mode</p>
+      <h2>The mouse</h2>
+      <p>Every gesture is an existing binding reached by pointing, so nothing is mouse-only.</p>
+      <div class="tablewrap"><table>
+      <thead>
+      <tr>
+      <th>Gesture</th>
+      <th>Where</th>
+      <th>What it does</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>wheel</td>
+      <td>the host list</td>
+      <td>moves the selection, one host a notch</td>
+      </tr>
+      <tr>
+      <td>wheel</td>
+      <td>a shell pane</td>
+      <td>pauses into its <a href="#scrollback">scrollback</a></td>
+      </tr>
+      <tr>
+      <td>wheel</td>
+      <td>the SFTP browser</td>
+      <td>moves the cursor three entries a notch</td>
+      </tr>
+      <tr>
+      <td>click</td>
+      <td>the host list</td>
+      <td>stands on that host — and, from a pane, hands the keyboard back</td>
+      </tr>
+      <tr>
+      <td>click</td>
+      <td>a pane the list has the keyboard in</td>
+      <td>takes it: the pointer&rsquo;s <kbd>s</kbd> or <kbd>f</kbd></td>
+      </tr>
+      <tr>
+      <td>click</td>
+      <td>a tab strip</td>
+      <td>switches to that shell or file tab</td>
+      </tr>
+      <tr>
+      <td>drag</td>
+      <td>a pane</td>
+      <td>selects text; it lands on the clipboard when you let go</td>
+      </tr>
+      <tr>
+      <td>double-click</td>
+      <td>a host, or a browser entry</td>
+      <td>opens it — <kbd>enter</kbd>, by pointing</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <p>A remote program that asks for the mouse (vim with <code>set mouse=a</code>, htop) gets the pointer
+      verbatim instead. The cards are keyboard-only. <kbd>ctrl+g</kbd> hands mouse reporting back to your
+      terminal for a moment — for a selection spanning the sidebar and a pane, or anything else
+      that wants your terminal&rsquo;s own pointer.</p>
+    </section>
+
+    <section id="rest">
+      <p class="sectlabel">Every mode</p>
+      <h2>The rest of the keyboard</h2>
+      <h3 id="copy-and-paste">Copy and paste</h3>
+      <p>Paste has no key of its own: <strong>paste the way your terminal pastes</strong>, and hop marks it as a
+      paste for the remote program — which is what stops vim indenting a pasted block into a
+      staircase. It works on Windows too.</p>
+      <p>Copying <em>out</em> of a pane is a drag (<a href="#mouse">the mouse</a>), or your terminal&rsquo;s own selection
+      after <kbd>ctrl+g</kbd>. A yank on the remote host travels to your clipboard over OSC 52, unless you
+      turn <em>Remote clipboard</em> off. A remote asking to <strong>read</strong> your clipboard is never answered.</p>
+      <h3 id="what-hop-takes-from-the-remote">What hop takes from the remote</h3>
+      <p>The full list, so there are no surprises: <kbd>ctrl+o</kbd>, <kbd>ctrl+b</kbd>, <kbd>ctrl+g</kbd>,
+      <kbd>shift+←</kbd>/<kbd>shift+→</kbd>, <kbd>shift+↑</kbd>, <kbd>shift+pgup</kbd>, and the first <kbd>esc</kbd> of a double.
+      Everything else reaches the program on the other end.</p>
+      <p>Two costs worth naming: a remote <code>tmux</code> never sees its own <kbd>ctrl+b</kbd> prefix through hop, and
+      <kbd>shift+←</kbd>/<kbd>shift+→</kbd> no longer reaches the remote as a selection motion.</p>
+      <h3 id="macos-and-the-alt-keys">macOS and the alt keys</h3>
+      <p>hop&rsquo;s own bindings are <kbd>ctrl</kbd> and <kbd>shift</kbd> chords, which every terminal sends — nothing
+      below is needed to use hop.</p>
+      <p>The <code>alt+…</code> aliases are another matter. On macOS, <code>Option</code>+letter types a <em>character</em>
+      (<code>ø</code>, <code>é</code>, <code>∑</code>) instead of sending the ESC-prefixed meta key hop reads, so every <code>alt+…</code>
+      binding is simply absent until the terminal is told otherwise:</p>
+      <ul>
+      <li><strong>Terminal.app</strong> — Settings → Profiles → Keyboard → <em>Use Option as Meta key</em></li>
+      <li><strong>iTerm2</strong> — Settings → Profiles → Keys → Left Option key: <em>Esc+</em></li>
+      <li><strong>Ghostty</strong> — <code>macos-option-as-alt = true</code></li>
+      <li><strong>VS Code&rsquo;s terminal</strong> — <code>&quot;terminal.integrated.macOptionIsMeta&quot;: true</code></li>
+      </ul>
+      <p>This is also why <kbd>shift+k</kbd>/<kbd>shift+j</kbd> reorder pinned hosts, and why the sidebar is
+      <kbd>ctrl+b</kbd> and the mouse toggle <kbd>ctrl+g</kbd> rather than the <code>alt</code> mnemonics they would
+      otherwise be.</p>
     </section>
 
     <section id="vim">
       <p class="sectlabel">Every mode</p>
       <h2>Vim keys</h2>
-      <p><b>Off until you turn them on</b>, in the settings popover (<kbd>,</kbd> → <em>Vim keys</em>). Off,
-        they are not bound to anything else either: a stray <kbd>l</kbd> in the host list does nothing at
-        all. <kbd>pgdn</kbd>/<kbd>pgup</kbd> are <em>not</em> part of the switch — they page without being
-        vim, so turning vim off never costs you a way to page.</p>
-      <div class="shots" style="grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))">
-        <div>
-          <h4>The host list — step keys only</h4>
-          <div class="tablewrap" style="margin:0">
-            <table class="keytable">
-              <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
-              <tbody>
-                <tr><td><kbd>j</kbd> <kbd>k</kbd></td><td>move down / up</td></tr>
-                <tr><td><kbd>l</kbd></td><td>connect — as <kbd>enter</kbd> does</td></tr>
-                <tr><td><kbd>h</kbd></td><td>back — as <kbd>esc</kbd> does</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div>
-          <h4>The browser — the whole motion set</h4>
-          <div class="tablewrap" style="margin:0">
-            <table class="keytable">
-              <thead><tr><th class="k">Key</th><th>Action</th></tr></thead>
-              <tbody>
-                <tr><td><kbd>j</kbd> <kbd>k</kbd></td><td>move down / up</td></tr>
-                <tr><td><kbd>gg</kbd> / <kbd>G</kbd></td><td>first / last entry</td></tr>
-                <tr><td><kbd>H</kbd> <kbd>M</kbd> <kbd>L</kbd></td><td>top / middle / bottom <b>of the visible window</b></td></tr>
-                <tr><td><kbd>ctrl+d</kbd> <kbd>ctrl+u</kbd></td><td>half a page down / up</td></tr>
-                <tr><td><kbd>ctrl+f</kbd></td><td>a full page down (<kbd>pgup</kbd> pages back)</td></tr>
-                <tr><td><kbd>l</kbd> / <kbd>h</kbd></td><td>enter a directory / up one directory</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-      <details class="why">
-        <summary>The rules the two sets follow</summary>
-      <ul>
-        <li><b>The two views bind different amounts of the keyboard</b>, never different meanings. A key the
-          list binds does there what it does in the browser.</li>
-        <li><b><kbd>gg</kbd> is a real two-key motion</b> — in the browser. A lone <kbd>g</kbd> arms it; any
-          other key in between cancels it. In the host list it is not bound.</li>
-        <li><b><kbd>ctrl+b</kbd> is not a motion anywhere.</b> It is the sidebar toggle in every mode.</li>
-        <li><b>Half and full pages are viewport-relative</b>, matching vim, and clamped to at least one row
-          so they still work in a very short terminal.</li>
-        <li><b>The cursor never leaves the visible window.</b> Every motion re-clamps the scroll offset;
-          <code>TestCursorStaysVisible</code> pins that invariant.</li>
-        <li>Motions are inert on an empty listing rather than driving the cursor negative.</li>
-      </ul>
-      </details>
+      <p><strong>Off until you turn them on</strong>, in the settings popover (<kbd>,</kbd> → <em>Vim keys</em>). Off, they are
+      not bound to anything else either: a stray <kbd>l</kbd> in the host list does nothing at all.
+      <kbd>pgdn</kbd>/<kbd>pgup</kbd> are <em>not</em> part of the switch — they page without being vim, so turning vim
+      off never costs you a way to page.</p>
+      <div class="shots" style="grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))"><div><h4 id="the-host-list--step-keys-only">The host list — step keys only</h4>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>Key</th>
+      <th>Action</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>j</kbd> <kbd>k</kbd></td>
+      <td>move down / up</td>
+      </tr>
+      <tr>
+      <td><kbd>l</kbd></td>
+      <td>connect — as <kbd>enter</kbd> does</td>
+      </tr>
+      <tr>
+      <td><kbd>h</kbd></td>
+      <td>back — as <kbd>esc</kbd> does</td>
+      </tr>
+      </tbody>
+      </table></div></div>
+      <div><h4 id="the-browser--the-whole-motion-set">The browser — the whole motion set</h4>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>Key</th>
+      <th>Action</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>j</kbd> <kbd>k</kbd></td>
+      <td>move down / up</td>
+      </tr>
+      <tr>
+      <td><kbd>gg</kbd> / <kbd>G</kbd></td>
+      <td>first / last entry</td>
+      </tr>
+      <tr>
+      <td><kbd>H</kbd> <kbd>M</kbd> <kbd>L</kbd></td>
+      <td>top / middle / bottom <strong>of the visible window</strong></td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+d</kbd> <kbd>ctrl+u</kbd></td>
+      <td>half a page down / up</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+f</kbd></td>
+      <td>a full page down (<kbd>pgup</kbd> pages back)</td>
+      </tr>
+      <tr>
+      <td><kbd>l</kbd> / <kbd>h</kbd></td>
+      <td>enter a directory / up one directory</td>
+      </tr>
+      </tbody>
+      </table></div></div></div>
+      <details class="why"><summary>The rules the two sets follow</summary><ul>
+      <li><strong>The two views bind different amounts of the keyboard</strong>, never different meanings. A key
+      the list binds does there what it does in the browser.</li>
+      <li><strong><kbd>gg</kbd> is a real two-key motion</strong> — in the browser. A lone <kbd>g</kbd> arms it; any other key
+      in between cancels it. In the host list it is not bound.</li>
+      <li><strong><kbd>ctrl+b</kbd> is not a motion anywhere.</strong> It is the sidebar toggle in every mode.</li>
+      <li><strong>Half and full pages are viewport-relative</strong>, matching vim, and clamped to at least one
+      row so they still work in a very short terminal.</li>
+      <li><strong>The cursor never leaves the visible window.</strong> Every motion re-clamps the scroll offset;
+      <code>TestCursorStaysVisible</code> pins that invariant.</li>
+      <li>Motions are inert on an empty listing rather than driving the cursor negative.</li>
+      </ul></details>
+    </section>
+
+    <section id="cards">
+      <p class="sectlabel">Every mode</p>
+      <h2>The cards</h2>
+      <p>All of them are modal: while a card is up it takes every key, and <kbd>esc</kbd> closes it.</p>
+      <div class="tablewrap"><table>
+      <thead>
+      <tr>
+      <th>Card</th>
+      <th>Opens with</th>
+      <th>Keys</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>Import</td>
+      <td><kbd>i</kbd></td>
+      <td><kbd>enter</kbd> imports from the path shown, <kbd>ctrl+u</kbd> clears it, any text edits it</td>
+      </tr>
+      <tr>
+      <td>Tunnels</td>
+      <td><kbd>T</kbd></td>
+      <td><kbd>↑</kbd>/<kbd>↓</kbd> select, <kbd>enter</kbd>/<kbd>space</kbd> start or stop, <kbd>a</kbd> <kbd>e</kbd> <kbd>x</kbd> add / edit / delete, <kbd>t</kbd> closes and toggles the set</td>
+      </tr>
+      <tr>
+      <td>Authentication</td>
+      <td>by itself</td>
+      <td><kbd>enter</kbd> submits, <kbd>tab</kbd>/<kbd>shift+tab</kbd> move between fields, <kbd>ctrl+u</kbd> clears, <kbd>esc</kbd> abandons the connect</td>
+      </tr>
+      <tr>
+      <td>Host key</td>
+      <td>by itself</td>
+      <td><kbd>y</kbd> trusts the fingerprint and retries, <kbd>n</kbd>/<kbd>esc</kbd> trusts nothing</td>
+      </tr>
+      <tr>
+      <td>Add / edit host</td>
+      <td><kbd>a</kbd> / <kbd>e</kbd></td>
+      <td><kbd>↑</kbd>/<kbd>↓</kbd> or <kbd>tab</kbd> move between fields, <kbd>enter</kbd> saves, <kbd>esc</kbd> cancels</td>
+      </tr>
+      <tr>
+      <td>Delete host</td>
+      <td><kbd>x</kbd></td>
+      <td><kbd>enter</kbd> confirms, <kbd>esc</kbd> cancels</td>
+      </tr>
+      <tr>
+      <td>Keys</td>
+      <td><kbd>?</kbd></td>
+      <td>any key closes it</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <p>The <strong>host form</strong> carries more than an address: a group, a default directory every session on
+      that host starts in, an identity file, and <code>ProxyCommand</code> / <code>ProxyJump</code> for hosts you reach
+      through a bastion. Renaming the alias keeps the host&rsquo;s visit history, so it does not lose its
+      place in the <a href="#hostlist">frecency</a> order.</p>
     </section>
 
     <section id="dev">
       <h2>Development</h2>
-<pre><code>just            <span class="c"># list recipes</span>
-just run list   <span class="c"># go run . list</span>
-just build      <span class="c"># dev binary</span>
-just test       <span class="c"># go test ./...</span>
-just vet
-just fmt        <span class="c"># gofmt -w .</span>
-just ci         <span class="c"># fmt-check + vet + test (what CI runs)</span>
-just demo       <span class="c"># re-record assets/demo.gif + the stills (needs vhs)</span></code></pre>
-      <p>The <code>justfile</code> is deliberately universal: recipe bodies are plain commands that run under
-        both <code>sh</code> and PowerShell, and the two that need real shell logic
-        (<code>fmt-check</code>, <code>clean</code>) are split with <code>[unix]</code> /
-        <code>[windows]</code> attributes.</p>
-
-      <details>
-        <summary>The demo</summary>
-        <p><code>just demo</code> records the GIF and the stills on this page. <code>scripts/demo.mjs</code>
-          builds hop, points <code>HOME</code> at a throwaway directory with a seeded host database, and
-          starts <code>tools/demoserver</code>, a loopback-only SSH server that invents everything on screen:
-          a fake shell with a table of canned command output, an in-memory filesystem over SFTP, and a fake
-          vi. The keypress overlay in the corner is hop's own, compiled in only under
-          <code>-tags hopdemo</code> (<code>internal/tui/keycast.go</code>), so a released binary doesn't
-          carry it.</p>
-      </details>
-      <details>
-        <summary>Testing</summary>
-        <p>Headless tests drive the real Bubble Tea model with real keystrokes against in-process Go SSH/SFTP
-          servers and temp-file stores. See <code>internal/tui/hostmgmt_test.go</code>,
-          <code>TestEmbeddedRoundTrip</code>, <code>TestSFTPRoundTrip</code>. CI runs vet + test + build on a
-          Windows / Linux / macOS matrix, because the agent transport and the local-open handler are
-          per-platform: a single-OS run can't tell whether the others still compile.</p>
-      </details>
-      <details>
-        <summary>Releasing</summary>
-<pre style="margin-bottom:0"><code>just release          <span class="c"># patch bump: stamps VERSION, commits, tags, pushes</span>
-just release minor    <span class="c"># or major, or an explicit 1.0.0</span></code></pre>
-        <p>The tag push triggers the release workflow: it gates on the three-OS test matrix, then
-          cross-compiles all six targets (windows/linux/darwin × amd64/arm64) from one Linux runner, with
-          checksums and a git-cliff changelog. Windows gets a <code>.zip</code>, everything else a
-          <code>.tar.gz</code> so the exec bit survives.</p>
-      </details>
+      <pre><code class="language-bash">just            <span class="c"># list recipes</span>
+      just run list   <span class="c"># go run . list</span>
+      just build      <span class="c"># dev binary</span>
+      just test       <span class="c"># go test ./...</span>
+      just test-e2e   <span class="c"># + the Docker 2FA end-to-end tests (needs Docker)</span>
+      just vet
+      just fmt        <span class="c"># gofmt -w .</span>
+      just ci         <span class="c"># fmt-check + vet + test (what CI runs)</span>
+      just docs       <span class="c"># regenerate index.html, README.md and KEYBINDINGS.md from docs/</span>
+      just demo       <span class="c"># re-record assets/demo.gif + the stills (needs vhs)</span>
+      </code></pre>
+      <details><summary>How the docs, the demo, the tests and the release are put together</summary><p><strong>The docs.</strong> <code>docs/*.md</code> is the only source for the website, the README and the keybinding
+      reference; <code>tools/docsgen</code> renders all three, and <code>just ci</code> fails if a generated file is out
+      of date. Sections carry frontmatter saying where they belong, and a handful of fenced
+      directives (<code>:::cards</code>, <code>:::why</code>, <code>:::figure</code>) cover the layouts markdown has no syntax for —
+      each with a plain-markdown lowering, so the same section reads well on GitHub.</p>
+      <p><strong>The justfile</strong> is deliberately universal: recipe bodies are plain commands that run under
+      both <code>sh</code> and PowerShell, and the two that need real shell logic (<code>fmt-check</code>, <code>clean</code>) are
+      split with <code>[unix]</code> / <code>[windows]</code> attributes.</p>
+      <p><strong>The demo.</strong> <code>just demo</code> records the GIF and the stills on this page. <code>scripts/demo.mjs</code>
+      builds hop, points <code>HOME</code> at a throwaway directory with a seeded host database, and starts
+      <code>tools/demoserver</code> — a loopback-only SSH server that invents everything on screen: a fake
+      shell with a table of canned command output, an in-memory filesystem over SFTP, and a fake
+      vi. The keypress overlay in the corner is hop&rsquo;s own, compiled in only under <code>-tags hopdemo</code>
+      (<code>internal/tui/keycast.go</code>), so a released binary does not carry it.</p>
+      <p><strong>Testing.</strong> Headless tests drive the real Bubble Tea model with real keystrokes against
+      in-process Go SSH/SFTP servers and temp-file stores — see <code>internal/tui/hostmgmt_test.go</code>,
+      <code>TestEmbeddedRoundTrip</code>, <code>TestSFTPRoundTrip</code>. CI runs vet + test + build on a Windows /
+      Linux / macOS matrix, because the agent transport and the local-open handler are
+      per-platform: a single-OS run cannot tell whether the others still compile.</p>
+      <p><strong>The 2FA end-to-end tests.</strong> An in-process server that answers whatever you tell it to
+      proves nothing about real two-factor auth, so <code>internal/dockerenv</code> brings up Ubuntu with the
+      real <code>openssh-server</code> and <code>libpam-google-authenticator</code>, listening four ways: code alone,
+      hardened <code>publickey,keyboard-interactive</code>, password-then-code, and both offered as
+      alternatives. The tests compute TOTP codes the way a phone does and log in, with wrong and
+      expired codes as negative controls. Opt in with <code>just test-e2e</code>; without <code>HOP_DOCKER_E2E=1</code>
+      they skip.</p>
+      <p><strong>Releasing.</strong></p>
+      <pre><code class="language-bash">just release          <span class="c"># patch bump: stamps VERSION, commits, tags, pushes</span>
+      just release minor    <span class="c"># or major, or an explicit 1.0.0</span>
+      </code></pre>
+      <p>The tag push triggers the release workflow: it gates on the three-OS test matrix, then
+      cross-compiles all six targets (windows/linux/darwin × amd64/arm64) from one Linux runner,
+      with checksums and a git-cliff changelog. Windows gets a <code>.zip</code>, everything else a <code>.tar.gz</code>
+      so the exec bit survives.</p></details>
     </section>
 
     <section id="internals">
       <h2>Where a binding lives</h2>
-      <p>The host list and the file browser move on the same keys, so they do not each spell that keyboard
-        out. <code>internal/keymap</code> holds it: one table, one row per key, saying what the key
-        <em>means</em> (a <code>Motion</code>), whether the vim setting owns it, and whether the host list
-        binds it as well as the browser. Both views resolve keys through it — passing
-        <code>keymap.Full</code> or <code>keymap.List</code> — and act on the motion they get back.</p>
-      <div class="tablewrap">
-        <table>
-          <thead><tr><th>To add…</th><th>Touch</th></tr></thead>
-          <tbody>
-            <tr><td>a motion key, in one or both views</td><td>the <code>bindings</code> table in <code>internal/keymap</code> (the <code>list</code> column is the split)</td></tr>
-            <tr><td>a key hop holds in <em>every</em> mode</td><td><code>toggleSidebarKey</code>'s branch in <code>handleKey</code>, <code>internal/tui/keys.go</code></td></tr>
-            <tr><td>what a motion <em>does</em> to the list</td><td><code>model.move</code> in <code>internal/tui/keys.go</code></td></tr>
-            <tr><td>what a motion <em>does</em> to the browser</td><td><code>Browser.move</code> in <code>internal/filebrowser</code></td></tr>
-            <tr><td>a command key (<kbd>d</kbd>, <kbd>o</kbd>, <kbd>r</kbd>, <kbd>f</kbd>, …)</td><td>the command switch in whichever view owns it</td></tr>
-            <tr><td>a setting</td><td>the <code>settingsFields</code> table in <code>internal/tui/settings.go</code></td></tr>
-          </tbody>
-        </table>
-      </div>
-      <p>A mode with no motions of its own — the settings popover — asks <code>keymap.Vim(key)</code>
-        instead, the same table answering the narrower question: <em>is this a key the vim setting owns?</em>
-        That is why turning the setting off is one fact in the config rather than a flag threaded through
-        three switch statements.</p>
+      <p>The host list and the file browser move on the same keys, so they do not each spell that
+      keyboard out. <code>internal/keymap</code> holds it: one table, one row per key, saying what the key
+      <em>means</em> (a <code>Motion</code>), whether the vim setting owns it, and whether the host list binds it as
+      well as the browser. Both views resolve keys through it — passing <code>keymap.Full</code> or
+      <code>keymap.List</code> — and act on the motion they get back.</p>
+      <div class="tablewrap"><table>
+      <thead>
+      <tr>
+      <th>Mode</th>
+      <th>Handler</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>host list</td>
+      <td><code>handleNavKey</code> (<code>internal/tui/keys.go</code>)</td>
+      </tr>
+      <tr>
+      <td>shell pane</td>
+      <td><code>handleShellKey</code></td>
+      </tr>
+      <tr>
+      <td>scrollback</td>
+      <td><code>handleScrollbackKey</code></td>
+      </tr>
+      <tr>
+      <td>SFTP browser</td>
+      <td><code>handleBrowserKey</code> → <code>filebrowser.Handle</code></td>
+      </tr>
+      <tr>
+      <td>editor tabs</td>
+      <td><code>handleEditorKey</code></td>
+      </tr>
+      <tr>
+      <td>filter</td>
+      <td><code>handleFilterKey</code></td>
+      </tr>
+      <tr>
+      <td>the cards</td>
+      <td><code>handleHelpKey</code>, <code>settings.go</code>, <code>hostform.go</code>, <code>confirm.go</code>, <code>importer.go</code>, <code>tunnels.go</code>, <code>hostkey.go</code>, <code>authprompt.go</code></td>
+      </tr>
+      <tr>
+      <td>shared motions</td>
+      <td><code>internal/keymap</code> (scoped: the list gets the step keys, the browser all of them)</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>To add…</th>
+      <th>Touch</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td>a motion key, in one or both views</td>
+      <td>the <code>bindings</code> table in <code>internal/keymap</code> (the <code>list</code> column is the split)</td>
+      </tr>
+      <tr>
+      <td>a key hop holds in <em>every</em> mode</td>
+      <td><code>toggleSidebarKey</code>&rsquo;s branch in <code>handleKey</code>, <code>internal/tui/keys.go</code></td>
+      </tr>
+      <tr>
+      <td>what a motion <em>does</em> to the list</td>
+      <td><code>model.move</code> in <code>internal/tui/keys.go</code></td>
+      </tr>
+      <tr>
+      <td>what a motion <em>does</em> to the browser</td>
+      <td><code>Browser.move</code> in <code>internal/filebrowser</code></td>
+      </tr>
+      <tr>
+      <td>a command key (<kbd>d</kbd>, <kbd>o</kbd>, <kbd>r</kbd>, <kbd>f</kbd>, …)</td>
+      <td>the command switch in whichever view owns it</td>
+      </tr>
+      <tr>
+      <td>a setting</td>
+      <td>the <code>settingsFields</code> table in <code>internal/tui/settings.go</code></td>
+      </tr>
+      </tbody>
+      </table></div>
+      <p>A mode with no motions of its own — the settings popover — asks <code>keymap.Vim(key)</code> instead,
+      the same table answering the narrower question: <em>is this a key the vim setting owns?</em> That is
+      why turning the setting off is one fact in the config rather than a flag threaded through
+      three switch statements.</p>
     </section>
 
     <section id="roadmap">
       <h2>Roadmap</h2>
-      <p><span class="status done">shipped</span> embedded shells · multi-shell tabs · SFTP browser ·
-        remote editor tabs · scrollback · host management · host-key confirmation · SSH config import ·
-        live settings · cross-platform releases.</p>
-      <p><span class="status next">next up</span></p>
-      <div class="grid">
-        <div class="card"><h4>Tunnels / port forwarding</h4><p>Local and remote forwards per host, on the connection hop already holds.</p></div>
-        <div class="card"><h4>Health panel</h4><p>Per-host reachability, latency, uptime and disk.</p></div>
-        <div class="card"><h4>Uploads &amp; file ops</h4><p><kbd>u</kbd>, <kbd>x</kbd>, <kbd>R</kbd>, <kbd>m</kbd> in the browser, with async transfer progress.</p></div>
-        <div class="card"><h4>Groups &amp; tags</h4><p>Section by group, filter by tag, pin favourites.</p></div>
-        <div class="card"><h4>Reconnect handling</h4><p>Detect a dropped session and offer to redial.</p></div>
-        <div class="card"><h4>Mouse support</h4><p>Narrow-terminal layouts and copy/paste into panes.</p></div>
-      </div>
+      <p><strong>Shipped:</strong> embedded shells · multi-shell tabs · SFTP browser · remote editor tabs ·
+      scrollback · tunnels · ProxyCommand/ProxyJump · 2FA · reconnect · mouse · copy and paste ·
+      host management · host-key confirmation · SSH config import · live settings ·
+      cross-platform releases.</p>
+      <p>Next up:</p>
+      <div class="grid"><div class="card"><h4>💓 Health panel</h4><p>Per-host reachability, latency, uptime and disk, shown like VS Code&rsquo;s connection status.</p></div><div class="card"><h4>⬆️ Uploads &amp; file ops</h4><p><kbd>u</kbd>, <kbd>x</kbd>, <kbd>R</kbd>, <kbd>m</kbd> in the browser, with async transfer progress.</p></div><div class="card"><h4>🏷️ Groups &amp; tags</h4><p>Section the list by group, filter by tag, pin favourites.</p></div><div class="card"><h4>📐 Narrow terminals</h4><p>Narrow-terminal layouts and cursor-style fidelity.</p></div></div>
       <p>The living version, with far more detail on each item, is <a href="TODO.md">TODO.md</a>.</p>
     </section>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     <footer>
       <p>Built with
@@ -1198,256 +1817,536 @@ just release minor    <span class="c"># or major, or an explicit 1.0.0</span></c
 
   </main>
 </div>
-
-<button class="askbtn" id="askbtn" type="button" aria-expanded="false" aria-controls="askpanel" hidden>
-  Ask the docs
-</button>
-
-<aside class="askpanel" id="askpanel" role="dialog" aria-label="Ask the docs" hidden>
-  <div class="askhead">
-    <span>
-      <b>Ask the docs</b><br>
-      <span class="sub">runs in your browser · nothing is sent anywhere</span>
-    </span>
-    <button class="askclose" id="askclose" type="button" aria-label="Close">×</button>
-  </div>
-
-  <div class="askbody" id="askbody">
-    <div class="askintro" id="askintro">
-      <p>A small language model (Qwen3.5-0.8B) runs <b>locally</b>, answering only from this page's own
-        key tables and text. Your question never leaves the browser.</p>
-      <p>It downloads the model first — roughly <b>600 MB</b>, cached by the browser afterwards —
-        and needs around <b>2 GB</b> of GPU memory while running.</p>
-      <button class="askload" id="askload" type="button">Download the model &amp; start</button>
-      <div class="askbar" id="askbar" hidden><i id="askbarfill"></i></div>
-      <div class="askstat" id="askstat"></div>
+<div class="searchwrap" id="searchwrap" hidden>
+  <div class="searchbox" role="dialog" aria-modal="true" aria-label="Search the documentation">
+    <input id="searchinput" type="search" placeholder="Search the docs — a key, a mode, a setting…"
+           autocomplete="off" spellcheck="false" aria-controls="searchresults">
+    <div class="results" id="searchresults" role="listbox"></div>
+    <div class="searchfoot">
+      <span><kbd>↑</kbd> <kbd>↓</kbd> move</span>
+      <span><kbd>enter</kbd> go</span>
+      <span><kbd>esc</kbd> close</span>
     </div>
   </div>
+</div>
 
-  <form class="askform" id="askform" hidden>
-    <input id="askinput" type="text" placeholder="How do I open a second shell?" autocomplete="off">
-    <button type="submit" id="asksend">Ask</button>
-  </form>
-  <div class="asknote" id="asknote" hidden>A 0.8B model still gets things wrong — check anything
-    surprising against the page itself.</div>
-</aside>
-
-<script type="module">
-  // Optional, strictly opt-in in-browser assistant. Nothing here loads — not even
-  // the library — until the user clicks, so the page costs exactly as much as it
-  // did before for everyone who never opens it.
-  const MODEL = "Qwen3.5-0.8B-q4f16_1-MLC";
-  const WEBLLM = "https://esm.run/@mlc-ai/web-llm@0.2.84";
-
-  // WebLLM's prebuilt entry for every model overrides context_window_size to 4096,
-  // but that is a default, not a ceiling: chatOpts (the 3rd CreateMLCEngine arg) is
-  // merged over it, and Qwen3.5 is trained far beyond 8k. Asking for 8192 lets the
-  // whole page fit instead of a trimmed reference. It costs KV-cache memory, and if
-  // the prebuilt wasm refuses it we fall back to 4096 + the compact reference.
-  const WANT_CTX = 8192;
-
-  // Two reference builds. Which one is used depends on the context we actually get.
-  const REF = {
-    rich:    { skip: ['features', 'roadmap'], allParagraphs: true,  pLen: 400 },
-    compact: { skip: ['features', 'roadmap', 'internals'], allParagraphs: false, pLen: 200 },
-  };
-
-  // Built from THIS page at runtime — the docs are the single source of truth, so a
-  // binding can never drift out of sync with what the assistant says.
-  //
-  // Table cells are read individually and joined with " — ". Plain textContent would
-  // fuse them into "ctrl+oback to hop", which is unusable for the model.
-  //
-  // <details class="why"> essays are always skipped: they explain rationale, not
-  // "which key does X", and they are over a third of the page's text.
-  function buildReference({ skip, allParagraphs, pLen }) {
-    const clean = (el) => (el.textContent || '').replace(/\s+/g, ' ').trim();
-    const skipSet = new Set(skip);
-    const out = [];
-    for (const sec of document.querySelectorAll('section[id]')) {
-      if (skipSet.has(sec.id)) continue;
-      const why = (el) => el.closest('details.why');
-      const h2 = sec.querySelector('h2');
-      out.push('## ' + (h2 ? clean(h2) : sec.id));
-
-      for (const tr of sec.querySelectorAll('tr')) {
-        if (why(tr)) continue;
-        const cells = Array.from(tr.children).map(clean).filter(Boolean);
-        if (!cells.length) continue;
-        if (['key', 'command'].includes(cells[0].toLowerCase())) continue;   // header row
-        out.push(cells.join(' — '));
-      }
-      for (const h3 of sec.querySelectorAll('h3')) if (!why(h3)) out.push('# ' + clean(h3));
-
-      const ps = Array.from(sec.querySelectorAll('p')).filter((p) => !why(p) && clean(p).length > 20);
-      for (const p of (allParagraphs ? ps : ps.slice(0, 1))) out.push(clean(p).slice(0, pLen));
-      if (allParagraphs) {
-        for (const li of sec.querySelectorAll('li')) if (!why(li)) out.push('- ' + clean(li).slice(0, pLen));
-      }
-      for (const pre of sec.querySelectorAll('pre')) if (!why(pre)) out.push(clean(pre).slice(0, 150));
-    }
-    return out.join('\n');
-  }
-
-  function buildSystem(reference) {
-    return [
-      'You are the assistant for the hop documentation. hop is an SSH terminal UI (a TUI).',
-      '',
-      'Rules:',
-      '- Answer ONLY from the reference below. Never invent a key, command or path.',
-      '- Answer in 2 to 3 complete sentences. Name the exact key or command, and say what it does.',
-      '- Prefer the in-app key binding. Mention the "hop ..." command line only if the question is',
-      '  about the terminal/CLI, or as a brief second option.',
-      '- A line like "f — open the SFTP browser" means: the key is f, the action is what follows.',
-      '- If the reference does not cover it, say so plainly and suggest reading the page.',
-      '',
-      '=== hop reference ===',
-      reference,
-    ].join('\n');
-  }
-
-  // A couple of worked examples: a 0.8B model copies format far more reliably than it
-  // follows described format, and these demonstrate the two rules it broke most often —
-  // answer with the in-app key, and finish the sentence.
-  const FEWSHOT = [
-    { role: 'user', content: 'How do I open the file browser?' },
-    { role: 'assistant', content:
-        'Press f in the host list to open the SFTP browser on the selected host. It runs over the ' +
-        'connection hop already has, so there is no second login.' },
-    { role: 'user', content: 'How do I disconnect?' },
-    { role: 'assistant', content:
-        'Press d in the host list to disconnect that host’s session. From inside a shell, ctrl+o ' +
-        'returns you to the host list first.' },
-  ];
-
-  const $ = (id) => document.getElementById(id);
-  const btn = $('askbtn'), panel = $('askpanel'), body = $('askbody'), intro = $('askintro');
-  const form = $('askform'), input = $('askinput'), send = $('asksend'), note = $('asknote');
-  const bar = $('askbar'), fill = $('askbarfill'), stat = $('askstat'), load = $('askload');
-
-  // WebGPU only. Rather than show a button that dead-ends, say why up front.
-  if (!navigator.gpu) {
-    btn.hidden = false;
-    btn.textContent = 'Ask the docs (needs WebGPU)';
-    btn.addEventListener('click', () => {
-      open();
-      intro.innerHTML = '<p>This assistant needs <b>WebGPU</b>, which this browser does not expose. ' +
-        'Chrome and Edge have it; Safari from 26; Firefox is still partial on some platforms.</p>' +
-        '<p>Everything it could tell you is on this page — the sidebar is the fastest way in.</p>';
-    });
-  } else {
-    btn.hidden = false;
-    btn.addEventListener('click', () => (panel.hidden ? open() : close()));
-  }
-  $('askclose').addEventListener('click', close);
-  addEventListener('keydown', (e) => { if (e.key === 'Escape' && !panel.hidden) close(); });
-
-  function open() { panel.hidden = false; btn.hidden = true; btn.setAttribute('aria-expanded', 'true'); }
-  function close() { panel.hidden = true; btn.hidden = false; btn.setAttribute('aria-expanded', 'false'); }
-
-  let engine = null, busy = false, SYSTEM = '', HISTORY = 1;
-  const turns = [];   // user/assistant only
-
-  load.addEventListener('click', async () => {
-    load.disabled = true; bar.hidden = false; stat.textContent = 'fetching the library…';
-    const onProgress = ({ text, progress }) => {
-      fill.style.width = Math.round((progress || 0) * 100) + '%';
-      stat.textContent = text || '';
-    };
-    try {
-      const webllm = await import(WEBLLM);
-      let ctx = WANT_CTX;
-      try {
-        engine = await webllm.CreateMLCEngine(
-          MODEL, { initProgressCallback: onProgress }, { context_window_size: WANT_CTX });
-      } catch (wide) {
-        // the prebuilt wasm would not take a larger window — take the default instead
-        console.warn('hop docs: ' + WANT_CTX + ' context refused, falling back to 4096', wide);
-        ctx = 4096;
-        engine = await webllm.CreateMLCEngine(MODEL, { initProgressCallback: onProgress });
-      }
-      SYSTEM = buildSystem(buildReference(ctx >= 8192 ? REF.rich : REF.compact));
-      HISTORY = ctx >= 8192 ? 3 : 1;
-
-      intro.remove();
-      form.hidden = false; note.hidden = false;
-      input.focus();
-      say('assistant', 'Ready. Ask me about hop — keys, install, settings, how a mode works.');
-    } catch (err) {
-      bar.hidden = true; stat.textContent = ''; load.disabled = false;
-      const msg = err && err.message ? err.message : String(err);
-      const p = document.createElement('p');
-      // the model needs the shader-f16 WebGPU feature, which navigator.gpu alone doesn't promise
-      p.textContent = /f16|feature/i.test(msg)
-        ? "This GPU doesn't expose the shader-f16 feature the model needs. " + msg
-        : 'Could not start the model: ' + msg;
-      intro.appendChild(p);
-    }
-  });
-
-  // enable_thinking:false should stop Qwen emitting a reasoning block, but one must
-  // never reach the bubble if it does. Handles the three shapes that occur mid-stream:
-  // a closed block, a block still open, and a tag arriving one character at a time.
-  const visible = (raw) => raw
-    .replace(/<think>[\s\S]*?(?:<\/think>|$)/g, '')
-    .replace(/<\/?think>/g, '')
-    .replace(/<[a-z\/]{0,6}$/i, '')
-    .trim();
-
-  function say(who, text) {
-    const el = document.createElement('div');
-    el.className = 'msg ' + (who === 'you' ? 'you' : 'bot');
-    const label = document.createElement('span');
-    label.className = 'who';
-    label.textContent = who === 'you' ? 'you' : 'hop docs';
-    el.appendChild(label);
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble';
-    bubble.textContent = text;
-    el.appendChild(bubble);
-    body.appendChild(el);
-    body.scrollTop = body.scrollHeight;
-    return bubble;
-  }
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const q = input.value.trim();
-    if (!q || busy || !engine) return;
-    busy = true; send.disabled = true; input.value = '';
-    say('you', q);
-    const bubble = say('assistant', '…');
-
-    try {
-      const stream = await engine.chat.completions.create({
-        stream: true,
-        temperature: 0.1,
-        max_tokens: 220,
-        extra_body: { enable_thinking: false },
-        messages: [
-          { role: 'system', content: SYSTEM },
-          ...FEWSHOT,
-          ...turns.slice(-HISTORY * 2),
-          { role: 'user', content: q },
-        ],
-      });
-      let raw = '';
-      for await (const chunk of stream) {
-        raw += chunk.choices[0]?.delta?.content || '';
-        bubble.textContent = visible(raw) || 'thinking…';
-        body.scrollTop = body.scrollHeight;
-      }
-      const out = visible(raw);
-      bubble.textContent = out || "I couldn't answer that from the page.";
-      turns.push({ role: 'user', content: q }, { role: 'assistant', content: out });
-    } catch (err) {
-      bubble.textContent = 'That failed: ' + (err && err.message ? err.message : String(err));
-    }
-    busy = false; send.disabled = false; input.focus();
-    body.scrollTop = body.scrollHeight;
-  });
+<script type="application/json" id="searchdata">
+[
+{"s":"What hop is","h":"","a":"#what","t":"What hop is"},
+{"s":"What hop is","h":"","a":"#what","t":"hop is a terminal UI over your SSH fleet. It holds one connection per host and opens everything else as extra channels on that same connection: more shells, an SFTP browser, an editor running on the remote box, and any tunnels you defined. Nothing is a new window, nothing re-authenticates, and leaving a pane never tears down what is inside it."},
+{"s":"What hop is","h":"","a":"#what","t":"The header always tells you where your keystrokes are going. That is the single most disorienting thing about a TUI that embeds other people’s programs, so it gets permanent screen space."},
+{"s":"What hop is","h":"","a":"#what","t":"The host list. Status dot, group, and what enter would do to the host under the cursor."},
+{"s":"What hop is","h":"","a":"#what","t":"A shell. A real terminal in the pane; the footer shows the ways back out."},
+{"s":"What hop is","h":"","a":"#what","t":"The SFTP browser. f, over the connection that is already open."},
+{"s":"What hop is","h":"","a":"#what","t":"A remote editor tab. enter on a file runs the editor on the server, so :w writes the real file."},
+{"s":"Features","h":"","a":"#features","t":"Features"},
+{"s":"Features","h":"🖥️ Embedded SSH shells","a":"#features","t":"🖥️ Embedded SSH shells"},
+{"s":"Features","h":"🖥️ Embedded SSH shells","a":"#features","t":"Real terminals in a pane: a pure-Go SSH client (x/crypto/ssh) feeding a real VT emulator (x/vt). Agent or private-key auth, resize, cursor, the lot."},
+{"s":"Features","h":"🔑 2FA and passwords","a":"#features","t":"🔑 2FA and passwords"},
+{"s":"Features","h":"🔑 2FA and passwords","a":"#features","t":"A card appears the moment the host asks. Nothing is stored, and one prompt per host covers everything riding that connection."},
+{"s":"Features","h":"🗂️ Multiple shells per host","a":"#features","t":"🗂️ Multiple shells per host"},
+{"s":"Features","h":"🗂️ Multiple shells per host","a":"#features","t":"S opens a second channel on the connection you already have — no new handshake, no second auth."},
+{"s":"Features","h":"📁 SFTP file browser","a":"#features","t":"📁 SFTP file browser"},
+{"s":"Features","h":"📁 SFTP file browser","a":"#features","t":"f browses the remote filesystem over that same connection. Download with d, open locally with o."},
+{"s":"Features","h":"⇄ Local \u0026 remote tunnels","a":"#features","t":"⇄ Local \u0026 remote tunnels"},
+{"s":"Features","h":"⇄ Local \u0026 remote tunnels","a":"#features","t":"Define forwards per host with T, start and stop them with t. Imported from your SSH config, restored on reconnect."},
+{"s":"Features","h":"🛰️ ProxyCommand \u0026 ProxyJump","a":"#features","t":"🛰️ ProxyCommand \u0026 ProxyJump"},
+{"s":"Features","h":"🛰️ ProxyCommand \u0026 ProxyJump","a":"#features","t":"Bastions and brokers (aws ssm, cloudflared, gcloud) work exactly as your SSH config describes them."},
+{"s":"Features","h":"✎ Remote editor tabs","a":"#features","t":"✎ Remote editor tabs"},
+{"s":"Features","h":"✎ Remote editor tabs","a":"#features","t":"enter on a file runs $EDITOR on the server in a tab. No download — :w writes the real file."},
+{"s":"Features","h":"📂 VS Code where you are","a":"#features","t":"📂 VS Code where you are"},
+{"s":"Features","h":"📂 VS Code where you are","a":"#features","t":"ctrl+o c opens VS Code Remote in the directory the shell is standing in, tracked over OSC 7."},
+{"s":"Features","h":"🏠 A directory to land in","a":"#features","t":"🏠 A directory to land in"},
+{"s":"Features","h":"🏠 A directory to land in","a":"#features","t":"Give a host a default directory and every session on it starts there."},
+{"s":"Features","h":"⇅ Scrollback","a":"#features","t":"⇅ Scrollback"},
+{"s":"Features","h":"⇅ Scrollback","a":"#features","t":"shift+↑ pauses a shell into its history, with vim-ish paging."},
+{"s":"Features","h":"🔁 Reconnect after a drop","a":"#features","t":"🔁 Reconnect after a drop"},
+{"s":"Features","h":"🔁 Reconnect after a drop","a":"#features","t":"Drops are noticed, the last screen is kept, and r puts the shells, browser and tunnels back."},
+{"s":"Features","h":"🔐 Honest host keys","a":"#features","t":"🔐 Honest host keys"},
+{"s":"Features","h":"🔐 Honest host keys","a":"#features","t":"An unknown key aborts the dial and shows a fingerprint card. A mismatch is always a hard error."},
+{"s":"Features","h":"📥 SSH config import","a":"#features","t":"📥 SSH config import"},
+{"s":"Features","h":"📥 SSH config import","a":"#features","t":"i syncs hosts from ~/.ssh/config — a re-import refreshes, hand-added hosts are left alone."},
+{"s":"Features","h":"🔎 Fuzzy find","a":"#features","t":"🔎 Fuzzy find"},
+{"s":"Features","h":"🔎 Fuzzy find","a":"#features","t":"/ filters as you type, with the matched characters picked out so a surprising hit explains itself."},
+{"s":"Features","h":"🖱️ Mouse","a":"#features","t":"🖱️ Mouse"},
+{"s":"Features","h":"🖱️ Mouse","a":"#features","t":"Wheel, click and drag-to-copy everywhere; remote programs that want the pointer get it verbatim."},
+{"s":"Features","h":"📋 Copy and paste","a":"#features","t":"📋 Copy and paste"},
+{"s":"Features","h":"📋 Copy and paste","a":"#features","t":"Bracketed paste (even on Windows), drag to copy, and remote yanks (OSC 52) land on your clipboard."},
+{"s":"Features","h":"⚙️ Live settings","a":"#features","t":"⚙️ Live settings"},
+{"s":"Features","h":"⚙️ Live settings","a":"#features","t":", — editor, download dir, accent colour, vim keys, mouse, remote clipboard. Applied on the spot."},
+{"s":"Features","h":"🎯 Frecency ordering","a":"#features","t":"🎯 Frecency ordering"},
+{"s":"Features","h":"🎯 Frecency ordering","a":"#features","t":"The hosts you actually use float to the top of the list."},
+{"s":"Features","h":"🪟 Cross-platform","a":"#features","t":"🪟 Cross-platform"},
+{"s":"Features","h":"🪟 Cross-platform","a":"#features","t":"Static, dependency-free binaries for Windows, macOS and Linux (amd64 + arm64). No cgo, no libc, no runtime."},
+{"s":"Features","h":"⌨️ Opt-in vim keys","a":"#features","t":"⌨️ Opt-in vim keys"},
+{"s":"Features","h":"⌨️ Opt-in vim keys","a":"#features","t":"Off by default. Flip one switch and the motions appear everywhere at once."},
+{"s":"Features","h":"⌨️ Opt-in vim keys","a":"#features","t":"The longer version of a few of these"},
+{"s":"Features","h":"⌨️ Opt-in vim keys","a":"#features","t":"2FA. The dial waits inside the handshake rather than restarting — a one-time code is only good once. One prompt per host, since shells, SFTP, editors and tunnels ride the same connection."},
+{"s":"Features","h":"⌨️ Opt-in vim keys","a":"#features","t":"ProxyCommand. The command runs without a shell: a line needing one is refused with a clear error, so an imported config cannot smuggle in sh -c. %h %p %r %n are expanded. A ProxyJump may name another hop host by alias and borrows its user, port and key."},
+{"s":"Features","h":"⌨️ Opt-in vim keys","a":"#features","t":"OSC 7. hop installs the prompt hook into bash/zsh itself — one line typed at the first prompt, then wiped from the pane, so the session looks untouched. Nothing is typed into a shell that already emits OSC 7, or while a full-screen program owns the screen. Where no directory can be learned, the key still opens the host in its default directory and says so."},
+{"s":"Features","h":"⌨️ Opt-in vim keys","a":"#features","t":"Reconnect. Drops are found with keepalive probes rather than silence, so a suspended laptop or a dead VPN does not leave a pane quietly frozen."},
+{"s":"Install","h":"","a":"#install","t":"Install"},
+{"s":"Install","h":"","a":"#install","t":"Grab the archive for your platform from the latest release and put hop somewhere on your PATH."},
+{"s":"Install","h":"","a":"#install","t":"# macOS / Linux tar -xzf hop_*_darwin_arm64.tar.gz sudo mv hop /usr/local/bin/ # Windows Expand-Archive hop_*_windows_amd64.zip -DestinationPath . # then move hop.exe onto your PATH Every release ships a hop_\u003cversion\u003e_checksums.txt, so you can verify with sha256sum -c."},
+{"s":"Install","h":"From source","a":"#from-source","t":"From source"},
+{"s":"Install","h":"From source","a":"#from-source","t":"Needs Go 1.26+ and optionally just ≥ 1.39."},
+{"s":"Staying current","h":"","a":"#update","t":"Staying current"},
+{"s":"Staying current","h":"","a":"#update","t":"hop check-update # is there a newer release? hop self-update # download it, verify its checksum, swap this binary self-update fetches the archive for your platform from the latest GitHub release, checks its SHA-256 against that release’s checksums.txt, and replaces the running binary atomically. On Windows the old hop.exe is renamed aside and swept up the next time hop starts. Source builds (version = dev) are refused: there is nothing to compare them against."},
+{"s":"Staying current","h":"","a":"#update","t":"hop also checks once a day in the background and mentions a newer version in the footer and on the CLI. HOP_NO_UPDATE_CHECK=1 turns that off; the two commands above still work."},
+{"s":"Quick start","h":"","a":"#quickstart","t":"Quick start"},
+{"s":"Quick start","h":"","a":"#quickstart","t":"hop # launch the TUI On a first run with no hosts, hop offers to import ~/.ssh/config for you: one enter and your list is full. Then, in the TUI: ↑/↓ to move, enter to connect, ctrl+o o to come back out. That is the whole model."},
+{"s":"CLI","h":"","a":"#cli","t":"CLI"},
+{"s":"CLI","h":"","a":"#cli","t":"For when you are already in a shell."},
+{"s":"CLI","h":"","a":"#cli","t":"Command · What it does"},
+{"s":"CLI","h":"","a":"#cli","t":"hop · launch the TUI"},
+{"s":"CLI","h":"","a":"#cli","t":"hop import [path] · sync hosts from ~/.ssh/config, or from another file"},
+{"s":"CLI","h":"","a":"#cli","t":"hop add web1 deploy@10.0.0.4:2222 · add a host by alias and target"},
+{"s":"CLI","h":"","a":"#cli","t":"hop list · print alias user@host:port"},
+{"s":"CLI","h":"","a":"#cli","t":"hop check-update · is a newer release out?"},
+{"s":"CLI","h":"","a":"#cli","t":"hop self-update · upgrade this binary in place"},
+{"s":"CLI","h":"","a":"#cli","t":"hop version · print the version"},
+{"s":"Where things live","h":"","a":"#files","t":"Where things live"},
+{"s":"Where things live","h":"","a":"#files","t":"What · Path"},
+{"s":"Where things live","h":"","a":"#files","t":"Host database · \u003cconfig dir\u003e/hop/hop.db (SQLite)"},
+{"s":"Where things live","h":"","a":"#files","t":"Settings · \u003cconfig dir\u003e/hop/config.json (plain JSON, hand-editable)"},
+{"s":"Where things live","h":"","a":"#files","t":"Update check cache · \u003cconfig dir\u003e/hop/update-check.json (last check + latest version seen)"},
+{"s":"Where things live","h":"","a":"#files","t":"Known hosts · your usual ~/.ssh/known_hosts"},
+{"s":"Where things live","h":"","a":"#files","t":"Platform · \u003cconfig dir\u003e"},
+{"s":"Where things live","h":"","a":"#files","t":"Windows · %AppData%\\hop\\"},
+{"s":"Where things live","h":"","a":"#files","t":"macOS · ~/Library/Application Support/hop/"},
+{"s":"Where things live","h":"","a":"#files","t":"Linux · ~/.config/hop/"},
+{"s":"Where things live","h":"","a":"#files","t":"A missing or malformed config file starts hop on defaults rather than refusing to start."},
+{"s":"The three modes","h":"","a":"#modes","t":"The three modes"},
+{"s":"The three modes","h":"","a":"#modes","t":"How they fit together"},
+{"s":"The three modes","h":"","a":"#modes","t":"The footer always shows the keys for the mode you are in, and every mode returns to the host list — from a pane with ctrl+o o, from the browser with ctrl+o, and from either with a double esc inside 400 ms."},
+{"s":"The three modes","h":"","a":"#modes","t":"Everything else works in all of them: the sidebar toggle, the settings popover, the tunnels, the mouse and the optional vim keys."},
+{"s":"The three modes","h":"","a":"#modes","t":"Two rules explain most of the keyboard:"},
+{"s":"The three modes","h":"","a":"#modes","t":"Inside a pane, ctrl+o is hop’s leader. It does nothing on its own and it is on no clock — it opens a menu in the footer and waits. ctrl+o o goes out."},
+{"s":"The three modes","h":"","a":"#modes","t":"Outside a pane — in the browser, in a card — ctrl+o simply goes back. There is no remote program competing for keys there, so there is nothing to lead."},
+{"s":"The three modes","h":"","a":"#modes","t":"Inside a pane, everything else is the remote’s. hop reserves as few keys as it can, because every one it takes is one the shell or editor no longer gets."},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"Navigation — the host list"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"Host list"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"Key · Action"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"↓ ↑ · move"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"pgdn pgup · a full page down / up"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"enter → · connect (opens a terminal pane), or focus the shell already open"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"esc ← · back — leave the details view"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"s · focus the existing session for this host"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"S · open another shell on this host, alongside the ones already open"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"1 … 9 · go straight to that shell of the host under the cursor"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"f · open the SFTP browser"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"t · start all defined tunnels, or stop them when any are running"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"T · manage this host’s tunnel definitions"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"o · open the host in VS Code Remote, in the directory its shell is standing in"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"d · disconnect the session"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"r · reconnect a session whose connection dropped, reopening what it held"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"a e x · add / edit / delete a host (delete asks first)"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"p · pin the host to the PINNED section at the top, or unpin it"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"shift+k shift+j · move a pinned host up / down inside that section"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"i · import hosts from an OpenSSH config (~/.ssh/config by default)"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"/ · filter hosts (enter applies, esc clears)"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":", ? · settings / the keys card"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"ctrl+b · hide / show the sidebar"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"ctrl+g · hand the mouse to your terminal (and take it back)"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"q ctrl+c · quit"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"With vim keys on, j/k move, l connects as enter does, and h goes back as esc does."},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"Why the jump keys belong to the browser, not the list"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"The list binds the step keys and nothing more. The jumps and the ctrl chords — gg, G, H/M/L, ctrl+d/ctrl+u/ctrl+f — belong to the file browser, which walks directories that actually run past a screen. The host list does not scroll, so each of them landed a j or two from where the cursor already was, while holding a letter the list wants as a command. Paging is pgdn/pgup."},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"Every key hop binds — ?. It lists the keyboard you actually have, with vim motions included only if you turned them on."},
+{"s":"Import — the SSH config card","h":"","a":"#import","t":"Import — the SSH config card"},
+{"s":"Import — the SSH config card","h":"","a":"#import","t":"SSH config import"},
+{"s":"Import — the SSH config card","h":"","a":"#import","t":"i opens the import card, a modal like the rest: one field, pre-filled with ~/.ssh/config, so the usual answer is a single enter."},
+{"s":"Import — the SSH config card","h":"","a":"#import","t":"Key · Action"},
+{"s":"Import — the SSH config card","h":"","a":"#import","t":"enter · import from the path shown"},
+{"s":"Import — the SSH config card","h":"","a":"#import","t":"esc · close, importing nothing"},
+{"s":"Import — the SSH config card","h":"","a":"#import","t":"ctrl+u · clear the path"},
+{"s":"Import — the SSH config card","h":"","a":"#import","t":"backspace / text · edit the path (a leading ~ is expanded)"},
+{"s":"Import — the SSH config card","h":"","a":"#import","t":"The first run opens this card by itself: with no hosts yet and a ~/.ssh/config on disk, hop offers the import instead of showing an empty list. esc skips it — an empty list is not an error, and a adds a host by hand."},
+{"s":"Import — the SSH config card","h":"","a":"#import","t":"It stays bound once the list is full, because importing is a sync, not a one-time step: each host is upserted, so a re-import refreshes what the config knows (hostname, user, port, identity file, LocalForward/RemoteForward, ProxyCommand/ProxyJump) and leaves hosts hop added itself untouched. Wildcard patterns (Host *) are skipped. hop import [path] does exactly the same thing."},
+{"s":"Host keys and authentication","h":"","a":"#hostkeys","t":"Host keys and authentication"},
+{"s":"Host keys and authentication","h":"","a":"#hostkeys","t":"Host keys \u0026 auth"},
+{"s":"Host keys and authentication","h":"","a":"#hostkeys","t":"An unknown host key aborts the dial and shows a fingerprint card. y trusts it and retries, appending it to your usual ~/.ssh/known_hosts; n or esc trusts nothing. A mismatch — a key that changed on a host you already know — is always a hard error, never a prompt."},
+{"s":"Host keys and authentication","h":"","a":"#hostkeys","t":"When the host asks for a password or a one-time code, a card opens by itself: enter submits or moves to the next question, tab/shift+tab move between fields, ctrl+u clears, and esc cancels the connect. The dial waits inside the handshake rather than restarting, because a one-time code is only good once — and you are asked once per host, since shells, SFTP, editors and tunnels all ride that one connection. Nothing is stored."},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"Terminal — a live shell on a remote host"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"Shells"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"Key · Action"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"ctrl+o o · out — back to hop"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"esc esc · back to hop (two presses within 400 ms)"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"shift+→ shift+← · next / previous shell on this host (wraps)"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"ctrl+o 1 … 9 · go straight to that shell, without leaving the pane"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"ctrl+o 0 · open another shell on this host, without leaving the pane"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"ctrl+o c · open this directory in VS Code Remote"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"shift+↑ shift+pgup · scroll back into the pane’s history"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"ctrl+b · hide / show the sidebar — the pane takes the whole window"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"ctrl+g · hand the mouse to your terminal (and take it back)"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"alt+0, alt+←/alt+→, alt+1…alt+9 · aliases for the above, where your terminal sends them"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"everything else · sent to the remote shell"},
+{"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"Several shells on one host"},
+{"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"S in the host list, or ctrl+o 0 from inside the pane, opens another shell on a host you are already connected to. It is a second channel on the connection hop already holds — no new handshake, no second authentication — and it appears as a tab strip above the pane, which shows up only once there is a second shell to switch to. The new shell arrives focused."},
+{"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"Type exit to close a shell: its tab goes away, the rest keep running. When the last one exits, the connection is done and the host goes back to idle in the list — unless its SFTP browser, an editor tab or a tunnel is still open on it, which keeps the connection alive. d still tears down the whole host at once."},
+{"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"Two shells, one connection — no second handshake."},
+{"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"Why ← is not a way out"},
+{"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"← backs out of a host in the list and out of a directory in the browser, but inside a shell it is the shell’s key, always. It moves the readline cursor back over a typo, it is what word motions and every full-screen program are built on, and hop taking it — even at what hop believes is an empty prompt — breaks editing on every server you connect to. hop sees keystrokes going out and pixels coming back, not the buffer readline is holding, so anything it could not count left it thinking the prompt was bare when it was not."},
+{"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"alt+o is deliberately unbound for the same family of reasons: a terminal sends it as esc then o, which is vim’s “leave insert mode, open a line”."},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"The leader — [[ctrl+o]]"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"The leader"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"ctrl+o inside a pane has no effect of its own, and no timeout. It opens the leader, the footer becomes the menu, and hop waits as long as you take:"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"after ctrl+o ·"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"o · out — back to hop"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"1 … 9 · that tab, selected in place"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"0 · another shell on this host"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"c · this directory in VS Code Remote"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"anything else · closes the leader and does nothing"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"A key that names no chord is swallowed, not passed to the remote: while the leader is open hop has the keyboard, and a program that received the tail of an abandoned chord would act on a key you were not typing at it. The leader also outranks ctrl+b and ctrl+g, which are otherwise held in every mode."},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"Why the leader does nothing on its own"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"This is the tmux and wezterm arrangement, and the reason for it is worth stating: a leader that also acts forces a timeout, and every value for that timeout is wrong — too short and the chords are unreachable, too long and leaving feels broken. Earlier versions of hop tried both and neither worked. Paying one extra keystroke for out buys back all of the timing."},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Scrolling back through history"},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Scrollback"},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"shift+↑ pauses the live shell and steps one line up into its scrollback; shift+pgup does it a page at a time. Both are deliberately chords a bare shell never sends, and both decline (falling through to the shell) when there is nothing to show: on the alt screen a full-screen program owns its own scrolling. The footer advertises shift+↑ scrollback exactly when the key is live."},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Once paused, the keyboard drives the history viewport rather than the remote shell, and the mode chip reads ⇅ scrollback \u003coffset\u003e/\u003clen\u003e."},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Key · Action"},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"↑ ↓ j k · up / down one line"},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"pgup pgdn ctrl+f · up / down a page (ctrl+b is the sidebar)"},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"ctrl+u ctrl+d · up / down half a page"},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"g home · jump to the oldest line"},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"G end · back to the live bottom (and leave scrollback)"},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"esc q enter ctrl+o ← · back to the live shell"},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"anything else · leave scrollback and type it at the prompt"},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"The wheel enters and drives scrollback too, three lines a notch, and scrolling back down to the live bottom returns you to the shell."},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Why arriving at the bottom exits, and what ctrl+o does here"},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Reaching the live bottom by scrolling down is itself a way out — the point of scrollback is to look at what went by, so arriving at the tail means you are done. ctrl+o here only leaves scrollback; a second ctrl+o then opens the leader, the consistent “back one level” the rest of hop keeps to."},
+{"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"How double-esc works, and what it costs"},
+{"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"The double esc"},
+{"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"A lone esc is still forwarded to the shell. hop cannot know a second esc is coming without swallowing the first one and waiting out the timer, which would put a 400 ms lag on every esc you press in vim. So the rule is:"},
+{"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"You press · The shell receives · hop does"},
+{"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"esc · esc · arms the window"},
+{"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"esc esc (fast) · esc · leaves the pane on the second"},
+{"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"esc … pause … esc · esc esc · nothing"},
+{"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"esc j esc · esc j esc · nothing — any key breaks the chord"},
+{"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"The trade-off: if you mash esc twice quickly in vim, you will land back in the host list. The shell will have seen one of those escapes, which in normal mode is a harmless no-op, so nothing is lost — press enter or s to drop straight back into the session. If that bothers you, ctrl+o o leaves and sends nothing to the remote at all."},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"Browsing — the SFTP file browser"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"File browser"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"Key · Action"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"↓ ↑ · move"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"pgdn pgup · a full page down / up"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"enter → · enter a directory, or open a file in an editor tab"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"o · open the file in the local OS default app (GUI)"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"d · download the file to ~/Downloads"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"← backspace · up one directory"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"r · refresh the listing"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":", · settings"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+b · hide / show the sidebar"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+o · back to hop"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"esc esc · back to hop (two presses within 400 ms)"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"With vim keys on the browser keeps the whole motion set (the host list only the step keys): j/k, gg, G, H/M/L, ctrl+d/ctrl+u, ctrl+f, plus l to descend and h to back out."},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"Why ← walks the tree instead of leaving"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"← is pure motion: it walks up the directory tree, and only at the top of it does it pop back to hop. The directory you open in is usually your home directory — so a ← that left straight away would drop you back to hop exactly when you meant to go up to /home. Leaving is otherwise always explicit: ctrl+o, or a double esc — though unlike in a pane, a lone esc here is swallowed rather than forwarded."},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"Editing — editor tabs"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"Editor tabs"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"enter on a file opens it in an editor inside hop, in the same right-hand pane the browser lives in, with a tab strip above it listing every open file."},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"Key · Action"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"shift+→ shift+← · next / previous tab (wraps)"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+o 1 … 9 · go straight to that tab, without leaving"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+o o · back to the file browser"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":":q (i.e. quit the editor) · close the tab"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"esc esc · back to the file browser (two presses within 400 ms)"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"alt+←/alt+→, alt+h/alt+l, alt+1…alt+9 · aliases, where your terminal sends them"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"everything else · sent to the remote editor"},
+{"s":"Editing — editor tabs","h":"How it works","a":"#how-it-works","t":"How it works"},
+{"s":"Editing — editor tabs","h":"How it works","a":"#how-it-works","t":"The editor runs on the remote host, not locally: hop opens a second SSH channel on the connection it already has and runs ${EDITOR:-vi} \u003cfile\u003e on a pty, then renders that pty in a pane exactly as it renders a remote shell. There is no download and no copy — you are editing the real file, and :w writes straight back to the server."},
+{"s":"Editing — editor tabs","h":"How it works","a":"#how-it-works","t":"If the remote $EDITOR is unset (it usually is over SSH, since the rc-file that sets it is never sourced for a non-interactive command), hop probes the remote PATH for nvim, vim, vi, then nano, falling back to vi — POSIX requires it to exist."},
+{"s":"Editing — editor tabs","h":"How it works","a":"#how-it-works","t":"Tabs are independent editor processes, so leaving with ctrl+o o keeps them all running: come back and every file is where you left it, cursor included."},
+{"s":"Editing — editor tabs","h":"Editing locally instead","a":"#editing-locally-instead","t":"Editing locally instead"},
+{"s":"Editing — editor tabs","h":"Editing locally instead","a":"#editing-locally-instead","t":"o is the escape hatch for files a terminal editor is no good for — a PDF, an image. It downloads the file to a scratch directory under the system temp dir and hands that copy to the desktop (start on Windows, open on macOS, xdg-open elsewhere), returning immediately so hop stays usable. Unlike enter, this edits a local copy: nothing is written back to the remote host. d downloads without opening anything."},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"Tunnels — port forwarding"},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"Tunnels"},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"Forwards are defined per host and ride the connection hop already holds, so a tunnel costs no extra handshake and no second authentication."},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"Key · Where · Action"},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"t · the host list · start every defined tunnel, or stop them all when any are running"},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"T · the host list · open this host’s tunnel manager"},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"↑ ↓ · the manager · select a definition"},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"enter space · the manager · start or stop the selected one"},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"a e x · the manager · add / edit / delete a definition"},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"t · the manager · close the card and start or stop the whole set"},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"esc · the manager · close"},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"A definition is a direction (local or remote), a bind address and port, and the host and port to reach on the far side. LocalForward and RemoteForward lines are picked up by the SSH config import, so the forwards you already have keep working. Editing a running definition stops the old one on save, and a reconnect puts the set that was running back up."},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"The status dot in the host list shows ⇄2 when two tunnels are up on that host."},
+{"s":"When a connection drops","h":"","a":"#reconnect","t":"When a connection drops"},
+{"s":"When a connection drops","h":"","a":"#reconnect","t":"Reconnecting"},
+{"s":"When a connection drops","h":"","a":"#reconnect","t":"Drops are found with keepalive probes rather than silence, so a suspended laptop or a dead VPN does not leave a pane quietly frozen."},
+{"s":"When a connection drops","h":"","a":"#reconnect","t":"Key · Action"},
+{"s":"When a connection drops","h":"","a":"#reconnect","t":"r enter · reconnect: dial again and reopen what was open"},
+{"s":"When a connection drops","h":"","a":"#reconnect","t":"d x · drop the session — the pane goes, the host is idle again"},
+{"s":"When a connection drops","h":"","a":"#reconnect","t":"ctrl+o esc q · back to the host list, leaving the pane on screen"},
+{"s":"When a connection drops","h":"","a":"#reconnect","t":"The pane keeps the last screen the host drew, under a banner saying what happened, so the command that was running is still there to read. Nothing is forwarded to the far end, because there is no far end."},
+{"s":"When a connection drops","h":"","a":"#reconnect","t":"Shell tabs, the browser’s directory and the running tunnels come back on reconnect. Editor tabs do not — an editor holds a buffer, and reopening the file on a fresh pty would look like nothing was lost — and the status says how many were left behind."},
+{"s":"The sidebar — [[ctrl+b]]","h":"","a":"#sidebar","t":"The sidebar — [[ctrl+b]]"},
+{"s":"The sidebar — [[ctrl+b]]","h":"","a":"#sidebar","t":"Sidebar"},
+{"s":"The sidebar — [[ctrl+b]]","h":"","a":"#sidebar","t":"ctrl+b hides the host list and gives the whole window to the pane; ctrl+b again brings it back. It is bound in every mode except while a card is up — from a focused shell, from the browser, from an editor tab — because the moment you want the columns is the moment you are reading something wide on the far side of them. The terminals reflow to the new width immediately, both ways."},
+{"s":"The sidebar — [[ctrl+b]]","h":"","a":"#sidebar","t":"What it costs a remote tmux, and why it resets on restart"},
+{"s":"The sidebar — [[ctrl+b]]","h":"","a":"#sidebar","t":"It resets on restart. hop opens on its host list, so the collapse is a session thing rather than a setting."},
+{"s":"The sidebar — [[ctrl+b]]","h":"","a":"#sidebar","t":"A remote tmux never sees its prefix. That is the usual deal between a multiplexer and the one above it — ctrl+o o still leaves the pane, and no other key is taken. It is also why ctrl+b is no longer a page-up anywhere: paging back is pgup."},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"Settings — the popover"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"Settings"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":", opens the settings card, floating over whatever is on screen. It works from the host list, from a pane and from the file browser. It is modal: while it is up, keys go to it."},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"Key · Action"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"↑ ↓ (k j) · move between settings"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"← → (h l) · pick a colour (accent), or flip a switch"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"enter i · edit the selected setting — or flip it, if it is a switch"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"enter esc ctrl+u · while editing: save / cancel / clear"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"r · reset the setting to its default"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"esc q , · close"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"The accent is a swatch strip that recolours hop as you walk it."},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"Setting · What it is · Blank means"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"Editor · the command enter runs on the remote host, e.g. nvim, vim -R · auto: remote $EDITOR, else probe for nvim/vim/vi/nano"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"Download dir · where d puts a file · ~/Downloads"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"Accent colour · picked from the swatch strip with ←/→, or typed · 212, hop’s pink"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"Open with · the local command o opens a file with, e.g. code -n · the OS default app"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"Vim keys · the vim motions in the list and the browser — a switch · off"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"Mouse · wheel, click and drag-to-copy — a switch · on (ctrl+g lends the pointer back for a moment)"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"Remote clipboard · a yank on the remote host (OSC 52) lands on yours — a switch · on"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"The swatch picker, and when a setting is written"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"The accent is a swatch picker, not a number to be looked up: ←/→ walk a palette of twelve colours — pink, magenta, red, orange, yellow, green, teal, cyan, blue, indigo, purple, gray — each drawn in the colour it actually is, and each applied to hop the instant you land on it. enter still opens text entry if you want a specific 256-code or a #hex, and a value that is not in the palette gets its own swatch on the strip."},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"Settings are written to config.json the moment you save one, and applied on the spot. Turning vim keys off from this very card cannot strand you: the arrows and enter drive every row and are never gated. While you are typing a value the gate is off — h is then a letter of the value, not a motion."},
+{"s":"The mouse","h":"","a":"#mouse","t":"The mouse"},
+{"s":"The mouse","h":"","a":"#mouse","t":"Mouse"},
+{"s":"The mouse","h":"","a":"#mouse","t":"Every gesture is an existing binding reached by pointing, so nothing is mouse-only."},
+{"s":"The mouse","h":"","a":"#mouse","t":"Gesture · Where · What it does"},
+{"s":"The mouse","h":"","a":"#mouse","t":"wheel · the host list · moves the selection, one host a notch"},
+{"s":"The mouse","h":"","a":"#mouse","t":"wheel · a shell pane · pauses into its scrollback"},
+{"s":"The mouse","h":"","a":"#mouse","t":"wheel · the SFTP browser · moves the cursor three entries a notch"},
+{"s":"The mouse","h":"","a":"#mouse","t":"click · the host list · stands on that host — and, from a pane, hands the keyboard back"},
+{"s":"The mouse","h":"","a":"#mouse","t":"click · a pane the list has the keyboard in · takes it: the pointer’s s or f"},
+{"s":"The mouse","h":"","a":"#mouse","t":"click · a tab strip · switches to that shell or file tab"},
+{"s":"The mouse","h":"","a":"#mouse","t":"drag · a pane · selects text; it lands on the clipboard when you let go"},
+{"s":"The mouse","h":"","a":"#mouse","t":"double-click · a host, or a browser entry · opens it — enter, by pointing"},
+{"s":"The mouse","h":"","a":"#mouse","t":"A remote program that asks for the mouse (vim with set mouse=a, htop) gets the pointer verbatim instead. The cards are keyboard-only. ctrl+g hands mouse reporting back to your terminal for a moment — for a selection spanning the sidebar and a pane, or anything else that wants your terminal’s own pointer."},
+{"s":"The rest of the keyboard","h":"","a":"#rest","t":"The rest of the keyboard"},
+{"s":"The rest of the keyboard","h":"Copy and paste","a":"#copy-and-paste","t":"Copy and paste"},
+{"s":"The rest of the keyboard","h":"Copy and paste","a":"#copy-and-paste","t":"Paste has no key of its own: paste the way your terminal pastes, and hop marks it as a paste for the remote program — which is what stops vim indenting a pasted block into a staircase. It works on Windows too."},
+{"s":"The rest of the keyboard","h":"Copy and paste","a":"#copy-and-paste","t":"Copying out of a pane is a drag (the mouse), or your terminal’s own selection after ctrl+g. A yank on the remote host travels to your clipboard over OSC 52, unless you turn Remote clipboard off. A remote asking to read your clipboard is never answered."},
+{"s":"The rest of the keyboard","h":"What hop takes from the remote","a":"#what-hop-takes-from-the-remote","t":"What hop takes from the remote"},
+{"s":"The rest of the keyboard","h":"What hop takes from the remote","a":"#what-hop-takes-from-the-remote","t":"The full list, so there are no surprises: ctrl+o, ctrl+b, ctrl+g, shift+←/shift+→, shift+↑, shift+pgup, and the first esc of a double. Everything else reaches the program on the other end."},
+{"s":"The rest of the keyboard","h":"What hop takes from the remote","a":"#what-hop-takes-from-the-remote","t":"Two costs worth naming: a remote tmux never sees its own ctrl+b prefix through hop, and shift+←/shift+→ no longer reaches the remote as a selection motion."},
+{"s":"The rest of the keyboard","h":"macOS and the alt keys","a":"#macos-and-the-alt-keys","t":"macOS and the alt keys"},
+{"s":"The rest of the keyboard","h":"macOS and the alt keys","a":"#macos-and-the-alt-keys","t":"hop’s own bindings are ctrl and shift chords, which every terminal sends — nothing below is needed to use hop."},
+{"s":"The rest of the keyboard","h":"macOS and the alt keys","a":"#macos-and-the-alt-keys","t":"The alt+… aliases are another matter. On macOS, Option+letter types a character (ø, é, ∑) instead of sending the ESC-prefixed meta key hop reads, so every alt+… binding is simply absent until the terminal is told otherwise:"},
+{"s":"The rest of the keyboard","h":"macOS and the alt keys","a":"#macos-and-the-alt-keys","t":"Terminal.app — Settings → Profiles → Keyboard → Use Option as Meta key"},
+{"s":"The rest of the keyboard","h":"macOS and the alt keys","a":"#macos-and-the-alt-keys","t":"iTerm2 — Settings → Profiles → Keys → Left Option key: Esc+"},
+{"s":"The rest of the keyboard","h":"macOS and the alt keys","a":"#macos-and-the-alt-keys","t":"Ghostty — macos-option-as-alt = true"},
+{"s":"The rest of the keyboard","h":"macOS and the alt keys","a":"#macos-and-the-alt-keys","t":"VS Code’s terminal — \"terminal.integrated.macOptionIsMeta\": true"},
+{"s":"The rest of the keyboard","h":"macOS and the alt keys","a":"#macos-and-the-alt-keys","t":"This is also why shift+k/shift+j reorder pinned hosts, and why the sidebar is ctrl+b and the mouse toggle ctrl+g rather than the alt mnemonics they would otherwise be."},
+{"s":"Vim keys","h":"","a":"#vim","t":"Vim keys"},
+{"s":"Vim keys","h":"","a":"#vim","t":"Off until you turn them on, in the settings popover (, → Vim keys). Off, they are not bound to anything else either: a stray l in the host list does nothing at all. pgdn/pgup are not part of the switch — they page without being vim, so turning vim off never costs you a way to page."},
+{"s":"Vim keys","h":"The host list — step keys only","a":"#the-host-list--step-keys-only","t":"The host list — step keys only"},
+{"s":"Vim keys","h":"The host list — step keys only","a":"#the-host-list--step-keys-only","t":"Key · Action"},
+{"s":"Vim keys","h":"The host list — step keys only","a":"#the-host-list--step-keys-only","t":"j k · move down / up"},
+{"s":"Vim keys","h":"The host list — step keys only","a":"#the-host-list--step-keys-only","t":"l · connect — as enter does"},
+{"s":"Vim keys","h":"The host list — step keys only","a":"#the-host-list--step-keys-only","t":"h · back — as esc does"},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"The browser — the whole motion set"},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"Key · Action"},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"j k · move down / up"},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"gg / G · first / last entry"},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"H M L · top / middle / bottom of the visible window"},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"ctrl+d ctrl+u · half a page down / up"},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"ctrl+f · a full page down (pgup pages back)"},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"l / h · enter a directory / up one directory"},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"The rules the two sets follow"},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"The two views bind different amounts of the keyboard, never different meanings. A key the list binds does there what it does in the browser."},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"gg is a real two-key motion — in the browser. A lone g arms it; any other key in between cancels it. In the host list it is not bound."},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"ctrl+b is not a motion anywhere. It is the sidebar toggle in every mode."},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"Half and full pages are viewport-relative, matching vim, and clamped to at least one row so they still work in a very short terminal."},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"The cursor never leaves the visible window. Every motion re-clamps the scroll offset; TestCursorStaysVisible pins that invariant."},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"Motions are inert on an empty listing rather than driving the cursor negative."},
+{"s":"The cards","h":"","a":"#cards","t":"The cards"},
+{"s":"The cards","h":"","a":"#cards","t":"All of them are modal: while a card is up it takes every key, and esc closes it."},
+{"s":"The cards","h":"","a":"#cards","t":"Card · Opens with · Keys"},
+{"s":"The cards","h":"","a":"#cards","t":"Import · i · enter imports from the path shown, ctrl+u clears it, any text edits it"},
+{"s":"The cards","h":"","a":"#cards","t":"Tunnels · T · ↑/↓ select, enter/space start or stop, a e x add / edit / delete, t closes and toggles the set"},
+{"s":"The cards","h":"","a":"#cards","t":"Authentication · by itself · enter submits, tab/shift+tab move between fields, ctrl+u clears, esc abandons the connect"},
+{"s":"The cards","h":"","a":"#cards","t":"Host key · by itself · y trusts the fingerprint and retries, n/esc trusts nothing"},
+{"s":"The cards","h":"","a":"#cards","t":"Add / edit host · a / e · ↑/↓ or tab move between fields, enter saves, esc cancels"},
+{"s":"The cards","h":"","a":"#cards","t":"Delete host · x · enter confirms, esc cancels"},
+{"s":"The cards","h":"","a":"#cards","t":"Keys · ? · any key closes it"},
+{"s":"The cards","h":"","a":"#cards","t":"The host form carries more than an address: a group, a default directory every session on that host starts in, an identity file, and ProxyCommand / ProxyJump for hosts you reach through a bastion. Renaming the alias keeps the host’s visit history, so it does not lose its place in the frecency order."},
+{"s":"Development","h":"","a":"#dev","t":"Development"},
+{"s":"Development","h":"","a":"#dev","t":"just # list recipes just run list # go run . list just build # dev binary just test # go test ./... just test-e2e # + the Docker 2FA end-to-end tests (needs Docker) just vet just fmt # gofmt -w . just ci # fmt-check + vet + test (what CI runs) just docs # regenerate index.html, README.md and KEYBINDINGS.md from docs/ just demo # re-record assets/demo.gif + the stills (needs vhs) How the docs, the demo, the tests and the release are put together"},
+{"s":"Development","h":"","a":"#dev","t":"The docs. docs/*.md is the only source for the website, the README and the keybinding reference; tools/docsgen renders all three, and just ci fails if a generated file is out of date. Sections carry frontmatter saying where they belong, and a handful of fenced directives (:::cards, :::why, :::figure) cover the layouts markdown has no syntax for — each with a plain-markdown lowering, so the same section reads well on GitHub."},
+{"s":"Development","h":"","a":"#dev","t":"The justfile is deliberately universal: recipe bodies are plain commands that run under both sh and PowerShell, and the two that need real shell logic (fmt-check, clean) are split with [unix] / [windows] attributes."},
+{"s":"Development","h":"","a":"#dev","t":"The demo. just demo records the GIF and the stills on this page. scripts/demo.mjs builds hop, points HOME at a throwaway directory with a seeded host database, and starts tools/demoserver — a loopback-only SSH server that invents everything on screen: a fake shell with a table of canned command output, an in-memory filesystem over SFTP, and a fake vi. The keypress overlay in the corner is hop’s own, compiled in only under -tags hopdemo (internal/tui/keycast.go), so a released binary does not carry it."},
+{"s":"Development","h":"","a":"#dev","t":"Testing. Headless tests drive the real Bubble Tea model with real keystrokes against in-process Go SSH/SFTP servers and temp-file stores — see internal/tui/hostmgmt_test.go, TestEmbeddedRoundTrip, TestSFTPRoundTrip. CI runs vet + test + build on a Windows / Linux / macOS matrix, because the agent transport and the local-open handler are per-platform: a single-OS run cannot tell whether the others still compile."},
+{"s":"Development","h":"","a":"#dev","t":"The 2FA end-to-end tests. An in-process server that answers whatever you tell it to proves nothing about real two-factor auth, so internal/dockerenv brings up Ubuntu with the real openssh-server and libpam-google-authenticator, listening four ways: code alone, hardened publickey,keyboard-interactive, password-then-code, and both offered as alternatives. The tests compute TOTP codes the way a phone does and log in, with wrong and expired codes as negative controls. Opt in with just test-e2e; without HOP_DOCKER_E2E=1 they skip."},
+{"s":"Development","h":"","a":"#dev","t":"Releasing."},
+{"s":"Development","h":"","a":"#dev","t":"just release # patch bump: stamps VERSION, commits, tags, pushes just release minor # or major, or an explicit 1.0.0 The tag push triggers the release workflow: it gates on the three-OS test matrix, then cross-compiles all six targets (windows/linux/darwin × amd64/arm64) from one Linux runner, with checksums and a git-cliff changelog. Windows gets a .zip, everything else a .tar.gz so the exec bit survives."},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"Where a binding lives"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"The host list and the file browser move on the same keys, so they do not each spell that keyboard out. internal/keymap holds it: one table, one row per key, saying what the key means (a Motion), whether the vim setting owns it, and whether the host list binds it as well as the browser. Both views resolve keys through it — passing keymap.Full or keymap.List — and act on the motion they get back."},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"Mode · Handler"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"host list · handleNavKey (internal/tui/keys.go)"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"shell pane · handleShellKey"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"scrollback · handleScrollbackKey"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"SFTP browser · handleBrowserKey → filebrowser.Handle"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"editor tabs · handleEditorKey"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"filter · handleFilterKey"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"the cards · handleHelpKey, settings.go, hostform.go, confirm.go, importer.go, tunnels.go, hostkey.go, authprompt.go"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"shared motions · internal/keymap (scoped: the list gets the step keys, the browser all of them)"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"To add… · Touch"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"a motion key, in one or both views · the bindings table in internal/keymap (the list column is the split)"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"a key hop holds in every mode · toggleSidebarKey’s branch in handleKey, internal/tui/keys.go"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"what a motion does to the list · model.move in internal/tui/keys.go"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"what a motion does to the browser · Browser.move in internal/filebrowser"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"a command key (d, o, r, f, …) · the command switch in whichever view owns it"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"a setting · the settingsFields table in internal/tui/settings.go"},
+{"s":"Where a binding lives","h":"","a":"#internals","t":"A mode with no motions of its own — the settings popover — asks keymap.Vim(key) instead, the same table answering the narrower question: is this a key the vim setting owns? That is why turning the setting off is one fact in the config rather than a flag threaded through three switch statements."},
+{"s":"Roadmap","h":"","a":"#roadmap","t":"Roadmap"},
+{"s":"Roadmap","h":"","a":"#roadmap","t":"Shipped: embedded shells · multi-shell tabs · SFTP browser · remote editor tabs · scrollback · tunnels · ProxyCommand/ProxyJump · 2FA · reconnect · mouse · copy and paste · host management · host-key confirmation · SSH config import · live settings · cross-platform releases."},
+{"s":"Roadmap","h":"","a":"#roadmap","t":"Next up:"},
+{"s":"Roadmap","h":"💓 Health panel","a":"#roadmap","t":"💓 Health panel"},
+{"s":"Roadmap","h":"💓 Health panel","a":"#roadmap","t":"Per-host reachability, latency, uptime and disk, shown like VS Code’s connection status."},
+{"s":"Roadmap","h":"⬆️ Uploads \u0026 file ops","a":"#roadmap","t":"⬆️ Uploads \u0026 file ops"},
+{"s":"Roadmap","h":"⬆️ Uploads \u0026 file ops","a":"#roadmap","t":"u, x, R, m in the browser, with async transfer progress."},
+{"s":"Roadmap","h":"🏷️ Groups \u0026 tags","a":"#roadmap","t":"🏷️ Groups \u0026 tags"},
+{"s":"Roadmap","h":"🏷️ Groups \u0026 tags","a":"#roadmap","t":"Section the list by group, filter by tag, pin favourites."},
+{"s":"Roadmap","h":"📐 Narrow terminals","a":"#roadmap","t":"📐 Narrow terminals"},
+{"s":"Roadmap","h":"📐 Narrow terminals","a":"#roadmap","t":"Narrow-terminal layouts and cursor-style fidelity."},
+{"s":"Roadmap","h":"📐 Narrow terminals","a":"#roadmap","t":"The living version, with far more detail on each item, is TODO.md."}
+]
 </script>
 
+<script>
+  // In-page search over an index docsgen builds from the rendered sections, so
+  // whatever is on the page is findable. No network, no service worker, no
+  // index to keep in sync by hand.
+  (function () {
+    var wrap = document.getElementById('searchwrap');
+    var input = document.getElementById('searchinput');
+    var list = document.getElementById('searchresults');
+    var open = document.getElementById('searchbtn');
+    var data = [];
+    try { data = JSON.parse(document.getElementById('searchdata').textContent); } catch (e) { return; }
+
+    var hits = [], cursor = 0;
+
+    function esc(s) {
+      return s.replace(/[&<>"]/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+      });
+    }
+
+    // A hit needs every term. Scoring prefers a heading over prose, the start
+    // of a word over the middle of one, and short entries over long ones — so
+    // "scrollback" lands on the section, not on the sentence that mentions it.
+    function score(entry, terms) {
+      var hay = (entry.t + ' ' + (entry.h || '') + ' ' + entry.s).toLowerCase();
+      var total = 0;
+      for (var i = 0; i < terms.length; i++) {
+        var at = hay.indexOf(terms[i]);
+        if (at < 0) return -1;
+        var wordStart = at === 0 || /[\s(·/,\-]/.test(hay.charAt(at - 1));
+        total += (wordStart ? 60 : 25) - Math.min(at, 40) / 4;
+        if (entry.t.toLowerCase() === terms[i]) total += 60;
+      }
+      if (!entry.h) total += 8;                       // section-level entries
+      if (entry.t === entry.s || entry.t === entry.h) total += 45;  // a heading itself
+      return total - Math.min(entry.t.length, 300) / 30;
+    }
+
+    function highlight(text, terms) {
+      var out = esc(text);
+      terms.forEach(function (t) {
+        if (!t) return;
+        var re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+        out = out.replace(re, '<mark>$1</mark>');
+      });
+      return out;
+    }
+
+    function search(q) {
+      var terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+      if (!terms.length) return [];
+      var scored = [];
+      var seen = {};
+      for (var i = 0; i < data.length; i++) {
+        var s = score(data[i], terms);
+        if (s < 0) continue;
+        var key = data[i].a + '|' + data[i].t;
+        if (seen[key]) continue;
+        seen[key] = 1;
+        scored.push({ e: data[i], s: s });
+      }
+      scored.sort(function (a, b) { return b.s - a.s; });
+      return scored.slice(0, 25).map(function (x) { return x.e; });
+    }
+
+    function render(terms) {
+      if (!hits.length) {
+        list.innerHTML = '<p class="empty">Nothing matches. Try a key, a mode, or a setting.</p>';
+        return;
+      }
+      list.innerHTML = hits.map(function (h, i) {
+        var where = h.h && h.h !== h.s ? h.s + ' → ' + h.h : h.s;
+        var text = h.t.length > 220 ? h.t.slice(0, 220) + '…' : h.t;
+        return '<a href="' + h.a + '" role="option" aria-selected="' + (i === cursor) + '">' +
+          '<span class="where">' + esc(where) + '</span>' +
+          '<span class="what">' + highlight(text, terms) + '</span></a>';
+      }).join('');
+      var sel = list.children[cursor];
+      if (sel && sel.scrollIntoView) sel.scrollIntoView({ block: 'nearest' });
+    }
+
+    function update() {
+      var q = input.value.trim();
+      hits = search(q);
+      cursor = 0;
+      if (!q) { list.innerHTML = '<p class="empty">Type to search every section of this page.</p>'; return; }
+      render(q.toLowerCase().split(/\s+/).filter(Boolean));
+    }
+
+    function show() {
+      wrap.hidden = false;
+      input.select();
+      input.focus();
+      update();
+    }
+    function hide() { wrap.hidden = true; input.value = ''; }
+
+    function go() {
+      var hit = hits[cursor];
+      if (!hit) return;
+      hide();
+      location.hash = hit.a;
+    }
+
+    if (open) open.addEventListener('click', show);
+    input.addEventListener('input', update);
+
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown' || (e.key === 'n' && e.ctrlKey)) {
+        cursor = Math.min(cursor + 1, hits.length - 1); render(input.value.toLowerCase().split(/\s+/).filter(Boolean)); e.preventDefault();
+      } else if (e.key === 'ArrowUp' || (e.key === 'p' && e.ctrlKey)) {
+        cursor = Math.max(cursor - 1, 0); render(input.value.toLowerCase().split(/\s+/).filter(Boolean)); e.preventDefault();
+      } else if (e.key === 'Enter') {
+        go(); e.preventDefault();
+      } else if (e.key === 'Escape') {
+        hide(); e.preventDefault();
+      }
+    });
+
+    list.addEventListener('click', function (e) {
+      var a = e.target.closest('a');
+      if (a) hide();
+    });
+
+    wrap.addEventListener('mousedown', function (e) { if (e.target === wrap) hide(); });
+
+    // ctrl+k / cmd+k anywhere, and "/" when you are not already typing —
+    // the same two keys hop itself binds for filtering.
+    addEventListener('keydown', function (e) {
+      var typing = /^(input|textarea|select)$/i.test((e.target.tagName || ''));
+      if ((e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey)) { show(); e.preventDefault(); return; }
+      if (e.key === '/' && !typing && wrap.hidden) { show(); e.preventDefault(); }
+    });
+  })();
+</script>
 <script>
   // Theme toggle: system -> light -> dark -> system
   (function () {

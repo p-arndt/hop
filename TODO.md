@@ -72,6 +72,10 @@ the package it works in — this file tracks *what*, not *why*.
 
 - [x] **Demo recording:** `just demo` records `assets/demo.gif` + screenshots from `demo/hop.tape` via VHS, against `tools/demoserver` (a loopback-only fake host, so nothing real is in the recording). Keypress overlay is behind `-tags hopdemo`, absent from releases.
 - [x] **README:** hero, feature table, install, quick start, file locations, key reference, architecture map, roadmap.
+- [x] **Docs are generated from one source:** `docs/*.md` renders to `index.html` (the website), `README.md` and
+      `KEYBINDINGS.md` via `tools/docsgen` (`just docs`). The website has an offline search (ctrl+k) built from the
+      rendered sections; `go test ./...` fails when a generated file has drifted.
+- [x] **The site is published:** GitHub Pages serves `index.html` from `main` / root at <https://p-arndt.github.io/hop/>, linked from the README and KEYBINDINGS.
 - [x] **Self-update:** `hop self-update` / `hop check-update` (`internal/update`) — GitHub-hosts-only download, SHA-256 verified against `checksums.txt`, atomic swap. Passive check once a day; `HOP_NO_UPDATE_CHECK=1` disables it.
 - [x] **Cross-platform build (macOS/Linux):** agent transport behind a build-tagged `dialAgent`.
 - [x] **Release/CI for all platforms:** windows/ubuntu/macos test matrix, then six cross-compiled targets from one Linux runner.

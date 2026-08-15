@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hop — documentation</title>
+<meta name="description" content="hop: hop from server to server without ever leaving your terminal. Install, keys, tunnels, settings and internals — with an offline search.">
+<link rel="icon" href="assets/logo.png">
+<script>
+  // Applied before first paint: otherwise a saved light/dark choice lands after
+  // the stylesheet has already painted the system theme, and the page flashes.
+  (function () {
+    try {
+      var t = localStorage.getItem('hop-docs-theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  })();
+</script>
+<style>
+  /* ---- tokens -------------------------------------------------------- */
+  :root {
+    --ground:      #fbf7fa;
+    --panel:       #ffffff;
+    --panel-2:     #f4eef3;
+    --line:        #e6dde4;
+    --line-strong: #d5c8d2;
+    --ink:         #1e1922;
+    --ink-soft:    #574c5c;
+    --ink-faint:   #6f6475;
+    --accent:      #b4218a;
+    --accent-soft: #f6e3f1;
+    --accent-line: #e8bfdd;
+    --term-bg:     #201a26;
+    --term-ink:    #efe6ee;
+    --ok:          #1f7a4d;
+    --warn:        #9a6200;
+    --shadow:      0 1px 2px rgba(30,25,34,.06), 0 8px 24px -12px rgba(30,25,34,.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground:      #15111a;
+      --panel:       #1c1723;
+      --panel-2:     #241d2c;
+      --line:        #2f2739;
+      --line-strong: #40354c;
+      --ink:         #efe8f1;
+      --ink-soft:    #b6a9bd;
+      --ink-faint:   #8a7c92;
+      --accent:      #ff87d7;
+      --accent-soft: #2c1f30;
+      --accent-line: #4a3149;
+      --term-bg:     #100d14;
+      --term-ink:    #efe6ee;
+      --ok:          #63d69c;
+      --warn:        #e0aa4a;
+      --shadow:      0 1px 2px rgba(0,0,0,.4), 0 12px 32px -16px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground:#fbf7fa; --panel:#ffffff; --panel-2:#f4eef3; --line:#e6dde4; --line-strong:#d5c8d2;
+    --ink:#1e1922; --ink-soft:#574c5c; --ink-faint:#6f6475;
+    --accent:#b4218a; --accent-soft:#f6e3f1; --accent-line:#e8bfdd;
+    --term-bg:#201a26; --term-ink:#efe6ee; --ok:#1f7a4d; --warn:#9a6200;
+    --shadow:0 1px 2px rgba(30,25,34,.06), 0 8px 24px -12px rgba(30,25,34,.18);
+  }
+  :root[data-theme="dark"] {
+    --ground:#15111a; --panel:#1c1723; --panel-2:#241d2c; --line:#2f2739; --line-strong:#40354c;
+    --ink:#efe8f1; --ink-soft:#b6a9bd; --ink-faint:#8a7c92;
+    --accent:#ff87d7; --accent-soft:#2c1f30; --accent-line:#4a3149;
+    --term-bg:#100d14; --term-ink:#efe6ee; --ok:#63d69c; --warn:#e0aa4a;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px -16px rgba(0,0,0,.7);
+  }
+
+  .skip {
+    position: absolute; left: -9999px; top: .5rem;
+    background: var(--panel); color: var(--ink); border: 1px solid var(--accent);
+    border-radius: .4rem; padding: .5rem .8rem; z-index: 10; text-decoration: none;
+  }
+  .skip:focus { left: .5rem; }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 2rem; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { animation: none !important; transition: none !important; }
+  }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono, code, kbd, pre, th.k, .keytable td:first-child {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  /* ---- shell layout --------------------------------------------------- */
+  .wrap {
+    display: grid;
+    grid-template-columns: 15.5rem minmax(0, 1fr);
+    gap: 3.5rem;
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 1.75rem 6rem;
+  }
+  @media (max-width: 62rem) {
+    .wrap { grid-template-columns: minmax(0,1fr); gap: 0; }
+    .sidebar {
+      position: static; height: auto; padding: 1.5rem 0 1.25rem;
+      border-right: 0; border-bottom: 1px solid var(--line);
+      flex-direction: row; flex-wrap: wrap; align-items: center; gap: 1rem;
+    }
+    /* the 25-item list would otherwise fill the whole first screen */
+    .sidebar nav {
+      flex: 1 0 100%; order: 3;
+      max-height: 45vh; overflow-y: auto;
+      border: 1px solid var(--line); border-radius: .5rem;
+      background: var(--panel); padding: .5rem .4rem;
+    }
+    .themebtn { margin-left: auto; }
+  }
+
+  /* ---- sidebar -------------------------------------------------------- */
+  .sidebar {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    height: 100dvh;
+    padding: 2.25rem 1.25rem 1.25rem 0;
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    min-height: 0;
+  }
+  /* only the link list scrolls, so the theme button never falls below the fold */
+  .sidebar nav { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+  .brand { display: flex; align-items: center; gap: .6rem; text-decoration: none; color: inherit; }
+  .brand img { width: 4rem; height: 4rem; object-fit: contain; flex: none; }
+  .brand b { font-size: 1.25rem; letter-spacing: -.02em; }
+  .brand span { color: var(--ink-faint); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; }
+
+  nav ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .1rem; }
+  nav a {
+    display: block;
+    padding: .3rem .6rem;
+    border-radius: .3rem;
+    color: var(--ink-soft);
+    text-decoration: none;
+    font-size: .875rem;
+    border-left: 2px solid transparent;
+  }
+  nav a:hover { color: var(--ink); background: var(--panel-2); }
+  nav a.on { color: var(--accent); border-left-color: var(--accent); background: var(--accent-soft); }
+  nav .grp {
+    font-size: .68rem; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--ink-faint); margin: 1.1rem 0 .35rem .6rem;
+  }
+  nav ol li:first-child .grp { margin-top: 0; }
+
+  .themebtn {
+    flex: none;
+    align-self: flex-start;
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    color: var(--ink-soft);
+    border-radius: .4rem;
+    padding: .35rem .7rem;
+    font: inherit;
+    font-size: .8rem;
+    cursor: pointer;
+  }
+  .themebtn:hover { color: var(--ink); border-color: var(--accent-line); }
+
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: .2rem;
+  }
+
+  /* ---- content -------------------------------------------------------- */
+  main { padding-top: 2.25rem; min-width: 0; }
+  section { scroll-margin-top: 1.5rem; }
+  section + section { margin-top: 4rem; }
+
+  h1 {
+    font-size: clamp(2.4rem, 5vw, 3.4rem);
+    line-height: 1.04;
+    letter-spacing: -.035em;
+    margin: 0 0 .6rem;
+    text-wrap: balance;
+  }
+  h2 {
+    font-size: 1.6rem; letter-spacing: -.02em; margin: 0 0 .9rem;
+    padding-bottom: .5rem; border-bottom: 1px solid var(--line);
+    text-wrap: balance;
+  }
+  h3 { font-size: 1.05rem; letter-spacing: -.01em; margin: 2rem 0 .5rem; }
+  h4 { font-size: .95rem; margin: 1.4rem 0 .4rem; color: var(--ink-soft); }
+  p, li { max-width: 66ch; }
+  p { margin: 0 0 1rem; }
+  main ul { padding-left: 1.15rem; margin: 0 0 1rem; }
+  main li { margin-bottom: .35rem; }
+  a { color: var(--accent); text-underline-offset: .18em; }
+
+  .eyebrow {
+    font-size: .7rem; text-transform: uppercase; letter-spacing: .16em;
+    color: var(--accent); margin: 0 0 .7rem;
+  }
+  .lede { font-size: 1.15rem; color: var(--ink-soft); max-width: 58ch; }
+
+  /* ---- hero ----------------------------------------------------------- */
+  .hero { padding-bottom: 2.5rem; border-bottom: 1px solid var(--line); }
+  .badges { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1.25rem 0 1.75rem; }
+  .badge {
+    font-size: .72rem; letter-spacing: .04em;
+    border: 1px solid var(--line-strong); border-radius: 999px;
+    padding: .18rem .6rem; color: var(--ink-soft); background: var(--panel);
+    text-decoration: none;
+  }
+  .badge:hover { border-color: var(--accent-line); color: var(--accent); }
+
+
+  /* ---- code ----------------------------------------------------------- */
+  pre {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: .5rem;
+    padding: .9rem 1rem;
+    overflow-x: auto;
+    font-size: .84rem;
+    line-height: 1.7;
+    margin: 0 0 1rem;
+  }
+  pre code { background: none; padding: 0; border: 0; font-size: inherit; }
+  code {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: .28rem;
+    padding: .04em .32em;
+    font-size: .875em;
+  }
+  pre .c { color: var(--ink-faint); }
+
+  kbd {
+    display: inline-block;
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    border-bottom-width: 2px;
+    border-radius: .3rem;
+    padding: .05em .4em;
+    font-size: .8em;
+    line-height: 1.5;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  /* ---- tables --------------------------------------------------------- */
+  .tablewrap { overflow-x: auto; margin: 0 0 1.25rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel); }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: .55rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  thead th {
+    font-size: .68rem; text-transform: uppercase; letter-spacing: .11em;
+    color: var(--ink-faint); font-weight: 600; background: var(--panel-2);
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: var(--accent-soft); }
+  .keytable td:first-child { white-space: nowrap; width: 1%; }
+  td .path { font-variant-numeric: tabular-nums; }
+
+  /* ---- feature grid --------------------------------------------------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: .9rem; margin-bottom: 1.25rem; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: .5rem;
+    padding: .95rem 1.05rem;
+  }
+  .card h4 { margin: 0 0 .3rem; color: var(--ink); font-size: .95rem; }
+  .card p { margin: 0; font-size: .875rem; color: var(--ink-soft); max-width: none; }
+
+  /* ---- mode strip ----------------------------------------------------- */
+  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .9rem; margin-bottom: 1.5rem; }
+  .mode {
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: .5rem; background: var(--panel); padding: .9rem 1rem;
+  }
+  .mode b { display: block; font-size: .95rem; }
+  .mode span { font-size: .82rem; color: var(--ink-soft); }
+  .mode .who { display: block; margin-top: .4rem; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); }
+  .modelinks {
+    list-style: none; margin: .7rem 0 0; padding: .6rem 0 0;
+    border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: .15rem;
+  }
+  .modelinks li { margin: 0; }
+  .modelinks a { font-size: .84rem; text-decoration: none; }
+  .modelinks a::before { content: "→ "; color: var(--ink-faint); }
+  .modelinks a:hover { text-decoration: underline; }
+
+  /* ---- section label -------------------------------------------------- */
+  .sectlabel {
+    font-size: .68rem; text-transform: uppercase; letter-spacing: .13em;
+    color: var(--ink-faint); margin: 0 0 .35rem;
+  }
+  .sectlabel::before {
+    content: ""; display: inline-block; width: .45rem; height: .45rem;
+    border-radius: 999px; background: var(--accent); margin-right: .45rem;
+    vertical-align: .06em;
+  }
+
+  /* ---- rationale (collapsed by default, so tables stay the spine) ----- */
+  details.why {
+    border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-2);
+    padding: .55rem .9rem; margin: 0 0 .7rem;
+  }
+  details.why[open] { padding-bottom: .9rem; background: var(--panel); }
+  details.why > summary {
+    font-size: .87rem; font-weight: 600; color: var(--ink-soft);
+    list-style: none; display: flex; align-items: center; gap: .45rem;
+  }
+  details.why > summary::-webkit-details-marker { display: none; }
+  details.why > summary::before {
+    content: "▸"; color: var(--accent); font-size: .8em; flex: none;
+  }
+  details.why[open] > summary { color: var(--ink); margin-bottom: .2rem; }
+  details.why[open] > summary::before { content: "▾"; }
+  details.why > summary:hover { color: var(--ink); }
+  details.why > *:not(summary) { margin-top: .7rem; }
+  details.why > *:last-child { margin-bottom: 0; }
+
+  /* ---- shots ---------------------------------------------------------- */
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1.1rem; margin-bottom: 1.25rem; }
+  figure { margin: 0; }
+  figure img { width: 100%; max-width: 100%; height: auto; display: block; border: 1px solid var(--line-strong); border-radius: .5rem; background: var(--term-bg); }
+  figcaption { font-size: .8rem; color: var(--ink-soft); margin-top: .45rem; }
+  .full img { width: 100%; }
+
+  /* ---- callouts ------------------------------------------------------- */
+  .note {
+    border: 1px solid var(--accent-line);
+    background: var(--accent-soft);
+    border-radius: .5rem;
+    padding: .85rem 1rem;
+    margin: 0 0 1.25rem;
+    font-size: .9rem;
+  }
+  .note p { margin: 0; max-width: 62ch; }
+  .note b { color: var(--accent); }
+
+  details {
+    border: 1px solid var(--line); border-radius: .5rem;
+    background: var(--panel); padding: .6rem .9rem; margin-bottom: .7rem;
+  }
+  details[open] { padding-bottom: .9rem; }
+  summary { cursor: pointer; font-size: .92rem; font-weight: 600; }
+  details > *:not(summary) { margin-top: .8rem; }
+
+  .searchbtn {
+    flex: none;
+    display: flex; align-items: center; gap: .5rem;
+    width: 100%; text-align: left;
+    background: var(--panel); color: var(--ink-faint);
+    border: 1px solid var(--line-strong); border-radius: .4rem;
+    padding: .4rem .6rem; font: inherit; font-size: .85rem; cursor: pointer;
+  }
+  .searchbtn:hover { border-color: var(--accent-line); color: var(--ink); }
+  .searchbtn kbd { margin-left: auto; font-size: .7em; }
+
+  .searchwrap {
+    position: fixed; inset: 0; z-index: 40;
+    display: flex; justify-content: center;
+    padding: max(6vh, 2rem) 1rem 2rem;
+    background: rgba(20, 16, 24, .55);
+  }
+  .searchwrap[hidden] { display: none; }
+
+  .searchbox {
+    display: flex; flex-direction: column; min-height: 0;
+    width: min(40rem, 100%); max-height: min(32rem, 80dvh);
+    background: var(--panel); border: 1px solid var(--line-strong);
+    border-radius: .7rem; box-shadow: var(--shadow); overflow: hidden;
+  }
+  .searchbox input {
+    flex: none; font: inherit; font-size: 1rem;
+    background: var(--panel); color: var(--ink);
+    border: 0; border-bottom: 1px solid var(--line);
+    padding: .85rem 1rem; outline: none;
+  }
+  .searchbox input::placeholder { color: var(--ink-faint); }
+
+  .results { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: .35rem; }
+  .results a {
+    display: block; padding: .45rem .65rem; border-radius: .4rem;
+    color: inherit; text-decoration: none; border: 1px solid transparent;
+  }
+  .results a[aria-selected="true"] { background: var(--accent-soft); border-color: var(--accent-line); }
+  .results .where {
+    font-size: .68rem; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--ink-faint); display: block; margin-bottom: .1rem;
+  }
+  .results .what { font-size: .88rem; color: var(--ink-soft); }
+  .results .what mark { background: none; color: var(--accent); font-weight: 600; }
+  .results .what kbd { font-size: .78em; }
+  .results .empty, .searchfoot { font-size: .78rem; color: var(--ink-faint); padding: .6rem .75rem; }
+  .searchfoot {
+    flex: none; border-top: 1px solid var(--line); background: var(--panel-2);
+    display: flex; gap: 1rem;
+  }
+  @media print { .searchbtn, .searchwrap { display: none !important; } }
+
+  footer {
+    margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--line);
+    font-size: .85rem; color: var(--ink-faint);
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#top">Skip to content</a>
+<div class="wrap">
+
+  <aside class="sidebar">
+    <a class="brand" href="#top">
+      <img src="assets/logo.png" alt="" width="610" height="498">
+      <span style="display:flex;flex-direction:column;line-height:1.1">
+        <span>documentation</span>
+      </span>
+    </a>
+
+    <button class="searchbtn" id="searchbtn" type="button">
+      <span>Search…</span><kbd>ctrl+k</kbd>
+    </button>
+
+    <nav aria-label="Sections">
+      <ol>
+<!-- docsgen:nav -->
+      </ol>
+    </nav>
+
+    <button class="themebtn" id="theme" type="button" aria-live="polite">Theme: system</button>
+  </aside>
+
+  <main id="top">
+
+    <header class="hero">
+      <p class="eyebrow">SSH launcher · terminal UI · single binary</p>
+      <h1>Hop from server to server without ever leaving your terminal.</h1>
+      <p class="lede">One keypress and you're in a shell. One more and you're browsing its files.
+        One more and you're editing one <em>on the box</em>, in a tab, beside all the others.
+        Then hop to the next host and everything you left behind is still exactly where you left it.</p>
+
+      <div class="badges">
+        <a class="badge" href="https://github.com/p-arndt/hop">github.com/p-arndt/hop</a>
+        <span class="badge">Go 1.26</span>
+        <span class="badge">windows · macOS · linux</span>
+        <span class="badge">amd64 + arm64</span>
+        <span class="badge">no cgo, no runtime</span>
+      </div>
+
+      <figure class="full">
+        <img src="assets/demo.gif" width="1500" height="800" decoding="async"
+             alt="Recording: filtering the fleet, opening a shell, opening a second one, browsing files, editing one on the server">
+        <figcaption>Filtering the fleet, opening a shell, opening a second one on the same connection,
+          browsing its files, editing one on the server. Every host, file and command is invented — it
+          runs against a throwaway SSH server (<code>tools/demoserver</code>) with a HOME of its own.</figcaption>
+      </figure>
+    </header>
+
+<!-- docsgen:sections -->
+
+    <footer>
+      <p>Built with
+        <a href="https://github.com/charmbracelet/bubbletea">Bubble Tea</a> ·
+        <a href="https://github.com/charmbracelet/lipgloss">Lip Gloss</a> ·
+        <a href="https://github.com/charmbracelet/x">x/vt</a> ·
+        <a href="https://pkg.go.dev/golang.org/x/crypto/ssh">x/crypto/ssh</a> ·
+        <a href="https://github.com/pkg/sftp">pkg/sftp</a> ·
+        <a href="https://gitlab.com/cznic/sqlite">modernc.org/sqlite</a> ·
+        <a href="https://github.com/sahilm/fuzzy">sahilm/fuzzy</a> ·
+        <a href="https://github.com/skeema/knownhosts">skeema/knownhosts</a>.</p>
+      <p>Full keyboard reference: <a href="KEYBINDINGS.md">KEYBINDINGS.md</a> ·
+        Source: <a href="https://github.com/p-arndt/hop">github.com/p-arndt/hop</a> ·
+        Made for people with too many servers and not enough terminals.</p>
+    </footer>
+
+  </main>
+</div>
+<div class="searchwrap" id="searchwrap" hidden>
+  <div class="searchbox" role="dialog" aria-modal="true" aria-label="Search the documentation">
+    <input id="searchinput" type="search" placeholder="Search the docs — a key, a mode, a setting…"
+           autocomplete="off" spellcheck="false" aria-controls="searchresults">
+    <div class="results" id="searchresults" role="listbox"></div>
+    <div class="searchfoot">
+      <span><kbd>↑</kbd> <kbd>↓</kbd> move</span>
+      <span><kbd>enter</kbd> go</span>
+      <span><kbd>esc</kbd> close</span>
+    </div>
+  </div>
+</div>
+
+<script type="application/json" id="searchdata">
+<!-- docsgen:search -->
+</script>
+
+<script>
+  // In-page search over an index docsgen builds from the rendered sections, so
+  // whatever is on the page is findable. No network, no service worker, no
+  // index to keep in sync by hand.
+  (function () {
+    var wrap = document.getElementById('searchwrap');
+    var input = document.getElementById('searchinput');
+    var list = document.getElementById('searchresults');
+    var open = document.getElementById('searchbtn');
+    var data = [];
+    try { data = JSON.parse(document.getElementById('searchdata').textContent); } catch (e) { return; }
+
+    var hits = [], cursor = 0;
+
+    function esc(s) {
+      return s.replace(/[&<>"]/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+      });
+    }
+
+    // A hit needs every term. Scoring prefers a heading over prose, the start
+    // of a word over the middle of one, and short entries over long ones — so
+    // "scrollback" lands on the section, not on the sentence that mentions it.
+    function score(entry, terms) {
+      var hay = (entry.t + ' ' + (entry.h || '') + ' ' + entry.s).toLowerCase();
+      var total = 0;
+      for (var i = 0; i < terms.length; i++) {
+        var at = hay.indexOf(terms[i]);
+        if (at < 0) return -1;
+        var wordStart = at === 0 || /[\s(·/,\-]/.test(hay.charAt(at - 1));
+        total += (wordStart ? 60 : 25) - Math.min(at, 40) / 4;
+        if (entry.t.toLowerCase() === terms[i]) total += 60;
+      }
+      if (!entry.h) total += 8;                       // section-level entries
+      if (entry.t === entry.s || entry.t === entry.h) total += 45;  // a heading itself
+      return total - Math.min(entry.t.length, 300) / 30;
+    }
+
+    function highlight(text, terms) {
+      var out = esc(text);
+      terms.forEach(function (t) {
+        if (!t) return;
+        var re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+        out = out.replace(re, '<mark>$1</mark>');
+      });
+      return out;
+    }
+
+    function search(q) {
+      var terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+      if (!terms.length) return [];
+      var scored = [];
+      var seen = {};
+      for (var i = 0; i < data.length; i++) {
+        var s = score(data[i], terms);
+        if (s < 0) continue;
+        var key = data[i].a + '|' + data[i].t;
+        if (seen[key]) continue;
+        seen[key] = 1;
+        scored.push({ e: data[i], s: s });
+      }
+      scored.sort(function (a, b) { return b.s - a.s; });
+      return scored.slice(0, 25).map(function (x) { return x.e; });
+    }
+
+    function render(terms) {
+      if (!hits.length) {
+        list.innerHTML = '<p class="empty">Nothing matches. Try a key, a mode, or a setting.</p>';
+        return;
+      }
+      list.innerHTML = hits.map(function (h, i) {
+        var where = h.h && h.h !== h.s ? h.s + ' → ' + h.h : h.s;
+        var text = h.t.length > 220 ? h.t.slice(0, 220) + '…' : h.t;
+        return '<a href="' + h.a + '" role="option" aria-selected="' + (i === cursor) + '">' +
+          '<span class="where">' + esc(where) + '</span>' +
+          '<span class="what">' + highlight(text, terms) + '</span></a>';
+      }).join('');
+      var sel = list.children[cursor];
+      if (sel && sel.scrollIntoView) sel.scrollIntoView({ block: 'nearest' });
+    }
+
+    function update() {
+      var q = input.value.trim();
+      hits = search(q);
+      cursor = 0;
+      if (!q) { list.innerHTML = '<p class="empty">Type to search every section of this page.</p>'; return; }
+      render(q.toLowerCase().split(/\s+/).filter(Boolean));
+    }
+
+    function show() {
+      wrap.hidden = false;
+      input.select();
+      input.focus();
+      update();
+    }
+    function hide() { wrap.hidden = true; input.value = ''; }
+
+    function go() {
+      var hit = hits[cursor];
+      if (!hit) return;
+      hide();
+      location.hash = hit.a;
+    }
+
+    if (open) open.addEventListener('click', show);
+    input.addEventListener('input', update);
+
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown' || (e.key === 'n' && e.ctrlKey)) {
+        cursor = Math.min(cursor + 1, hits.length - 1); render(input.value.toLowerCase().split(/\s+/).filter(Boolean)); e.preventDefault();
+      } else if (e.key === 'ArrowUp' || (e.key === 'p' && e.ctrlKey)) {
+        cursor = Math.max(cursor - 1, 0); render(input.value.toLowerCase().split(/\s+/).filter(Boolean)); e.preventDefault();
+      } else if (e.key === 'Enter') {
+        go(); e.preventDefault();
+      } else if (e.key === 'Escape') {
+        hide(); e.preventDefault();
+      }
+    });
+
+    list.addEventListener('click', function (e) {
+      var a = e.target.closest('a');
+      if (a) hide();
+    });
+
+    wrap.addEventListener('mousedown', function (e) { if (e.target === wrap) hide(); });
+
+    // ctrl+k / cmd+k anywhere, and "/" when you are not already typing —
+    // the same two keys hop itself binds for filtering.
+    addEventListener('keydown', function (e) {
+      var typing = /^(input|textarea|select)$/i.test((e.target.tagName || ''));
+      if ((e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey)) { show(); e.preventDefault(); return; }
+      if (e.key === '/' && !typing && wrap.hidden) { show(); e.preventDefault(); }
+    });
+  })();
+</script>
+<script>
+  // Theme toggle: system -> light -> dark -> system
+  (function () {
+    var btn = document.getElementById('theme');
+    var order = ['system', 'light', 'dark'];
+    var saved = localStorage.getItem('hop-docs-theme') || 'system';
+    function apply(t) {
+      if (t === 'system') document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', t);
+      btn.textContent = 'Theme: ' + t;
+      localStorage.setItem('hop-docs-theme', t);
+    }
+    apply(saved);
+    btn.addEventListener('click', function () {
+      saved = order[(order.indexOf(saved) + 1) % order.length];
+      apply(saved);
+    });
+  })();
+
+  // Highlight the section currently in view in the sidebar.
+  //
+  // Not an IntersectionObserver: several sections are in view at once, so
+  // reacting per-entry made whichever one happened to fire last win, and
+  // scrolling up left the highlight behind. Instead, on each scroll pick the
+  // last section whose top has passed the reading line — one deterministic
+  // answer, correct in both directions.
+  (function () {
+    var nav = document.querySelector('.sidebar nav');
+    var links = Array.prototype.slice.call(document.querySelectorAll('nav a'));
+    var sections = Array.prototype.slice.call(document.querySelectorAll('section[id]'));
+    if (!sections.length) return;
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+    var current = null;
+
+    function update() {
+      var line = window.innerHeight * 0.3;
+      var pick = sections[0];
+      for (var i = 0; i < sections.length; i++) {
+        if (sections[i].getBoundingClientRect().top <= line) pick = sections[i];
+      }
+      // the last section can be too short to ever reach the line
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 2) {
+        pick = sections[sections.length - 1];
+      }
+      if (pick === current) return;
+      current = pick;
+      links.forEach(function (a) { a.classList.remove('on'); a.removeAttribute('aria-current'); });
+      var a = byId[pick.id];
+      if (!a) return;
+      a.classList.add('on');
+      a.setAttribute('aria-current', 'true');
+      // keep the active link visible when the nav itself is scrollable
+      if (nav && nav.scrollHeight > nav.clientHeight) {
+        var nb = nav.getBoundingClientRect(), ab = a.getBoundingClientRect();
+        if (ab.top < nb.top || ab.bottom > nb.bottom) {
+          nav.scrollTop += ab.top - nb.top - nb.height / 2 + ab.height / 2;
+        }
+      }
+    }
+
+    var queued = false;
+    function onScroll() {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(function () { queued = false; update(); });
+    }
+    addEventListener('scroll', onScroll, { passive: true });
+    addEventListener('resize', onScroll);
+    update();
+  })();
+</script>
+</body>
+</html>
