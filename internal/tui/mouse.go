@@ -427,6 +427,11 @@ func (m *model) dragScrollStep(s *session, dir int) bool {
 		return false
 	}
 	m.sel.anchor.Y += moved
+	// Back at the live bottom is the way out of history, as it is for the wheel and the
+	// keys. After the anchor has moved, since the snap it does is already a no-op here.
+	if p.AtBottom() {
+		m.exitScrollback()
+	}
 	return true
 }
 

@@ -362,6 +362,38 @@ func TestDragAtBottomEdgeScrollsBack(t *testing.T) {
 	}
 }
 
+// Walking all the way back down to the live screen leaves history behind it: the pane is
+// live again, so it must not go on drawing — and answering keys as — scrollback.
+func TestDragToBottomLeavesScrollback(t *testing.T) {
+	screen, marker := longScreen(60)
+	m, _ := selModel(t, screen, marker)
+	p := m.sessions["ha"].shell().pane
+
+	m.handleMouse(dragEvents(0, 5, 0, 5)[0])
+	m.handleMouse(motion(0, 0)) // up into history
+	for i := 0; i < 4; i++ {
+		m.dragScrollTick(m.dragGen)
+	}
+	if !m.scrolling() {
+		t.Fatal("the drag never entered scrollback")
+	}
+
+	// Now hold the pointer on the bottom row until the view is back at the live bottom.
+	m.handleMouse(motion(0, m.paneH-1))
+	for i := 0; i < 10 && !p.AtBottom(); i++ {
+		m.dragScrollTick(m.dragGen)
+	}
+	if !p.AtBottom() {
+		t.Fatalf("scroll offset = %d, want the view back at the live bottom", p.ScrollOffset())
+	}
+	if m.scrolling() {
+		t.Fatal("the pane reached the live bottom but stayed in scrollback mode")
+	}
+	if !m.sel.dragging || !m.sel.active {
+		t.Fatal("leaving scrollback took the drag down with it")
+	}
+}
+
 // A live screen has nothing below it, so a drag at the bottom of one scrolls nothing and
 // arms no clock that would tick forever.
 func TestDragAtBottomOfLiveScreenDoesNothing(t *testing.T) {
