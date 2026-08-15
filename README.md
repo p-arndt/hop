@@ -93,35 +93,56 @@ screen space.
 
 </details>
 
-<sub>Every host, file and command in the recording is invented. It runs against a
-throwaway SSH server (`tools/demoserver`) with a HOME of its own, so `just demo`
-re-records it on any machine without exposing anything. See
-[demo/hop.tape](demo/hop.tape).</sub>
+<sub>Everything in the recording is invented: it runs against a throwaway SSH server
+(`tools/demoserver`) with a HOME of its own, so `just demo` re-records it anywhere without
+exposing anything.</sub>
 
 ## ✨ Features
 
 |  | |
 | --- | --- |
-| 🖥️ **Embedded SSH shells** | Real terminals in a pane: a pure-Go SSH client (`x/crypto/ssh`) feeding a real VT emulator (`x/vt`). Agent *or* private-key auth, resize, cursor, the lot. |
-| 🔑 **2FA and passwords** | A host that wants a verification code (`pam_google_authenticator`) or a password gets a card, right when it asks. The dial waits in the handshake rather than restarting — a one-time code is only good once. Nothing is stored; one prompt per host, since shells, SFTP, editors and tunnels ride the same connection. |
-| 🗂️ **Multiple shells per host** | `S` (or `ctrl+o` `0`) opens another shell on a host you're already on. It's a second *channel*, so no new handshake and no second auth. Tabs across the top, `shift+←/→` to switch. |
-| 📁 **SFTP file browser** | `f` browses the remote filesystem over the connection you already have. Download with `d`, open locally with `o`. |
-| ⇄ **Local & remote tunnels** | Define TCP forwards per host with `T`; `t` starts or stops the set over the connection hop already holds. The dashboard shows saved and live state, SSH-config forwards import with the host, and reconnect puts running tunnels back. |
-| 🛰️ **ProxyCommand & ProxyJump** | Hosts you can't dial directly work anyway: `ProxyJump` logs into the bastion first and tunnels through it, `ProxyCommand` runs the broker your config names — `aws ssm start-session`, `cloudflared access ssh`, `gcloud compute start-iap-tunnel` — and speaks SSH over its pipes, with `%h` `%p` `%r` `%n` expanded. Both import from `~/.ssh/config` and sit in the add/edit card. The command runs *without a shell*: a line needing one is refused with a clear error, so an imported config can't smuggle in `sh -c`. A jump may name another hop host by alias and borrows its user, port and key. |
-| ✎ **Remote editor tabs** | `enter` on a file runs `$EDITOR` **on the server** on a second channel and renders it in a tab. No download, no copy, and `:w` writes the real file. |
-| 📂 **VS Code where you are** | `ctrl+o` `ctrl+o` in a shell (or `o` in the list) opens VS Code Remote on the directory the shell is standing in, not the one you log in to. hop tracks it over OSC 7, installing the prompt hook into bash/zsh itself and wiping the line it typed, so the pane looks untouched. |
-| 🏠 **A directory to land in** | Give a host a default directory in the add/edit card and every session on it starts there: the shell `cd`s in on the way past — on the same line that installs the OSC 7 hook, and erased along with it, so the pane looks like it logged in there — and `f` opens the file browser in it. A directory that has since been renamed away says so rather than failing quietly. |
-| ⇅ **Scrollback** | `shift+↑` pauses a shell into its history with vim-ish paging. Declines politely when a full-screen program owns the screen. |
-| 🔁 **Reconnect after a drop** | A dropped link (suspended laptop, dead VPN, rebooted box) is *noticed* — keepalive probes, not silence — and the pane keeps the last screen the host drew instead of quietly freezing. `r` dials again and puts the session's shape back: the same shell tabs, browser directory and running tunnels. |
-| 🔐 **Honest host keys** | An unknown key **aborts the dial** and shows a fingerprint card. `y` trusts it and appends; `n` trusts nothing. A *mismatch* is always a hard error. |
-| 📥 **SSH config import** | `i` (or `hop import`) upserts every host — with its `ProxyCommand` / `ProxyJump` and TCP `LocalForward` / `RemoteForward` entries — from `~/.ssh/config`. It's a *sync*, not a one-shot: re-import refreshes, and hosts you added by hand are left alone. |
-| 🔎 **Fuzzy find** | `/` filters as you type, with the matched characters picked out so a surprising hit explains itself. |
-| 🖱️ **Mouse** | Wheel and click in the list, the browser and the panes: the wheel scrolls a shell's history, a double-click connects, a click on a tab switches to it. Every gesture is a key you already have, and a remote program that asked for the mouse (vim's `set mouse=a`, `htop`) gets the pointer verbatim. Selecting still works, because hop does it: drag across a pane and it highlights, let go and it is on your clipboard. `ctrl+g` lends the pointer to your terminal for the selections that span hop's own furniture; `,` → *Mouse* → off hands it back for good. |
-| 📋 **Copy and paste** | Paste with your terminal's own paste — hop marks it as a paste (bracketed paste) so vim inserts it verbatim instead of indenting every line into a staircase. On Windows, where the console delivers a paste as synthesised keystrokes with no marker at all, hop recognises the burst and does it anyway. The other direction too: a drag over a pane copies what it covers, and a yank on the remote host (OSC 52) lands on your local clipboard, and `,` → *Remote clipboard* → off closes that door. |
-| ⚙️ **Live settings** | `,` opens a popover for editor, download dir, accent colour (a swatch strip you *see*, not a number you look up), open-with, vim keys, mouse and remote clipboard. Applied on the spot. |
+| 🖥️ **Embedded SSH shells** | Real terminals in a pane — pure-Go SSH client, real VT emulator. Agent or key auth. |
+| 🔑 **2FA and passwords** | A card appears the moment the host asks. Nothing stored, one prompt per host. |
+| 🗂️ **Multiple shells per host** | `S` opens a second channel on the same connection — no new handshake, no second auth. |
+| 📁 **SFTP file browser** | `f` browses the remote filesystem over the connection you already have. |
+| ⇄ **Local & remote tunnels** | Define forwards per host with `T`, start/stop them with `t`. Imported from SSH config, restored on reconnect. |
+| 🛰️ **ProxyCommand & ProxyJump** | Bastions and brokers (`aws ssm`, `cloudflared`, `gcloud`) work as your SSH config describes them. |
+| ✎ **Remote editor tabs** | `enter` on a file runs `$EDITOR` *on the server* in a tab. No download — `:w` writes the real file. |
+| 📂 **VS Code where you are** | `ctrl+o` `ctrl+o` opens VS Code Remote in the directory the shell is standing in, tracked over OSC 7. |
+| 🏠 **A directory to land in** | Give a host a default directory and every session on it starts there. |
+| ⇅ **Scrollback** | `shift+↑` pauses a shell into its history, with vim-ish paging. |
+| 🔁 **Reconnect after a drop** | Drops are noticed, the last screen is kept, and `r` puts the shells, browser and tunnels back. |
+| 🔐 **Honest host keys** | An unknown key aborts the dial and shows a fingerprint card. A mismatch is always a hard error. |
+| 📥 **SSH config import** | `i` syncs hosts from `~/.ssh/config` — re-import refreshes, hand-added hosts are left alone. |
+| 🔎 **Fuzzy find** | `/` filters as you type, with the matched characters picked out. |
+| 🖱️ **Mouse** | Wheel, click and drag-to-copy everywhere; remote programs that want the pointer get it verbatim. |
+| 📋 **Copy and paste** | Bracketed paste (even on Windows), drag to copy, and remote yanks (OSC 52) land on your clipboard. |
+| ⚙️ **Live settings** | `,` — editor, download dir, accent colour, vim keys, mouse, remote clipboard. Applied on the spot. |
 | 🎯 **Frecency ordering** | The hosts you actually use float to the top. |
-| 🪟 **Cross-platform** | Static, dependency-free binaries for Windows, macOS and Linux (amd64 + arm64). No cgo, no libc, no runtime. |
-| ⌨️ **Opt-in vim keys** | Off by default, because `h`/`l` meaning "out of" and "into" a host is a surprise to anyone who didn't ask for it. Flip one switch and the motions appear everywhere at once. |
+| 🪟 **Cross-platform** | Static, dependency-free binaries for Windows, macOS and Linux (amd64 + arm64). |
+| ⌨️ **Opt-in vim keys** | Off by default. Flip one switch and the motions appear everywhere at once. |
+
+<details>
+<summary>The longer version of a few of these</summary>
+<br>
+
+**2FA.** The dial waits inside the handshake rather than restarting — a one-time code is
+only good once. One prompt per host, since shells, SFTP, editors and tunnels ride the same
+connection.
+
+**ProxyCommand.** The command runs *without a shell*: a line needing one is refused with a
+clear error, so an imported config can't smuggle in `sh -c`. `%h` `%p` `%r` `%n` are
+expanded. A `ProxyJump` may name another hop host by alias and borrows its user, port and key.
+
+**OSC 7.** hop installs the prompt hook into bash/zsh itself — one line typed at the first
+prompt, then wiped from the pane, so the session looks untouched. Nothing is typed into a
+shell that already emits OSC 7, or while a full-screen program owns the screen. Where no
+directory can be learned, the key still opens the host in its default directory and says so.
+
+**Reconnect.** Drops are found with keepalive probes rather than silence, so a suspended
+laptop or dead VPN doesn't leave a pane quietly frozen.
+
+</details>
 
 ## 📦 Install
 
@@ -151,15 +172,10 @@ hop check-update   # is there a newer release?
 hop self-update    # download it, verify its checksum, swap this binary
 ```
 
-`self-update` fetches the archive for *your* platform from the latest GitHub
-release, checks its SHA-256 against that release's `checksums.txt`, and replaces
-the running binary atomically. On Windows the old `hop.exe` is renamed aside and
-swept up the next time hop starts. Source builds (`version = dev`) are refused:
-there's nothing to compare them against.
-
-hop also checks once a day in the background and mentions a newer version in the
-footer and on the CLI. `HOP_NO_UPDATE_CHECK=1` turns that off; the two commands
-above still work.
+`self-update` pulls the archive for your platform from the latest release, verifies its
+SHA-256 against that release's `checksums.txt`, and swaps the running binary atomically.
+Source builds (`version = dev`) are refused. hop also checks once a day in the background;
+`HOP_NO_UPDATE_CHECK=1` turns that off.
 
 ### From source
 
@@ -258,16 +274,8 @@ Every mode returns to the host list with **`ctrl+o`**.
 | *everything else* | goes to the remote shell |
 
 `ctrl+o` `ctrl+o` opens VS Code Remote on the directory the shell is standing in —
-`cd` somewhere, `ctrl+o` out of the pane, `ctrl+o` again. (Only a chord because the
-remote shell owns every plain key, and a control byte is the one thing every terminal
-sends without configuration.) hop learns that directory over **OSC 7**, the escape
-sequence terminals use for it, installing the prompt hook itself for **bash** and
-**zsh**: one line typed at the first prompt and then wiped from the pane, so the
-session looks untouched. Nothing is typed into a shell that already emits OSC 7, or
-while a full-screen program owns the screen (vim, tmux, a `ForceCommand`), and the
-erase is declined if anything but hop's own line is on the rows. Anywhere hop cannot
-learn a directory the key still opens the host in its default directory, and says so.
-See [KEYBINDINGS.md](KEYBINDINGS.md).
+`cd` somewhere, `ctrl+o` out of the pane, `ctrl+o` again. (Only a chord because the remote
+shell owns every plain key.) Full reference: [KEYBINDINGS.md](KEYBINDINGS.md).
 
 </details>
 
@@ -319,37 +327,31 @@ just ci         # fmt-check + vet + test (what CI runs)
 just demo       # re-record assets/demo.gif + the stills (needs vhs)
 ```
 
-The `justfile` is deliberately universal: recipe bodies are plain commands that run
-under both `sh` and PowerShell, and the two that need real shell logic (`fmt-check`,
-`clean`) are split with `[unix]` / `[windows]` attributes.
+<details>
+<summary>How the demo, the tests and the release are put together</summary>
+<br>
 
-**The demo.** `just demo` records the GIF and the stills above. `scripts/demo.mjs`
-builds hop, points `HOME` at a throwaway directory with a seeded host database, and
-starts `tools/demoserver`, a loopback-only SSH server that invents everything on
-screen: a fake shell with a table of canned command output, an in-memory filesystem
-over SFTP, and a fake vi. The keypress overlay in the corner is hop's own, compiled
-in only under `-tags hopdemo` (`internal/tui/keycast.go`), so a released binary
-doesn't carry it.
+**The justfile** is deliberately universal: recipe bodies run under both `sh` and
+PowerShell, and the two that need real shell logic (`fmt-check`, `clean`) are split with
+`[unix]` / `[windows]` attributes.
 
-**Testing.** Headless tests drive the real Bubble Tea model with real keystrokes
-against in-process Go SSH/SFTP servers and temp-file stores. See
-`internal/tui/hostmgmt_test.go`, `TestEmbeddedRoundTrip`, `TestSFTPRoundTrip`.
+**The demo.** `just demo` records the GIF and the stills. `scripts/demo.mjs` builds hop,
+points `HOME` at a throwaway directory with a seeded host database, and starts
+`tools/demoserver` — a loopback-only SSH server with a fake shell, an in-memory SFTP
+filesystem and a fake vi. The keypress overlay is compiled in only under `-tags hopdemo`
+(`internal/tui/keycast.go`), so released binaries don't carry it.
 
-**The 2FA end-to-end tests.** An in-process Go SSH server answers whatever you
-tell it to, which is no way to find out whether hop can log into a box with
-two-factor authentication. So `internal/dockerenv` brings up an Ubuntu container
-running the real `openssh-server` and the real `libpam-google-authenticator`,
-configured the way the guides say, listening four times: the code alone, the
-hardened `publickey,keyboard-interactive`, password-then-code, and both methods
-offered as alternatives. The tests compute TOTP codes the way a phone does and
-log in — `internal/sshx` through the SSH engine, `internal/tui` by typing into
-the actual card. Negative controls (a wrong code, a ten-minute-old code) are part
-of the suite, because a container that accepted anything would make every other
-test here pass while proving nothing. Opt in with `just test-e2e`; without
-`HOP_DOCKER_E2E=1` they skip, so CI and a laptop without Docker are unaffected.
-CI runs vet + test + build on a Windows / Linux / macOS matrix, because the agent
-transport and the local-open handler are per-platform: a single-OS run can't tell
-whether the others still compile.
+**Testing.** Headless tests drive the real Bubble Tea model with real keystrokes against
+in-process Go SSH/SFTP servers and temp-file stores — see `internal/tui/hostmgmt_test.go`,
+`TestEmbeddedRoundTrip`, `TestSFTPRoundTrip`.
+
+**The 2FA end-to-end tests.** An in-process server that answers whatever you tell it to
+proves nothing about real two-factor auth, so `internal/dockerenv` brings up Ubuntu with
+the real `openssh-server` and `libpam-google-authenticator`, listening four ways: code
+alone, hardened `publickey,keyboard-interactive`, password-then-code, and both offered as
+alternatives. The tests compute TOTP codes the way a phone does and log in, with wrong and
+expired codes as negative controls. Opt in with `just test-e2e`; without `HOP_DOCKER_E2E=1`
+they skip.
 
 **Releasing.**
 
@@ -358,10 +360,10 @@ just release          # patch bump: stamps VERSION, commits, tags, pushes
 just release minor    # or major, or an explicit 1.0.0
 ```
 
-The tag push triggers the release workflow: it gates on the three-OS test matrix,
-then cross-compiles all six targets (windows/linux/darwin × amd64/arm64) from one
-Linux runner, with checksums and a git-cliff changelog. Windows gets a `.zip`,
-everything else a `.tar.gz` so the exec bit survives.
+The tag push gates on a Windows / Linux / macOS test matrix, then cross-compiles all six
+targets from one Linux runner with checksums and a git-cliff changelog.
+
+</details>
 
 ## 🗺️ Roadmap
 
