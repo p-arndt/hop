@@ -23,6 +23,12 @@ import (
 // cannot eat memory.
 const proxyStderrLimit = 4 << 10
 
+// stderrDrainGrace is how long Read waits, once the proxy's stdout has ended, for the
+// copier to finish draining stderr. The two pipes close independently, so without the
+// wait the diagnosis is usually still in flight and the dial reports a bare EOF instead.
+// Bounded, because a forked grandchild can hold the write end open indefinitely.
+const stderrDrainGrace = 500 * time.Millisecond
+
 // proxyFirstByteTimeout stands in for ClientConfig.Timeout, which only ssh.Dial reads.
 // The first byte is the server's version banner, sent before authentication, so bounding
 // it does not cut short a user typing a 2FA code. Atomic so a test may shorten it while
@@ -85,20 +91,23 @@ func dialProxyCommand(cmdline, host string, port int, user, alias string) (net.C
 	}
 	// The child has its own descriptor; hop's copy must go or the reader never sees EOF.
 	errWrite.Close()
+	stderrDone := make(chan struct{})
 	go func() {
+		defer close(stderrDone)
 		io.Copy(errBuf, errRead)
 		errRead.Close()
 	}()
 
 	pc := &procConn{
-		cmd:     cmd,
-		r:       stdout,
-		w:       stdin,
-		stderr:  errBuf,
-		errRead: errRead,
-		name:    argv[0],
-		target:  tcpAddr(net.JoinHostPort(host, strconv.Itoa(port))),
-		alive:   make(chan struct{}),
+		cmd:        cmd,
+		r:          stdout,
+		w:          stdin,
+		stderr:     errBuf,
+		errRead:    errRead,
+		stderrDone: stderrDone,
+		name:       argv[0],
+		target:     tcpAddr(net.JoinHostPort(host, strconv.Itoa(port))),
+		alive:      make(chan struct{}),
 	}
 	pc.watchFirstByte()
 	return pc, nil
@@ -229,7 +238,10 @@ type procConn struct {
 	// errRead is hop's end of the stderr pipe. Close shuts it, so the copier stops even
 	// while a grandchild holds the write end.
 	errRead *os.File
-	name    string
+	// stderrDone is closed once the copier has drained the pipe, so Read can wait for the
+	// diagnosis instead of racing it.
+	stderrDone chan struct{}
+	name       string
 	// alive is closed by the first successful read, stopping the watchdog.
 	alive     chan struct{}
 	aliveOnce sync.Once
@@ -271,12 +283,27 @@ func (p *procConn) Read(b []byte) (int, error) {
 		return n, err
 	}
 	if err == io.EOF && n == 0 {
-		// The proxy hung up; its stderr is the only account of why.
+		// The proxy hung up; its stderr is the only account of why, and it travels on a
+		// pipe of its own that has not necessarily drained yet.
+		p.waitStderr()
 		if msg := p.stderr.String(); msg != "" {
 			return 0, fmt.Errorf("sshx: proxy %s exited: %s", p.name, msg)
 		}
 	}
 	return n, err
+}
+
+// waitStderr gives the copier a bounded moment to finish before its buffer is read.
+func (p *procConn) waitStderr() {
+	if p.stderrDone == nil {
+		return
+	}
+	t := time.NewTimer(stderrDrainGrace)
+	defer t.Stop()
+	select {
+	case <-p.stderrDone:
+	case <-t.C:
+	}
 }
 
 func (p *procConn) Write(b []byte) (int, error) { return p.w.Write(b) }
