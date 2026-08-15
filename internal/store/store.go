@@ -28,6 +28,12 @@ type Host struct {
 	// DefaultDir is the remote directory a session starts in: shells cd there on connect
 	// and the file browser opens there. Blank means wherever the login shell lands.
 	DefaultDir string
+	// ProxyCommand is a local program whose stdin/stdout carry the SSH transport, as
+	// OpenSSH's directive: how a host behind a broker (AWS SSM, cloudflared) is dialled.
+	ProxyCommand string
+	// ProxyJump is a bastion to tunnel through: an alias in this store, or a bare
+	// [user@]host[:port]. Set alongside ProxyCommand it wins, as in ssh.
+	ProxyJump string
 	// Pinned lifts a host out of the frecency order into the PINNED section; PinOrder is
 	// its place inside it, 1-based and dense (see renumberPins), and zero when unpinned.
 	Pinned   bool
@@ -95,7 +101,9 @@ CREATE TABLE IF NOT EXISTS hosts (
 	last_connect  INTEGER DEFAULT 0,
 	pinned        INTEGER DEFAULT 0,
 	pin_order     INTEGER DEFAULT 0,
-	default_dir   TEXT DEFAULT ''
+	default_dir   TEXT DEFAULT '',
+	proxy_command TEXT DEFAULT '',
+	proxy_jump    TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS forwards (
@@ -116,6 +124,8 @@ var addedColumns = []struct{ name, ddl string }{
 	{"pinned", `ALTER TABLE hosts ADD COLUMN pinned INTEGER DEFAULT 0`},
 	{"pin_order", `ALTER TABLE hosts ADD COLUMN pin_order INTEGER DEFAULT 0`},
 	{"default_dir", `ALTER TABLE hosts ADD COLUMN default_dir TEXT DEFAULT ''`},
+	{"proxy_command", `ALTER TABLE hosts ADD COLUMN proxy_command TEXT DEFAULT ''`},
+	{"proxy_jump", `ALTER TABLE hosts ADD COLUMN proxy_jump TEXT DEFAULT ''`},
 }
 
 // migrate adds any column in addedColumns the table lacks. It asks PRAGMA table_info
@@ -206,7 +216,8 @@ func (s *Store) Close() error {
 func (s *Store) Hosts() ([]Host, error) {
 	rows, err := s.db.Query(`
 		SELECT id, alias, hostname, user, port, identity_file, tags, grp, visits, last_connect,
-		       pinned, pin_order, COALESCE(default_dir, '')
+		       pinned, pin_order, COALESCE(default_dir, ''),
+		       COALESCE(proxy_command, ''), COALESCE(proxy_jump, '')
 		FROM hosts
 		ORDER BY pinned DESC, pin_order ASC, visits DESC, last_connect DESC`)
 	if err != nil {
@@ -222,6 +233,7 @@ func (s *Store) Hosts() ([]Host, error) {
 			&h.ID, &h.Alias, &h.HostName, &h.User, &h.Port,
 			&h.IdentityFile, &tags, &h.Group, &h.Visits, &h.LastConnect,
 			&h.Pinned, &h.PinOrder, &h.DefaultDir,
+			&h.ProxyCommand, &h.ProxyJump,
 		); err != nil {
 			return nil, err
 		}
@@ -263,6 +275,34 @@ func (s *Store) Hosts() ([]Host, error) {
 	return hosts, nil
 }
 
+// HostByAlias returns the single host with this alias — one indexed row, rather than
+// Hosts()'s whole table plus every forward, since the jump resolver asks on each dial.
+// Forwards are not loaded: nothing looking a host up by name runs its tunnels.
+func (s *Store) HostByAlias(alias string) (Host, bool, error) {
+	var (
+		h    Host
+		tags string
+	)
+	err := s.db.QueryRow(`
+		SELECT id, alias, hostname, user, port, identity_file, tags, grp, visits, last_connect,
+		       pinned, pin_order, COALESCE(default_dir, ''),
+		       COALESCE(proxy_command, ''), COALESCE(proxy_jump, '')
+		FROM hosts WHERE alias = ?`, alias).Scan(
+		&h.ID, &h.Alias, &h.HostName, &h.User, &h.Port,
+		&h.IdentityFile, &tags, &h.Group, &h.Visits, &h.LastConnect,
+		&h.Pinned, &h.PinOrder, &h.DefaultDir,
+		&h.ProxyCommand, &h.ProxyJump,
+	)
+	if err == sql.ErrNoRows {
+		return Host{}, false, nil
+	}
+	if err != nil {
+		return Host{}, false, err
+	}
+	h.Tags = splitTags(tags)
+	return h, true, nil
+}
+
 // Upsert inserts or updates a host keyed by its Alias and returns the row id.
 func (s *Store) Upsert(h Host) (int64, error) {
 	port := h.Port
@@ -272,8 +312,8 @@ func (s *Store) Upsert(h Host) (int64, error) {
 	tags := joinTags(h.Tags)
 
 	_, err := s.db.Exec(`
-		INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect, default_dir)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect, default_dir, proxy_command, proxy_jump)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(alias) DO UPDATE SET
 			hostname      = excluded.hostname,
 			user          = excluded.user,
@@ -281,8 +321,11 @@ func (s *Store) Upsert(h Host) (int64, error) {
 			identity_file = excluded.identity_file,
 			tags          = excluded.tags,
 			grp           = excluded.grp,
-			default_dir   = excluded.default_dir`,
+			default_dir   = excluded.default_dir,
+			proxy_command = excluded.proxy_command,
+			proxy_jump    = excluded.proxy_jump`,
 		h.Alias, h.HostName, h.User, port, h.IdentityFile, tags, h.Group, h.Visits, h.LastConnect, h.DefaultDir,
+		h.ProxyCommand, h.ProxyJump,
 	)
 	if err != nil {
 		return 0, err
@@ -314,9 +357,10 @@ func (s *Store) Add(h Host) (int64, error) {
 	}
 
 	res, err := s.db.Exec(`
-		INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect, default_dir)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect, default_dir, proxy_command, proxy_jump)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		h.Alias, h.HostName, h.User, port, h.IdentityFile, joinTags(h.Tags), h.Group, h.Visits, h.LastConnect, h.DefaultDir,
+		h.ProxyCommand, h.ProxyJump,
 	)
 	if err != nil {
 		return 0, err
@@ -646,6 +690,8 @@ func (s *Store) ImportSSHConfig(path string) (int, error) {
 			user, _ := cfg.Get(alias, "User")
 			portStr, _ := cfg.Get(alias, "Port")
 			identity, _ := cfg.Get(alias, "IdentityFile")
+			proxyCommand, _ := cfg.Get(alias, "ProxyCommand")
+			proxyJump, _ := cfg.Get(alias, "ProxyJump")
 
 			port := 22
 			if portStr != "" {
@@ -663,6 +709,8 @@ func (s *Store) ImportSSHConfig(path string) (int, error) {
 				User:         user,
 				Port:         port,
 				IdentityFile: identity,
+				ProxyCommand: normalizeProxyCommand(proxyCommand),
+				ProxyJump:    strings.TrimSpace(proxyJump),
 			})
 			if err != nil {
 				return count, err
@@ -764,4 +812,14 @@ func splitTags(s string) []string {
 		return nil
 	}
 	return out
+}
+
+// normalizeProxyCommand maps ssh's "none" — how the directive is disabled — to blank, so
+// hop does not try to run a program by that name.
+func normalizeProxyCommand(v string) string {
+	v = strings.TrimSpace(v)
+	if strings.EqualFold(v, "none") {
+		return ""
+	}
+	return v
 }

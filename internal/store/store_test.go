@@ -699,3 +699,107 @@ func TestOpenMigratesDefaultDir(t *testing.T) {
 		t.Fatalf("host after setting a default dir = %+v, want /opt", h)
 	}
 }
+
+func TestImportSSHConfigReadsProxyDirectives(t *testing.T) {
+	s := newStore(t)
+	path := filepath.Join(t.TempDir(), "config")
+	config := `
+Host ssm
+  HostName i-0123456789abcdef0
+  ProxyCommand aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p
+
+Host db01
+  HostName db01.internal
+  ProxyJump bastion.example.com
+
+Host plain
+  HostName plain.example.com
+  ProxyCommand none
+`
+	if err := os.WriteFile(path, []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if n, err := s.ImportSSHConfig(path); err != nil || n != 3 {
+		t.Fatalf("ImportSSHConfig = %d, %v; want 3, nil", n, err)
+	}
+
+	if got := findHost(t, s, "ssm").ProxyCommand; !strings.Contains(got, "aws ssm start-session") {
+		t.Errorf("ssm ProxyCommand = %q, want the aws ssm line", got)
+	}
+	if got := findHost(t, s, "db01").ProxyJump; got != "bastion.example.com" {
+		t.Errorf("db01 ProxyJump = %q, want %q", got, "bastion.example.com")
+	}
+	// "none" is how ssh disables the directive; carrying it over would have hop try to
+	// run a program called "none".
+	if got := findHost(t, s, "plain").ProxyCommand; got != "" {
+		t.Errorf("plain ProxyCommand = %q, want empty", got)
+	}
+}
+
+// Re-importing a config refreshes the proxy directives of hosts already in the store,
+// which is what makes the feature reach hosts imported before it existed.
+func TestImportSSHConfigRefreshesProxyOnReimport(t *testing.T) {
+	s := newStore(t)
+	if _, err := s.Add(Host{Alias: "ssm", HostName: "old.example.com"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	path := filepath.Join(t.TempDir(), "config")
+	config := `
+Host ssm
+  HostName i-0123456789abcdef0
+  ProxyCommand aws ssm start-session --target %h
+`
+	if err := os.WriteFile(path, []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if _, err := s.ImportSSHConfig(path); err != nil {
+		t.Fatalf("ImportSSHConfig: %v", err)
+	}
+
+	h := findHost(t, s, "ssm")
+	if h.ProxyCommand != "aws ssm start-session --target %h" {
+		t.Errorf("ProxyCommand = %q, want it filled in by the re-import", h.ProxyCommand)
+	}
+}
+
+func TestUpsertRoundTripsProxyFields(t *testing.T) {
+	s := newStore(t)
+	if _, err := s.Upsert(Host{Alias: "db01", HostName: "db01.internal", ProxyJump: "jump@bastion:2222"}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if got := findHost(t, s, "db01").ProxyJump; got != "jump@bastion:2222" {
+		t.Errorf("ProxyJump = %q, want %q", got, "jump@bastion:2222")
+	}
+
+	// An edit that clears the field must clear it in the row too, not leave the old one.
+	if _, err := s.Upsert(Host{Alias: "db01", HostName: "db01.internal"}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if got := findHost(t, s, "db01").ProxyJump; got != "" {
+		t.Errorf("ProxyJump = %q after clearing, want empty", got)
+	}
+}
+
+func TestHostByAlias(t *testing.T) {
+	s := newStore(t)
+	if _, err := s.Add(Host{Alias: "bastion", HostName: "b.example.com", User: "ops", Port: 2222, Tags: []string{"edge"}}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	h, ok, err := s.HostByAlias("bastion")
+	if err != nil || !ok {
+		t.Fatalf("HostByAlias = %v, %v; want a host", ok, err)
+	}
+	if h.HostName != "b.example.com" || h.User != "ops" || h.Port != 2222 {
+		t.Errorf("HostByAlias = %+v, want the stored values", h)
+	}
+	if len(h.Tags) != 1 || h.Tags[0] != "edge" {
+		t.Errorf("Tags = %v, want [edge]", h.Tags)
+	}
+
+	// A miss is not an error: the jump resolver falls back to a bare hostname.
+	if _, ok, err := s.HostByAlias("nope"); err != nil || ok {
+		t.Errorf("HostByAlias(nope) = %v, %v; want false, nil", ok, err)
+	}
+}

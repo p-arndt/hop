@@ -53,6 +53,12 @@ func (m *model) renderDetails(w int) string {
 		{"user", stripControl(h.User)},
 		{"identity", stripControl(h.IdentityFile)},
 	}
+	// Only a non-default route earns a row.
+	if h.ProxyJump != "" {
+		left = append(left, [2]string{"via", stripControl(h.ProxyJump)})
+	} else if h.ProxyCommand != "" {
+		left = append(left, [2]string{"via", stripControl(h.ProxyCommand)})
+	}
 	right := [][2]string{
 		{"last", relTime(h.LastConnect)},
 		{"visits", strconv.Itoa(h.Visits)},

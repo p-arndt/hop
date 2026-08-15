@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"hop/internal/buildinfo"
+	"hop/internal/sshx"
 	"hop/internal/store"
 	"hop/internal/tui"
 	"hop/internal/update"
@@ -46,6 +47,17 @@ func main() {
 		os.Exit(1)
 	}
 	defer st.Close()
+
+	// A ProxyJump may name another host in this store by its alias; without this lookup
+	// the name would only ever be taken as a bare hostname, losing that host's own user,
+	// port and key.
+	sshx.SetJumpResolver(func(name string) (store.Host, bool) {
+		h, ok, err := st.HostByAlias(name)
+		if err != nil || !ok {
+			return store.Host{}, false
+		}
+		return h, true
+	})
 
 	if len(args) == 0 {
 		if err := tui.Run(st); err != nil {
