@@ -34,6 +34,11 @@ adds more as the window gets wider, and leaves the full table to `?` (the
 | **Terminal** | you connected with `enter` or `s` | the **remote shell** | [Shells](#terminal--a-live-shell-on-a-remote-host) · [Scrollback](#scrolling-back-through-history) |
 | **Browsing** | you opened the SFTP browser with `f` | hop | [File browser](#browsing--the-sftp-file-browser) · [Editor tabs](#editing--editor-tabs) |
 
+Nothing here has to be memorised first. `space` opens the [action menu](#actions--the-menu-and-the-palette) on the
+host under the cursor and `ctrl+k` the palette for whatever mode you are in — both list
+what is possible *and* the key that does it, and how much hop keeps on screen without being
+asked is one setting (see [Guidance](#actions--the-menu-and-the-palette)).
+
 Everything else works in **all** of them: the [sidebar toggle](#the-sidebar--ctrlb), the
 [settings popover](#settings--the-popover), the [tunnels](#tunnels--port-forwarding), the [mouse](#the-mouse) and the optional
 [vim keys](#vim-keys).
@@ -69,6 +74,8 @@ Everything else works in **all** of them: the [sidebar toggle](#the-sidebar--ctr
 | `shift+k` `shift+j` | move a pinned host up / down inside that section |
 | `i` | import hosts from an OpenSSH config (`~/.ssh/config` by default) |
 | `/` | filter hosts (`enter` applies, `esc` clears) |
+| `space` | the [action menu](#actions--the-menu-and-the-palette) for this host — everything above, with its key beside it |
+| `ctrl+k` | the [palette](#actions--the-menu-and-the-palette): every action, searchable |
 | `,` `?` | settings / the keys card |
 | `ctrl+b` | hide / show the sidebar |
 | `ctrl+g` | hand the mouse to your terminal (and take it back) |
@@ -86,6 +93,60 @@ The list binds the **step** keys and nothing more. The jumps and the ctrl chords
 which walks directories that actually run past a screen. The host list does not scroll, so
 each of them landed a `j` or two from where the cursor already was, while holding a letter
 the list wants as a command. Paging is `pgdn`/`pgup`.
+
+</details>
+
+## Actions — the menu and the palette
+
+Two keys reach everything hop can do without knowing a single binding, and both of them
+show the key beside every line — so using them is how you stop needing them.
+
+| Key | What it opens |
+| --- | --- |
+| `space` | the **action menu** for the host under the cursor, anchored to its row |
+| `ctrl+k` | the **palette**: everything this mode can do, searchable |
+| `ctrl+o` `ctrl+k` | the palette from inside a shell or an editor tab |
+
+The menu is also a **right-click** on a host: the click stands the cursor on it and opens
+the menu in one gesture.
+
+**The menu is about the thing under the cursor.** It lists only what that host can take
+right now — *connect* on an idle host, *focus its shell* on a live one, *reconnect and
+reopen* on one whose connection dropped, *unpin it* on a pinned one. `↑`/`↓` move,
+`enter` runs, `esc` closes and decides nothing.
+
+**The palette is about the mode you are in.** In the host list it holds the host's actions
+and then hop's own; in the [file browser](#browsing--the-sftp-file-browser) it holds the browser's; in a
+[shell](#terminal--a-live-shell-on-a-remote-host) or an [editor tab](#editing--editor-tabs) it holds the chords behind the
+[leader](#the-leader--ctrlo) — which is the keyboard hardest to remember, and so the one it is worth
+most for. Type to narrow it: the search matches the label *and* the key, so a
+half-remembered `ctrl+b` finds the sidebar just as `sft` finds the browser.
+
+### Guidance — how much hop keeps on screen
+
+The first time hop starts it asks one question: how much of its keyboard to keep on
+screen. Three answers, and **every key works in all three** — the profile changes what is
+*shown*, never what a key does.
+
+| Profile | What you get |
+| --- | --- |
+| `keys` | the short footer legend and nothing else |
+| `hybrid` | the legend, the extra keys a wide window has room for, and the host's actions on the details card |
+| `guided` | all of that, plus hop's own keys spelled out beside the host's, and the way to the palette held in the footer where truncation cannot reach it |
+
+`hybrid` is the default, and the one an escape from that first question picks. Change it
+any time with `,` → **Guidance**. An install that already had a config file is never
+asked: it keeps working exactly as it did, on `hybrid`.
+
+<details>
+<summary><b>Why an action is a key, and never its own code path</b></summary>
+
+Every row of the menu and the palette *is* a binding. Running one replays that key through
+the same handler a keystroke goes through — a chord like `ctrl+o` `o` as the two
+keystrokes it is. Nothing in hop can be reached from a menu but not from the keyboard, the
+key printed beside a row is the key that ran, and a binding that grows a new condition
+grows it in one place. The same list also feeds the details card, so what hop offers you
+and what hop tells you it offers can never drift apart.
 
 </details>
 
@@ -144,6 +205,7 @@ the footer becomes the menu, and hop waits as long as you take:
 | `1` … `9` | that tab, selected **in place** |
 | `0` | another shell on this host |
 | `c` | this directory in VS Code Remote |
+| `ctrl+k` | the [palette](#actions--the-menu-and-the-palette) — this pane's chords, searchable |
 | `?` | the key card |
 | anything else | closes the leader and does nothing |
 
@@ -228,6 +290,7 @@ lag on every `esc` you press in vim. So the rule is:
 | `d` | download the file to `~/Downloads` |
 | `←` `backspace` | up one directory |
 | `r` | refresh the listing |
+| `ctrl+k` | the [palette](#actions--the-menu-and-the-palette): everything the browser can do, searchable |
 | `,` | settings |
 | `?` | the key card |
 | `ctrl+b` | hide / show the sidebar |
@@ -357,6 +420,9 @@ All of them are modal: while a card is up it takes every key, and `esc` closes i
 | Add / edit host | `a` / `e` | `↑`/`↓` or `tab` move between fields, `enter` saves, `esc` cancels |
 | Delete host | `x` | `enter` confirms, `esc` cancels |
 | Keys | `?` — `ctrl+o` `?` in a shell or editor | any key closes it |
+| [Action menu](#actions--the-menu-and-the-palette) | `space`, or a right-click on a host | `↑`/`↓` select, `enter` runs, `esc` closes |
+| [Palette](#actions--the-menu-and-the-palette) | `ctrl+k` — `ctrl+o` `ctrl+k` in a pane | any text searches, `↑`/`↓` select, `enter` runs |
+| Welcome | by itself, once, on a first run | `↑`/`↓` pick a [guidance profile](#actions--the-menu-and-the-palette), `enter` starts hop |
 
 The **keys card** opens on the section for the mode you are in — the shell's keys from a
 shell, the browser's from the browser — and marks it *you are here*. That is what lets the
@@ -400,7 +466,7 @@ list, from a pane and from the file browser. It is modal: while it is up, keys g
 | Key | Action |
 | --- | --- |
 | `↑` `↓` (`k` `j`) | move between settings |
-| `←` `→` (`h` `l`) | pick a colour (accent), or flip a switch |
+| `←` `→` (`h` `l`) | pick a colour (accent), walk a profile, or flip a switch |
 | `enter` `i` | edit the selected setting — or flip it, if it is a switch |
 | `enter` `esc` `ctrl+u` | while editing: save / cancel / clear |
 | `r` | reset the setting to its default |
@@ -408,6 +474,7 @@ list, from a pane and from the file browser. It is modal: while it is up, keys g
 
 | Setting | What it is | Blank means |
 | --- | --- | --- |
+| Guidance | how much of the keyboard hop keeps on screen — `keys`, `hybrid` or `guided`, walked with `←`/`→` (see [Actions](#actions--the-menu-and-the-palette)) | `hybrid` |
 | Editor | the command `enter` runs on the remote host, e.g. `nvim`, `vim -R` | auto: remote `$EDITOR`, else probe for nvim/vim/vi/nano |
 | Download dir | where `d` puts a file | `~/Downloads` |
 | Accent colour | picked from the swatch strip with `←`/`→`, or typed | `212`, hop's pink |

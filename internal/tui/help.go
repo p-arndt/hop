@@ -31,6 +31,8 @@ const modeAny paneMode = -1
 func helpLeft(vim bool) []helpSection {
 	return []helpSection{
 		{"LIST", append(motionKeys(vim), [][2]string{
+			{"space", "this host's actions"},
+			{"ctrl+k", "search every action"},
 			{"/", "filter the hosts"},
 			{"a", "add a new host"},
 			{"i", "import an ssh config"},
@@ -80,6 +82,7 @@ func helpRight(vim bool) []helpSection {
 			{"ctrl+o 1…9", "straight to that shell"},
 			{"ctrl+o 0", "another shell, same host"},
 			{"ctrl+o c", "this dir in VS Code"},
+			{"ctrl+o ctrl+k", "search every action"},
 			{"ctrl+o ?", "this card"},
 			{"shift+↑", "scroll back through history"},
 			{"ctrl+b", "hide / show the sidebar"},
@@ -91,6 +94,7 @@ func helpRight(vim bool) []helpSection {
 			{"o", "open the file locally"},
 			{"d", "download the file"},
 			{"r", "refresh"},
+			{"ctrl+k", "search every action"},
 			{"?", "this card"},
 			{"ctrl+o", "back to hop"},
 		}, modeBrowser},
@@ -104,6 +108,7 @@ func helpRight(vim bool) []helpSection {
 			{":q", "close the tab"},
 			{"shift+← →", "switch file tab"},
 			{"ctrl+o 1…9", "straight to that tab"},
+			{"ctrl+o ctrl+k", "search every action"},
 			{"ctrl+o o", "back to the browser"},
 			{"ctrl+o ?", "this card"},
 			{"…anything", "goes to the remote editor"},

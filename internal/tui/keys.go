@@ -55,12 +55,20 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// handshake, so a help card opened while connecting would hide the challenge
 		// that arrives next.
 		return m.handleAuthKey(msg)
+	case m.guidance.open:
+		// The first-run question, above the rest: it is asked before hop has a screen
+		// worth acting on, and the card it hands over to must not open behind it.
+		return m.handleGuidanceKey(msg)
 	case m.help:
 		return m.handleHelpKey(msg)
 	case m.hostKey.open:
 		return m.handleHostKeyKey(msg)
 	case m.confirm.open:
 		return m.handleConfirmKey(msg)
+	case m.palette.open:
+		return m.handlePaletteKey(msg)
+	case m.menu.open:
+		return m.handleMenuKey(msg)
 	case m.hostForm.open:
 		return m.handleHostFormKey(msg)
 	case m.importer.open:
@@ -140,6 +148,15 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "?":
 		m.openHelp()
+
+	case paletteKey:
+		// Every action in one searchable list, each row carrying the key that does it —
+		// the way in for a keyboard nobody has learnt yet. See actions.go.
+		m.openPalette()
+
+	case menuKey:
+		// The same list, narrowed to the host under the cursor and anchored to its row.
+		m.openHostMenu()
 
 	case "ctrl+o":
 		// Nothing to go back from: the list is where back leads.
@@ -386,6 +403,12 @@ func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Reachable from the browser too, where the editor and download settings are
 		// felt. The browser binds no ",".
 		m.openSettings()
+		return m, nil
+
+	case paletteKey:
+		// The browser's own keyboard, searchable. As with "," and "?", the browser binds
+		// no ctrl+k of its own, so the palette is free to take it.
+		m.openPalette()
 		return m, nil
 
 	case "?":
@@ -725,6 +748,12 @@ func (m *model) handleLeader(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// This directory in VS Code Remote. Leaving is part of it: VS Code takes over.
 		m.leavePane()
 		m.openVSCodeAt(alias)
+		return m, nil
+
+	case key == paletteKey:
+		// The palette from inside a pane. Behind the leader for the reason the card is:
+		// a bare ctrl+k in a shell is a keystroke the remote program is owed.
+		m.openPalette()
 		return m, nil
 
 	case key == "?":

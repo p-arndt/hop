@@ -95,6 +95,13 @@ var (
 		BorderForeground(accent).
 		Padding(1, cardPadX)
 
+	// The context menu: the card's border in the same accent, but padded only sideways —
+	// it is a short list anchored to a row, not a card in the middle of the screen.
+	menuBox = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(accent).
+		Padding(0, 1)
+
 	// The settings card: a quiet label above each value, the selected one filled, the one
 	// being edited filled brighter still.
 	settingsLabel    = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
@@ -137,6 +144,7 @@ func setAccent(color string) {
 	chipStyle = chipStyle.Foreground(accent)
 	tabActive = tabActive.Background(accent)
 	cardBox = cardBox.BorderForeground(accent)
+	menuBox = menuBox.BorderForeground(accent)
 	settingsLabelSel = settingsLabelSel.Foreground(accent)
 
 	filebrowser.SetAccent(color)

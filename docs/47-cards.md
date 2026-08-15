@@ -17,6 +17,9 @@ All of them are modal: while a card is up it takes every key, and [[esc]] closes
 | Add / edit host | [[a]] / [[e]] | [[↑]]/[[↓]] or [[tab]] move between fields, [[enter]] saves, [[esc]] cancels |
 | Delete host | [[x]] | [[enter]] confirms, [[esc]] cancels |
 | Keys | [[?]] — [[ctrl+o]] [[?]] in a shell or editor | any key closes it |
+| [Action menu](#actions) | [[space]], or a right-click on a host | [[↑]]/[[↓]] select, [[enter]] runs, [[esc]] closes |
+| [Palette](#actions) | [[ctrl+k]] — [[ctrl+o]] [[ctrl+k]] in a pane | any text searches, [[↑]]/[[↓]] select, [[enter]] runs |
+| Welcome | by itself, once, on a first run | [[↑]]/[[↓]] pick a [guidance profile](#actions), [[enter]] starts hop |
 
 The **keys card** opens on the section for the mode you are in — the shell's keys from a
 shell, the browser's from the browser — and marks it *you are here*. That is what lets the

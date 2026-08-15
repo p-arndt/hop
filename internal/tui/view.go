@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"hop/internal/config"
 )
 
 // View composes the screen: a header rule, the host list beside the right pane, and a
@@ -25,6 +27,15 @@ func (m *model) View() string {
 
 	screen := lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), body, m.renderStatus(), m.renderFooter())
 
+	// The context menu is composited before the cards, and positioned rather than
+	// centred: it belongs to a row of the list, not to the middle of the screen. A card
+	// opened from it therefore lands on top of it — which cannot happen, since running an
+	// action closes the menu first.
+	if m.menu.open {
+		card, x, y := m.menuAt()
+		screen = overlay(screen, card, x, y)
+	}
+
 	if card := m.modalCard(); card != "" {
 		// The cards are composited by splicing each line into a row, so a line that
 		// overran the window would push that row's border off screen. Hold them to it.
@@ -43,12 +54,16 @@ func (m *model) modalCard() string {
 	// Before the help card, for the reason handleKey gives: a dial is parked on this one.
 	case m.auth.open:
 		return m.renderAuth()
+	case m.guidance.open:
+		return m.renderGuidance()
 	case m.help:
 		return m.renderHelp()
 	case m.hostKey.open:
 		return m.renderHostKeyConfirm()
 	case m.confirm.open:
 		return m.renderConfirm()
+	case m.palette.open:
+		return m.renderPalette()
 	case m.hostForm.open:
 		return m.renderHostForm()
 	case m.importer.open:
@@ -257,6 +272,9 @@ func (m *model) footerHints() (core, extra []string, help string) {
 	case m.auth.open:
 		return []string{keyHint("enter", "submit"), keyHint("esc", "cancel"), keyHint("ctrl+u", "clear")}, nil, ""
 
+	case m.guidance.open:
+		return []string{keyHint("↑↓", "pick"), keyHint("enter", "start hopping")}, nil, ""
+
 	case m.help:
 		return []string{keyHint("esc", "close")}, nil, ""
 
@@ -265,6 +283,12 @@ func (m *model) footerHints() (core, extra []string, help string) {
 
 	case m.confirm.open:
 		return []string{keyHint("y", "delete"), keyHint("n", "cancel")}, nil, ""
+
+	case m.palette.open:
+		return []string{keyHint("type", "search"), keyHint("enter", "run"), keyHint("esc", "close")}, nil, ""
+
+	case m.menu.open:
+		return []string{keyHint("↑↓", "move"), keyHint("enter", "run"), keyHint("esc", "close")}, nil, ""
 
 	case m.hostForm.open:
 		return []string{keyHint("tab", "next"), keyHint("enter", "save"), keyHint("esc", "cancel"), keyHint("ctrl+u", "clear")}, nil, ""
@@ -303,7 +327,8 @@ func (m *model) footerHints() (core, extra []string, help string) {
 		if m.shellCwd(m.chords.leaderAlias) != "" {
 			menu = append(menu, keyHint("c", "vs code here"))
 		}
-		menu = append(menu, keyHint("?", "keys"), dimStyle.Render("any other key cancels"))
+		menu = append(menu, keyHint("ctrl+k", "actions"), keyHint("?", "keys"),
+			dimStyle.Render("any other key cancels"))
 		return menu, nil, ""
 	}
 
@@ -321,7 +346,8 @@ func (m *model) footerHints() (core, extra []string, help string) {
 
 	case m.browsing() && m.active != "":
 		core = []string{keyHint("ctrl+o", "back"), keyHint("enter", "edit"), keyHint("d", "download")}
-		extra = []string{keyHint("←", "up"), keyHint("o", "open local"), keyHint("r", "refresh"), m.sidebarHint()}
+		extra = []string{keyHint("ctrl+k", "actions"), keyHint("←", "up"), keyHint("o", "open local"),
+			keyHint("r", "refresh"), m.sidebarHint()}
 
 	case m.scrolling() && m.focused() && m.active != "":
 		core = []string{keyHint("esc", "back to live"), keyHint("↑↓", "scroll"), keyHint("g/G", "top/live")}
@@ -355,9 +381,13 @@ func (m *model) footerHints() (core, extra []string, help string) {
 		// The list. Its per-host keys are spelled out in the details card beside this
 		// line, and all of them are on the help card, so the footer keeps to moving,
 		// connecting and the two that make the list itself.
-		core = []string{keyHint("enter", "connect"), keyHint("f", "sftp"), keyHint("/", "filter")}
+		// The menu key sits in the core beside connect: it is the one hint that stands in
+		// for every per-host key below it, so a narrow window that keeps three hints still
+		// shows the way to all of them.
+		core = []string{keyHint("enter", "connect"), keyHint("space", "actions"), keyHint("/", "filter")}
 		extra = []string{
-			keyHint("↑↓", "move"), keyHint("a", "add"), keyHint("e", "edit"), keyHint("x", "delete"),
+			keyHint("ctrl+k", "search actions"), keyHint("↑↓", "move"), keyHint("f", "sftp"),
+			keyHint("a", "add"), keyHint("e", "edit"), keyHint("x", "delete"),
 			keyHint("p", "pin"), keyHint("t", "tunnels"), keyHint("i", "import"),
 			keyHint(",", "settings"), keyHint("esc esc", "quit"),
 		}
@@ -373,7 +403,7 @@ func (m *model) footerHints() (core, extra []string, help string) {
 			}
 		} else {
 			core = []string{keyHint("a", "add host"), keyHint("i", "import")}
-			extra = []string{keyHint(",", "settings"), keyHint("esc esc", "quit")}
+			extra = []string{keyHint("ctrl+k", "search actions"), keyHint(",", "settings"), keyHint("esc esc", "quit")}
 		}
 	}
 
@@ -382,7 +412,59 @@ func (m *model) footerHints() (core, extra []string, help string) {
 	if m.sidebarHidden {
 		core = append([]string{m.sidebarHint()}, core...)
 	}
+	return m.guidedHints(core, extra, help)
+}
+
+// guidedHints is the guidance profile's only say over the legend: how much of it is
+// offered. It cannot add or remove a binding — every key works in all three profiles —
+// so a quiet footer is a legend, not a smaller keyboard.
+//
+// keys keeps the core and drops the extras a wide window would have room for. guided
+// adds the way to the action list in the modes where it is a chord nobody would guess;
+// the host list already names it in its core.
+func (m *model) guidedHints(core, extra []string, help string) ([]string, []string, string) {
+	switch m.cfg.Guidance {
+	case config.GuidanceKeys:
+		return core, nil, help
+	case config.GuidanceGuided:
+		if h := m.actionsHint(); h != "" {
+			// Promoted out of the extras rather than repeated: guided means it is always
+			// on the row, not that it is on it twice.
+			extra = without(extra, h)
+			core = append(core, h)
+		}
+	}
 	return core, extra, help
+}
+
+// actionsHint is how this mode reaches the action list, or "" for the host list, whose
+// core already says it. In a pane it is behind the leader, for the reason the card is.
+func (m *model) actionsHint() string {
+	switch m.mode {
+	case modeList:
+		// The same hint the list offers among its extras, so promoting it moves it
+		// rather than doubling it.
+		return keyHint(paletteKey, "search actions")
+	case modeBrowser:
+		return keyHint(paletteKey, "actions")
+	case modeScrollback:
+		// Forwards nothing and answers to a small keyboard of its own; the palette is a
+		// key away once esc has handed the shell back.
+		return ""
+	default:
+		return keyHint(leaderKey+" "+paletteKey, "actions")
+	}
+}
+
+// without returns hints with every copy of hint removed.
+func without(hints []string, hint string) []string {
+	out := hints[:0:0]
+	for _, h := range hints {
+		if h != hint {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // footerLine renders the legend to fit the window. The core keys and the trailing ones —

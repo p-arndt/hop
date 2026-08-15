@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"hop/internal/config"
 	"hop/internal/store"
 )
 
@@ -116,12 +117,27 @@ func (m *model) renderDetails(w int) string {
 		}
 	}
 
+	// How much of the keyboard the card spells out is the guidance profile's one say
+	// here: keys leaves the card to the facts about the host, guided also lists what hop
+	// itself can do from this screen. See internal/config.Guidance.
+	if m.cfg.Guidance != config.GuidanceKeys {
+		as := m.availableHostActions()
+		// guided spells out hop's own keys beside the host's, in the same grid rather
+		// than a block of their own: a second heading would be the first thing cut off
+		// on a short pane, and the two columns fill more evenly as one list.
+		if m.cfg.Guidance == config.GuidanceGuided {
+			as = append(as, available(m, globalActions)...)
+		}
+		b.WriteString(pad)
+		b.WriteString(sectionCap.Render("ACTIONS"))
+		b.WriteString("\n")
+		b.WriteString(indent(actionGrid(as, inner), pad))
+		b.WriteString("\n")
+	}
+
 	b.WriteString(pad)
-	b.WriteString(sectionCap.Render("ACTIONS"))
-	b.WriteString("\n")
-	b.WriteString(indent(m.actionGrid(h, inner), pad))
-	b.WriteString("\n")
-	b.WriteString(pad)
+	b.WriteString(keyHint(menuKeyName, "this host's actions"))
+	b.WriteString("  ")
 	b.WriteString(keyHint("?", "every key hop knows"))
 
 	return clampLines(b.String(), w)
@@ -141,35 +157,28 @@ func (m *model) hostBadge(h store.Host) string {
 	}
 }
 
-// actionGrid lays the host keys out in two columns: the ones that open something on the
-// left, the ones that act on what is open on the right. The labels track the host's
-// state — there is no "focus shell" on a host with none.
-func (m *model) actionGrid(h store.Host, w int) string {
-	s := m.sessions[h.Alias]
-	live := s != nil
+// actionGrid lays actions out in two columns of keycaps, filling the left one first so
+// the pairs read down the page rather than across it.
+//
+// It draws whatever it is handed, which is how the card stays true: the same registry
+// the menu and the palette are built from (see actions.go), already narrowed to what
+// this host's state allows — there is no "focus shell" on a host with none, and no
+// second list to keep in step with the first.
+func actionGrid(as []action, w int) string {
+	if len(as) == 0 {
+		return ""
+	}
+	rows := (len(as) + 1) / 2
 
-	left := [][2]string{
-		{"enter", "connect"},
-		{"S", "new shell"},
-		{"f", "sftp browser"},
-		{"t", "start / stop tunnels"},
-	}
-	right := [][2]string{{"o", "open in vs code"}, {"T", "manage tunnels"}}
-	switch {
-	case live && s.dead:
-		// The one key that matters on a dropped session goes where "focus shell" was.
-		right = append(right, [2]string{"r", "reconnect"})
-	case live && s.shell() != nil:
-		right = append(right, [2]string{"s", "focus shell"})
-	}
-	if live {
-		right = append(right, [2]string{"d", "disconnect"})
+	pairs := make([][2]string, 0, len(as))
+	for _, a := range as {
+		pairs = append(pairs, [2]string{a.keycap(), a.label})
 	}
 
 	colW := w / 2
 	return lipgloss.JoinHorizontal(lipgloss.Top,
-		keyColumn(left, colW),
-		keyColumn(right, w-colW),
+		keyColumn(pairs[:rows], colW),
+		keyColumn(pairs[rows:], w-colW),
 	)
 }
 

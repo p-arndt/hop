@@ -25,6 +25,11 @@ adds more as the window gets wider, and leaves the full table to [[?]] (the
 | **Browsing** | you opened the SFTP browser with `f` | hop | [File browser](#browser) · [Editor tabs](#editor) |
 :::
 
+Nothing here has to be memorised first. [[space]] opens the [action menu](#actions) on the
+host under the cursor and [[ctrl+k]] the palette for whatever mode you are in — both list
+what is possible *and* the key that does it, and how much hop keeps on screen without being
+asked is one setting (see [Guidance](#actions)).
+
 Everything else works in **all** of them: the [sidebar toggle](#sidebar), the
 [settings popover](#settings), the [tunnels](#tunnels), the [mouse](#mouse) and the optional
 [vim keys](#vim).

@@ -125,6 +125,8 @@ exposing anything.</sub>
 
 <!-- docs:hostlist details="The host list" -->
 
+<!-- docs:actions details="Actions — the menu and the palette" -->
+
 <!-- docs:terminal details="Inside a shell" -->
 
 <!-- docs:leader details="The leader — ctrl+o" -->

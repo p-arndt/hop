@@ -260,6 +260,11 @@ adds more as the window gets wider, and leaves the full table to `?` (the
 | **Terminal** | you connected with `enter` or `s` | the **remote shell** | [Shells](KEYBINDINGS.md#terminal--a-live-shell-on-a-remote-host) · [Scrollback](KEYBINDINGS.md#scrolling-back-through-history) |
 | **Browsing** | you opened the SFTP browser with `f` | hop | [File browser](KEYBINDINGS.md#browsing--the-sftp-file-browser) · [Editor tabs](KEYBINDINGS.md#editing--editor-tabs) |
 
+Nothing here has to be memorised first. `space` opens the [action menu](KEYBINDINGS.md#actions--the-menu-and-the-palette) on the
+host under the cursor and `ctrl+k` the palette for whatever mode you are in — both list
+what is possible *and* the key that does it, and how much hop keeps on screen without being
+asked is one setting (see [Guidance](KEYBINDINGS.md#actions--the-menu-and-the-palette)).
+
 Everything else works in **all** of them: the [sidebar toggle](KEYBINDINGS.md#the-sidebar--ctrlb), the
 [settings popover](KEYBINDINGS.md#settings--the-popover), the [tunnels](KEYBINDINGS.md#tunnels--port-forwarding), the [mouse](KEYBINDINGS.md#the-mouse) and the optional
 [vim keys](KEYBINDINGS.md#vim-keys).
@@ -296,6 +301,8 @@ Everything else works in **all** of them: the [sidebar toggle](KEYBINDINGS.md#th
 | `shift+k` `shift+j` | move a pinned host up / down inside that section |
 | `i` | import hosts from an OpenSSH config (`~/.ssh/config` by default) |
 | `/` | filter hosts (`enter` applies, `esc` clears) |
+| `space` | the [action menu](KEYBINDINGS.md#actions--the-menu-and-the-palette) for this host — everything above, with its key beside it |
+| `ctrl+k` | the [palette](KEYBINDINGS.md#actions--the-menu-and-the-palette): every action, searchable |
 | `,` `?` | settings / the keys card |
 | `ctrl+b` | hide / show the sidebar |
 | `ctrl+g` | hand the mouse to your terminal (and take it back) |
@@ -304,6 +311,51 @@ Everything else works in **all** of them: the [sidebar toggle](KEYBINDINGS.md#th
 
 With [vim keys](KEYBINDINGS.md#vim-keys) on, `j`/`k` move, `l` connects as `enter` does, and `h` goes
 back as `esc` does.
+
+</details>
+
+<details>
+<summary><b>Actions — the menu and the palette</b></summary>
+
+Two keys reach everything hop can do without knowing a single binding, and both of them
+show the key beside every line — so using them is how you stop needing them.
+
+| Key | What it opens |
+| --- | --- |
+| `space` | the **action menu** for the host under the cursor, anchored to its row |
+| `ctrl+k` | the **palette**: everything this mode can do, searchable |
+| `ctrl+o` `ctrl+k` | the palette from inside a shell or an editor tab |
+
+The menu is also a **right-click** on a host: the click stands the cursor on it and opens
+the menu in one gesture.
+
+**The menu is about the thing under the cursor.** It lists only what that host can take
+right now — *connect* on an idle host, *focus its shell* on a live one, *reconnect and
+reopen* on one whose connection dropped, *unpin it* on a pinned one. `↑`/`↓` move,
+`enter` runs, `esc` closes and decides nothing.
+
+**The palette is about the mode you are in.** In the host list it holds the host's actions
+and then hop's own; in the [file browser](KEYBINDINGS.md#browsing--the-sftp-file-browser) it holds the browser's; in a
+[shell](KEYBINDINGS.md#terminal--a-live-shell-on-a-remote-host) or an [editor tab](KEYBINDINGS.md#editing--editor-tabs) it holds the chords behind the
+[leader](KEYBINDINGS.md#the-leader--ctrlo) — which is the keyboard hardest to remember, and so the one it is worth
+most for. Type to narrow it: the search matches the label *and* the key, so a
+half-remembered `ctrl+b` finds the sidebar just as `sft` finds the browser.
+
+### Guidance — how much hop keeps on screen
+
+The first time hop starts it asks one question: how much of its keyboard to keep on
+screen. Three answers, and **every key works in all three** — the profile changes what is
+*shown*, never what a key does.
+
+| Profile | What you get |
+| --- | --- |
+| `keys` | the short footer legend and nothing else |
+| `hybrid` | the legend, the extra keys a wide window has room for, and the host's actions on the details card |
+| `guided` | all of that, plus hop's own keys spelled out beside the host's, and the way to the palette held in the footer where truncation cannot reach it |
+
+`hybrid` is the default, and the one an escape from that first question picks. Change it
+any time with `,` → **Guidance**. An install that already had a config file is never
+asked: it keeps working exactly as it did, on `hybrid`.
 
 </details>
 
@@ -351,6 +403,7 @@ the footer becomes the menu, and hop waits as long as you take:
 | `1` … `9` | that tab, selected **in place** |
 | `0` | another shell on this host |
 | `c` | this directory in VS Code Remote |
+| `ctrl+k` | the [palette](KEYBINDINGS.md#actions--the-menu-and-the-palette) — this pane's chords, searchable |
 | `?` | the key card |
 | anything else | closes the leader and does nothing |
 
@@ -373,6 +426,7 @@ which are otherwise held in every mode.
 | `d` | download the file to `~/Downloads` |
 | `←` `backspace` | up one directory |
 | `r` | refresh the listing |
+| `ctrl+k` | the [palette](KEYBINDINGS.md#actions--the-menu-and-the-palette): everything the browser can do, searchable |
 | `,` | settings |
 | `?` | the key card |
 | `ctrl+b` | hide / show the sidebar |

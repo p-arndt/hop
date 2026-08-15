@@ -25,6 +25,10 @@ func key(t *testing.T, name string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyCtrlF}
 	case "ctrl+b":
 		return tea.KeyMsg{Type: tea.KeyCtrlB}
+	case "ctrl+k":
+		return tea.KeyMsg{Type: tea.KeyCtrlK}
+	case "space":
+		return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
 	case "up":
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "down":

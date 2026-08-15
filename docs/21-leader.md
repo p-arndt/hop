@@ -15,6 +15,7 @@ the footer becomes the menu, and hop waits as long as you take:
 | [[1]] … [[9]] | that tab, selected **in place** |
 | [[0]] | another shell on this host |
 | [[c]] | this directory in VS Code Remote |
+| [[ctrl+k]] | the [palette](#actions) — this pane's chords, searchable |
 | [[?]] | the key card |
 | anything else | closes the leader and does nothing |
 

@@ -44,6 +44,17 @@ type Config struct {
 	// for a selection that spans hop's own furniture; this setting hands it back for good.
 	Mouse bool `json:"mouse"`
 
+	// Guidance is how much of hop's keyboard hop puts on screen without being asked.
+	// It changes what is *shown*, never what a key does: every binding works in every
+	// profile, so nothing learnt in one is unlearnt by switching.
+	//
+	//   keys    the short legend and nothing else — for a keyboard already in the hand
+	//   hybrid  the legend, the extras a wide window fits, and the host's actions
+	//   guided  all of that, plus every action the host has, spelled out with its key
+	//
+	// Empty or unknown means Hybrid. See internal/tui/actions.go for what reads it.
+	Guidance string `json:"guidance"`
+
 	// Clipboard lets a program on a remote host put text on your clipboard over OSC 52 —
 	// a yank in a remote vim, or tmux's set-clipboard. Like Mouse it defaults to on, and
 	// for the same reason that is safe.
@@ -54,6 +65,14 @@ type Config struct {
 	Clipboard bool `json:"clipboard"`
 }
 
+// The guidance profiles. Stored as words rather than a number so a hand-edited config
+// says what it means.
+const (
+	GuidanceKeys   = "keys"
+	GuidanceHybrid = "hybrid"
+	GuidanceGuided = "guided"
+)
+
 // DefaultAccent is hop's pink.
 const DefaultAccent = "212"
 
@@ -62,6 +81,7 @@ func Default() Config {
 	return Config{
 		DownloadDir: defaultDownloadDir(),
 		Accent:      DefaultAccent,
+		Guidance:    GuidanceHybrid,
 		Mouse:       true,
 		Clipboard:   true,
 	}
@@ -88,6 +108,19 @@ func Path() (string, error) {
 		return "", fmt.Errorf("config: locate config dir: %w", err)
 	}
 	return filepath.Join(dir, "hop", "config.json"), nil
+}
+
+// Exists reports whether a config file has been written yet. It is how hop tells a first
+// run from a later one: an existing file means these settings were once decided, even if
+// the key being asked about is not in it, so a new setting must not re-open a question
+// for someone who has been using hop for months.
+func Exists() bool {
+	path, err := Path()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
 }
 
 // Load reads the config file, filling anything absent from Default, and returns defaults
@@ -118,6 +151,14 @@ func (c Config) normalized() Config {
 	}
 	if c.Accent == "" {
 		c.Accent = DefaultAccent
+	}
+	// A profile hop does not know — a typo, or a file written by a newer hop — is the
+	// middle one rather than an error: this setting decides how much is on screen, and
+	// there is no answer to it worth refusing to start over.
+	switch c.Guidance {
+	case GuidanceKeys, GuidanceHybrid, GuidanceGuided:
+	default:
+		c.Guidance = GuidanceHybrid
 	}
 	return c
 }

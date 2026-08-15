@@ -32,6 +32,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		DownloadDir: `C:\tmp\dl`,
 		Accent:      "99",
 		OpenWith:    "code -n",
+		Guidance:    GuidanceGuided,
 	}
 	if err := want.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -164,5 +165,50 @@ func TestLoadClipboardDefaultsOn(t *testing.T) {
 	}
 	if Load().Clipboard {
 		t.Fatal(`a config saying "clipboard": false loaded with it on`)
+	}
+}
+
+// The guidance profile is the one field whose value is checked rather than merely
+// carried: an unknown word is the middle profile, not a broken screen. And a file that
+// predates the setting entirely leaves its owner on hybrid rather than on the zero value.
+func TestGuidanceIsNormalized(t *testing.T) {
+	isolate(t)
+
+	for _, stored := range []string{"", "loud", "GUIDED"} {
+		cfg := Default()
+		cfg.Guidance = stored
+		if err := cfg.Save(); err != nil {
+			t.Fatalf("Save %q: %v", stored, err)
+		}
+		if got := Load().Guidance; got != GuidanceHybrid {
+			t.Fatalf("guidance %q loaded as %q, want %q", stored, got, GuidanceHybrid)
+		}
+	}
+
+	for _, stored := range []string{GuidanceKeys, GuidanceHybrid, GuidanceGuided} {
+		cfg := Default()
+		cfg.Guidance = stored
+		if err := cfg.Save(); err != nil {
+			t.Fatalf("Save %q: %v", stored, err)
+		}
+		if got := Load().Guidance; got != stored {
+			t.Fatalf("guidance %q loaded as %q", stored, got)
+		}
+	}
+}
+
+// Exists is what tells a first run from a later one, so it must answer for the file
+// itself and not for the settings in it.
+func TestExists(t *testing.T) {
+	isolate(t)
+
+	if Exists() {
+		t.Fatal("Exists() is true before anything has been saved")
+	}
+	if err := Default().Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if !Exists() {
+		t.Fatal("Exists() is false after a save")
 	}
 }

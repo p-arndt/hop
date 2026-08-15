@@ -14,7 +14,7 @@ list, from a pane and from the file browser. It is modal: while it is up, keys g
 | Key | Action |
 | --- | --- |
 | [[↑]] [[↓]] ([[k]] [[j]]) | move between settings |
-| [[←]] [[→]] ([[h]] [[l]]) | pick a colour (accent), or flip a switch |
+| [[←]] [[→]] ([[h]] [[l]]) | pick a colour (accent), walk a profile, or flip a switch |
 | [[enter]] [[i]] | edit the selected setting — or flip it, if it is a switch |
 | [[enter]] [[esc]] [[ctrl+u]] | while editing: save / cancel / clear |
 | [[r]] | reset the setting to its default |
@@ -27,6 +27,7 @@ The accent is a swatch strip that recolours hop as you walk it.
 
 | Setting | What it is | Blank means |
 | --- | --- | --- |
+| Guidance | how much of the keyboard hop keeps on screen — `keys`, `hybrid` or `guided`, walked with [[←]]/[[→]] (see [Actions](#actions)) | `hybrid` |
 | Editor | the command [[enter]] runs on the remote host, e.g. `nvim`, `vim -R` | auto: remote `$EDITOR`, else probe for nvim/vim/vi/nano |
 | Download dir | where [[d]] puts a file | `~/Downloads` |
 | Accent colour | picked from the swatch strip with [[←]]/[[→]], or typed | `212`, hop's pink |

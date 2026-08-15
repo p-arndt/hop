@@ -76,6 +76,12 @@ func (m *model) routeMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if m.modalCard() != "" {
 		return m, nil
 	}
+	// The menu is not a modal card — it is anchored to a row rather than centred — but it
+	// takes the pointer like one: it is a question about the host it was opened on, and a
+	// click elsewhere would answer it by moving the cursor out from under it.
+	if m.menu.open {
+		return m, nil
+	}
 	// A drag that ran off the pane is still that drag: it keeps its events wherever the
 	// pointer went, or crossing into the sidebar would clear the selection halfway
 	// through making it.
@@ -144,6 +150,14 @@ func (m *model) mouseList(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.clickList(msg)
+
+	case tea.MouseButtonRight:
+		// The pointer's way to the context menu — the gesture every other program in the
+		// terminal's window has taught, standing in for the space key exactly.
+		if msg.Action != tea.MouseActionPress {
+			return m, nil
+		}
+		return m.rightClickList(msg)
 	}
 	return m, nil
 }
@@ -171,15 +185,27 @@ func (m *model) clickList(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return m, m.openShell(h, false)
 }
 
+// rightClickList opens the context menu on the host that was clicked, standing the
+// cursor on it first: the menu belongs to the selected host, so pointing at one and
+// opening its menu are one gesture rather than two.
+func (m *model) rightClickList(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	m.clearSelection()
+	m.backToList()
+
+	i, ok := m.listRowAt(msg.Y)
+	if !ok {
+		return m, nil
+	}
+	m.cursor = i
+	m.openHostMenu()
+	return m, nil
+}
+
 // listRowAt maps a screen row to an index into m.filtered, or false when the row holds
 // no host. It runs renderList's bookkeeping backwards, then applies renderRows' scroll
 // window.
 func (m *model) listRowAt(y int) (int, bool) {
-	// The screen header, the sidebar's top border, then its heading.
-	first := 2 + m.listTitleRows()
-	if m.filtering || m.filter != "" {
-		first++
-	}
+	first := m.listFirstRow()
 	rows := m.listRows()
 	if y < first || y >= first+rows {
 		return 0, false
@@ -192,6 +218,18 @@ func (m *model) listRowAt(y int) (int, bool) {
 		return 0, false
 	}
 	return m.rows[i].fi, true
+}
+
+// listFirstRow is the screen row the first host row is drawn on: the screen header, the
+// sidebar's top border, its heading, and the filter prompt when there is one. Both the
+// mouse (which maps a row back to a host) and the context menu (which anchors itself to
+// one) need it, so it is one function rather than two copies of renderList's arithmetic.
+func (m *model) listFirstRow() int {
+	first := 2 + m.listTitleRows()
+	if m.filtering || m.filter != "" {
+		first++
+	}
+	return first
 }
 
 // backToList hands the keyboard back to the host list — what ctrl+o does from a shell.

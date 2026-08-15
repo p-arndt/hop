@@ -167,6 +167,16 @@ type model struct {
 	hostForm hostFormUI
 	confirm  confirmUI
 
+	// guidance is the first-run question about how much of the keyboard hop keeps on
+	// screen. It is up only on an install that has never written a config file.
+	guidance guidanceUI
+
+	// palette is the command palette's state (ctrl+k), and menu the context menu's
+	// (space). Both are ways to reach the keys hop already binds without knowing them —
+	// they run actions, and an action is a key. See actions.go.
+	palette paletteUI
+	menu    menuUI
+
 	// importer is the SSH-config import card's state — the one card hop opens by itself,
 	// on a first run with no hosts.
 	importer importUI
@@ -233,9 +243,16 @@ func Run(st *store.Store) error {
 	}
 	m.applyClipboard()
 	m.applyFilter()
-	// First run: an empty store usually means the hosts are in an OpenSSH config hop has
+	// A true first run — no config file has ever been written — opens on the one question
+	// hop asks: how much of its keyboard to keep on screen. Answering it chains into the
+	// import card, so the two never stand on top of each other (see answerGuidance).
+	//
+	// Otherwise: an empty store usually means the hosts are in an OpenSSH config hop has
 	// not been pointed at yet. Only offered when there is a config to read.
-	if len(hosts) == 0 && haveSSHConfig() {
+	switch {
+	case !config.Exists():
+		m.openGuidance()
+	case len(hosts) == 0 && haveSSHConfig():
 		m.openImport(true)
 	}
 	p := tea.NewProgram(m, tea.WithAltScreen())

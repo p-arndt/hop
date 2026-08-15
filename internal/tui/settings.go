@@ -47,6 +47,9 @@ const (
 	fieldColor
 	// fieldToggle is a switch: ←/→ or enter flips it, and there is nothing to type.
 	fieldToggle
+	// fieldChoice is one of a fixed few words: ←/→ walk them, enter takes the next, and
+	// there is nothing to type — an unknown value would only be normalised away.
+	fieldChoice
 )
 
 // settingsField is one editable row of the popover, described by how to read and write
@@ -60,6 +63,9 @@ type settingsField struct {
 	desc string
 	// swatches is the palette a fieldColor walks. Unused by the other kinds.
 	swatches []swatch
+	// choices are the values a fieldChoice walks, in order, with what each one means.
+	// Unused by the other kinds.
+	choices []choice
 	// get and set are string-valued for every kind, so typing, resetting and persisting
 	// are one code path. A non-string config field converts here and nowhere else.
 	get func(config.Config) string
@@ -81,7 +87,30 @@ func onOff(b bool) string {
 	return off
 }
 
+// choice is one value of a fieldChoice: the word stored, and the half-line saying what
+// picking it does — which is the whole of what a profile is.
+type choice struct {
+	value string
+	desc  string
+}
+
+// guidanceChoices are the three profiles, quietest first, so walking right is walking
+// toward more help.
+var guidanceChoices = []choice{
+	{config.GuidanceKeys, "the short legend, nothing else"},
+	{config.GuidanceHybrid, "the legend plus what a wide window fits, and the host's actions"},
+	{config.GuidanceGuided, "all of it: every action a host has, spelled out with its key"},
+}
+
 var settingsFields = []settingsField{
+	{
+		label:   "Guidance",
+		kind:    fieldChoice,
+		desc:    "How much of the keyboard hop puts on screen. Every key works in all three.",
+		choices: guidanceChoices,
+		get:     func(c config.Config) string { return c.Guidance },
+		set:     func(c *config.Config, v string) { c.Guidance = v },
+	},
 	{
 		label:       "Editor",
 		kind:        fieldText,
@@ -219,7 +248,7 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.adjust(f, 1)
 
 	case "enter", "i":
-		if f.kind == fieldToggle {
+		if f.kind == fieldToggle || f.kind == fieldChoice {
 			// Nothing to type on a switch, so the key that would open the buffer flips it.
 			return m, m.adjust(f, 1)
 		}
@@ -242,6 +271,8 @@ func (m *model) adjust(f settingsField, delta int) tea.Cmd {
 		return m.commit(f, nextSwatch(f.swatches, f.get(m.cfg), delta))
 	case fieldToggle:
 		return m.commit(f, onOff(f.get(m.cfg) != on))
+	case fieldChoice:
+		return m.commit(f, nextChoice(f.choices, f.get(m.cfg), delta))
 	}
 	return nil
 }
@@ -253,6 +284,26 @@ func (m *model) commit(f settingsField, v string) tea.Cmd {
 	cmd := m.applySettings()
 	m.saveSettings()
 	return cmd
+}
+
+// nextChoice is the value delta steps along a choice list from current, wrapping at both
+// ends. A value not on the list starts the walk from the beginning.
+func nextChoice(choices []choice, current string, delta int) string {
+	n := len(choices)
+	if n == 0 {
+		return current
+	}
+
+	i := 0
+	for j, c := range choices {
+		if c.value == current {
+			i = j
+			break
+		}
+	}
+
+	i = ((i+delta)%n + n) % n
+	return choices[i].value
 }
 
 // nextSwatch is the colour delta steps along the palette from current, wrapping at both
@@ -437,7 +488,7 @@ func (m *model) renderSettings() string {
 	b.WriteString("\n")
 
 	// The selected field explains itself, in a fixed-height block.
-	for _, line := range wrapExactly(settingsFields[m.settings.cursor].desc, w, settingsDescH) {
+	for _, line := range wrapExactly(m.settingsDesc(settingsFields[m.settings.cursor]), w, settingsDescH) {
 		b.WriteString(faint.Render(line))
 		b.WriteString("\n")
 	}
@@ -452,6 +503,8 @@ func (m *model) renderSettings() string {
 			b.WriteString(settingsHint("↑↓", "move", "←→ enter", "toggle", "r", "reset", "esc", "close"))
 		case fieldColor:
 			b.WriteString(settingsHint("↑↓", "move", "←→", "color", "enter", "custom", "esc", "close"))
+		case fieldChoice:
+			b.WriteString(settingsHint("↑↓", "move", "←→ enter", "profile", "r", "reset", "esc", "close"))
 		default:
 			b.WriteString(settingsHint("↑↓", "move", "enter", "edit", "r", "reset", "esc", "close"))
 		}
@@ -476,6 +529,8 @@ func (m *model) renderSettingsValue(f settingsField, selected bool, w int) strin
 		return indent + m.renderToggle(f, selected, vw)
 	case fieldColor:
 		return indent + m.renderSwatches(f, selected, vw)
+	case fieldChoice:
+		return indent + m.renderChoices(f, selected, vw)
 	}
 
 	value, style := f.get(m.cfg), settingsValue
@@ -506,6 +561,43 @@ func (m *model) renderToggle(f settingsField, selected bool, w int) string {
 
 	isOn := f.get(m.cfg) == on
 	return truncate(state(on, isOn)+"  "+state(off, !isOn), w)
+}
+
+// settingsDesc is the line under the card. A choice field says what the value it is
+// standing on does rather than what the field is: the field's name already said that,
+// and the difference between the three is the only thing worth the two lines.
+func (m *model) settingsDesc(f settingsField) string {
+	if f.kind != fieldChoice {
+		return f.desc
+	}
+	current := f.get(m.cfg)
+	for _, c := range f.choices {
+		if c.value == current {
+			return f.desc + " " + c.value + ": " + c.desc + "."
+		}
+	}
+	return f.desc
+}
+
+// renderChoices draws a choice field as all of its values with the live one bracketed —
+// the toggle's trick with more than two states. Showing the ones you are not on is what
+// says the row is a dial rather than a word.
+func (m *model) renderChoices(f settingsField, selected bool, w int) string {
+	live := settingsValue
+	if selected {
+		live = accentText
+	}
+
+	current := f.get(m.cfg)
+	parts := make([]string, 0, len(f.choices))
+	for _, c := range f.choices {
+		if c.value == current {
+			parts = append(parts, live.Render("["+c.value+"]"))
+			continue
+		}
+		parts = append(parts, dimStyle.Render(" "+c.value+" "))
+	}
+	return truncate(strings.Join(parts, " "), w)
 }
 
 // renderSwatches draws a colour field: the palette as a row of blocks, the chosen one

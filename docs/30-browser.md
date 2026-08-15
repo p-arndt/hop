@@ -15,6 +15,7 @@ label: Browsing mode
 | [[d]] | download the file to `~/Downloads` |
 | [[←]] [[backspace]] | up one directory |
 | [[r]] | refresh the listing |
+| [[ctrl+k]] | the [palette](#actions): everything the browser can do, searchable |
 | [[,]] | settings |
 | [[?]] | the key card |
 | [[ctrl+b]] | hide / show the sidebar |

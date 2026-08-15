@@ -18,6 +18,8 @@ website and the README are all generated from `docs/*.md` by `just docs`.
 
 <!-- docs:hostlist -->
 
+<!-- docs:actions -->
+
 <!-- docs:terminal -->
 
 <!-- docs:leader -->

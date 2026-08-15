@@ -26,6 +26,8 @@ label: Navigation mode
 | [[shift+k]] [[shift+j]] | move a pinned host up / down inside that section |
 | [[i]] | import hosts from an OpenSSH config (`~/.ssh/config` by default) |
 | [[/]] | filter hosts ([[enter]] applies, [[esc]] clears) |
+| [[space]] | the [action menu](#actions) for this host — everything above, with its key beside it |
+| [[ctrl+k]] | the [palette](#actions): every action, searchable |
 | [[,]] [[?]] | settings / the keys card |
 | [[ctrl+b]] | hide / show the sidebar |
 | [[ctrl+g]] | hand the mouse to your terminal (and take it back) |

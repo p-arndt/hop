@@ -66,6 +66,16 @@ the package it works in — this file tracks *what*, not *why*.
 - [ ] Cursor: respect hidden state and cursor style (block/bar/underline); optional blink.
 - [ ] Narrow-terminal handling: header/footer truncation and min-size behavior.
 - [x] **Mode flags are one enum:** `focused`/`browsing`/`editing`/`scrolling` are gone; `model.mode` is a single `paneMode` (`modeList`/`modeShell`/`modeScrollback`/`modeBrowser`/`modeEditor`), so the invalid combinations are unrepresentable and a call site can no longer forget to clear the other three. The old names live on as predicates derived from it (`m.focused()`, `m.scrolling()`, …), plus `m.inPane()`. Scrollback is its own mode rather than a flag on the shell.
+- [x] **Actions are one registry** (`internal/tui/actions.go`): every offerable thing hop does is
+      a `{key, label, availability}` row, and running one *replays its key* through `handleKey` —
+      a chord as the two keystrokes it is. The context menu (`space`, right-click, anchored to the
+      host's row), the command palette (`ctrl+k`; `ctrl+o ctrl+k` in a pane, plain in the browser)
+      and the details card's ACTIONS grid all render from it, so a menu row and its key cannot
+      drift. Per-mode registries: host + hop, browser, shell, editor.
+- [x] **Guidance profiles** (`keys` / `hybrid` / `guided`, `config.Guidance`): visibility only —
+      every binding works in all three. Asked once on a first run (`config.Exists()`, chaining into
+      the import card), editable at `,` → Guidance. `keys` drops the footer extras and the ACTIONS
+      grid; `guided` adds hop's own keys to the grid and pins the palette hint into the footer core.
 - [x] **Status bar + a footer that fits:** a third chrome row (`internal/tui/status.go`) says where you are — host › mode › the directory, file or listing — with `user@host:port` and the tab chips at its right; the header kept only the title and session count. The footer (`footerHints`, `internal/tui/view.go`) is a per-mode core of 3-4 keys that fills a wider window from an `extra` list, dropping whole hints rather than cutting words. `?` opens the key card from every mode hop owns the keyboard in, `ctrl+o ?` where a bare `?` is the remote's, and the card opens on your mode's section (`helpFor`, `internal/tui/help.go`).
 - [x] **`esc` `esc` quits from the host list** — one level out, the list being the last level. A single `esc` still only drops the selected host.
 

@@ -460,6 +460,7 @@
         <li><a href="#browser">File browser</a></li>
         <li><a href="#editor">Editor tabs</a></li>
         <li><div class="grp">Every mode</div></li>
+        <li><a href="#actions">Actions</a></li>
         <li><a href="#tunnels">Tunnels</a></li>
         <li><a href="#reconnect">Reconnecting</a></li>
         <li><a href="#sidebar">Sidebar</a></li>
@@ -691,6 +692,10 @@
       adds more as the window gets wider, and leaves the full table to <kbd>?</kbd> (the
       <a href="#cards">key card</a>), which opens on the section for the mode you are in.</p>
       <div class="modes"><div class="mode"><b>Navigation</b><span>the host list is focused (the default)</span><span class="who">keys go to hop</span><ul class="modelinks"><li><a href="#hostlist">Host list</a></li><li><a href="#import">SSH config import</a></li><li><a href="#hostkeys">Host keys</a></li></ul></div><div class="mode"><b>Terminal</b><span>you connected with <code>enter</code> or <code>s</code></span><span class="who">keys go to the <strong>remote shell</strong></span><ul class="modelinks"><li><a href="#terminal">Shells</a></li><li><a href="#scrollback">Scrollback</a></li></ul></div><div class="mode"><b>Browsing</b><span>you opened the SFTP browser with <code>f</code></span><span class="who">keys go to hop</span><ul class="modelinks"><li><a href="#browser">File browser</a></li><li><a href="#editor">Editor tabs</a></li></ul></div></div>
+      <p>Nothing here has to be memorised first. <kbd>space</kbd> opens the <a href="#actions">action menu</a> on the
+      host under the cursor and <kbd>ctrl+k</kbd> the palette for whatever mode you are in — both list
+      what is possible <em>and</em> the key that does it, and how much hop keeps on screen without being
+      asked is one setting (see <a href="#actions">Guidance</a>).</p>
       <p>Everything else works in <strong>all</strong> of them: the <a href="#sidebar">sidebar toggle</a>, the
       <a href="#settings">settings popover</a>, the <a href="#tunnels">tunnels</a>, the <a href="#mouse">mouse</a> and the optional
       <a href="#vim">vim keys</a>.</p>
@@ -787,6 +792,14 @@
       <tr>
       <td><kbd>/</kbd></td>
       <td>filter hosts (<kbd>enter</kbd> applies, <kbd>esc</kbd> clears)</td>
+      </tr>
+      <tr>
+      <td><kbd>space</kbd></td>
+      <td>the <a href="#actions">action menu</a> for this host — everything above, with its key beside it</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+k</kbd></td>
+      <td>the <a href="#actions">palette</a>: every action, searchable</td>
       </tr>
       <tr>
       <td><kbd>,</kbd> <kbd>?</kbd></td>
@@ -984,6 +997,10 @@
       <td>this directory in VS Code Remote</td>
       </tr>
       <tr>
+      <td><kbd>ctrl+k</kbd></td>
+      <td>the <a href="#actions">palette</a> — this pane&rsquo;s chords, searchable</td>
+      </tr>
+      <tr>
       <td><kbd>?</kbd></td>
       <td>the key card</td>
       </tr>
@@ -1147,6 +1164,10 @@
       <td>refresh the listing</td>
       </tr>
       <tr>
+      <td><kbd>ctrl+k</kbd></td>
+      <td>the <a href="#actions">palette</a>: everything the browser can do, searchable</td>
+      </tr>
+      <tr>
       <td><kbd>,</kbd></td>
       <td>settings</td>
       </tr>
@@ -1237,6 +1258,82 @@
       the desktop (<code>start</code> on Windows, <code>open</code> on macOS, <code>xdg-open</code> elsewhere), returning
       immediately so hop stays usable. Unlike <kbd>enter</kbd>, this edits a <em>local copy</em>: nothing is
       written back to the remote host. <kbd>d</kbd> downloads without opening anything.</p>
+    </section>
+
+    <section id="actions">
+      <p class="sectlabel">Every mode</p>
+      <h2>Actions — the menu and the palette</h2>
+      <p>Two keys reach everything hop can do without knowing a single binding, and both of them
+      show the key beside every line — so using them is how you stop needing them.</p>
+      <div class="tablewrap"><table class="keytable">
+      <thead>
+      <tr>
+      <th>Key</th>
+      <th>What it opens</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><kbd>space</kbd></td>
+      <td>the <strong>action menu</strong> for the host under the cursor, anchored to its row</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+k</kbd></td>
+      <td>the <strong>palette</strong>: everything this mode can do, searchable</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+o</kbd> <kbd>ctrl+k</kbd></td>
+      <td>the palette from inside a shell or an editor tab</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <p>The menu is also a <strong>right-click</strong> on a host: the click stands the cursor on it and opens
+      the menu in one gesture.</p>
+      <p><strong>The menu is about the thing under the cursor.</strong> It lists only what that host can take
+      right now — <em>connect</em> on an idle host, <em>focus its shell</em> on a live one, <em>reconnect and
+      reopen</em> on one whose connection dropped, <em>unpin it</em> on a pinned one. <kbd>↑</kbd>/<kbd>↓</kbd> move,
+      <kbd>enter</kbd> runs, <kbd>esc</kbd> closes and decides nothing.</p>
+      <p><strong>The palette is about the mode you are in.</strong> In the host list it holds the host&rsquo;s actions
+      and then hop&rsquo;s own; in the <a href="#browser">file browser</a> it holds the browser&rsquo;s; in a
+      <a href="#terminal">shell</a> or an <a href="#editor">editor tab</a> it holds the chords behind the
+      <a href="#leader">leader</a> — which is the keyboard hardest to remember, and so the one it is worth
+      most for. Type to narrow it: the search matches the label <em>and</em> the key, so a
+      half-remembered <kbd>ctrl+b</kbd> finds the sidebar just as <code>sft</code> finds the browser.</p>
+      <h3 id="guidance--how-much-hop-keeps-on-screen">Guidance — how much hop keeps on screen</h3>
+      <p>The first time hop starts it asks one question: how much of its keyboard to keep on
+      screen. Three answers, and <strong>every key works in all three</strong> — the profile changes what is
+      <em>shown</em>, never what a key does.</p>
+      <div class="tablewrap"><table>
+      <thead>
+      <tr>
+      <th>Profile</th>
+      <th>What you get</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+      <td><code>keys</code></td>
+      <td>the short footer legend and nothing else</td>
+      </tr>
+      <tr>
+      <td><code>hybrid</code></td>
+      <td>the legend, the extra keys a wide window has room for, and the host&rsquo;s actions on the details card</td>
+      </tr>
+      <tr>
+      <td><code>guided</code></td>
+      <td>all of that, plus hop&rsquo;s own keys spelled out beside the host&rsquo;s, and the way to the palette held in the footer where truncation cannot reach it</td>
+      </tr>
+      </tbody>
+      </table></div>
+      <p><code>hybrid</code> is the default, and the one an escape from that first question picks. Change it
+      any time with <kbd>,</kbd> → <strong>Guidance</strong>. An install that already had a config file is never
+      asked: it keeps working exactly as it did, on <code>hybrid</code>.</p>
+      <details class="why"><summary>Why an action is a key, and never its own code path</summary><p>Every row of the menu and the palette <em>is</em> a binding. Running one replays that key through
+      the same handler a keystroke goes through — a chord like <kbd>ctrl+o</kbd> <kbd>o</kbd> as the two
+      keystrokes it is. Nothing in hop can be reached from a menu but not from the keyboard, the
+      key printed beside a row is the key that ran, and a binding that grows a new condition
+      grows it in one place. The same list also feeds the details card, so what hop offers you
+      and what hop tells you it offers can never drift apart.</p></details>
     </section>
 
     <section id="tunnels">
@@ -1373,7 +1470,7 @@
       </tr>
       <tr>
       <td><kbd>←</kbd> <kbd>→</kbd> (<kbd>h</kbd> <kbd>l</kbd>)</td>
-      <td>pick a colour (accent), or flip a switch</td>
+      <td>pick a colour (accent), walk a profile, or flip a switch</td>
       </tr>
       <tr>
       <td><kbd>enter</kbd> <kbd>i</kbd></td>
@@ -1403,6 +1500,11 @@
       </tr>
       </thead>
       <tbody>
+      <tr>
+      <td>Guidance</td>
+      <td>how much of the keyboard hop keeps on screen — <code>keys</code>, <code>hybrid</code> or <code>guided</code>, walked with <kbd>←</kbd>/<kbd>→</kbd> (see <a href="#actions">Actions</a>)</td>
+      <td><code>hybrid</code></td>
+      </tr>
       <tr>
       <td>Editor</td>
       <td>the command <kbd>enter</kbd> runs on the remote host, e.g. <code>nvim</code>, <code>vim -R</code></td>
@@ -1671,6 +1773,21 @@
       <td>Keys</td>
       <td><kbd>?</kbd> — <kbd>ctrl+o</kbd> <kbd>?</kbd> in a shell or editor</td>
       <td>any key closes it</td>
+      </tr>
+      <tr>
+      <td><a href="#actions">Action menu</a></td>
+      <td><kbd>space</kbd>, or a right-click on a host</td>
+      <td><kbd>↑</kbd>/<kbd>↓</kbd> select, <kbd>enter</kbd> runs, <kbd>esc</kbd> closes</td>
+      </tr>
+      <tr>
+      <td><a href="#actions">Palette</a></td>
+      <td><kbd>ctrl+k</kbd> — <kbd>ctrl+o</kbd> <kbd>ctrl+k</kbd> in a pane</td>
+      <td>any text searches, <kbd>↑</kbd>/<kbd>↓</kbd> select, <kbd>enter</kbd> runs</td>
+      </tr>
+      <tr>
+      <td>Welcome</td>
+      <td>by itself, once, on a first run</td>
+      <td><kbd>↑</kbd>/<kbd>↓</kbd> pick a <a href="#actions">guidance profile</a>, <kbd>enter</kbd> starts hop</td>
       </tr>
       </tbody>
       </table></div>
@@ -1956,6 +2073,7 @@
 {"s":"The three modes","h":"","a":"#modes","t":"How they fit together"},
 {"s":"The three modes","h":"","a":"#modes","t":"Every mode returns to the host list — from a pane with ctrl+o o, from the browser with ctrl+o, and from either with a double esc inside 400 ms. In the list itself esc esc is the last level out: it quits hop."},
 {"s":"The three modes","h":"","a":"#modes","t":"Two rows along the bottom say where you are and what to press. The status bar carries the place: the host, what you are doing on it, and the thing you are doing it to — the directory a shell is standing in, the file an editor tab holds, the listing the browser shows — with user@host:port and the tab count at its right-hand end. The footer below it is the key legend, and it is deliberately short: it names the keys the mode cannot be worked without, adds more as the window gets wider, and leaves the full table to ? (the key card), which opens on the section for the mode you are in."},
+{"s":"The three modes","h":"","a":"#modes","t":"Nothing here has to be memorised first. space opens the action menu on the host under the cursor and ctrl+k the palette for whatever mode you are in — both list what is possible and the key that does it, and how much hop keeps on screen without being asked is one setting (see Guidance)."},
 {"s":"The three modes","h":"","a":"#modes","t":"Everything else works in all of them: the sidebar toggle, the settings popover, the tunnels, the mouse and the optional vim keys."},
 {"s":"The three modes","h":"","a":"#modes","t":"Two rules explain most of the keyboard:"},
 {"s":"The three modes","h":"","a":"#modes","t":"Inside a pane, ctrl+o is hop’s leader. It does nothing on its own and it is on no clock — it opens a menu in the footer and waits. ctrl+o o goes out."},
@@ -1982,6 +2100,8 @@
 {"s":"Navigation — the host list","h":"","a":"#hostlist","t":"shift+k shift+j · move a pinned host up / down inside that section"},
 {"s":"Navigation — the host list","h":"","a":"#hostlist","t":"i · import hosts from an OpenSSH config (~/.ssh/config by default)"},
 {"s":"Navigation — the host list","h":"","a":"#hostlist","t":"/ · filter hosts (enter applies, esc clears)"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"space · the action menu for this host — everything above, with its key beside it"},
+{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"ctrl+k · the palette: every action, searchable"},
 {"s":"Navigation — the host list","h":"","a":"#hostlist","t":", ? · settings / the keys card"},
 {"s":"Navigation — the host list","h":"","a":"#hostlist","t":"ctrl+b · hide / show the sidebar"},
 {"s":"Navigation — the host list","h":"","a":"#hostlist","t":"ctrl+g · hand the mouse to your terminal (and take it back)"},
@@ -2034,6 +2154,7 @@
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"1 … 9 · that tab, selected in place"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"0 · another shell on this host"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"c · this directory in VS Code Remote"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"ctrl+k · the palette — this pane’s chords, searchable"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"? · the key card"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"anything else · closes the leader and does nothing"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"A key that names no chord is swallowed, not passed to the remote: while the leader is open hop has the keyboard, and a program that received the tail of an abandoned chord would act on a key you were not typing at it. The leader also outranks ctrl+b and ctrl+g, which are otherwise held in every mode."},
@@ -2074,6 +2195,7 @@
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"d · download the file to ~/Downloads"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"← backspace · up one directory"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"r · refresh the listing"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+k · the palette: everything the browser can do, searchable"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":", · settings"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"? · the key card"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+b · hide / show the sidebar"},
@@ -2099,6 +2221,25 @@
 {"s":"Editing — editor tabs","h":"How it works","a":"#how-it-works","t":"Tabs are independent editor processes, so leaving with ctrl+o o keeps them all running: come back and every file is where you left it, cursor included."},
 {"s":"Editing — editor tabs","h":"Editing locally instead","a":"#editing-locally-instead","t":"Editing locally instead"},
 {"s":"Editing — editor tabs","h":"Editing locally instead","a":"#editing-locally-instead","t":"o is the escape hatch for files a terminal editor is no good for — a PDF, an image. It downloads the file to a scratch directory under the system temp dir and hands that copy to the desktop (start on Windows, open on macOS, xdg-open elsewhere), returning immediately so hop stays usable. Unlike enter, this edits a local copy: nothing is written back to the remote host. d downloads without opening anything."},
+{"s":"Actions — the menu and the palette","h":"","a":"#actions","t":"Actions — the menu and the palette"},
+{"s":"Actions — the menu and the palette","h":"","a":"#actions","t":"Actions"},
+{"s":"Actions — the menu and the palette","h":"","a":"#actions","t":"Two keys reach everything hop can do without knowing a single binding, and both of them show the key beside every line — so using them is how you stop needing them."},
+{"s":"Actions — the menu and the palette","h":"","a":"#actions","t":"Key · What it opens"},
+{"s":"Actions — the menu and the palette","h":"","a":"#actions","t":"space · the action menu for the host under the cursor, anchored to its row"},
+{"s":"Actions — the menu and the palette","h":"","a":"#actions","t":"ctrl+k · the palette: everything this mode can do, searchable"},
+{"s":"Actions — the menu and the palette","h":"","a":"#actions","t":"ctrl+o ctrl+k · the palette from inside a shell or an editor tab"},
+{"s":"Actions — the menu and the palette","h":"","a":"#actions","t":"The menu is also a right-click on a host: the click stands the cursor on it and opens the menu in one gesture."},
+{"s":"Actions — the menu and the palette","h":"","a":"#actions","t":"The menu is about the thing under the cursor. It lists only what that host can take right now — connect on an idle host, focus its shell on a live one, reconnect and reopen on one whose connection dropped, unpin it on a pinned one. ↑/↓ move, enter runs, esc closes and decides nothing."},
+{"s":"Actions — the menu and the palette","h":"","a":"#actions","t":"The palette is about the mode you are in. In the host list it holds the host’s actions and then hop’s own; in the file browser it holds the browser’s; in a shell or an editor tab it holds the chords behind the leader — which is the keyboard hardest to remember, and so the one it is worth most for. Type to narrow it: the search matches the label and the key, so a half-remembered ctrl+b finds the sidebar just as sft finds the browser."},
+{"s":"Actions — the menu and the palette","h":"Guidance — how much hop keeps on screen","a":"#guidance--how-much-hop-keeps-on-screen","t":"Guidance — how much hop keeps on screen"},
+{"s":"Actions — the menu and the palette","h":"Guidance — how much hop keeps on screen","a":"#guidance--how-much-hop-keeps-on-screen","t":"The first time hop starts it asks one question: how much of its keyboard to keep on screen. Three answers, and every key works in all three — the profile changes what is shown, never what a key does."},
+{"s":"Actions — the menu and the palette","h":"Guidance — how much hop keeps on screen","a":"#guidance--how-much-hop-keeps-on-screen","t":"Profile · What you get"},
+{"s":"Actions — the menu and the palette","h":"Guidance — how much hop keeps on screen","a":"#guidance--how-much-hop-keeps-on-screen","t":"keys · the short footer legend and nothing else"},
+{"s":"Actions — the menu and the palette","h":"Guidance — how much hop keeps on screen","a":"#guidance--how-much-hop-keeps-on-screen","t":"hybrid · the legend, the extra keys a wide window has room for, and the host’s actions on the details card"},
+{"s":"Actions — the menu and the palette","h":"Guidance — how much hop keeps on screen","a":"#guidance--how-much-hop-keeps-on-screen","t":"guided · all of that, plus hop’s own keys spelled out beside the host’s, and the way to the palette held in the footer where truncation cannot reach it"},
+{"s":"Actions — the menu and the palette","h":"Guidance — how much hop keeps on screen","a":"#guidance--how-much-hop-keeps-on-screen","t":"hybrid is the default, and the one an escape from that first question picks. Change it any time with , → Guidance. An install that already had a config file is never asked: it keeps working exactly as it did, on hybrid."},
+{"s":"Actions — the menu and the palette","h":"Guidance — how much hop keeps on screen","a":"#guidance--how-much-hop-keeps-on-screen","t":"Why an action is a key, and never its own code path"},
+{"s":"Actions — the menu and the palette","h":"Guidance — how much hop keeps on screen","a":"#guidance--how-much-hop-keeps-on-screen","t":"Every row of the menu and the palette is a binding. Running one replays that key through the same handler a keystroke goes through — a chord like ctrl+o o as the two keystrokes it is. Nothing in hop can be reached from a menu but not from the keyboard, the key printed beside a row is the key that ran, and a binding that grows a new condition grows it in one place. The same list also feeds the details card, so what hop offers you and what hop tells you it offers can never drift apart."},
 {"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"Tunnels — port forwarding"},
 {"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"Tunnels"},
 {"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"Forwards are defined per host and ride the connection hop already holds, so a tunnel costs no extra handshake and no second authentication."},
@@ -2133,13 +2274,14 @@
 {"s":"Settings — the popover","h":"","a":"#settings","t":", opens the settings card, floating over whatever is on screen. It works from the host list, from a pane and from the file browser. It is modal: while it is up, keys go to it."},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"Key · Action"},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"↑ ↓ (k j) · move between settings"},
-{"s":"Settings — the popover","h":"","a":"#settings","t":"← → (h l) · pick a colour (accent), or flip a switch"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"← → (h l) · pick a colour (accent), walk a profile, or flip a switch"},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"enter i · edit the selected setting — or flip it, if it is a switch"},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"enter esc ctrl+u · while editing: save / cancel / clear"},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"r · reset the setting to its default"},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"esc q , · close"},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"The accent is a swatch strip that recolours hop as you walk it."},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"Setting · What it is · Blank means"},
+{"s":"Settings — the popover","h":"","a":"#settings","t":"Guidance · how much of the keyboard hop keeps on screen — keys, hybrid or guided, walked with ←/→ (see Actions) · hybrid"},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"Editor · the command enter runs on the remote host, e.g. nvim, vim -R · auto: remote $EDITOR, else probe for nvim/vim/vi/nano"},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"Download dir · where d puts a file · ~/Downloads"},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"Accent colour · picked from the swatch strip with ←/→, or typed · 212, hop’s pink"},
@@ -2210,6 +2352,9 @@
 {"s":"The cards","h":"","a":"#cards","t":"Add / edit host · a / e · ↑/↓ or tab move between fields, enter saves, esc cancels"},
 {"s":"The cards","h":"","a":"#cards","t":"Delete host · x · enter confirms, esc cancels"},
 {"s":"The cards","h":"","a":"#cards","t":"Keys · ? — ctrl+o ? in a shell or editor · any key closes it"},
+{"s":"The cards","h":"","a":"#cards","t":"Action menu · space, or a right-click on a host · ↑/↓ select, enter runs, esc closes"},
+{"s":"The cards","h":"","a":"#cards","t":"Palette · ctrl+k — ctrl+o ctrl+k in a pane · any text searches, ↑/↓ select, enter runs"},
+{"s":"The cards","h":"","a":"#cards","t":"Welcome · by itself, once, on a first run · ↑/↓ pick a guidance profile, enter starts hop"},
 {"s":"The cards","h":"","a":"#cards","t":"The keys card opens on the section for the mode you are in — the shell’s keys from a shell, the browser’s from the browser — and marks it you are here. That is what lets the footer stay short: it names the two or three keys a mode cannot be worked without and leaves the rest to this card, which is only a fair trade if the card starts where you are."},
 {"s":"The cards","h":"","a":"#cards","t":"? reaches it from every mode hop owns the keyboard in. In a shell or an editor a bare ? is a question mark the remote is owed, so there it is ctrl+o ? — the same key, one level in."},
 {"s":"The cards","h":"","a":"#cards","t":"The host form carries more than an address: a group, a default directory every session on that host starts in, an identity file, and ProxyCommand / ProxyJump for hosts you reach through a bastion. Renaming the alias keeps the host’s visit history, so it does not lose its place in the frecency order."},

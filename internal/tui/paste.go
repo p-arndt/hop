@@ -164,7 +164,8 @@ func pastable(msg tea.KeyMsg) bool {
 // card that just appeared would be delivered to the shell behind it as a paste.
 func (m *model) cardOpen() bool {
 	return m.auth.open || m.help || m.hostKey.open || m.confirm.open ||
-		m.hostForm.open || m.importer.open || m.tunnels.open || m.settings.open
+		m.hostForm.open || m.importer.open || m.tunnels.open || m.settings.open ||
+		m.palette.open || m.menu.open || m.guidance.open
 }
 
 // forwardingPane reports whether the keyboard belongs to a remote program: a live shell

@@ -1,12 +1,14 @@
 package tui
 
-import "hop/internal/action"
+// Aliased: the tui package has an action of its own — the thing the palette and the
+// context menu run (see actions.go) — and the two would otherwise collide over one name.
+import actionpkg "hop/internal/action"
 
 // openVSCode is the action the VS Code bindings run. It is a variable rather than
 // a direct call so a test can see what hop asks VS Code to open — the path is the
 // whole feature, and there is no other way to observe it without a VS Code on the
 // machine running the tests.
-var openVSCode = action.OpenVSCodeRemote
+var openVSCode = actionpkg.OpenVSCodeRemote
 
 // openVSCodeAt opens VS Code Remote on the host, in the directory its shell is
 // standing in. That is the point of it: `code --remote` on its own lands in the
