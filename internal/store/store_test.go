@@ -803,3 +803,36 @@ func TestHostByAlias(t *testing.T) {
 		t.Errorf("HostByAlias(nope) = %v, %v; want false, nil", ok, err)
 	}
 }
+
+// Add and Upsert share one INSERT; this pins that Add persists every optional field, so
+// a column added to only one of the two paths cannot pass unnoticed.
+func TestAddRoundTripsAllFields(t *testing.T) {
+	s := newStore(t)
+
+	want := Host{
+		Alias:        "bastioned",
+		HostName:     "internal.example.com",
+		User:         "deploy",
+		Port:         2222,
+		IdentityFile: "~/.ssh/id_ed25519",
+		Tags:         []string{"prod", "eu"},
+		Group:        "core",
+		DefaultDir:   "/srv/app",
+		ProxyCommand: "cloudflared access ssh --hostname %h",
+		ProxyJump:    "jump.example.com",
+	}
+	if _, err := s.Add(want); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	got, ok, err := s.HostByAlias("bastioned")
+	if err != nil || !ok {
+		t.Fatalf("HostByAlias: %v, ok=%v", err, ok)
+	}
+	if got.HostName != want.HostName || got.User != want.User || got.Port != want.Port ||
+		got.IdentityFile != want.IdentityFile || got.Group != want.Group ||
+		got.DefaultDir != want.DefaultDir || got.ProxyCommand != want.ProxyCommand ||
+		got.ProxyJump != want.ProxyJump || strings.Join(got.Tags, ",") != "prod,eu" {
+		t.Fatalf("Add lost fields: %+v", got)
+	}
+}

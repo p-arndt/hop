@@ -168,6 +168,52 @@ func migrate(db *sql.DB) error {
 	return nil
 }
 
+// hostColumns is the read projection shared by Hosts and HostByAlias; hostInsert the
+// write one shared by Upsert and Add. Both pair with a helper below, so a new column is
+// two edits rather than a hunt through four queries that must agree.
+const hostColumns = `id, alias, hostname, user, port, identity_file, tags, grp, visits, last_connect,
+	       pinned, pin_order, COALESCE(default_dir, ''),
+	       COALESCE(proxy_command, ''), COALESCE(proxy_jump, '')`
+
+const hostInsert = `
+	INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect, default_dir, proxy_command, proxy_jump)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+// rowScanner is what *sql.Row and *sql.Rows have in common.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanHost reads one hostColumns row.
+func scanHost(sc rowScanner) (Host, error) {
+	var (
+		h    Host
+		tags string
+	)
+	if err := sc.Scan(
+		&h.ID, &h.Alias, &h.HostName, &h.User, &h.Port,
+		&h.IdentityFile, &tags, &h.Group, &h.Visits, &h.LastConnect,
+		&h.Pinned, &h.PinOrder, &h.DefaultDir,
+		&h.ProxyCommand, &h.ProxyJump,
+	); err != nil {
+		return Host{}, err
+	}
+	h.Tags = splitTags(tags)
+	return h, nil
+}
+
+// hostInsertArgs binds h to hostInsert's placeholders, applying ssh's default port.
+func hostInsertArgs(h Host) []any {
+	port := h.Port
+	if port == 0 {
+		port = 22
+	}
+	return []any{
+		h.Alias, h.HostName, h.User, port, h.IdentityFile, joinTags(h.Tags), h.Group,
+		h.Visits, h.LastConnect, h.DefaultDir, h.ProxyCommand, h.ProxyJump,
+	}
+}
+
 // Open opens (creating if needed) the hop database at
 // <UserConfigDir>/hop/hop.db and ensures the schema exists.
 func Open() (*Store, error) {
@@ -215,9 +261,7 @@ func (s *Store) Close() error {
 // desc then LastConnect desc.
 func (s *Store) Hosts() ([]Host, error) {
 	rows, err := s.db.Query(`
-		SELECT id, alias, hostname, user, port, identity_file, tags, grp, visits, last_connect,
-		       pinned, pin_order, COALESCE(default_dir, ''),
-		       COALESCE(proxy_command, ''), COALESCE(proxy_jump, '')
+		SELECT ` + hostColumns + `
 		FROM hosts
 		ORDER BY pinned DESC, pin_order ASC, visits DESC, last_connect DESC`)
 	if err != nil {
@@ -225,19 +269,10 @@ func (s *Store) Hosts() ([]Host, error) {
 	}
 	var hosts []Host
 	for rows.Next() {
-		var (
-			h    Host
-			tags string
-		)
-		if err := rows.Scan(
-			&h.ID, &h.Alias, &h.HostName, &h.User, &h.Port,
-			&h.IdentityFile, &tags, &h.Group, &h.Visits, &h.LastConnect,
-			&h.Pinned, &h.PinOrder, &h.DefaultDir,
-			&h.ProxyCommand, &h.ProxyJump,
-		); err != nil {
+		h, err := scanHost(rows)
+		if err != nil {
 			return nil, err
 		}
-		h.Tags = splitTags(tags)
 		hosts = append(hosts, h)
 	}
 	if err := rows.Err(); err != nil {
@@ -279,41 +314,23 @@ func (s *Store) Hosts() ([]Host, error) {
 // Hosts()'s whole table plus every forward, since the jump resolver asks on each dial.
 // Forwards are not loaded: nothing looking a host up by name runs its tunnels.
 func (s *Store) HostByAlias(alias string) (Host, bool, error) {
-	var (
-		h    Host
-		tags string
-	)
-	err := s.db.QueryRow(`
-		SELECT id, alias, hostname, user, port, identity_file, tags, grp, visits, last_connect,
-		       pinned, pin_order, COALESCE(default_dir, ''),
-		       COALESCE(proxy_command, ''), COALESCE(proxy_jump, '')
-		FROM hosts WHERE alias = ?`, alias).Scan(
-		&h.ID, &h.Alias, &h.HostName, &h.User, &h.Port,
-		&h.IdentityFile, &tags, &h.Group, &h.Visits, &h.LastConnect,
-		&h.Pinned, &h.PinOrder, &h.DefaultDir,
-		&h.ProxyCommand, &h.ProxyJump,
-	)
+	h, err := scanHost(s.db.QueryRow(`
+		SELECT `+hostColumns+`
+		FROM hosts WHERE alias = ?`, alias))
 	if err == sql.ErrNoRows {
 		return Host{}, false, nil
 	}
 	if err != nil {
 		return Host{}, false, err
 	}
-	h.Tags = splitTags(tags)
 	return h, true, nil
 }
 
 // Upsert inserts or updates a host keyed by its Alias and returns the row id.
 func (s *Store) Upsert(h Host) (int64, error) {
-	port := h.Port
-	if port == 0 {
-		port = 22
-	}
-	tags := joinTags(h.Tags)
-
-	_, err := s.db.Exec(`
-		INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect, default_dir, proxy_command, proxy_jump)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	// visits and last_connect are deliberately absent from the update: an edit must not
+	// reset the frecency Touch has been accumulating.
+	_, err := s.db.Exec(hostInsert+`
 		ON CONFLICT(alias) DO UPDATE SET
 			hostname      = excluded.hostname,
 			user          = excluded.user,
@@ -324,8 +341,7 @@ func (s *Store) Upsert(h Host) (int64, error) {
 			default_dir   = excluded.default_dir,
 			proxy_command = excluded.proxy_command,
 			proxy_jump    = excluded.proxy_jump`,
-		h.Alias, h.HostName, h.User, port, h.IdentityFile, tags, h.Group, h.Visits, h.LastConnect, h.DefaultDir,
-		h.ProxyCommand, h.ProxyJump,
+		hostInsertArgs(h)...,
 	)
 	if err != nil {
 		return 0, err
@@ -351,17 +367,7 @@ func (s *Store) Add(h Host) (int64, error) {
 		return 0, err
 	}
 
-	port := h.Port
-	if port == 0 {
-		port = 22
-	}
-
-	res, err := s.db.Exec(`
-		INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect, default_dir, proxy_command, proxy_jump)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		h.Alias, h.HostName, h.User, port, h.IdentityFile, joinTags(h.Tags), h.Group, h.Visits, h.LastConnect, h.DefaultDir,
-		h.ProxyCommand, h.ProxyJump,
-	)
+	res, err := s.db.Exec(hostInsert, hostInsertArgs(h)...)
 	if err != nil {
 		return 0, err
 	}
