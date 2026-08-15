@@ -66,10 +66,9 @@ func keyPaths(identityFile string) (paths []string, explicit bool) {
 	return paths, false
 }
 
-// expandHome resolves a leading ~ in a path — the form ssh_config uses for IdentityFile
-// and ProxyCommand alike, and what the import writes into the store verbatim. Both
-// separators are accepted, since a Windows config writes `~\.ssh\id_ed25519`. A bare
-// "~user/…" is left alone: hop does not resolve other people's home directories.
+// expandHome resolves a leading ~ in a path, as ssh_config writes it for IdentityFile and
+// ProxyCommand. Both separators, since a Windows config writes `~\.ssh\id_ed25519`. A
+// bare "~user/…" is left alone.
 func expandHome(p string) string {
 	if p != "~" && !strings.HasPrefix(p, "~/") && !strings.HasPrefix(p, `~\`) {
 		return p

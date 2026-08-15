@@ -1,7 +1,5 @@
-// Proxy dialling: reaching a host that no direct TCP connect can, either through a local
-// broker program (ProxyCommand) or through a bastion hop already knows how to log into
-// (ProxyJump). Both end in the same place — an established net.Conn handed to
-// ssh.NewClientConn — because x/crypto/ssh cares about the stream, not how it was opened.
+// Proxy dialling: ProxyCommand runs a local broker program, ProxyJump goes through a
+// bastion. Both end at ssh.NewClientConn, which takes any net.Conn.
 
 package sshx
 
@@ -21,28 +19,20 @@ import (
 	"hop/internal/store"
 )
 
-// proxyStderrLimit caps how much of a proxy program's stderr is kept for the error
-// message. Enough for the sentence that explains the failure ("An error occurred (
-// TargetNotConnected)"), not enough for a runaway program to eat memory.
+// proxyStderrLimit bounds the stderr kept for the error message, so a runaway program
+// cannot eat memory.
 const proxyStderrLimit = 4 << 10
 
-// proxyFirstByteTimeout bounds, in nanoseconds, how long a proxy program may stay silent
-// before hop gives up on it. It stands in for the TCP connect timeout a direct dial gets from
-// ClientConfig.Timeout, which does not apply here: that field is read only by ssh.Dial,
-// and a proxied dial goes through ssh.NewClientConn instead.
-//
-// The first byte is the server's version banner, sent before any authentication, so this
-// is safe to bound even though the handshake around it deliberately is not — a user
-// reading a code off their phone is answering long after this has elapsed.
-// It is atomic because a watchdog from an earlier dial may still be reading it while a
-// test shortens it for the next.
+// proxyFirstByteTimeout stands in for ClientConfig.Timeout, which only ssh.Dial reads.
+// The first byte is the server's version banner, sent before authentication, so bounding
+// it does not cut short a user typing a 2FA code. Atomic so a test may shorten it while
+// an earlier watchdog still reads it.
 var proxyFirstByteTimeout = func() *atomic.Int64 {
 	v := new(atomic.Int64)
 	v.Store(int64(30 * time.Second))
 	return v
 }()
 
-// firstByteTimeout is the current watchdog window.
 func firstByteTimeout() time.Duration { return time.Duration(proxyFirstByteTimeout.Load()) }
 
 // proxyFirstByteTimeoutForTest shortens the watchdog and returns the restore func.
@@ -51,12 +41,9 @@ func proxyFirstByteTimeoutForTest(d time.Duration) func() {
 	return func() { proxyFirstByteTimeout.Store(prev) }
 }
 
-// dialProxyCommand runs cmdline and returns its stdin/stdout as a net.Conn carrying the
-// SSH transport, which is exactly what OpenSSH's ProxyCommand contract is.
-//
-// The tokens ssh expands are expanded here too: %h the hostname dialled, %p the port, %r
-// the remote user, %n the name as typed (hop's alias), %% a literal percent. Anything
-// else is left alone rather than guessed at.
+// dialProxyCommand runs cmdline and returns its stdin/stdout as a net.Conn, which is
+// OpenSSH's ProxyCommand contract. Tokens: %h host, %p port, %r remote user, %n alias,
+// %% a literal percent; anything else is left alone.
 func dialProxyCommand(cmdline, host string, port int, user, alias string) (net.Conn, error) {
 	expanded := expandProxyTokens(cmdline, host, port, user, alias)
 
@@ -65,8 +52,7 @@ func dialProxyCommand(cmdline, host string, port int, user, alias string) (net.C
 		return nil, err
 	}
 
-	// The one piece of shell expansion hop does for a proxy command: without it a
-	// `~/bin/tunnel` fails to exec, and there is nothing ambiguous about what it means.
+	// The only shell expansion hop does here: `~/bin/tunnel` would otherwise fail to exec.
 	for i := range argv {
 		argv[i] = expandHome(argv[i])
 	}
@@ -81,15 +67,10 @@ func dialProxyCommand(cmdline, host string, port int, user, alias string) (net.C
 	if err != nil {
 		return nil, fmt.Errorf("sshx: proxy stdout: %w", err)
 	}
-	// The proxy's own diagnostics are kept, not sent to hop's terminal: a broker that
-	// refuses explains itself on stderr, and without keeping it the dial fails as a bare
-	// EOF.
-	//
-	// stderr is an *os.File hop owns rather than a plain io.Writer, because os/exec only
-	// spawns its own copying goroutine for the latter — and cmd.Wait then blocks until
-	// that copy ends, which never happens while a grandchild still holds the pipe. A
-	// broker that forks a helper (`aws ssm` starts session-manager-plugin) would hang
-	// Close forever. Owning the pipe means Close can shut the read end itself.
+	// A broker that refuses explains itself on stderr; without it the dial fails as a bare
+	// EOF. The pipe is an *os.File hop owns, not a plain io.Writer: os/exec would then run
+	// its own copier and cmd.Wait would block on it for as long as a forked grandchild
+	// holds the pipe — which `aws ssm` (session-manager-plugin) does.
 	errBuf := &boundedBuffer{limit: proxyStderrLimit}
 	errRead, errWrite, err := os.Pipe()
 	if err != nil {
@@ -102,8 +83,7 @@ func dialProxyCommand(cmdline, host string, port int, user, alias string) (net.C
 		errWrite.Close()
 		return nil, fmt.Errorf("sshx: start proxy %q: %w", argv[0], err)
 	}
-	// The child holds its own descriptor now; hop's copy must go or the reader below
-	// would never see EOF even after the program exits.
+	// The child has its own descriptor; hop's copy must go or the reader never sees EOF.
 	errWrite.Close()
 	go func() {
 		io.Copy(errBuf, errRead)
@@ -145,8 +125,8 @@ func expandProxyTokens(s, host string, port int, user, alias string) string {
 		case '%':
 			b.WriteByte('%')
 		default:
-			// An unknown token is passed through untouched; inventing a value for it
-			// would silently change what the user's command means.
+			// Unknown tokens pass through: inventing a value would change what the
+			// command means.
 			b.WriteByte('%')
 			b.WriteByte(s[i+1])
 		}
@@ -155,28 +135,20 @@ func expandProxyTokens(s, host string, port int, user, alias string) string {
 	return b.String()
 }
 
-// shellMeta are the characters a shell reads as control flow or substitution. hop runs
-// the proxy program directly, with no shell in between, so a command line containing one
-// is refused rather than handed to `sh -c`: a ProxyCommand can arrive from an imported
-// config file, and that path must not become one that runs arbitrary shell.
+// shellMeta are control-flow and substitution characters. A command line containing one
+// is refused rather than handed to `sh -c`: a ProxyCommand can come from an imported
+// config, and that path must not run arbitrary shell.
 //
-// Deliberately absent are the characters a shell would merely *expand*: globs, `=`, `#`
-// and `~`. They occur unquoted in ordinary commands — the issue's own
-// `--parameters portNumber=%p` is one — and passing them through as literal argv is what
-// running without a shell means. A leading `~/` is the one expansion done here (see
-// expandHome), because a path is useless without it.
+// Characters a shell would merely expand (globs, `=`, `#`, `~`) are absent on purpose —
+// they occur unquoted in ordinary commands, `--parameters portNumber=%p` among them.
 const shellMeta = "|&;<>()$`\n"
 
 // ErrProxyNeedsShell is returned for a ProxyCommand that only a shell could run.
 var ErrProxyNeedsShell = errors.New("sshx: proxy command needs a shell")
 
-// splitProxyCommand parses cmdline into argv the way a shell would for the simple case:
-// whitespace separates words, and single or double quotes group them. Backslash escapes
-// are honoured inside double quotes and outside quotes, matching sh closely enough that
-// a quoted Windows path survives.
-//
-// Anything beyond that — a pipe, a redirect, a variable, a glob — is refused with
-// ErrProxyNeedsShell, since running it would need the shell hop deliberately omits.
+// splitProxyCommand parses cmdline into argv: whitespace separates words, quotes group
+// them, backslash escapes per isEscapable. A pipe, redirect or variable is refused with
+// ErrProxyNeedsShell.
 func splitProxyCommand(cmdline string) ([]string, error) {
 	var (
 		argv    []string
@@ -241,41 +213,37 @@ func splitProxyCommand(cmdline string) ([]string, error) {
 	return argv, nil
 }
 
-// isEscapable reports whether a backslash before c means "take c literally". Everything
-// else leaves the backslash standing as a path separator.
+// isEscapable reports whether a backslash before c means "take c literally". Anywhere
+// else the backslash stands, so an unquoted Windows path keeps its separators.
 func isEscapable(c byte) bool {
 	return c == '"' || c == '\'' || c == ' ' || c == '\t' || c == '\\'
 }
 
 // procConn adapts a running program's pipes to net.Conn. Only Read, Write and Close
-// carry meaning for an SSH transport; the address and deadline methods exist to satisfy
-// the interface, and the deadlines report failure rather than pretending to be set.
+// carry meaning; the rest satisfies the interface.
 type procConn struct {
 	cmd    *exec.Cmd
 	r      io.ReadCloser
 	w      io.WriteCloser
 	stderr *boundedBuffer
-	// errRead is hop's end of the stderr pipe, closed by Close so the copier above stops
-	// even when a grandchild still holds the write end.
+	// errRead is hop's end of the stderr pipe. Close shuts it, so the copier stops even
+	// while a grandchild holds the write end.
 	errRead *os.File
 	name    string
-	// alive is closed by the first successful read, which is what stops the watchdog
-	// below. Until then a silent proxy is on the clock.
+	// alive is closed by the first successful read, stopping the watchdog.
 	alive     chan struct{}
 	aliveOnce sync.Once
 	timedOut  atomic.Bool
 	silentFor atomic.Int64 // the window that elapsed, for the message
-	// target is the host:port this stream reaches. RemoteAddr must report it rather than
-	// the proxy program, because the host-key check reads the remote address to decide
-	// which known_hosts entry applies — a program name there fails the lookup outright.
+	// target is what RemoteAddr reports. It must be the host:port, not the program: the
+	// host-key check reads it to pick the known_hosts entry.
 	target tcpAddr
 
 	once sync.Once
 }
 
-// watchFirstByte kills the connection if the proxy has said nothing by
-// proxyFirstByteTimeout. Closing it is what unblocks the read parked in the handshake,
-// so the dial fails with a message rather than hanging.
+// watchFirstByte closes the connection if the proxy says nothing in time, which unblocks
+// the read parked in the handshake.
 func (p *procConn) watchFirstByte() {
 	go func() {
 		window := firstByteTimeout()
@@ -303,8 +271,7 @@ func (p *procConn) Read(b []byte) (int, error) {
 		return n, err
 	}
 	if err == io.EOF && n == 0 {
-		// The proxy hung up. Its stderr is the only account of why, so it becomes the
-		// error the user sees instead of a bare "EOF" from the handshake.
+		// The proxy hung up; its stderr is the only account of why.
 		if msg := p.stderr.String(); msg != "" {
 			return 0, fmt.Errorf("sshx: proxy %s exited: %s", p.name, msg)
 		}
@@ -314,12 +281,8 @@ func (p *procConn) Read(b []byte) (int, error) {
 
 func (p *procConn) Write(b []byte) (int, error) { return p.w.Write(b) }
 
-// Close shuts the pipes and kills the program. The wait is what reaps it; without one
-// every failed dial would leave a broker process behind.
-//
-// It cannot hang on a grandchild: the only descriptor hop waits on is the stderr read
-// end, and that is closed here, while cmd.Wait itself only waits on the process now that
-// no io.Writer copier stands between them.
+// Close shuts the pipes and kills the program; the wait reaps it, or a failed dial would
+// leave the broker running. It cannot hang on a grandchild — see the stderr pipe above.
 func (p *procConn) Close() error {
 	var err error
 	p.once.Do(func() {
@@ -346,22 +309,20 @@ func (p *procConn) SetDeadline(time.Time) error {
 func (p *procConn) SetReadDeadline(t time.Time) error  { return p.SetDeadline(t) }
 func (p *procConn) SetWriteDeadline(t time.Time) error { return p.SetDeadline(t) }
 
-// proxyAddr names the local end of a proxy-command connection — the program, since there
-// is no socket on this side. Nothing in the SSH client reads it.
+// proxyAddr names the local end: the program, since there is no socket on this side.
 type proxyAddr string
 
 func (a proxyAddr) Network() string { return "proxycommand" }
 func (a proxyAddr) String() string  { return string(a) }
 
-// tcpAddr is a host:port the SSH machinery can parse. It is a plain string rather than a
-// *net.TCPAddr because the host may be a name the proxy resolves and hop never does.
+// tcpAddr is a host:port the SSH machinery can parse. A string rather than a
+// *net.TCPAddr, because the proxy may resolve a name hop never does.
 type tcpAddr string
 
 func (a tcpAddr) Network() string { return "tcp" }
 func (a tcpAddr) String() string  { return string(a) }
 
-// boundedBuffer collects at most limit bytes and silently drops the rest — a proxy that
-// writes endlessly to stderr must not grow hop's memory with it.
+// boundedBuffer keeps at most limit bytes and drops the rest.
 type boundedBuffer struct {
 	limit int
 	mu    sync.Mutex
@@ -377,7 +338,7 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 		}
 		b.buf = append(b.buf, p[:room]...)
 	}
-	return len(p), nil // report a full write: dropping output is not the writer's problem
+	return len(p), nil // a full write: dropping output is not the writer's problem
 }
 
 func (b *boundedBuffer) String() string {
@@ -394,8 +355,7 @@ type JumpHost struct {
 }
 
 // parseJump reads one ProxyJump value: [user@]host[:port]. ssh accepts a comma-separated
-// chain; hop takes the first and ignores the rest, since a second bastion needs a second
-// authenticated dial that the first one's credentials do not describe.
+// chain; hop takes the first and ignores the rest.
 func parseJump(v string) (JumpHost, error) {
 	v = strings.TrimSpace(v)
 	if i := strings.IndexByte(v, ','); i >= 0 {
@@ -441,14 +401,12 @@ func parseJump(v string) (JumpHost, error) {
 	return j, nil
 }
 
-// JumpResolver turns a ProxyJump target into the store entry hop should dial. It lets the
-// bastion be named by its hop alias — so its own key, port and user apply — and returns
-// ok=false when the name is not one, leaving parseJump's bare host to stand on its own.
+// JumpResolver looks a ProxyJump name up as a hop alias, so the bastion's own key, port
+// and user apply. ok=false leaves parseJump's bare host to stand on its own.
 type JumpResolver func(name string) (store.Host, bool)
 
-// jumpTarget builds the host to dial for the bastion: the resolver's entry when the name
-// is a known alias, otherwise a bare host. Explicit user and port from the directive win
-// over the entry's, since that is what the user wrote at the point of use.
+// jumpTarget builds the bastion to dial. An explicit user or port in the directive wins
+// over the resolved entry's, being what the user wrote at the point of use.
 func jumpTarget(j JumpHost, resolve JumpResolver) store.Host {
 	var h store.Host
 	if resolve != nil {

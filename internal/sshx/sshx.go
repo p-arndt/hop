@@ -274,13 +274,12 @@ func (e *UnknownHostKeyError) Error() string {
 	return fmt.Sprintf("sshx: unknown host key for %s: %s %s", e.Hostname, e.KeyType, e.Fingerprint)
 }
 
-// SetJumpResolver installs the lookup that lets a host's ProxyJump name another host in
-// this store by its alias, so the bastion is dialled with its own user, port and key. Set
-// once at startup; without it a jump is taken as a bare hostname.
+// SetJumpResolver installs the alias lookup for ProxyJump. Set once at startup; without
+// it a jump name is taken as a bare hostname.
 func SetJumpResolver(r JumpResolver) { jumpResolver = r }
 
-// jumpResolver is process-wide because a dial is reached from several places (sessions,
-// reconnects, tunnels) and none of them should have to carry the store along.
+// jumpResolver is process-wide: dials happen in several places, none of which should
+// have to carry the store along.
 var jumpResolver JumpResolver
 
 // Connect resolves auth, host-key policy and address from h and dials. An unknown host
@@ -307,33 +306,25 @@ func connect(h store.Host, trustedFP string, p Prompter) (*Client, error) {
 	return connectTrust(h, &dialState{fingerprint: trustedFP}, p)
 }
 
-// maxJumpDepth bounds how many bastions one dial may stack. A chain this long is already
-// past anything real; the limit is here so a mistake ends in an error rather than a
-// blown stack.
+// maxJumpDepth bounds how many bastions one dial may stack, so a mistake ends in an
+// error rather than a blown stack.
 const maxJumpDepth = 10
 
-// dialState is what one dial carries across the hosts it touches — the target and any
-// bastions in front of it.
+// dialState is what one dial carries across the hosts it touches.
 //
-// fingerprint is one user approval. A jump dials two hosts, and the approval belongs to
-// exactly one of them: the first first-contact host it fits consumes it, and every later
-// unknown host in the same dial raises its own *UnknownHostKeyError instead of being
-// measured against a fingerprint approved for somebody else. That is what turns a
-// two-host first contact into two questions rather than a loop or a bogus "possible key
-// swap".
+// fingerprint is one user approval, consumed by the first first-contact host it fits: a
+// jump meeting two unknown hosts then asks about each in turn, instead of measuring the
+// second against a fingerprint approved for the first.
 //
-// jumps are the bastion addresses already dialled. A ProxyJump may name a host in the
-// store, and that host may name another — so the chain can close on itself, and without
-// this record `a` jumping to `b` jumping back to `a` would recurse until the stack gave
-// out.
+// jumps are the bastions already dialled. A ProxyJump may name a store host that names
+// another, so the chain can close on itself.
 type dialState struct {
 	fingerprint string
 	used        bool
 	jumps       []string
 }
 
-// enterJump records addr as the next bastion in this chain, refusing a repeat or a chain
-// past maxJumpDepth.
+// enterJump records the next bastion, refusing a repeat or a chain past maxJumpDepth.
 func (d *dialState) enterJump(addr string) error {
 	for _, seen := range d.jumps {
 		if seen == addr {
@@ -398,12 +389,9 @@ func connectTrust(h store.Host, trust *dialState, p Prompter) (*Client, error) {
 	return cl, nil
 }
 
-// dialWithProxy opens the transport to addr by whichever route h describes: through a
-// bastion, through a local proxy program, or straight over TCP. Only the route differs —
-// the same ClientConfig, and so the same auth and host-key checks, apply to all three.
-//
-// ProxyJump wins over ProxyCommand when both are set, which is the precedence ssh itself
-// applies.
+// dialWithProxy opens the transport by whichever route h describes. Only the route
+// differs: the same ClientConfig, and so the same auth and host-key checks, apply to all
+// three. ProxyJump wins over ProxyCommand, as in ssh.
 func dialWithProxy(h store.Host, addr, username string, port int, trust *dialState, cfg *ssh.ClientConfig, p Prompter) (*Client, error) {
 	switch {
 	case strings.TrimSpace(h.ProxyJump) != "":
@@ -423,14 +411,11 @@ func dialWithProxy(h store.Host, addr, username string, port int, trust *dialSta
 // authenticated transport. The bastion's own host key is verified by its own dial, so a
 // compromised bastion still cannot pose as the target.
 //
-// The bastion client is closed when the target's connection ends; leaving it open would
-// hold a second SSH session per hop for the life of the process.
+// The bastion client is closed when the target's connection ends.
 //
-// The approval travels into the bastion's own dial, because the bastion is dialled first
-// and so is the first host a user meeting both for the first time is asked about. Without
-// it the retry would meet the same unknown bastion key and the fingerprint card would
-// reopen forever. trustState.take makes the approval single-use, so the target is then
-// asked about separately rather than measured against the bastion's fingerprint.
+// The approval travels into the bastion's dial: the bastion is dialled first, so it is
+// what the user is asked about first, and without this the retry would meet the same
+// unknown key and reopen the card forever.
 func dialViaJump(h store.Host, addr string, trust *dialState, cfg *ssh.ClientConfig, p Prompter) (*Client, error) {
 	j, err := parseJump(h.ProxyJump)
 	if err != nil {
@@ -451,9 +436,9 @@ func dialViaJump(h store.Host, addr string, trust *dialState, cfg *ssh.ClientCon
 		return nil, fmt.Errorf("sshx: proxy jump via %s: %w", j.Host, err)
 	}
 
-	// Bounded like a direct TCP connect, and for the same reason: the target may simply
-	// not be there, and the bastion will sit on the request rather than say so.
-	// ClientConfig.Timeout does not reach here — ssh.Dial is the only thing that reads it.
+	// Bounded like a direct connect: the bastion sits on the request rather than saying
+	// the target is not there. ClientConfig.Timeout does not reach here — only ssh.Dial
+	// reads it.
 	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
 	defer cancel()
 	conn, err := bastion.ssh.DialContext(ctx, "tcp", addr)
@@ -474,9 +459,8 @@ func dialViaJump(h store.Host, addr string, trust *dialState, cfg *ssh.ClientCon
 	return cl, nil
 }
 
-// clientOverConn completes the SSH handshake over an already-established stream. It
-// closes conn on failure, so a refused handshake does not leave the proxy program or the
-// bastion channel running.
+// clientOverConn completes the handshake over an established stream, closing conn on
+// failure so a refused handshake leaves nothing running.
 func clientOverConn(conn net.Conn, addr string, cfg *ssh.ClientConfig) (*Client, error) {
 	c, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
 	if err != nil {

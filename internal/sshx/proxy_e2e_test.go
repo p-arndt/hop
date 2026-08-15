@@ -24,13 +24,10 @@ import (
 // stands in for a ProxyCommand.
 const proxyEnvAddr = "HOP_TEST_PROXY_ADDR"
 
-// runProxyHelperIfRequested lets this binary act as the proxy program when the env var is
-// set: it dials the address and shovels bytes between the socket and its own stdio, which
-// is the whole contract OpenSSH's ProxyCommand defines. Called first from TestMain (in
-// twofactor_docker_test.go), so the re-executed child never reaches the test runner.
-//
-// Re-execing ourselves keeps the test free of nc, which neither Windows nor a minimal
-// container is guaranteed to have.
+// runProxyHelperIfRequested lets this binary act as the proxy program: it dials the
+// address and shovels bytes between the socket and its own stdio. Called first from
+// TestMain, so the re-executed child never reaches the test runner. Re-execing ourselves
+// avoids depending on nc.
 func runProxyHelperIfRequested() {
 	addr := os.Getenv(proxyEnvAddr)
 	if addr == "" {
@@ -48,9 +45,8 @@ func runProxyHelperIfRequested() {
 	os.Exit(0)
 }
 
-// proxyCommandFor builds the ProxyCommand line that re-execs this test binary. The
-// address travels in the environment (proxyEnvAddr), not on the command line. The path is
-// quoted so a build directory containing a space still parses.
+// proxyCommandFor builds the ProxyCommand line re-execing this test binary; the address
+// travels in the environment. Quoted, so a build directory with a space still parses.
 func proxyCommandFor(t *testing.T) string {
 	t.Helper()
 	exe, err := os.Executable()
@@ -60,14 +56,11 @@ func proxyCommandFor(t *testing.T) string {
 	return strconv.Quote(exe) + " -test.run=TestNothingRuns"
 }
 
-// TestNothingRuns is the harmless target of the -test.run above: the re-executed binary
-// never reaches the test runner, since TestMain diverts it, but a real name keeps the
-// flag valid if it ever did.
+// TestNothingRuns is the harmless target of the -test.run above.
 func TestNothingRuns(t *testing.T) {}
 
-// A ProxyCommand host must complete a real SSH handshake over the program's pipes and
-// run a real command on the far side — the transport path that the parsing tests do not
-// touch.
+// A ProxyCommand host must complete a real handshake over the program's pipes and run a
+// command on the far side — the transport path the parsing tests do not touch.
 func TestProxyCommandCarriesRealSession(t *testing.T) {
 	home := fakeHome(t)
 	srv := startEchoSSHServer(t)
@@ -214,27 +207,30 @@ func TestProxyJumpUnknownBastionKeyIsActionable(t *testing.T) {
 	}
 }
 
-// nopPrompter satisfies the Prompter interface without ever answering: the test servers
-// accept without auth, so it is only there to keep authMethods from refusing a host with
-// no keys and no agent.
+// nopPrompter never answers: the test servers accept without auth, so it only keeps
+// authMethods from refusing a host with no keys and no agent.
 type nopPrompter struct{}
 
 func (nopPrompter) Ask(Challenge) ([]string, error) {
 	return nil, errors.New("test: no interactive auth expected")
 }
 
-// echoSSHServer is a real SSH server for these tests: it accepts without auth, answers
-// "exec" by upper-casing the command, and serves direct-tcpip so it can also stand in
-// for a bastion.
+// echoSSHServer accepts without auth, answers "exec" by upper-casing the command, and
+// serves direct-tcpip so it can stand in for a bastion.
 type echoSSHServer struct {
 	addr    string
 	hostKey ssh.PublicKey
-	// refuseForwarding makes the server reject direct-tcpip, as a hardened sshd with
-	// `AllowTcpForwarding no` does — the common reason a real bastion turns a jump away.
+	// refuseForwarding rejects direct-tcpip, as a hardened sshd with
+	// `AllowTcpForwarding no` does. Fixed at construction: the accept loop reads it.
 	refuseForwarding bool
 }
 
-func startEchoSSHServer(t *testing.T) *echoSSHServer {
+func startEchoSSHServer(t *testing.T) *echoSSHServer { return newEchoSSHServer(t, false) }
+
+// startRefusingSSHServer is a bastion that turns every forwarding request away.
+func startRefusingSSHServer(t *testing.T) *echoSSHServer { return newEchoSSHServer(t, true) }
+
+func newEchoSSHServer(t *testing.T, refuseForwarding bool) *echoSSHServer {
 	t.Helper()
 
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -255,7 +251,7 @@ func startEchoSSHServer(t *testing.T) *echoSSHServer {
 	}
 	t.Cleanup(func() { ln.Close() })
 
-	srv := &echoSSHServer{addr: ln.Addr().String(), hostKey: signer.PublicKey()}
+	srv := &echoSSHServer{addr: ln.Addr().String(), hostKey: signer.PublicKey(), refuseForwarding: refuseForwarding}
 	go func() {
 		for {
 			nc, err := ln.Accept()
@@ -293,8 +289,8 @@ func serveEchoConn(nc net.Conn, cfg *ssh.ServerConfig, refuseForwarding bool) {
 	}
 }
 
-// serveEchoSession answers "exec" by writing the command back upper-cased, which is
-// enough for a test to tell a live session from a handshake that merely completed.
+// serveEchoSession answers "exec" upper-cased — enough to tell a live session from a
+// handshake that merely completed.
 func serveEchoSession(nch ssh.NewChannel) {
 	ch, reqs, err := nch.Accept()
 	if err != nil {
@@ -315,8 +311,7 @@ func serveEchoSession(nch ssh.NewChannel) {
 	}
 }
 
-// serveDirectTCPIP is the bastion half: it dials what the client asked for and splices
-// the two streams, which is what x/crypto/ssh Client.Dial expects of a jump host.
+// serveDirectTCPIP is the bastion half: dial what was asked for, splice the streams.
 func serveDirectTCPIP(nch ssh.NewChannel) {
 	var payload struct {
 		Host  string
@@ -349,8 +344,7 @@ func serveDirectTCPIP(nch ssh.NewChannel) {
 	}()
 }
 
-// trustHostKey pre-approves key for host:port in the fake home's known_hosts, standing in
-// for a user who has already answered the fingerprint card.
+// trustHostKey pre-approves key in the fake home's known_hosts.
 func trustHostKey(t *testing.T, home, host string, port int, key ssh.PublicKey) {
 	t.Helper()
 	kh := filepath.Join(home, ".ssh", "known_hosts")
@@ -381,10 +375,8 @@ func splitAddr(t *testing.T, addr string) (string, int) {
 	return host, port
 }
 
-// The full first-contact path through a bastion: the user approves the bastion's key,
-// then the target's, and the second retry connects. Before the approved fingerprint was
-// offered to the bastion's own dial, this looped — the retry met the same unknown bastion
-// key and raised the same card again.
+// First contact through a bastion: approve the bastion's key, then the target's, then
+// connect. This used to loop — the retry met the same unknown bastion key.
 func TestProxyJumpTrustsBastionOnRetry(t *testing.T) {
 	home := fakeHome(t)
 	target := startEchoSSHServer(t)
@@ -433,9 +425,8 @@ func TestProxyJumpTrustsBastionOnRetry(t *testing.T) {
 	}
 }
 
-// A ProxyJump that names its own host, directly or around a ring of aliases, must end in
-// an error. Before the chain was recorded this recursed until the stack gave out, since
-// each hop resolved to a host carrying the same directive.
+// A ProxyJump naming its own host, directly or around a ring, must error. This used to
+// recurse until the stack gave out.
 func TestProxyJumpLoopIsRefused(t *testing.T) {
 	fakeHome(t)
 
@@ -470,10 +461,8 @@ func TestProxyJumpLoopIsRefused(t *testing.T) {
 	}
 }
 
-// A broker that forks a helper — `aws ssm` starts session-manager-plugin — leaves the
-// grandchild holding the stderr pipe after the child is killed. Close must still return:
-// with stderr as a plain io.Writer, os/exec's own copier kept cmd.Wait blocked on that
-// descriptor forever.
+// A broker that forks a helper (`aws ssm` starts session-manager-plugin) leaves the
+// grandchild holding stderr after the child is killed. Close must still return.
 func TestProxyCommandCloseSurvivesGrandchild(t *testing.T) {
 	if forkingProxyCommand() == "" {
 		t.Skip("no shell available to fork a grandchild")
@@ -497,8 +486,8 @@ func TestProxyCommandCloseSurvivesGrandchild(t *testing.T) {
 	}
 }
 
-// A proxy that starts, stays silent and never speaks SSH must fail rather than hang: the
-// first byte is the server banner, and ClientConfig.Timeout does not reach a proxied dial.
+// A proxy that starts and stays silent must fail rather than hang: ClientConfig.Timeout
+// does not reach a proxied dial.
 func TestProxyCommandSilentProxyTimesOut(t *testing.T) {
 	if silentProxyCommand() == "" {
 		t.Skip("no shell available to stage a silent proxy")
@@ -526,8 +515,7 @@ func TestProxyCommandSilentProxyTimesOut(t *testing.T) {
 	}
 }
 
-// A tilde in a proxy command is expanded by the same helper that expands IdentityFile —
-// one rule for the package, rather than two that drift.
+// One tilde expander for the package, rather than two that drift.
 func TestProxyCommandExpandsTilde(t *testing.T) {
 	home := fakeHome(t)
 	for _, in := range []string{"~/bin/tunnel", `~\bin\tunnel`} {
@@ -544,15 +532,13 @@ func TestProxyCommandExpandsTilde(t *testing.T) {
 	}
 }
 
-// A hardened bastion (`AllowTcpForwarding no`) rejects the direct-tcpip channel. The
-// failure must name the jump and say the bastion refused, not surface as an opaque
-// channel error — this is the most common reason a real ProxyJump does not work, and the
-// message is the only thing telling the user to look at the bastion's sshd_config.
+// A hardened bastion (`AllowTcpForwarding no`) rejects direct-tcpip — the most common
+// reason a real ProxyJump fails. The error must carry the bastion's reason, or nothing
+// points the user at its sshd_config.
 func TestProxyJumpBastionRefusesForwarding(t *testing.T) {
 	home := fakeHome(t)
 	target := startEchoSSHServer(t)
-	bastion := startEchoSSHServer(t)
-	bastion.refuseForwarding = true
+	bastion := startRefusingSSHServer(t)
 
 	targetHost, targetPort := splitAddr(t, target.addr)
 	bastionHost, bastionPort := splitAddr(t, bastion.addr)

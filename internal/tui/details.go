@@ -53,8 +53,7 @@ func (m *model) renderDetails(w int) string {
 		{"user", stripControl(h.User)},
 		{"identity", stripControl(h.IdentityFile)},
 	}
-	// The route only earns a row when it is not the plain TCP dial — otherwise every
-	// host would carry a line saying nothing.
+	// Only a non-default route earns a row.
 	if h.ProxyJump != "" {
 		left = append(left, [2]string{"via", stripControl(h.ProxyJump)})
 	} else if h.ProxyCommand != "" {

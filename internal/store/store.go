@@ -29,12 +29,10 @@ type Host struct {
 	// and the file browser opens there. Blank means wherever the login shell lands.
 	DefaultDir string
 	// ProxyCommand is a local program whose stdin/stdout carry the SSH transport, as
-	// OpenSSH's directive of the same name: how a host reachable only through a broker
-	// (AWS SSM, cloudflared, an IAP tunnel) is dialled. Blank means a direct TCP dial.
+	// OpenSSH's directive: how a host behind a broker (AWS SSM, cloudflared) is dialled.
 	ProxyCommand string
-	// ProxyJump is a bastion to tunnel through, as OpenSSH's directive: an alias in this
-	// store, or a bare [user@]host[:port]. Blank means no jump. When both it and
-	// ProxyCommand are set, ProxyJump wins — the same precedence ssh applies.
+	// ProxyJump is a bastion to tunnel through: an alias in this store, or a bare
+	// [user@]host[:port]. Set alongside ProxyCommand it wins, as in ssh.
 	ProxyJump string
 	// Pinned lifts a host out of the frecency order into the PINNED section; PinOrder is
 	// its place inside it, 1-based and dense (see renumberPins), and zero when unpinned.
@@ -277,11 +275,9 @@ func (s *Store) Hosts() ([]Host, error) {
 	return hosts, nil
 }
 
-// HostByAlias returns the single host with this alias. It exists so a lookup by name
-// costs one indexed row rather than Hosts()'s whole table plus every forward — the jump
-// resolver asks on each dial, and a bastion is one host out of however many are stored.
-// Forwards are deliberately not loaded: nothing that looks a host up by name runs its
-// tunnels.
+// HostByAlias returns the single host with this alias — one indexed row, rather than
+// Hosts()'s whole table plus every forward, since the jump resolver asks on each dial.
+// Forwards are not loaded: nothing looking a host up by name runs its tunnels.
 func (s *Store) HostByAlias(alias string) (Host, bool, error) {
 	var (
 		h    Host
@@ -818,9 +814,8 @@ func splitTags(s string) []string {
 	return out
 }
 
-// normalizeProxyCommand cleans a ProxyCommand read from an OpenSSH config. The literal
-// "none" is how ssh disables the directive — carrying it over would have hop try to run a
-// program called "none" — so it maps to blank, same as an absent one.
+// normalizeProxyCommand maps ssh's "none" — how the directive is disabled — to blank, so
+// hop does not try to run a program by that name.
 func normalizeProxyCommand(v string) string {
 	v = strings.TrimSpace(v)
 	if strings.EqualFold(v, "none") {
