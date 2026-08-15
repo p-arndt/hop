@@ -63,7 +63,13 @@ the package it works in — this file tracks *what*, not *why*.
 - [x] **Mouse text selection** (`internal/terminal/selection.go` + `internal/tui/selection.go`) over shells, scrollback and editor panes, landing on the clipboard at release. `ctrl+g` hands mouse reporting back to the terminal live.
 - [x] **Drag autoscroll:** a selection drag held against a pane's top or bottom row scrolls the view under the pointer (into scrollback and back), so a selection is not limited to one screenful; a drag that wanders off the pane keeps its events.
 - [x] **Copy/paste into the remote shell:** no key of its own — paste the way your terminal pastes and hop marks it as a paste (bracketed when the far end asked). Windows has no marked paste, so the burst is recognised by shape (`internal/tui/paste.go`). Copy is OSC 52 → `internal/clipboard`; a remote asking to *read* the clipboard is never answered. Setting: `,` → Remote clipboard.
-- [ ] Cursor: respect hidden state and cursor style (block/bar/underline); optional blink.
+- [x] **Cursor: the remote's, not hop's** (`internal/terminal/cursor.go`): the shape DECSCUSR asks for
+      (block / underline / bar) is what the pane draws, and a cursor DECTCEM has hidden is not drawn at
+      all. A bar has no half-cell to stand in, so it is the thinnest glyph in place of the character —
+      and the block, on a wide one, so the row does not slide. A full reset and a program leaving the
+      alt screen put the block back, as they clear the modes. Blinking is a clock hop has to run itself,
+      so it is a setting (`,` → Cursor blink, off by default); it phases every pane together and a
+      cursor the far end asked to keep steady ignores it.
 - [ ] Narrow-terminal handling: header/footer truncation and min-size behavior.
 - [x] **Mode flags are one enum:** `focused`/`browsing`/`editing`/`scrolling` are gone; `model.mode` is a single `paneMode` (`modeList`/`modeShell`/`modeScrollback`/`modeBrowser`/`modeEditor`), so the invalid combinations are unrepresentable and a call site can no longer forget to clear the other three. The old names live on as predicates derived from it (`m.focused()`, `m.scrolling()`, …), plus `m.inPane()`. Scrollback is its own mode rather than a flag on the shell.
 - [x] **Actions are one registry** (`internal/tui/actions.go`): every offerable thing hop does is

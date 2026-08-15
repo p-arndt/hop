@@ -389,6 +389,20 @@ exits, the connection is done and the host goes back to idle in the list — unl
 browser, an editor tab or a tunnel is still open on it, which keeps the connection alive.
 `d` still tears down the whole host at once.
 
+### The cursor
+
+The pane draws the cursor itself — the emulator hands hop cells, not a cursor — and draws
+the one the remote asked for: a **block**, an **underline** or a **bar** (`DECSCUSR`, what
+vim switches between as you enter and leave insert mode), and no cursor at all while the
+program has it hidden (`DECTCEM`), the way a full-screen program hides it while it paints.
+A bar has no half-cell to stand in, so it is drawn as the thinnest glyph there is in place
+of the character; a full reset, and a program leaving the alternate screen, put the block
+back rather than leaving its shape behind.
+
+Blinking is the one part that is yours: it is a clock hop has to run, so it is off until
+`,` → **Cursor blink** asks for it, and even then a cursor the remote asked to stand
+still does.
+
 </details>
 
 <details>

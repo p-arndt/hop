@@ -19,6 +19,11 @@ type tickMsg time.Time
 // left over from a finished drag — or from the other edge — is dropped.
 type dragScrollMsg struct{ gen int }
 
+// cursorBlinkMsg is one frame of the cursor blink, and runs only while the setting is
+// on. gen is the chain it belongs to, so switching the setting off and on again does not
+// leave two clocks running at half a beat apart.
+type cursorBlinkMsg struct{ gen int }
+
 // updateAvailableMsg carries the result of the startup update check: the newer release's
 // version, or "" when hop is current or the check did not run.
 type updateAvailableMsg struct{ latest string }

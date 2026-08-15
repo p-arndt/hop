@@ -55,6 +55,13 @@ type Config struct {
 	// Empty or unknown means Hybrid. See internal/tui/actions.go for what reads it.
 	Guidance string `json:"guidance"`
 
+	// CursorBlink lets hop blink the cursor in a pane, when the remote program has not
+	// asked for a steady one (DECSCUSR). It is off by default: the shape and the hidden
+	// state are the remote's to decide and hop always honours them, but the blink is a
+	// clock hop has to run itself — a repaint twice a second — so it is asked for rather
+	// than assumed. See internal/terminal/cursor.go.
+	CursorBlink bool `json:"cursorBlink"`
+
 	// Clipboard lets a program on a remote host put text on your clipboard over OSC 52 —
 	// a yank in a remote vim, or tmux's set-clipboard. Like Mouse it defaults to on, and
 	// for the same reason that is safe.

@@ -51,6 +51,15 @@ func expireStatusCmd(gen int) tea.Cmd {
 	return tea.Tick(statusTTL, func(time.Time) tea.Msg { return statusExpiredMsg{gen: gen} })
 }
 
+// cursorBlinkRate is half a blink: the cell goes down for one and comes back for the
+// next, which is the rate a terminal blinks its own cursor at.
+const cursorBlinkRate = 530 * time.Millisecond
+
+// cursorBlinkCmd arms the next blink frame of the chain it was given.
+func cursorBlinkCmd(gen int) tea.Cmd {
+	return tea.Tick(cursorBlinkRate, func(time.Time) tea.Msg { return cursorBlinkMsg{gen: gen} })
+}
+
 // dragScrollRate is how often a drag held against a pane edge steps the view by a line:
 // slow enough to stop where you meant to, fast enough to cross a screen of history.
 const dragScrollRate = 60 * time.Millisecond

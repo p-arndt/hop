@@ -208,6 +208,14 @@ type model struct {
 	frame   int
 	ticking bool
 
+	// cursorUp is the frame hop's cursor blink is on, blinking says its clock is running,
+	// and blinkGen numbers the chain — so a setting switched off and on again cannot end
+	// up with two clocks. Only the blink is hop's; the shape and the hidden state are the
+	// remote's. See cursor.go.
+	cursorUp bool
+	blinking bool
+	blinkGen int
+
 	width  int
 	height int
 
@@ -267,7 +275,7 @@ func (m *model) Init() tea.Cmd {
 	//
 	// The mouse is switched on here rather than as a program option, so applyMouse is the
 	// one path deciding it at startup and on every later settings change.
-	return tea.Batch(waitForOutput(m.notify), waitAuthPrompt(m.prompts), updateCheckCmd(), m.applyMouse())
+	return tea.Batch(waitForOutput(m.notify), waitAuthPrompt(m.prompts), updateCheckCmd(), m.applyMouse(), m.applyCursorBlink())
 }
 
 // Update dispatches the message, then arms the expiry timer for any status line it put
@@ -313,6 +321,10 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dragScrollMsg:
 		// One more line under a drag held against a pane edge.
 		return m, m.dragScrollTick(msg.gen)
+
+	case cursorBlinkMsg:
+		// One frame of the cursor blink, when the setting asked for it.
+		return m, m.cursorBlinkTick(msg.gen)
 
 	case statusExpiredMsg:
 		// Only if it is still the message this timer was armed for.

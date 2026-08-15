@@ -34,6 +34,7 @@ The accent is a swatch strip that recolours hop as you walk it.
 | Open with | the local command [[o]] opens a file with, e.g. `code -n` | the OS default app |
 | Vim keys | the vim motions in the list and the browser — a switch | **off** |
 | Mouse | wheel, click and drag-to-copy — a switch | **on** ([[ctrl+g]] lends the pointer back for a moment) |
+| Cursor blink | blink the cursor in a pane — a switch. Its shape and its hiding are always the remote's | **off** |
 | Remote clipboard | a yank on the remote host (OSC 52) lands on yours — a switch | **on** |
 
 :::why not="readme" The swatch picker, and when a setting is written

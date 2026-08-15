@@ -55,6 +55,11 @@ type Pane struct {
 	// it decides whether a paste is marked as one on its way out. See paste.go.
 	paste pasteState
 
+	// cursor is the cursor the far end has asked for — hidden or not, and its shape —
+	// tracked through the emulator's cursor callbacks, plus the frame of hop's own blink
+	// clock. It decides what View draws over the cell the emulator reports. See cursor.go.
+	cursor cursorState
+
 	// clipSink takes a clipboard write from the remote (OSC 52); clipMu guards it, since
 	// it is installed from the UI goroutine and read by the output pump. nil drops the
 	// sequence. clipQueue is the one-deep mailbox for the single sink worker, whose
@@ -118,6 +123,15 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 			p.mouse.setMode(mode, false)
 			p.paste.setMode(mode, false)
 		},
+		// The cursor's own callbacks rather than the mode above: DECTCEM is only half of
+		// it, DECSCUSR is not a mode at all, and vt re-reports visibility when the
+		// alternate screen switches, each screen carrying its own cursor.
+		CursorVisibility: func(visible bool) {
+			p.cursor.setVisible(visible)
+		},
+		CursorStyle: func(style vt.CursorStyle, steady bool) {
+			p.cursor.setStyle(style, steady)
+		},
 		// Leaving the alt screen ends the program that owned it, so its mode requests go
 		// with it — a killed program never withdraws them, leaving the shell underneath
 		// "asking" for a mouse it knows nothing about.
@@ -131,6 +145,10 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 			}
 			p.mouse.clear()
 			p.paste.clear()
+			// The style goes the same way as the modes: a vim killed mid-insert never
+			// puts the block back, and the shell underneath would inherit its bar. The
+			// visibility that follows this callback is vt's own, for the screen returned to.
+			p.cursor.clear()
 		},
 	})
 
@@ -154,6 +172,7 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 				if p.osc.tookReset() {
 					p.mouse.clear()
 					p.paste.clear()
+					p.cursor.clear()
 				}
 				// A remote yank to the system clipboard (OSC 52). See clipboard.go.
 				if text, ok := p.osc.tookClipboard(); ok {
@@ -182,92 +201,17 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 }
 
 // View returns the rendered screen as an ANSI string. The emulator's Render() draws
-// cells but no cursor, so a reverse-video block is overlaid at the cursor position.
+// cells but no cursor, so hop marks the cursor's cell itself — in the shape the far end
+// asked for, and not at all while it has the cursor hidden or hop's blink clock has it
+// down. See cursor.go.
 func (p *Pane) View() string {
 	rendered := p.emu.Render()
+	look := p.cursor.look()
+	if !look.drawn() {
+		return rendered
+	}
 	pos := p.emu.CursorPosition()
-	return overlayCursor(rendered, pos.X, pos.Y)
-}
-
-// overlayCursor draws a reverse-video block cursor at cell (cx, cy) on the rendered
-// screen. It works on the row's string, so it never touches emulator state.
-func overlayCursor(rendered string, cx, cy int) string {
-	if cx < 0 || cy < 0 {
-		return rendered
-	}
-	lines := strings.Split(rendered, "\n")
-	if cy >= len(lines) {
-		return rendered
-	}
-	lines[cy] = reverseAtColumn(lines[cy], cx)
-	return strings.Join(lines, "\n")
-}
-
-// reverseAtColumn wraps the character at visible column col in reverse video, skipping
-// ANSI escape sequences, which occupy no cells. A cursor past the end of the line pads
-// with spaces and appends a reversed block.
-func reverseAtColumn(line string, col int) string {
-	runes := []rune(line)
-	var b strings.Builder
-	visCol := 0
-	wrapped := false
-
-	for i := 0; i < len(runes); {
-		r := runes[i]
-		if r == 0x1b { // ESC: copy the whole escape sequence verbatim, no column advance.
-			j := i + 1
-			if j < len(runes) {
-				switch runes[j] {
-				case '[': // CSI ... final byte in 0x40-0x7E
-					j++
-					for j < len(runes) && !(runes[j] >= 0x40 && runes[j] <= 0x7e) {
-						j++
-					}
-					if j < len(runes) {
-						j++
-					}
-				case ']': // OSC ... terminated by BEL or ST (ESC \)
-					j++
-					for j < len(runes) {
-						if runes[j] == 0x07 {
-							j++
-							break
-						}
-						if runes[j] == 0x1b && j+1 < len(runes) && runes[j+1] == '\\' {
-							j += 2
-							break
-						}
-						j++
-					}
-				default: // ESC + single byte
-					j++
-				}
-			}
-			b.WriteString(string(runes[i:j]))
-			i = j
-			continue
-		}
-
-		if !wrapped && visCol == col {
-			b.WriteString("\x1b[7m")
-			b.WriteRune(r)
-			b.WriteString("\x1b[27m")
-			wrapped = true
-		} else {
-			b.WriteRune(r)
-		}
-		visCol += runeWidth(r)
-		i++
-	}
-
-	if !wrapped {
-		for visCol < col {
-			b.WriteRune(' ')
-			visCol++
-		}
-		b.WriteString("\x1b[7m \x1b[27m")
-	}
-	return b.String()
+	return overlayCursor(rendered, pos.X, pos.Y, markFor(look.style))
 }
 
 // runeWidth returns the terminal cell width of r, at least 1 so tracking advances.

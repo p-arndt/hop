@@ -194,6 +194,20 @@ anything it could not count left it thinking the prompt was bare when it was not
 
 </details>
 
+### The cursor
+
+The pane draws the cursor itself — the emulator hands hop cells, not a cursor — and draws
+the one the remote asked for: a **block**, an **underline** or a **bar** (`DECSCUSR`, what
+vim switches between as you enter and leave insert mode), and no cursor at all while the
+program has it hidden (`DECTCEM`), the way a full-screen program hides it while it paints.
+A bar has no half-cell to stand in, so it is drawn as the thinnest glyph there is in place
+of the character; a full reset, and a program leaving the alternate screen, put the block
+back rather than leaving its shape behind.
+
+Blinking is the one part that is yours: it is a clock hop has to run, so it is off until
+`,` → **Cursor blink** asks for it, and even then a cursor the remote asked to stand
+still does.
+
 ## The leader — `ctrl+o`
 
 `ctrl+o` inside a pane has **no effect of its own**, and no timeout. It opens the leader,
@@ -481,6 +495,7 @@ list, from a pane and from the file browser. It is modal: while it is up, keys g
 | Open with | the local command `o` opens a file with, e.g. `code -n` | the OS default app |
 | Vim keys | the vim motions in the list and the browser — a switch | **off** |
 | Mouse | wheel, click and drag-to-copy — a switch | **on** (`ctrl+g` lends the pointer back for a moment) |
+| Cursor blink | blink the cursor in a pane — a switch. Its shape and its hiding are always the remote's | **off** |
 | Remote clipboard | a yank on the remote host (OSC 52) lands on yours — a switch | **on** |
 
 <details>

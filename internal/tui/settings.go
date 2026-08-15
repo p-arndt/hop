@@ -159,6 +159,13 @@ var settingsFields = []settingsField{
 		set:   func(c *config.Config, v string) { c.Mouse = v == on },
 	},
 	{
+		label: "Cursor blink",
+		kind:  fieldToggle,
+		desc:  "Blink the cursor in a pane. Off: it stands still. Its shape and hiding are always the remote's.",
+		get:   func(c config.Config) string { return onOff(c.CursorBlink) },
+		set:   func(c *config.Config, v string) { c.CursorBlink = v == on },
+	},
+	{
 		label: "Remote clipboard",
 		kind:  fieldToggle,
 		desc:  "A yank on the remote host (OSC 52) lands on your clipboard. Off: the host cannot write it.",
@@ -348,7 +355,7 @@ func (m *model) applySettings() tea.Cmd {
 		}
 	}
 	m.applyClipboard()
-	return m.applyMouse()
+	return tea.Batch(m.applyMouse(), m.applyCursorBlink())
 }
 
 // applyMouse brings the terminal's mouse reporting in line with the setting. mouseOn is
