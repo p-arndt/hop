@@ -346,8 +346,9 @@ func (m *model) footerHints() (core, extra []string, help string) {
 
 	case m.browsing() && m.active != "":
 		core = []string{keyHint("ctrl+o", "back"), keyHint("enter", "edit"), keyHint("d", "download")}
-		extra = []string{keyHint("ctrl+k", "actions"), keyHint("←", "up"), keyHint("o", "open local"),
-			keyHint("r", "refresh"), m.sidebarHint()}
+		extra = []string{keyHint("ctrl+k", "actions"), keyHint("←", "up"), keyHint("u", "upload"),
+			keyHint("o", "open local"), keyHint("x", "delete"), keyHint("R", "rename"),
+			keyHint("m", "mkdir"), keyHint("s", "sort"), keyHint("r", "refresh"), m.sidebarHint()}
 
 	case m.scrolling() && m.focused() && m.active != "":
 		core = []string{keyHint("esc", "back to live"), keyHint("↑↓", "scroll"), keyHint("g/G", "top/live")}

@@ -394,6 +394,15 @@ func (m *model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleBrowserKey forwards everything to the file browser except the exits and the
 // settings key, leaving the arrows as pure motion.
 func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// A browser waiting on an answer owns every key, including the ones hop keeps for
+	// itself here: while a filename is being typed a "," is a comma, not the settings
+	// popover, and esc cancels the question rather than leaving the browser.
+	s := m.sessions[m.active]
+	if s != nil && s.browser != nil && s.browser.Prompting() {
+		m.chords.esc = time.Time{}
+		return m, s.browser.Handle(msg)
+	}
+
 	switch key := msg.String(); key {
 	case "ctrl+o":
 		m.leaveBrowser()
@@ -429,7 +438,7 @@ func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.chords.esc = time.Time{}
 	}
 
-	if s := m.sessions[m.active]; s != nil && s.browser != nil {
+	if s != nil && s.browser != nil {
 		return m, s.browser.Handle(msg)
 	}
 	return m, nil

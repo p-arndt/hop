@@ -402,6 +402,21 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouse(msg)
 	}
 
+	// Anything left over is a file browser's own message — a transfer reporting progress
+	// or landing. It is routed by session rather than by type: the model does not need to
+	// know the shape of a transfer, only which browser could have started one. Every open
+	// browser is offered it, and each ignores what it did not start.
+	var cmds []tea.Cmd
+	for _, s := range m.sessions {
+		if s.browser != nil {
+			if cmd := s.browser.Update(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+	}
+	if len(cmds) > 0 {
+		return m, tea.Batch(cmds...)
+	}
 	return m, nil
 }
 

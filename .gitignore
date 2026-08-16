@@ -10,3 +10,7 @@
 # Local state / secrets
 .env
 .DS_Store
+
+# Agent worktrees
+.claude/worktrees/
+

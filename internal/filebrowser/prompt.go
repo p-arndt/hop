@@ -39,6 +39,12 @@ type overlay struct {
 // active reports whether a question is open and owns the keyboard.
 func (o *overlay) active() bool { return o.kind != overlayNone }
 
+// Prompting reports whether a question is open, so the enclosing model can hand the
+// browser the keys it would otherwise keep for itself. Without it a "," typed into a
+// filename would open the settings popover and a "?" the help card — the browser binds
+// neither, which is exactly why the model is free to take them the rest of the time.
+func (b *Browser) Prompting() bool { return b.overlay.active() }
+
 // ask opens a text prompt labelled label, pre-filled with initial (the cursor sits at
 // its end, so a rename starts from the current name and edits it).
 func (b *Browser) ask(label, initial string, done func(*Browser, string) tea.Cmd) {
