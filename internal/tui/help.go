@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"hop/internal/keys"
 )
 
 // helpSection is one group of bindings in the help card: a mode, and what the keys do in
@@ -12,7 +14,7 @@ import (
 // modeAny.
 type helpSection struct {
 	title string
-	keys  [][2]string
+	keys  []row
 	owner paneMode
 }
 
@@ -20,121 +22,115 @@ type helpSection struct {
 // the model can be in, so it never matches the section the card is opening on.
 const modeAny paneMode = -1
 
-// The whole of hop's keyboard, grouped by the mode that owns it and split into the card's
-// two columns. The footer shows a slice of the same set: it says what is live now, this
-// says what exists.
-//
-// The two motion sections are built rather than declared, because what they bind depends
-// on the "Vim keys" setting: the card shows the keyboard you are actually holding, and
-// when vim is off it says where to turn it on.
+// The card is built from the registry in internal/keys rather than from a table of its
+// own: it says what the keyboard *is*, and a card that had to be edited alongside the
+// keyboard would eventually describe a different one. What it adds are the rows no
+// binding could carry — a range of digits, a key the remote program owns, the pointer.
 
-func helpLeft(vim bool) []helpSection {
+// row is one line of the card: a key as drawn, and what it does.
+type row = [2]string
+
+// rows renders bindings from one layer, in the order given, dropping any the user has
+// unbound. An id the layer does not bind is skipped rather than drawn blank.
+func (m *model) helpRows(l keys.Layer, ids ...keys.Action) []row {
+	var out []row
+	for _, id := range ids {
+		b, ok := m.binds.BindingIn(l, id)
+		if !ok || b.Keycap() == "" || (b.Vim && !m.cfg.VimKeys) {
+			continue
+		}
+		out = append(out, row{b.Keycap(), b.Label})
+	}
+	return out
+}
+
+// chord renders a leader chord — the leader key and the key that follows it — for the
+// pane sections, where hop's whole keyboard sits behind it.
+func (m *model) chord(id keys.Action) []row {
+	lead, b := m.binds.Keycap(keys.LeaderKey), keys.Binding{}
+	b, ok := m.binds.BindingIn(keys.Leader, id)
+	if !ok || lead == "" || b.Keycap() == "" {
+		return nil
+	}
+	return []row{{lead + " " + b.Keycap(), b.Label}}
+}
+
+// chordRange is the digits behind the leader: a range rather than a binding, so it is
+// spelled out here and nowhere else.
+func (m *model) chordRange(label string) []row {
+	lead := m.binds.Keycap(keys.LeaderKey)
+	if lead == "" {
+		return nil
+	}
+	return []row{{lead + " 1…9", label}}
+}
+
+func (m *model) helpLeft() []helpSection {
+	list := m.helpRows(keys.List, keys.Up, keys.Down, keys.PageUp, keys.PageDown)
+	if !m.cfg.VimKeys {
+		// The one row that is about the setting rather than a key: the card shows the
+		// keyboard you are actually holding, and says where the other one is.
+		list = append(list, row{"j k h l", "vim keys: off — " + m.binds.Keycap(keys.Settings) + " to turn on"})
+	}
+	list = append(list, m.helpRows(keys.List,
+		keys.Menu, keys.Palette, keys.Filter, keys.HostAdd, keys.HostImport)...)
+	list = append(list, m.helpRows(keys.Global, keys.Sidebar)...)
+	list = append(list, m.helpRows(keys.List, keys.Help, keys.Quit)...)
+
+	host := m.helpRows(keys.List,
+		keys.In, keys.HostNewShell, keys.HostShell, keys.HostBrowser, keys.HostTunnels,
+		keys.HostTunnelUI, keys.HostVSCode, keys.HostEdit, keys.HostDelete, keys.HostPin)
+	host = append(host, row{
+		m.binds.Keycap(keys.HostPinUp) + " " + m.binds.Keycap(keys.HostPinDown),
+		"move a pinned host in its section"})
+	host = append(host, m.helpRows(keys.List, keys.HostDrop, keys.HostReconnec, keys.Settings)...)
+	host = append(host, row{"1…9", "straight to that shell"})
+
 	return []helpSection{
-		{"LIST", append(motionKeys(vim), [][2]string{
-			{"space", "this host's actions"},
-			{"ctrl+k", "search every action"},
-			{"/", "filter the hosts"},
-			{"a", "add a new host"},
-			{"i", "import an ssh config"},
-			{"ctrl+b", "hide / show the sidebar"},
-			{"?", "this card"},
-			{"q", "quit hop"},
-		}...), modeList},
-		{"HOST", [][2]string{
-			{"enter", "connect / focus its shell"},
-			{"S", "another shell, same connection"},
-			{"s", "focus the host's shell"},
-			{"f", "sftp file browser"},
-			{"t", "start / stop all tunnels"},
-			{"shift+t", "manage tunnel definitions"},
-			{"o", "open in VS Code Remote (its shell's dir)"},
-			{"e", "edit this host"},
-			{"x", "delete this host"},
-			{"p", "pin it to the top / unpin"},
-			{"shift+j k", "move a pinned host in its section"},
-			{"d", "disconnect everything on it"},
-			{"r", "reconnect a dropped session"},
-			{",", "settings"},
-		}, modeAny},
+		{"LIST", list, modeList},
+		{"HOST", host, modeAny},
 		// The pointer does nothing the keyboard cannot, so this lists which key each
 		// gesture stands in for.
-		{"MOUSE", [][2]string{
+		{"MOUSE", append([]row{
 			{"wheel", "move / scroll what you point at"},
 			{"click", "select it, or take the keyboard"},
-			{"double-click", "open it — as enter"},
+			{"double-click", "open it — as " + m.binds.Keycap(keys.In)},
 			{"drag in a pane", "select text; copies on release"},
-			{"ctrl+g", "hand the mouse to your terminal"},
-		}, modeAny},
+		}, m.helpRows(keys.Global, keys.Mouse)...), modeAny},
 	}
 }
 
-func helpRight(vim bool) []helpSection {
-	open, up := [2]string{"enter", "open dir / edit file"}, [2]string{"←", "up a directory"}
-	if vim {
-		open, up = [2]string{"enter / l", "open dir / edit file"}, [2]string{"h / ←", "up a directory"}
-	}
+func (m *model) helpRight() []helpSection {
+	shell := m.chord(keys.LeaderOut)
+	shell = append(shell, m.helpRows(keys.Pane, keys.PaneLeave, keys.PaneNextTab)...)
+	shell = append(shell, m.chordRange("straight to that shell")...)
+	shell = append(shell, m.chord(keys.LeaderShell)...)
+	shell = append(shell, m.chord(keys.LeaderVSCode)...)
+	shell = append(shell, m.chord(keys.LeaderPalette)...)
+	shell = append(shell, m.chord(keys.LeaderHelp)...)
+	shell = append(shell, m.helpRows(keys.Pane, keys.PaneScroll)...)
+	shell = append(shell, m.helpRows(keys.Global, keys.Sidebar)...)
+	shell = append(shell, row{"…anything", "goes to the remote shell"})
+
+	browser := m.helpRows(keys.Browser,
+		keys.In, keys.Out, keys.BrowserOpen, keys.BrowserDownload, keys.BrowserUpload,
+		keys.BrowserRename, keys.BrowserDelete, keys.BrowserMkdir, keys.BrowserSort,
+		keys.BrowserRefresh, keys.BrowserPalette, keys.BrowserHelp, keys.BrowserLeave)
+
+	editor := []row{{":q", "close the tab"}}
+	editor = append(editor, m.helpRows(keys.Editor, keys.EditorNextTab)...)
+	editor = append(editor, m.chordRange("straight to that tab")...)
+	editor = append(editor, m.chord(keys.LeaderPalette)...)
+	editor = append(editor, m.chord(keys.LeaderOut)...)
+	editor = append(editor, m.chord(keys.LeaderHelp)...)
+	editor = append(editor, row{"…anything", "goes to the remote editor"})
 
 	return []helpSection{
-		{"SHELL", [][2]string{
-			{"ctrl+o o", "back to hop"},
-			{"esc esc", "back to hop"},
-			{"shift+← →", "switch shell tab"},
-			{"ctrl+o 1…9", "straight to that shell"},
-			{"ctrl+o 0", "another shell, same host"},
-			{"ctrl+o c", "this dir in VS Code"},
-			{"ctrl+o ctrl+k", "search every action"},
-			{"ctrl+o ?", "this card"},
-			{"shift+↑", "scroll back through history"},
-			{"ctrl+b", "hide / show the sidebar"},
-			{"…anything", "goes to the remote shell"},
-		}, modeShell},
-		{"SFTP BROWSER", [][2]string{
-			open,
-			up,
-			{"o", "open the file locally"},
-			{"d", "download the file"},
-			{"u", "upload a local file here"},
-			{"R", "rename"},
-			{"x", "delete"},
-			{"m", "new directory"},
-			{"s", "sort by name / size / modified"},
-			{"r", "refresh"},
-			{"ctrl+k", "search every action"},
-			{"?", "this card"},
-			{"ctrl+o", "back to hop"},
-		}, modeBrowser},
-		{"DROPPED SESSION", [][2]string{
-			{"r", "reconnect and reopen"},
-			{"d", "drop it"},
-			{"?", "this card"},
-			{"ctrl+o", "back to hop"},
-		}, modeAny},
-		{"EDITOR", [][2]string{
-			{":q", "close the tab"},
-			{"shift+← →", "switch file tab"},
-			{"ctrl+o 1…9", "straight to that tab"},
-			{"ctrl+o ctrl+k", "search every action"},
-			{"ctrl+o o", "back to the browser"},
-			{"ctrl+o ?", "this card"},
-			{"…anything", "goes to the remote editor"},
-		}, modeEditor},
-	}
-}
-
-// motionKeys is how the list moves: the vim step keys when they are on, and the plain
-// ones plus a pointer at the switch when they are not. The jumps and ctrl chords belong
-// to the browser (see keymap.Scope).
-func motionKeys(vim bool) [][2]string {
-	if vim {
-		return [][2]string{
-			{"↑ ↓ / j k", "move"},
-			{"pgup / pgdn", "page"},
-		}
-	}
-	return [][2]string{
-		{"↑ ↓", "move"},
-		{"pgup / pgdn", "page"},
-		{"j k h l", "vim keys: off — , to turn on"},
+		{"SHELL", shell, modeShell},
+		{"SFTP BROWSER", browser, modeBrowser},
+		{"DROPPED SESSION", m.helpRows(keys.DeadPane,
+			keys.DeadReconnect, keys.DeadDrop, keys.DeadHelp, keys.DeadLeave), modeAny},
+		{"EDITOR", editor, modeEditor},
 	}
 }
 
@@ -146,8 +142,8 @@ func motionKeys(vim bool) [][2]string {
 // keys a mode cannot be worked without and points here for the rest; that only holds if
 // "here" starts on the mode you were in, rather than on whichever section was written
 // first.
-func helpFor(vim bool, mode paneMode) (left, right []helpSection, lead string) {
-	left, right = helpLeft(vim), helpRight(vim)
+func (m *model) helpFor(mode paneMode) (left, right []helpSection, lead string) {
+	left, right = m.helpLeft(), m.helpRight()
 
 	// Scrollback has no section of its own — it is the shell's history, and its keys are
 	// listed with the shell's.
@@ -188,7 +184,7 @@ func (m *model) renderHelp() string {
 	// What the window holds once the card's border and padding are paid for.
 	room := max(m.width-2*cardPadX-2, 20)
 
-	left, right, lead := helpFor(m.cfg.VimKeys, m.mode)
+	left, right, lead := m.helpFor(m.mode)
 
 	w := min(2*helpColW+helpGutter, room)
 	body := helpColumn(left, min(helpColW, room), lead) + "\n\n" +

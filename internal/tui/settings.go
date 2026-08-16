@@ -8,7 +8,7 @@ import (
 
 	"hop/internal/config"
 	"hop/internal/filebrowser"
-	"hop/internal/keymap"
+	"hop/internal/keys"
 )
 
 // swatch is one colour on the accent picker: a name, and the code hop stores.
@@ -232,7 +232,7 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Below text entry, not above it: while a field has the keyboard, "h" is a letter of
 	// the value being typed.
-	if !m.cfg.VimKeys && keymap.Vim(key) {
+	if !m.cfg.VimKeys && m.binds.Vim(key) {
 		return m, nil
 	}
 
@@ -385,7 +385,7 @@ func (m *model) toggleMouse() tea.Cmd {
 	if m.cfg.Mouse {
 		m.setStatus(statusOK, "mouse on — hop has the pointer")
 	} else {
-		m.setStatus(statusOK, "mouse off — your terminal has the pointer (%s to take it back)", toggleMouseKey)
+		m.setStatus(statusOK, "mouse off — your terminal has the pointer (%s to take it back)", m.binds.Keycap(keys.Mouse))
 	}
 	return cmd
 }

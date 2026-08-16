@@ -252,8 +252,8 @@ Once paused, the keyboard drives the history viewport rather than the remote she
 
 | Key | Action |
 | --- | --- |
-| `↑` `↓` `j` `k` | up / down one line |
-| `pgup` `pgdn` `ctrl+f` | up / down a page (`ctrl+b` is the sidebar) |
+| `↑` `↓` `j` `k` | up / down one line (`shift+↑` `shift+↓` do the same, so the chord that got you here keeps working) |
+| `pgup` `pgdn` `ctrl+f` | up / down a page (`shift+pgup` `shift+pgdn` too; `ctrl+b` is the sidebar) |
 | `ctrl+u` `ctrl+d` | up / down half a page |
 | `g` `home` | jump to the oldest line |
 | `G` `end` | back to the live bottom (and leave scrollback) |

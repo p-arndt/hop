@@ -8,7 +8,7 @@ import (
 
 	"hop/internal/config"
 	"hop/internal/filebrowser"
-	"hop/internal/keymap"
+	"hop/internal/keys"
 	"hop/internal/store"
 )
 
@@ -81,9 +81,15 @@ type model struct {
 
 	cursor int
 
-	// keys resolves the list's motion keys and holds a half-typed "gg". What they do to
-	// the cursor is model.move.
-	keys keymap.Reader
+	// binds is hop's keyboard: the registry in internal/keys with the user's config
+	// applied. Every handler resolves against it rather than naming keys, and so does
+	// every legend, so the two cannot drift.
+	binds keys.Map
+
+	// reader resolves keystrokes against binds and holds whatever sequence is half-typed
+	// — a "gg" in the browser, the first esc of a double. One per model: two readers on
+	// one layer would each hold half a chord.
+	reader keys.Reader
 
 	// chords is every half-typed key sequence hop is holding. See chordState.
 	chords chordState
@@ -246,6 +252,7 @@ func Run(st *store.Store) error {
 		notify:     make(chan struct{}, 1),
 		prompts:    make(chan authPromptMsg),
 		cfg:        cfg,
+		binds:      keys.Defaults(),
 		// Windows delivers a paste as synthesised keystrokes. See paste.go.
 		pasteCoalesce: coalescePastes(),
 	}

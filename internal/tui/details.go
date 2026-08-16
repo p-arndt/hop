@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/config"
+	"hop/internal/keys"
 	"hop/internal/store"
 )
 
@@ -126,7 +127,7 @@ func (m *model) renderDetails(w int) string {
 		// than a block of their own: a second heading would be the first thing cut off
 		// on a short pane, and the two columns fill more evenly as one list.
 		if m.cfg.Guidance == config.GuidanceGuided {
-			as = append(as, available(m, globalActions)...)
+			as = append(as, m.resolve(keys.List, globalSpecs)...)
 		}
 		b.WriteString(pad)
 		b.WriteString(sectionCap.Render("ACTIONS"))
@@ -136,9 +137,9 @@ func (m *model) renderDetails(w int) string {
 	}
 
 	b.WriteString(pad)
-	b.WriteString(keyHint(menuKeyName, "this host's actions"))
+	b.WriteString(keyHint(m.binds.Keycap(keys.Menu), "this host's actions"))
 	b.WriteString("  ")
-	b.WriteString(keyHint("?", "every key hop knows"))
+	b.WriteString(keyHint(m.binds.Keycap(keys.Help), "every key hop knows"))
 
 	return clampLines(b.String(), w)
 }
@@ -199,21 +200,21 @@ func (m *model) renderNoHost(w int) string {
 		b.WriteString(dimStyle.Render("already have in ~/.ssh/config:"))
 		b.WriteString("\n\n")
 		b.WriteString("  ")
-		b.WriteString(keyHint("i", "import ~/.ssh/config"))
+		b.WriteString(m.hint(keys.List, keys.HostImport, "import ~/.ssh/config"))
 		b.WriteString("\n\n")
 		b.WriteString("  ")
 		b.WriteString(faint.Render("…or "))
-		b.WriteString(keyHint("a", "add one by hand"))
+		b.WriteString(m.hint(keys.List, keys.HostAdd, "add one by hand"))
 		b.WriteString("\n")
 	} else {
 		b.WriteString("  ")
 		b.WriteString(dimStyle.Render("Select a host on the left."))
 		b.WriteString("\n\n")
 		b.WriteString("  ")
-		b.WriteString(keyHint("/", "filter the list"))
+		b.WriteString(m.hint(keys.List, keys.Filter, "filter the list"))
 		b.WriteString("\n")
 		b.WriteString("  ")
-		b.WriteString(keyHint("?", "every key hop knows"))
+		b.WriteString(keyHint(m.binds.Keycap(keys.Help), "every key hop knows"))
 		b.WriteString("\n")
 	}
 	return clampLines(b.String(), w)

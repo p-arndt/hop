@@ -5,16 +5,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"hop/internal/keys"
 )
-
-// menuKey opens the context menu on the host under the cursor. space is the key nothing
-// else in the list wants, and it reads as "act on this one" rather than as a command of
-// its own.
-const menuKey = " "
-
-// menuKeyName is how that key is written on a legend: the character it sends is a blank,
-// which no keycap can show.
-const menuKeyName = "space"
 
 // menuUI is the context menu's state: the host it was opened on, what can be done to it,
 // and which of those is selected.
@@ -54,11 +47,14 @@ func (m *model) closeMenu() { m.menu = menuUI{} }
 // the confirmation card does: the keys underneath act on a host, and this menu is the
 // question of which action to take on one.
 func (m *model) handleMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "q", menuKey:
+	// The card's own keys are dialog convention and not in the registry (see
+	// internal/keys) — except the one that opened it, which closes it again.
+	switch key := msg.String(); {
+	case key == "esc" || key == "q" ||
+		m.binds.Action(keys.List, key, m.cfg.VimKeys) == keys.Menu:
 		m.closeMenu()
 
-	case "enter", "right", "l":
+	case key == "enter" || key == "right" || key == "l":
 		if m.menu.cursor >= len(m.menu.items) {
 			return m, nil
 		}
@@ -67,10 +63,10 @@ func (m *model) handleMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.closeMenu()
 		return m.runAction(a)
 
-	case "up", "k", "ctrl+p":
+	case key == "up" || key == "k" || key == "ctrl+p":
 		m.menu.cursor = clamp(m.menu.cursor-1, 0, max(len(m.menu.items)-1, 0))
 
-	case "down", "j", "ctrl+n":
+	case key == "down" || key == "j" || key == "ctrl+n":
 		m.menu.cursor = clamp(m.menu.cursor+1, 0, max(len(m.menu.items)-1, 0))
 	}
 	return m, nil

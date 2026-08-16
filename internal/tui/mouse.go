@@ -235,7 +235,7 @@ func (m *model) backToList() {
 	m.exitScrollback()
 	m.mode = modeList
 	m.clearStatus()
-	m.chords.esc = time.Time{}
+	m.reader.Reset()
 }
 
 // ---- the right pane ----

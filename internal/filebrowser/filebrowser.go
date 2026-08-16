@@ -17,7 +17,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"hop/internal/keymap"
+	"hop/internal/keys"
 	"hop/internal/pathx"
 	"hop/internal/sftpx"
 )
@@ -96,6 +96,11 @@ type Options struct {
 	// VimKeys binds the vim motions (hjkl, gg/G, H/M/L, ctrl+d/u/f/b). False leaves the
 	// arrows, backspace and enter as the whole of movement.
 	VimKeys bool
+
+	// Keys is the resolved keyboard, hop's defaults with the user's config applied. The
+	// browser reads its own layer out of it rather than holding key literals, so a
+	// rebound key needs no change here. The zero value is hop's defaults.
+	Keys keys.Map
 }
 
 // Browser is a remote directory browser the TUI drives by forwarding key
@@ -120,9 +125,10 @@ type Browser struct {
 	// tmpDir is the scratch directory "o" fetches into, created on first use.
 	tmpDir string
 
-	// keys resolves the listing's motion keys and holds a half-typed "gg". What they do
-	// to the cursor is Browser.move.
-	keys keymap.Reader
+	// reader resolves keystrokes against Options.Keys and holds a half-typed "gg". It is
+	// used only by Handle — the model resolves its own keys and calls Do — so the chord
+	// has one home per keyboard rather than one per package.
+	reader keys.Reader
 
 	// overlay is the open question — a name to type, a yes to give — which owns the
 	// keyboard while it is up. See prompt.go.
@@ -223,40 +229,55 @@ func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 		return cmd
 	}
 
-	key := msg.String()
-
-	if mo := b.keys.Motion(keymap.Full, key, b.opts.VimKeys); mo != keymap.None {
-		return b.move(mo)
+	res := b.reader.Read(b.opts.Keys, keys.Browser, msg.String(), b.opts.VimKeys)
+	if res.Pending {
+		// The first key of a chord. Nothing downstream of the browser wants it, so it is
+		// swallowed while hop waits for the second.
+		return nil
 	}
+	return b.Do(res.Action)
+}
 
-	switch key {
-	case "backspace":
-		// Not a motion elsewhere in hop, but a file browser that ignored it would be the
-		// odd one out.
+// Do runs one resolved action. It is the browser's real entry point: the model resolves
+// keys against the same keyboard the browser would (one Reader, so one half-typed chord)
+// and calls this, which is why a rebound key needs no change in this package.
+//
+// An action this layer does not own is a no-op rather than an error: the Browser layer is
+// shared with the model, which owns the exits and the cards.
+func (b *Browser) Do(a keys.Action) tea.Cmd {
+	switch a {
+	case keys.Up, keys.Down, keys.Top, keys.Bottom, keys.HalfUp, keys.HalfDown,
+		keys.PageUp, keys.PageDown, keys.ScreenTop, keys.ScreenMid, keys.ScreenBot,
+		keys.In, keys.Out:
+		return b.move(a)
+
+	case keys.BrowserUp:
+		// Not a motion elsewhere in hop, but a file browser that ignored backspace would
+		// be the odd one out.
 		b.load(path.Dir(b.cwd))
 
-	case "r":
+	case keys.BrowserRefresh:
 		b.load(b.cwd)
 
-	case "o":
+	case keys.BrowserOpen:
 		return b.openInApp()
 
-	case "d":
+	case keys.BrowserDownload:
 		return b.download()
 
-	case "u":
+	case keys.BrowserUpload:
 		return b.upload()
 
-	case "x":
+	case keys.BrowserDelete:
 		return b.remove()
 
-	case "R":
+	case keys.BrowserRename:
 		return b.rename()
 
-	case "m":
+	case keys.BrowserMkdir:
 		return b.mkdir()
 
-	case "s":
+	case keys.BrowserSort:
 		b.cycleSort()
 	}
 	return nil
@@ -320,37 +341,37 @@ func (b *Browser) Scroll(n int) {
 
 // move applies a motion to the listing. The browser scrolls, so H/M/L land inside the
 // visible window while Top and Bottom address the whole directory.
-func (b *Browser) move(mo keymap.Motion) tea.Cmd {
+func (b *Browser) move(mo keys.Action) tea.Cmd {
 	switch mo {
-	case keymap.Up:
+	case keys.Up:
 		b.cursor--
-	case keymap.Down:
+	case keys.Down:
 		b.cursor++
-	case keymap.Top:
+	case keys.Top:
 		b.cursor = 0
-	case keymap.Bottom:
+	case keys.Bottom:
 		b.cursor = len(b.entries) - 1
-	case keymap.HalfDown:
+	case keys.HalfDown:
 		b.cursor += b.halfPage()
-	case keymap.HalfUp:
+	case keys.HalfUp:
 		b.cursor -= b.halfPage()
-	case keymap.PageDown:
+	case keys.PageDown:
 		b.cursor += b.contentRows()
-	case keymap.PageUp:
+	case keys.PageUp:
 		b.cursor -= b.contentRows()
-	case keymap.ScreenTop:
+	case keys.ScreenTop:
 		b.cursor = b.scroll
-	case keymap.ScreenMid:
+	case keys.ScreenMid:
 		b.cursor = b.scroll + b.windowRows()/2
-	case keymap.ScreenBot:
+	case keys.ScreenBot:
 		b.cursor = b.scroll + b.windowRows() - 1
 
-	case keymap.Out:
+	case keys.Out:
 		// path.Dir of "/" stays "/", so this is a no-op at the filesystem root.
 		b.load(path.Dir(b.cwd))
 		return nil
 
-	case keymap.In:
+	case keys.In:
 		return b.activate()
 	}
 

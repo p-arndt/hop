@@ -1,147 +1,151 @@
 package tui
 
 import (
-	"strings"
-
 	tea "github.com/charmbracelet/bubbletea"
+
+	"hop/internal/keys"
 )
 
-// action is one thing hop can do, written down so it can be *found* rather than
-// remembered: a label, and the key that already does it.
+// This file is what hop can do *here*, which is a different question from what its keys
+// are: the registry in internal/keys says a key runs an action, and the lists below say
+// which of those actions are worth offering in a given mode and state.
 //
-// An action deliberately owns no behaviour of its own. Running one replays its key
-// through handleKey, which is the same path a keystroke takes — so the menu, the palette
-// and the details card can never drift from the keyboard, and a key that grows a new
-// condition grows it in one place. The cost is that only keys hop itself binds can be
-// actions, which is exactly the set worth offering here.
+// An action carries no behaviour of its own. Running one calls the same do* function the
+// keystroke calls, so the menu, the palette and the details card cannot drift from the
+// keyboard — and unlike the replay this replaced, a rebound key changes nothing here.
+
+// action is one offer: an id to run, the words to say, and the key that already does it.
 type action struct {
-	// key is the binding this action stands for, as handleKey names it. A chord is
-	// written as its keys with a space between them ("ctrl+o o") and replayed in order.
-	key string
-	// show overrides how the key is drawn, for the ones whose name is longer than their
-	// symbol ("shift+→"). Empty means key itself.
-	show string
-	// label says what it does, in the words the help card uses.
+	// id is what to run, and the registry row the label and keycap come from.
+	id keys.Action
+	// layer is where that id lives, which decides which do* function runs it.
+	layer keys.Layer
+	// label says what it does. It comes from the registry unless the spec overrides it —
+	// a state-dependent offer ("connect" vs "focus its shell") is one action with two
+	// wordings, and the wording is the whole value of the row.
 	label string
+	// cap is how the key is drawn, already resolved: a leader chord is composed here
+	// rather than written out, so rebinding the leader moves every row that uses it.
+	cap string
 	// host marks an action about the host under the cursor, as opposed to one about hop.
 	// The context menu shows only these; the palette shows both.
 	host bool
-	// ok narrows an action to the states it makes sense in — reconnect wants a dropped
-	// session, unpin wants a pinned host. nil means always.
-	ok func(m *model) bool
 }
 
 // keycap is how the action's key is drawn.
-func (a action) keycap() string {
-	if a.show != "" {
-		return a.show
-	}
-	return a.key
+func (a action) keycap() string { return a.cap }
+
+// spec is one row of a registry below: which action, in which layer, and the state it is
+// worth offering in.
+type spec struct {
+	id keys.Action
+	// label overrides the registry's wording; empty takes the registry's.
+	label string
+	// host marks it as an action about the host under the cursor.
+	host bool
+	// ok narrows it to the states it makes sense in — reconnect wants a dropped session,
+	// unpin wants a pinned host. nil means always.
+	ok func(m *model) bool
+	// leader marks a chord: the key is drawn as the leader key and this one together.
+	leader bool
 }
 
 // The registries, one per mode hop owns the keyboard in. Their order is the order the
 // menu and an unfiltered palette show, so the common things stand at the top: what you
 // came to the host to do, then what you do to the host, then what you do to hop.
-//
-// The labels are the help card's, verbatim where the card has one. Two places naming the
-// same key differently is how a user learns to distrust both.
 
-var hostActions = []action{
-	{key: "enter", label: "connect", host: true, ok: func(m *model) bool {
+var hostSpecs = []spec{
+	{id: keys.In, label: "connect", host: true, ok: func(m *model) bool {
 		return m.selectedSession() == nil
 	}},
-	{key: "enter", label: "focus its shell", host: true, ok: func(m *model) bool {
+	{id: keys.In, label: "focus its shell", host: true, ok: func(m *model) bool {
 		s := m.selectedSession()
 		return s != nil && !s.dead
 	}},
-	{key: "r", label: "reconnect and reopen", host: true, ok: func(m *model) bool {
+	{id: keys.HostReconnec, label: "reconnect and reopen", host: true, ok: func(m *model) bool {
 		s := m.selectedSession()
 		return s != nil && s.dead
 	}},
-	{key: "S", label: "another shell, same connection", host: true},
-	{key: "f", label: "sftp file browser", host: true},
-	{key: "t", label: "start / stop all tunnels", host: true},
-	{key: "T", label: "manage tunnel definitions", host: true},
-	{key: "o", label: "open in VS Code Remote", host: true},
-	{key: "e", label: "edit this host", host: true},
-	{key: "p", label: "pin it to the top", host: true, ok: func(m *model) bool {
+	{id: keys.HostNewShell, host: true},
+	{id: keys.HostBrowser, host: true},
+	{id: keys.HostTunnels, host: true},
+	{id: keys.HostTunnelUI, host: true},
+	{id: keys.HostVSCode, host: true},
+	{id: keys.HostEdit, host: true},
+	{id: keys.HostPin, label: "pin it to the top", host: true, ok: func(m *model) bool {
 		h, ok := m.selectedHost()
 		return ok && !h.Pinned
 	}},
-	{key: "p", label: "unpin it", host: true, ok: func(m *model) bool {
+	{id: keys.HostPin, label: "unpin it", host: true, ok: func(m *model) bool {
 		h, ok := m.selectedHost()
 		return ok && h.Pinned
 	}},
-	{key: "d", label: "disconnect everything on it", host: true, ok: func(m *model) bool {
+	{id: keys.HostDrop, host: true, ok: func(m *model) bool {
 		return m.selectedSession() != nil
 	}},
-	{key: "x", label: "delete this host", host: true},
+	{id: keys.HostDelete, host: true},
 }
 
-var globalActions = []action{
-	{key: "a", label: "add a new host"},
-	{key: "i", label: "import an ssh config"},
-	{key: "/", label: "filter the hosts"},
-	{key: toggleSidebarKey, label: "hide / show the sidebar"},
-	{key: ",", label: "settings"},
-	{key: "?", label: "all the keys"},
-	{key: "q", label: "quit hop"},
+var globalSpecs = []spec{
+	{id: keys.HostAdd},
+	{id: keys.HostImport},
+	{id: keys.Filter},
+	{id: keys.Sidebar},
+	{id: keys.Settings},
+	{id: keys.Help},
+	{id: keys.Quit},
 }
 
-// browserActions is the SFTP browser's keyboard. The motions are left out for the reason
+// browserSpecs is the SFTP browser's keyboard. The motions are left out for the reason
 // the footer leaves them out: nobody opens a menu to move the cursor down.
-var browserActions = []action{
-	{key: "enter", label: "open the directory / edit the file"},
-	{key: "left", show: "←", label: "up a directory"},
-	{key: "d", label: "download the file"},
-	{key: "u", label: "upload a local file here"},
-	{key: "o", label: "open the file locally"},
-	{key: "R", label: "rename"},
-	{key: "x", label: "delete"},
-	{key: "m", label: "new directory"},
-	{key: "s", label: "sort by name / size / modified"},
-	{key: "r", label: "refresh the listing"},
-	{key: "ctrl+o", label: "back to the host list"},
-	{key: toggleSidebarKey, label: "hide / show the sidebar"},
-	{key: ",", label: "settings"},
-	{key: "?", label: "all the keys"},
+var browserSpecs = []spec{
+	{id: keys.In},
+	{id: keys.Out},
+	{id: keys.BrowserDownload},
+	{id: keys.BrowserUpload},
+	{id: keys.BrowserOpen},
+	{id: keys.BrowserRename},
+	{id: keys.BrowserDelete},
+	{id: keys.BrowserMkdir},
+	{id: keys.BrowserSort},
+	{id: keys.BrowserRefresh},
+	{id: keys.BrowserLeave},
+	{id: keys.BrowserSettings},
+	{id: keys.BrowserHelp},
 }
 
-// paneActions is a live shell's, and it is the one registry that is mostly chords: in a
+// paneSpecs is a live shell's, and it is the one registry that is mostly chords: in a
 // pane every unreserved key belongs to the remote program, so hop's own keyboard is
 // behind the leader. Which is exactly the keyboard hardest to remember, and so the one
 // the palette is worth most for.
-func (m *model) paneActions() []action {
-	as := []action{
-		{key: "ctrl+o o", label: "back to the host list"},
-		{key: "ctrl+o 0", label: "another shell on this host"},
-		{key: "shift+right", show: "shift+→", label: "next shell"},
-		{key: "shift+left", show: "shift+←", label: "previous shell"},
+func (m *model) paneSpecs() []spec {
+	ss := []spec{
+		{id: keys.LeaderOut, leader: true},
+		{id: keys.LeaderShell, leader: true},
+		{id: keys.PaneNextTab},
+		{id: keys.PanePrevTab},
 	}
 	// The same conditions the chords themselves check, so the palette never offers a key
 	// that would decline: VS Code wants a directory, scrollback wants history behind a
 	// shell that is not on its alternate screen.
 	if m.shellCwd(m.active) != "" {
-		as = append(as, action{key: "ctrl+o c", label: "open this directory in VS Code"})
+		ss = append(ss, spec{id: keys.LeaderVSCode, leader: true})
 	}
 	if s := m.sessions[m.active]; s != nil && s.shell() != nil &&
 		!s.shell().pane.AltScreen() && s.shell().pane.ScrollbackLen() > 0 {
-		as = append(as, action{key: "shift+up", show: "shift+↑", label: "scroll back through history"})
+		ss = append(ss, spec{id: keys.PaneScroll})
 	}
-	return append(as,
-		action{key: toggleSidebarKey, label: "hide / show the sidebar"},
-		action{key: "ctrl+o ?", label: "all the keys"},
-	)
+	return append(ss, spec{id: keys.Sidebar}, spec{id: keys.LeaderHelp, leader: true})
 }
 
-// editorActions is an open editor tab's. ":q" is the remote editor's own key rather than
-// one of hop's, so it is not here — an action has to be a key hop can replay.
-var editorActions = []action{
-	{key: "ctrl+o o", label: "back to the file browser"},
-	{key: "shift+right", show: "shift+→", label: "next file tab"},
-	{key: "shift+left", show: "shift+←", label: "previous file tab"},
-	{key: toggleSidebarKey, label: "hide / show the sidebar"},
-	{key: "ctrl+o ?", label: "all the keys"},
+// editorSpecs is an open editor tab's. ":q" is the remote editor's own key rather than
+// one of hop's, so it is not here — an action has to be something hop can run.
+var editorSpecs = []spec{
+	{id: keys.LeaderOut, label: "back to the file browser", leader: true},
+	{id: keys.EditorNextTab},
+	{id: keys.EditorPrevTab},
+	{id: keys.Sidebar},
+	{id: keys.LeaderHelp, leader: true},
 }
 
 // contextActions is everything the palette offers where the keyboard is now. The host
@@ -150,13 +154,13 @@ var editorActions = []action{
 func (m *model) contextActions() []action {
 	switch m.mode {
 	case modeBrowser:
-		return available(m, browserActions)
+		return m.resolve(keys.Browser, browserSpecs)
 	case modeEditor:
-		return available(m, editorActions)
+		return m.resolve(keys.Editor, editorSpecs)
 	case modeShell, modeScrollback:
-		return available(m, m.paneActions())
+		return m.resolve(keys.Pane, m.paneSpecs())
 	}
-	return append(m.availableHostActions(), available(m, globalActions)...)
+	return append(m.availableHostActions(), m.resolve(keys.List, globalSpecs)...)
 }
 
 // availableHostActions is what can be done to the host under the cursor right now, in
@@ -165,16 +169,53 @@ func (m *model) availableHostActions() []action {
 	if _, ok := m.selectedHost(); !ok {
 		return nil
 	}
-	return available(m, hostActions)
+	return m.resolve(keys.List, hostSpecs)
 }
 
-// available filters a registry by its predicates.
-func available(m *model, as []action) []action {
+// resolve turns specs into offers: predicates applied, labels and keys read out of the
+// keyboard, and anything the user has unbound dropped. A row with no key left is not an
+// offer — running it would do nothing the user could repeat by hand.
+//
+// layer is the keyboard the registry belongs to. Two rows do not come from it: a leader
+// chord, which lives in the leader's own layer and is drawn as two keys, and the global
+// pair, which every mode offers and no mode owns.
+func (m *model) resolve(layer keys.Layer, ss []spec) []action {
 	var out []action
-	for _, a := range as {
-		if a.ok == nil || a.ok(m) {
-			out = append(out, a)
+	for _, sp := range ss {
+		if sp.ok != nil && !sp.ok(m) {
+			continue
 		}
+
+		l := layer
+		if sp.leader {
+			l = keys.Leader
+		}
+		b, ok := m.binds.BindingIn(l, sp.id)
+		if !ok {
+			// Not this layer's: the global pair, offered from inside every mode.
+			if b, ok = m.binds.BindingIn(keys.Global, sp.id); !ok {
+				continue
+			}
+			l = keys.Global
+		}
+
+		cap := b.Keycap()
+		if sp.leader {
+			lead := m.binds.Keycap(keys.LeaderKey)
+			if lead == "" {
+				continue // no leader, no chord to offer
+			}
+			cap = lead + " " + cap
+		}
+		if cap == "" {
+			continue // the user unbound it
+		}
+
+		label := sp.label
+		if label == "" {
+			label = b.Label
+		}
+		out = append(out, action{id: sp.id, layer: l, label: label, cap: cap, host: sp.host})
 	}
 	return out
 }
@@ -189,46 +230,25 @@ func (m *model) selectedSession() *session {
 	return m.sessions[h.Alias]
 }
 
-// runAction carries out a, by replaying the keys it stands for in order. A chord runs as
-// the two keystrokes it is, so the leader opens and closes exactly as it would under a
-// hand. See action.
+// runAction carries out a, by calling the same do* function its key would. The leader
+// rows run against the pane they were offered over, which is the active one: a palette
+// opened from a pane is still standing in that pane when a row is picked.
 func (m *model) runAction(a action) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-	for _, k := range actionKeys(a.key) {
-		_, cmd := m.handleKey(actionKeyMsg(k))
-		cmds = append(cmds, cmd)
+	switch a.layer {
+	case keys.List:
+		return m.doList(a.id)
+	case keys.Global:
+		return m.doGlobal(a.id)
+	case keys.Leader:
+		return m.doLeader(a.id, m.active, m.editing())
+	case keys.Pane:
+		_, model, cmd := m.doPane(a.id)
+		return model, cmd
+	case keys.Editor:
+		_, model, cmd := m.doEditor(a.id)
+		return model, cmd
+	case keys.Browser:
+		return m.doBrowser(a.id)
 	}
-	return m, tea.Batch(cmds...)
-}
-
-// actionKeys splits a chord into its keystrokes. The space key is a key, not a
-// separator, so it is the one string that never splits.
-func actionKeys(key string) []string {
-	if key == menuKey {
-		return []string{key}
-	}
-	return strings.Fields(key)
-}
-
-// actionKeyTypes names the non-rune keys the registries use — the inverse of what
-// handleKey switches on. A rune key needs no entry.
-var actionKeyTypes = map[string]tea.KeyType{
-	"enter":       tea.KeyEnter,
-	"esc":         tea.KeyEsc,
-	"left":        tea.KeyLeft,
-	"right":       tea.KeyRight,
-	"shift+left":  tea.KeyShiftLeft,
-	"shift+right": tea.KeyShiftRight,
-	"shift+up":    tea.KeyShiftUp,
-	"ctrl+o":      tea.KeyCtrlO,
-	"ctrl+b":      tea.KeyCtrlB,
-	"ctrl+k":      tea.KeyCtrlK,
-}
-
-// actionKeyMsg builds the tea.KeyMsg whose String() is key.
-func actionKeyMsg(key string) tea.KeyMsg {
-	if t, ok := actionKeyTypes[key]; ok {
-		return tea.KeyMsg{Type: t}
-	}
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+	return m, nil
 }

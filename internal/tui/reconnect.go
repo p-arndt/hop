@@ -5,9 +5,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"hop/internal/keys"
 
 	"hop/internal/store"
 )
@@ -296,28 +297,28 @@ func (m *model) activeDead() bool {
 // is forwarded; what is left is the three things you can do — get back on the host,
 // leave the pane, or drop it.
 func (m *model) handleDeadPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "r", "enter":
+	switch m.binds.Action(keys.DeadPane, msg.String(), m.cfg.VimKeys) {
+	case keys.DeadReconnect:
 		h, ok := m.hostByAlias(m.active)
 		if !ok {
 			return m, nil
 		}
 		return m, m.reconnect(h)
 
-	case "ctrl+o", "esc", "q":
+	case keys.DeadLeave:
 		// Back to the list, as leavePane does; the pane stays on screen unfocused. A
 		// single esc is enough: the double-tap exists to leave a remote program an esc of
 		// its own, and there is no longer a program to leave one to.
 		m.mode = modeList
-		m.chords.esc = time.Time{}
+		m.reader.Reset()
 		m.clearStatus()
 
-	case "?":
+	case keys.DeadHelp:
 		// hop owns this keyboard outright — a dead pane forwards nothing — so the card
 		// is reachable by the key the footer names.
 		m.openHelp()
 
-	case "d", "x":
+	case keys.DeadDrop:
 		// Give up on it: the pane goes, the host goes back to idle. 'x' is bound here too
 		// because "delete" is the reflex — it drops the session, never the host.
 		m.disconnect(m.active)

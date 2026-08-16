@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"hop/internal/keys"
 	"hop/internal/store"
 )
 
@@ -260,8 +261,8 @@ func (m *model) renderEmptyList(w int) string {
 	b.WriteString("\n")
 	b.WriteString(faint.Render(truncate("SSH config, or add one:", w)))
 	b.WriteString("\n\n")
-	b.WriteString(truncate("  "+keyHint("i", "import"), w))
+	b.WriteString(truncate("  "+m.hint(keys.List, keys.HostImport, "import"), w))
 	b.WriteString("\n")
-	b.WriteString(truncate("  "+keyHint("a", "add a host"), w))
+	b.WriteString(truncate("  "+m.hint(keys.List, keys.HostAdd, "add a host"), w))
 	return b.String()
 }

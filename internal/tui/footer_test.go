@@ -3,7 +3,6 @@ package tui
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -264,7 +263,7 @@ func TestSlowDoubleEscDoesNotQuit(t *testing.T) {
 	m.active, m.mode = "web1", modeList
 
 	m.handleKey(key(t, "esc"))
-	m.chords.esc = time.Now().Add(-2 * doubleEscWindow)
+	m.reader.Reset() // as if the user paused past the chord's window
 	if _, cmd := m.handleKey(key(t, "esc")); cmd != nil {
 		t.Fatal("two escs outside the window quit hop")
 	}

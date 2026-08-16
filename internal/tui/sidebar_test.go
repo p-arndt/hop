@@ -5,18 +5,20 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"hop/internal/keys"
 )
 
 // toggleKey is the sidebar chord as the terminal delivers it: a control byte, not
 // the meta escape an alt+letter would need the terminal to be configured for. See
-// toggleSidebarKey.
+// keys.Defaults().Keycap(keys.Sidebar).
 func toggleKey() tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyCtrlB}
 }
 
 func TestSidebarToggleKey(t *testing.T) {
-	if got := toggleKey().String(); got != toggleSidebarKey {
-		t.Fatalf("the test's key renders as %q, want %q", got, toggleSidebarKey)
+	if got := toggleKey().String(); got != keys.Defaults().Keycap(keys.Sidebar) {
+		t.Fatalf("the test's key renders as %q, want %q", got, keys.Defaults().Keycap(keys.Sidebar))
 	}
 }
 
@@ -144,7 +146,7 @@ func TestSidebarToggleBreaksTheEscChord(t *testing.T) {
 
 	m.handleKey(key(t, "esc"))
 	m.handleKey(toggleKey())
-	if !m.chords.esc.IsZero() {
+	if m.reader.Pending() {
 		t.Fatal("ctrl+b left the pending esc armed")
 	}
 

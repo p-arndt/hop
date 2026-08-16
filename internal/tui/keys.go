@@ -6,29 +6,14 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"hop/internal/keymap"
+	"hop/internal/keys"
 )
 
-// doubleEscWindow is how long after an esc a second esc counts as "leave the pane"
-// rather than two escapes bound for the remote shell.
-const doubleEscWindow = 400 * time.Millisecond
-
-// leaderKey opens hop's keyboard inside a pane. It arms with no timeout: the footer
-// lists what can follow and hop waits for the next key. Leaving is leaderKey then "o";
-// esc esc still leaves in one gesture.
-const leaderKey = "ctrl+o"
-
-// toggleSidebarKey collapses the host list and brings it back. ctrl+b rather than the
-// mnemonic alt+b: stock macOS terminals do not send alt+letter as a meta escape. The
-// price is that a remote tmux never sees its prefix while hop holds it.
-const toggleSidebarKey = "ctrl+b"
-
-// toggleMouseKey hands mouse reporting back to the terminal and takes it again. hop
-// selects text itself (see selection.go); this is for what that does not cover —
-// dragging across sidebar and pane, or a terminal feature that wants the pointer.
-// ctrl+g for the same reason ctrl+b is the sidebar, and it is the least spoken-for
-// control byte at a shell prompt.
-const toggleMouseKey = "ctrl+g"
+// The keyboard itself lives in internal/keys: every binding below is resolved to an
+// action there, so the switches in this file say what hop does rather than which key did
+// it, and a user's config.json can move the key without touching any of them.
+//
+// The rationale each binding was chosen for stayed with the binding, in that registry.
 
 // handleKey routes a key to whichever mode owns the keyboard, in order of modality:
 // modal cards, sidebar toggle, panes that forward to a remote program, filter, then
@@ -90,14 +75,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// The two bindings hop holds in every mode below the cards: they belong to the
 	// window, not to whatever owns the keyboard.
-	switch msg.String() {
-	case toggleSidebarKey:
-		m.toggleSidebar()
-		m.chords.esc = time.Time{} // any non-esc breaks a half-typed double-esc
-		return m, nil
-	case toggleMouseKey:
-		m.chords.esc = time.Time{}
-		return m, m.toggleMouse()
+	if a := m.binds.Action(keys.Global, msg.String(), m.cfg.VimKeys); a != keys.None {
+		m.reader.Reset() // a key that is not an esc breaks a half-typed double-esc
+		return m.doGlobal(a)
 	}
 
 	switch {
@@ -121,59 +101,78 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.handleNavKey(msg)
 }
 
+// doGlobal runs one of the two bindings that belong to the window rather than to a mode.
+func (m *model) doGlobal(a keys.Action) (tea.Model, tea.Cmd) {
+	switch a {
+	case keys.Sidebar:
+		m.toggleSidebar()
+	case keys.Mouse:
+		return m, m.toggleMouse()
+	}
+	return m, nil
+}
+
 // ---- navigation ----
 
 func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// Motions first, through the shared keymap — which also drops the vim keys when the
-	// setting is off. Scope List is the step and page keys, without the jumps and ctrl
-	// chords the browser keeps.
-	if mo := m.keys.Motion(keymap.List, key, m.cfg.VimKeys); mo != keymap.None {
-		return m.move(mo)
+	// A digit addresses a shell by its number — a range rather than a binding, so it is
+	// read before the keyboard is consulted and is not in the registry. A host with no
+	// session, or no shell at that position, ignores it.
+	if i, ok := listDigit(key); ok {
+		h, ok := m.selectedHost()
+		if !ok {
+			return m, nil
+		}
+		return m.gotoShell(h.Alias, i)
 	}
 
-	switch key {
-	case "q", "ctrl+c":
+	return m.doList(m.reader.Read(m.binds, keys.List, key, m.cfg.VimKeys).Action)
+}
+
+// doList runs one host-list action. Split from the key that resolved to it so the palette
+// and the context menu can run a row directly: before this they replayed the row's key
+// through handleKey, which meant only a key hop bound could be an action at all, and a
+// rebound key had to be replayed as whatever the user had chosen.
+func (m *model) doList(a keys.Action) (tea.Model, tea.Cmd) {
+	switch a {
+	// Motions: the list binds the steps, the pages and in/out, and leaves the jumps and
+	// the ctrl chords to the browser (see the registry).
+	case keys.Up, keys.Down, keys.PageUp, keys.PageDown, keys.In, keys.Out:
+		return m.move(a)
+
+	case keys.Quit:
 		m.closeAll()
 		return m, tea.Quit
 
-	case "/":
+	case keys.Filter:
 		m.filtering = true
 		m.filter = ""
 		m.applyFilter()
 
-	case ",":
+	case keys.Settings:
 		m.openSettings()
 
-	case "?":
+	case keys.Help:
 		m.openHelp()
 
-	case paletteKey:
+	case keys.Palette:
 		// Every action in one searchable list, each row carrying the key that does it —
 		// the way in for a keyboard nobody has learnt yet. See actions.go.
 		m.openPalette()
 
-	case menuKey:
+	case keys.Menu:
 		// The same list, narrowed to the host under the cursor and anchored to its row.
 		m.openHostMenu()
 
-	case "ctrl+o":
-		// Nothing to go back from: the list is where back leads.
-
-	case "esc":
-		// Not a motion: esc is the browser's double-tap chord, so the keymap leaves it
-		// to the mode that owns it. In the list it does the same as everywhere else —
-		// one level out — and the list is the last level: the first esc drops the host
-		// you were reading about, a second one inside the window leaves hop. The window
-		// is what keeps a stray esc from quitting.
-		if m.escChord() {
-			m.closeAll()
-			return m, tea.Quit
-		}
+	case keys.Back:
+		// In the list, back is one level out and the list is the last level: the first
+		// esc drops the host you were reading about, and the second — within the window
+		// the Reader holds — leaves hop. That second one arrives as Quit above.
 		m.leaveDetails()
 
-	case "S":
+	case keys.HostNewShell:
 		// Another shell on the same host, alongside the ones already open.
 		h, ok := m.selectedHost()
 		if !ok {
@@ -181,16 +180,7 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.openShell(h, true)
 
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		// Straight into a numbered shell of the host under the cursor — "s", aimed. A
-		// host with no session, or no shell at that position, ignores it.
-		h, ok := m.selectedHost()
-		if !ok {
-			return m, nil
-		}
-		return m.gotoShell(h.Alias, int(key[0]-'1'))
-
-	case "s":
+	case keys.HostShell:
 		h, ok := m.selectedHost()
 		if !ok {
 			return m, nil
@@ -206,34 +196,34 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.setStatus(statusWarn, "no live session for %s", h.Alias)
 
-	case "r":
+	case keys.HostReconnec:
 		// Reconnect a dropped session, putting back the shells and browser it held. Bound
 		// in the list as well as in the dead pane: a drop is as often noticed by the red
 		// dot in the sidebar.
 		return m, m.reconnectSelected()
 
-	case "f":
+	case keys.HostBrowser:
 		h, ok := m.selectedHost()
 		if !ok {
 			return m, nil
 		}
 		return m, m.openBrowser(h)
 
-	case "t":
+	case keys.HostTunnels:
 		h, ok := m.selectedHost()
 		if !ok {
 			return m, nil
 		}
 		return m, m.toggleTunnels(h)
 
-	case "T":
+	case keys.HostTunnelUI:
 		h, ok := m.selectedHost()
 		if !ok {
 			return m, nil
 		}
 		m.openTunnels(h)
 
-	case "o":
+	case keys.HostVSCode:
 		h, ok := m.selectedHost()
 		if !ok {
 			return m, nil
@@ -241,23 +231,23 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// In the directory the host's shell is standing in, when it has one.
 		m.openVSCodeAt(h.Alias)
 
-	case "d":
+	case keys.HostDrop:
 		h, ok := m.selectedHost()
 		if !ok {
 			return m, nil
 		}
 		m.disconnect(h.Alias)
 
-	case "a":
+	case keys.HostAdd:
 		// Add a host from scratch — the in-app twin of `hop add`.
 		m.openHostFormAdd()
 
-	case "i":
+	case keys.HostImport:
 		// Import (or re-import) an OpenSSH config — the in-app twin of `hop import`. It
 		// upserts per host, so it stays bound once the list is full.
 		m.openImport(false)
 
-	case "e":
+	case keys.HostEdit:
 		// Edit the host under the cursor: the same form, pre-filled.
 		h, ok := m.selectedHost()
 		if !ok {
@@ -265,20 +255,19 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.openHostFormEdit(h)
 
-	case "p":
+	case keys.HostPin:
 		// Pin the host under the cursor to the PINNED section, or take it back out.
 		m.togglePin()
 
-	case "K":
-		// Move a pinned host up its section, "J" down. Shifted j/k: the step keys with
-		// "and take the host with you" on them, and they arrive on a stock macOS terminal.
+	case keys.HostPinUp:
 		m.movePin(-1)
 
-	case "J":
+	case keys.HostPinDown:
 		m.movePin(1)
 
-	case "x":
-		// Delete the host under the cursor, behind a confirmation. 'd' already disconnects.
+	case keys.HostDelete:
+		// Delete the host under the cursor, behind a confirmation. Disconnect is its own
+		// key.
 		h, ok := m.selectedHost()
 		if !ok {
 			return m, nil
@@ -289,24 +278,32 @@ func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// listDigit recognises "1" … "9" in the host list and returns the shell it addresses.
+func listDigit(key string) (int, bool) {
+	if len(key) != 1 || key[0] < '1' || key[0] > '9' {
+		return 0, false
+	}
+	return int(key[0] - '1'), true
+}
+
 // move applies a motion to the host list. Only Scope List's motions arrive here: step,
 // page and in/out. The jumps and ctrl chords are the browser's — the list does not
 // scroll, and the letters are worth more to it as commands.
-func (m *model) move(mo keymap.Motion) (tea.Model, tea.Cmd) {
+func (m *model) move(mo keys.Action) (tea.Model, tea.Cmd) {
 	switch mo {
-	case keymap.Up:
+	case keys.Up:
 		m.cursor--
-	case keymap.Down:
+	case keys.Down:
 		m.cursor++
-	case keymap.PageDown:
+	case keys.PageDown:
 		m.pageCursor(1)
-	case keymap.PageUp:
+	case keys.PageUp:
 		m.pageCursor(-1)
 
-	case keymap.Out:
+	case keys.Out:
 		m.leaveDetails()
 
-	case keymap.In:
+	case keys.In:
 		// Descend into the host under the cursor: connect to it.
 		h, ok := m.selectedHost()
 		if !ok {
@@ -399,47 +396,51 @@ func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// popover, and esc cancels the question rather than leaving the browser.
 	s := m.sessions[m.active]
 	if s != nil && s.browser != nil && s.browser.Prompting() {
-		m.chords.esc = time.Time{}
+		m.reader.Reset()
 		return m, s.browser.Handle(msg)
 	}
 
-	switch key := msg.String(); key {
-	case "ctrl+o":
+	// One keyboard, resolved once: the exits and the cards below are hop's half of the
+	// Browser layer, everything else is the browser's own and goes to Do. Resolving in
+	// both places would give the layer two half-typed chords.
+	res := m.reader.Read(m.binds, keys.Browser, msg.String(), m.cfg.VimKeys)
+
+	if res.Pending && res.Action == keys.None {
+		// The first key of a chord — an esc, or the first g of a gg. Nothing downstream
+		// wants it while hop waits for the second.
+		return m, nil
+	}
+	return m.doBrowser(res.Action)
+}
+
+// doBrowser runs one action of the browser layer: hop's half here, the browser's own in
+// filebrowser.Do. The split is where the behaviour lives, not what the user sees — to
+// them it is one keyboard, which is why it is one layer.
+func (m *model) doBrowser(a keys.Action) (tea.Model, tea.Cmd) {
+	switch a {
+	case keys.BrowserLeave:
 		m.leaveBrowser()
 		return m, nil
 
-	case ",":
+	case keys.BrowserSettings:
 		// Reachable from the browser too, where the editor and download settings are
-		// felt. The browser binds no ",".
+		// felt. The browser binds no "," of its own.
 		m.openSettings()
 		return m, nil
 
-	case paletteKey:
-		// The browser's own keyboard, searchable. As with "," and "?", the browser binds
-		// no ctrl+k of its own, so the palette is free to take it.
+	case keys.BrowserPalette:
+		// The browser's own keyboard, searchable. As with the settings and the card, the
+		// browser binds no ctrl+k of its own, so the palette is free to take it.
 		m.openPalette()
 		return m, nil
 
-	case "?":
-		// As in the list: the browser binds no "?" of its own, so the card is free to
-		// take it, and the footer is free to name it.
+	case keys.BrowserHelp:
 		m.openHelp()
 		return m, nil
-
-	case "esc":
-		// Nothing downstream wants an esc here, so swallow the first and arm the window.
-		if m.escChord() {
-			m.leaveBrowser()
-		}
-		return m, nil
-
-	default:
-		// Any other key breaks the sequence, so esc-j-esc is not a double.
-		m.chords.esc = time.Time{}
 	}
 
-	if s != nil && s.browser != nil {
-		return m, s.browser.Handle(msg)
+	if s := m.sessions[m.active]; s != nil && s.browser != nil {
+		return m, s.browser.Do(a)
 	}
 	return m, nil
 }
@@ -458,50 +459,8 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	s := m.sessions[m.active]
 	key := msg.String()
 
-	switch key {
-	case leaderKey:
-		// Open the leader and wait. See handleLeader.
-		m.armLeader()
-		return m, nil
-
-	case "alt+0":
-		// Another shell on the host you are already in — "S" without the trip back to the
-		// list. A second channel on the connection hop holds, so there is no handshake.
-		h, ok := m.hostByAlias(m.active)
-		if !ok {
-			return m, nil
-		}
-		return m, m.openShell(h, true)
-
-	case "shift+right", "alt+right":
-		if s != nil {
-			s.activeSh = cycle(s.activeSh, 1, len(s.shells))
-		}
-		return m, nil
-
-	case "shift+left", "alt+left":
-		if s != nil {
-			s.activeSh = cycle(s.activeSh, -1, len(s.shells))
-		}
-		return m, nil
-
-	case "shift+up":
-		// Enter scrollback and step one line up. When enterScrollback declines, the key
-		// falls through to the shell.
-		if m.enterScrollback(s) {
-			s.shell().pane.ScrollUp(1)
-			return m, nil
-		}
-
-	case "shift+pgup":
-		// The same entry, a page at a time.
-		if m.enterScrollback(s) {
-			s.shell().pane.ScrollUp(m.scrollPage())
-			return m, nil
-		}
-	}
-
-	// alt+1 … alt+9 jump straight to a shell, ignoring one that is not open.
+	// alt+1 … alt+9 jump straight to a shell — a range rather than a binding, and read
+	// before the keyboard for the same reason the list's digits are.
 	if i, ok := altDigit(key); ok {
 		if s != nil && i < len(s.shells) {
 			s.activeSh = i
@@ -509,22 +468,71 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if key == "esc" {
-		// A second esc inside the window leaves the pane. The first is still forwarded
-		// below: a lone esc belongs to the shell, and a stray extra one is harmless.
-		if m.escChord() {
-			m.leavePane()
-			return m, nil
-		}
-	} else {
-		// Any other key breaks the sequence, so esc-j-esc is not a double.
-		m.chords.esc = time.Time{}
+	res := m.reader.Read(m.binds, keys.Pane, key, m.cfg.VimKeys)
+	if handled, model, cmd := m.doPane(res.Action); handled {
+		return model, cmd
 	}
 
+	// A first esc is still forwarded below: a lone esc belongs to the shell, and a stray
+	// extra one is harmless. The second one arrives as PaneLeave above.
 	if s != nil && s.shell() != nil {
 		s.shell().pane.SendKey(msg)
 	}
 	return m, nil
+}
+
+// doPane runs one shell-pane action, reporting whether it was one this layer owns — a
+// pane forwards everything else to the remote program, so "not mine" is an answer rather
+// than a no-op.
+func (m *model) doPane(a keys.Action) (bool, tea.Model, tea.Cmd) {
+	s := m.sessions[m.active]
+	switch a {
+	case keys.LeaderKey:
+		// Open the leader and wait. See handleLeader.
+		m.armLeader()
+		return true, m, nil
+
+	case keys.PaneLeave:
+		m.leavePane()
+		return true, m, nil
+
+	case keys.PaneNewShell:
+		// Another shell on the host you are already in — the list's "S" without the trip
+		// back. A second channel on the connection hop holds, so there is no handshake.
+		h, ok := m.hostByAlias(m.active)
+		if !ok {
+			return true, m, nil
+		}
+		return true, m, m.openShell(h, true)
+
+	case keys.PaneNextTab:
+		if s != nil {
+			s.activeSh = cycle(s.activeSh, 1, len(s.shells))
+		}
+		return true, m, nil
+
+	case keys.PanePrevTab:
+		if s != nil {
+			s.activeSh = cycle(s.activeSh, -1, len(s.shells))
+		}
+		return true, m, nil
+
+	case keys.PaneScroll:
+		// Enter scrollback and step one line up. When enterScrollback declines, the key
+		// falls through to the shell.
+		if m.enterScrollback(s) {
+			s.shell().pane.ScrollUp(1)
+			return true, m, nil
+		}
+
+	case keys.PaneScrollPg:
+		// The same entry, a page at a time.
+		if m.enterScrollback(s) {
+			s.shell().pane.ScrollUp(m.scrollPage())
+			return true, m, nil
+		}
+	}
+	return false, m, nil
 }
 
 // ---- scrollback ----
@@ -558,50 +566,49 @@ func (m *model) handleScrollbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	p := s.shell().pane
 
-	switch msg.String() {
-	case "up", "k", "shift+up":
+	switch m.reader.Read(m.binds, keys.Scrollback, msg.String(), m.cfg.VimKeys).Action {
+	case keys.ScrollUp:
 		p.ScrollUp(1)
 
-	case "down", "j", "shift+down":
+	case keys.ScrollDown:
 		p.ScrollDown(1)
 		if p.AtBottom() {
 			m.exitScrollback()
 		}
 
-	case "pgup", "shift+pgup":
-		// No ctrl+b partner for the ctrl+f below: handleKey takes it for the sidebar.
+	case keys.ScrollPageUp:
 		p.ScrollUp(m.scrollPage())
 
-	case "pgdown", "ctrl+f", "shift+pgdown":
+	case keys.ScrollPageDown:
 		p.ScrollDown(m.scrollPage())
 		if p.AtBottom() {
 			m.exitScrollback()
 		}
 
-	case "ctrl+u":
+	case keys.ScrollHalfUp:
 		p.ScrollUp(m.scrollHalf())
 
-	case "ctrl+d":
+	case keys.ScrollHalfDown:
 		p.ScrollDown(m.scrollHalf())
 		if p.AtBottom() {
 			m.exitScrollback()
 		}
 
-	case "g", "home":
+	case keys.ScrollTop:
 		p.ScrollToTop()
 
-	case "G", "end":
+	case keys.ScrollBottom:
 		p.ScrollToBottom()
 		m.exitScrollback()
 
-	case "?":
-		// The footer names ? in every mode hop owns the keyboard in, and this is one:
-		// scrollback forwards nothing until you leave it.
+	case keys.ScrollHelp:
+		// The footer names the card in every mode hop owns the keyboard in, and this is
+		// one: scrollback forwards nothing until you leave it.
 		m.openHelp()
 
-	case "q", "esc", "enter", "i", "ctrl+o", "left", "right":
-		// The deliberate ways out. ctrl+o only leaves scrollback, back to the live shell;
-		// a second one then leaves the pane. None of these reach the shell.
+	case keys.ScrollLeave:
+		// The deliberate ways out. The leader key only leaves scrollback, back to the
+		// live shell; a second one then leaves the pane. None of these reach the shell.
 		m.exitScrollback()
 
 	default:
@@ -643,20 +650,6 @@ func (m *model) handleEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	key := msg.String()
 
-	switch key {
-	case leaderKey:
-		m.armLeader()
-		return m, nil
-
-	case "shift+right", "alt+right", "alt+l":
-		s.activeEd = cycle(s.activeEd, 1, len(s.editors))
-		return m, nil
-
-	case "shift+left", "alt+left", "alt+h":
-		s.activeEd = cycle(s.activeEd, -1, len(s.editors))
-		return m, nil
-	}
-
 	// alt+1 … alt+9 jump straight to a tab, ignoring one that is not open.
 	if i, ok := altDigit(key); ok {
 		if i < len(s.editors) {
@@ -665,18 +658,41 @@ func (m *model) handleEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if key == "esc" {
-		// As in a shell pane, the first esc is still forwarded to the editor.
-		if m.escChord() {
-			m.leaveEditor()
-			return m, nil
-		}
-	} else {
-		m.chords.esc = time.Time{}
+	if handled, model, cmd := m.doEditor(m.reader.Read(m.binds, keys.Editor, key, m.cfg.VimKeys).Action); handled {
+		return model, cmd
 	}
 
+	// As in a shell pane, a first esc is still forwarded to the editor: the second one
+	// arrives as EditorLeave above.
 	s.editor().pane.SendKey(msg)
 	return m, nil
+}
+
+// doEditor runs one editor-tab action, reporting whether the layer owns it. As with a
+// shell pane, everything it does not own belongs to the remote editor.
+func (m *model) doEditor(a keys.Action) (bool, tea.Model, tea.Cmd) {
+	s := m.sessions[m.active]
+	if s == nil {
+		return false, m, nil
+	}
+	switch a {
+	case keys.LeaderKey:
+		m.armLeader()
+		return true, m, nil
+
+	case keys.EditorLeave:
+		m.leaveEditor()
+		return true, m, nil
+
+	case keys.EditorNextTab:
+		s.activeEd = cycle(s.activeEd, 1, len(s.editors))
+		return true, m, nil
+
+	case keys.EditorPrevTab:
+		s.activeEd = cycle(s.activeEd, -1, len(s.editors))
+		return true, m, nil
+	}
+	return false, m, nil
 }
 
 // ---- help card ----
@@ -701,22 +717,12 @@ func (m *model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // ---- leaving a mode ----
 
-// escChord reports whether this esc completes a double-esc within the window, and
-// arms the window when it does not.
-func (m *model) escChord() bool {
-	if !m.chords.esc.IsZero() && time.Since(m.chords.esc) <= doubleEscWindow {
-		return true
-	}
-	m.chords.esc = time.Now()
-	return false
-}
-
 // leavePane returns from a focused terminal pane to navigation mode.
 func (m *model) leavePane() {
 	m.exitScrollback() // snaps the pane's offset back while m.active is still set
 	m.mode = modeList
 	m.clearStatus()
-	m.chords.esc = time.Time{}
+	m.reader.Reset()
 }
 
 // armLeader opens the leader on the pane the keyboard is in. No timer starts.
@@ -742,10 +748,24 @@ func (m *model) disarmLeader() string {
 func (m *model) handleLeader(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	alias := m.disarmLeader()
 	editing := m.editing()
+	key := msg.String()
 
-	switch key := msg.String(); {
-	case key == "o":
-		// Out.
+	// A digit picks a tab: a range, read before the keyboard, as everywhere else.
+	if isTabDigit(key) {
+		m.selectTab(alias, int(key[0]-'1'), editing)
+		return m, nil
+	}
+
+	return m.doLeader(m.binds.Action(keys.Leader, key, m.cfg.VimKeys), alias, editing)
+}
+
+// doLeader runs one leader action on the pane it was opened over. alias is whose pane
+// that was and editing whether it holds an editor tab, both settled when the leader
+// closed rather than read again here: the palette can run a leader row too, and by then
+// the leader is long shut.
+func (m *model) doLeader(a keys.Action, alias string, editing bool) (tea.Model, tea.Cmd) {
+	switch a {
+	case keys.LeaderOut:
 		if editing {
 			m.leaveEditor()
 		} else {
@@ -753,35 +773,37 @@ func (m *model) handleLeader(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case key == "c" && !editing:
+	case keys.LeaderVSCode:
+		if editing {
+			break
+		}
 		// This directory in VS Code Remote. Leaving is part of it: VS Code takes over.
 		m.leavePane()
 		m.openVSCodeAt(alias)
 		return m, nil
 
-	case key == paletteKey:
+	case keys.LeaderPalette:
 		// The palette from inside a pane. Behind the leader for the reason the card is:
 		// a bare ctrl+k in a shell is a keystroke the remote program is owed.
 		m.openPalette()
 		return m, nil
 
-	case key == "?":
+	case keys.LeaderHelp:
 		// The way to the card from a pane. A bare "?" cannot be it: in a shell or an
 		// editor that key is text, and the remote is owed it.
 		m.openHelp()
 		return m, nil
 
-	case key == "0" && !editing:
-		// Another shell on this host. No 0 for editor tabs: those are opened by file.
+	case keys.LeaderShell:
+		// Another shell on this host. Not for editor tabs: those are opened by file.
+		if editing {
+			break
+		}
 		h, ok := m.hostByAlias(alias)
 		if !ok {
 			return m, nil
 		}
 		return m, m.openShell(h, true)
-
-	case isTabDigit(key):
-		m.selectTab(alias, int(key[0]-'1'), editing)
-		return m, nil
 	}
 
 	// Anything else: the leader is closed and the key is spent on closing it.
@@ -828,7 +850,7 @@ func (m *model) gotoShell(alias string, i int) (tea.Model, tea.Cmd) {
 func (m *model) leaveBrowser() {
 	m.mode = modeList
 	m.clearStatus()
-	m.chords.esc = time.Time{}
+	m.reader.Reset()
 }
 
 // leaveEditor returns from the editor tabs to the browser the file was opened from (or
@@ -837,7 +859,7 @@ func (m *model) leaveBrowser() {
 func (m *model) leaveEditor() {
 	m.mode = modeList
 	m.clearStatus()
-	m.chords.esc = time.Time{}
+	m.reader.Reset()
 	if s := m.sessions[m.active]; s != nil && s.browser != nil {
 		m.mode = modeBrowser
 	}
@@ -868,14 +890,12 @@ func altDigit(key string) (int, bool) {
 	return int(n[0] - '1'), true
 }
 
-// chordState is every half-typed key sequence hop is holding. They share a failure
-// mode: each is armed by one event and resolved by another, and must be spent when it
-// resolves — a chord left armed fires again on the next keystroke.
+// chordState is what is left of hop's half-typed gestures once the keyboard's own
+// sequences moved into keys.Reader: the leader, which is a mode rather than a pending
+// keystroke, and the pointer's double-click. Both share the failure mode the Reader was
+// built for — armed by one event, resolved by another, and firing again on the next
+// event if they are not spent when they resolve.
 type chordState struct {
-	// esc is when the most recent esc was forwarded to the focused pane. A second esc
-	// within doubleEscWindow leaves the pane. Zero means none is pending.
-	esc time.Time
-
 	// leaderAlias is whose pane the leader was opened in, and "" when it is closed. No
 	// timestamp: the leader waits for its second key however long that takes.
 	leaderAlias string

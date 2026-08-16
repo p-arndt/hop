@@ -3,7 +3,17 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"hop/internal/keys"
 )
+
+// helpModel is a model with hop's default keyboard and the vim keys on, which is the
+// keyboard these tests are about: the card renders whatever the model's map says.
+func helpModel() *model {
+	m := &model{binds: keys.Defaults()}
+	m.cfg.VimKeys = true
+	return m
+}
 
 // The card opens on the mode you were in: its section is lifted to the top of the left
 // column and marked. This is what the short footer leans on — the row names two or three
@@ -22,7 +32,7 @@ func TestHelpOpensOnTheModeYouAreIn(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.want, func(t *testing.T) {
-			left, _, lead := helpFor(true, tc.mode)
+			left, _, lead := helpModel().helpFor(tc.mode)
 			if lead != tc.want {
 				t.Fatalf("card opened on %q, want %q", lead, tc.want)
 			}
@@ -36,11 +46,11 @@ func TestHelpOpensOnTheModeYouAreIn(t *testing.T) {
 // Lifting a section moves it, never copies it: a card listing SHELL twice would be a card
 // you cannot trust to be a complete table.
 func TestHelpKeepsEverySectionOnce(t *testing.T) {
-	before, beforeRight, _ := helpFor(true, modeList)
+	before, beforeRight, _ := helpModel().helpFor(modeList)
 	all := append(titles(before), titles(beforeRight)...)
 
 	for _, mode := range []paneMode{modeList, modeShell, modeScrollback, modeBrowser, modeEditor} {
-		left, right, _ := helpFor(true, mode)
+		left, right, _ := helpModel().helpFor(mode)
 		got := append(titles(left), titles(right)...)
 		if len(got) != len(all) {
 			t.Fatalf("mode %s: card has %d sections, want %d: %v", modeName(mode), len(got), len(all), got)
@@ -63,7 +73,7 @@ func TestHelpKeepsEverySectionOnce(t *testing.T) {
 // The card names the key that opened it, in the form that mode actually takes — the SHELL
 // section the chord, the ones hop owns the plain key.
 func TestHelpNamesItsOwnKey(t *testing.T) {
-	left, right, _ := helpFor(true, modeList)
+	left, right, _ := helpModel().helpFor(modeList)
 	for _, sec := range append(left, right...) {
 		want, ok := map[string]string{
 			"LIST":         "?",

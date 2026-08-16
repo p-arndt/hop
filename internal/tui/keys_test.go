@@ -2,12 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"hop/internal/config"
+	"hop/internal/keys"
 	"hop/internal/store"
 )
 
@@ -270,7 +271,7 @@ func TestPaneDoubleEscLeaves(t *testing.T) {
 	if !m.focused() {
 		t.Fatal("a single esc left the pane, want it forwarded to the shell")
 	}
-	if m.chords.esc.IsZero() {
+	if !m.reader.Pending() {
 		t.Fatal("first esc did not arm the double-esc window")
 	}
 
@@ -278,7 +279,7 @@ func TestPaneDoubleEscLeaves(t *testing.T) {
 	if m.focused() {
 		t.Fatal("double esc did not leave the pane")
 	}
-	if !m.chords.esc.IsZero() {
+	if m.reader.Pending() {
 		t.Fatal("lastEsc not reset on leaving the pane")
 	}
 }
@@ -289,13 +290,13 @@ func TestPaneSlowEscsStayInPane(t *testing.T) {
 	m := newPaneModel()
 
 	m.handleKey(key(t, "esc"))
-	m.chords.esc = time.Now().Add(-2 * doubleEscWindow) // as if the user paused
+	m.reader.Reset() // as if the user paused past the chord's window
 	m.handleKey(key(t, "esc"))
 
 	if !m.focused() {
 		t.Fatal("two slow escs left the pane, want both forwarded to the shell")
 	}
-	if m.chords.esc.IsZero() {
+	if !m.reader.Pending() {
 		t.Fatal("the second esc should re-arm the window")
 	}
 }
@@ -306,7 +307,7 @@ func TestPaneEscSequenceBrokenByOtherKey(t *testing.T) {
 
 	m.handleKey(key(t, "esc"))
 	m.handleKey(key(t, "j"))
-	if !m.chords.esc.IsZero() {
+	if m.reader.Pending() {
 		t.Fatal("an intervening key did not clear the pending esc")
 	}
 
@@ -327,7 +328,7 @@ func TestPaneCtrlOLeaves(t *testing.T) {
 	if m.focused() {
 		t.Fatal("ctrl+o did not leave the pane")
 	}
-	if !m.chords.esc.IsZero() {
+	if m.reader.Pending() {
 		t.Fatal("lastEsc not reset on leaving the pane")
 	}
 }
@@ -345,7 +346,7 @@ func TestBrowsingDoubleEscLeaves(t *testing.T) {
 	if m.browsing() {
 		t.Fatal("double esc did not leave the browser")
 	}
-	if !m.chords.esc.IsZero() {
+	if m.reader.Pending() {
 		t.Fatal("lastEsc not reset on leaving the browser")
 	}
 }
@@ -368,7 +369,7 @@ func TestBrowsingSlowDoubleEscStays(t *testing.T) {
 	m := newBrowseModel()
 
 	m.handleKey(key(t, "esc"))
-	m.chords.esc = time.Now().Add(-2 * doubleEscWindow)
+	m.reader.Reset() // as if the user paused past the chord's window
 	m.handleKey(key(t, "esc"))
 
 	if !m.browsing() {
@@ -385,7 +386,7 @@ func TestBrowsingCtrlOLeaves(t *testing.T) {
 	if m.browsing() {
 		t.Fatal("ctrl+o did not leave the browser")
 	}
-	if !m.chords.esc.IsZero() {
+	if m.reader.Pending() {
 		t.Fatal("lastEsc not reset on leaving the browser")
 	}
 }
@@ -422,4 +423,39 @@ func paneModeIf(cond bool, mode paneMode) paneMode {
 		return mode
 	}
 	return modeList
+}
+
+// The point of the registry: a key hop never shipped runs an action, and the key it
+// shipped stops doing so, without a line of this file knowing which key it was.
+func TestRebindingMovesAnAction(t *testing.T) {
+	m := newNavModel(2)
+	binds, errs := keys.New(map[string]string{
+		string(keys.HostBrowser): "b", // sftp browser, was f
+		string(keys.HostAdd):     "",  // unbound entirely
+	})
+	if len(errs) != 0 {
+		t.Fatalf("keys.New: %v", errs)
+	}
+	m.binds = binds
+
+	m.handleKey(key(t, "f"))
+	if m.hostForm.open || m.mode == modeBrowser {
+		t.Fatal("the default key still acted after being moved")
+	}
+
+	m.handleKey(key(t, "a"))
+	if m.hostForm.open {
+		t.Fatal("an unbound key still opened the host form")
+	}
+
+	// The legend follows the keyboard rather than repeating what the code was written
+	// with: a footer naming a key that no longer works is worse than no footer.
+	_, extra, _ := m.footerHints()
+	joined := strings.Join(extra, " ")
+	if want := m.hint(keys.List, keys.HostBrowser, "sftp"); !strings.Contains(joined, want) {
+		t.Fatalf("footer = %q, want it to name the rebound key as %q", joined, want)
+	}
+	if strings.Contains(joined, "add") {
+		t.Fatalf("footer = %q, want no hint for the unbound key", joined)
+	}
 }

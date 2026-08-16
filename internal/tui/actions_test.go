@@ -310,23 +310,15 @@ func TestContextActionsFollowTheMode(t *testing.T) {
 	}
 	// In a pane hop's keyboard is behind the leader, and the palette says so.
 	for _, a := range shell {
-		if a.label == "another shell on this host" && a.key != "ctrl+o 0" {
-			t.Fatalf("the leader is missing from %q: %q", a.label, a.key)
+		if a.label == "another shell on this host" && a.keycap() != "ctrl+o 0" {
+			t.Fatalf("the leader is missing from %q: %q", a.label, a.keycap())
 		}
 	}
 }
 
-// A chord is replayed as the keystrokes it is, so the leader opens and closes exactly as
-// it would under a hand.
-func TestChordActionsReplayInOrder(t *testing.T) {
-	if got := actionKeys("ctrl+o o"); len(got) != 2 || got[0] != "ctrl+o" || got[1] != "o" {
-		t.Fatalf("actionKeys(chord) = %v", got)
-	}
-	// The space key is a key, not a separator.
-	if got := actionKeys(menuKey); len(got) != 1 || got[0] != menuKey {
-		t.Fatalf("actionKeys(space) = %q", got)
-	}
-
+// A row picked in a pane runs the action itself rather than replaying its keystrokes,
+// and the leader it was offered behind is not left half-open by the running.
+func TestChordActionsRunWithoutReplay(t *testing.T) {
 	m := newNavModel(2)
 	m.sessions = map[string]*session{"h0": {}}
 	m.active, m.mode = "h0", modeShell
@@ -347,6 +339,6 @@ func TestChordActionsReplayInOrder(t *testing.T) {
 		t.Fatal("running 'all the keys' from a pane did not open the card")
 	}
 	if m.leaderArmed() {
-		t.Fatal("the replayed leader was left armed")
+		t.Fatal("the leader was left armed")
 	}
 }

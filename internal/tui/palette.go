@@ -6,12 +6,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/sahilm/fuzzy"
-)
 
-// paletteKey opens the command palette. ctrl+k rather than a letter, because it has to
-// be free in every mode hop owns the keyboard in, and ctrl chords are the ones a stock
-// macOS terminal delivers (see KEYBINDINGS.md).
-const paletteKey = "ctrl+k"
+	"hop/internal/keys"
+)
 
 // paletteUI is the command palette's state: a query, the actions matching it, and which
 // one is selected. The matches are held rather than recomputed at render time, since the
@@ -45,7 +42,7 @@ func (m *model) filterPalette() {
 
 	hay := make([]string, len(all))
 	for i, a := range all {
-		hay[i] = a.label + " " + a.key
+		hay[i] = a.label + " " + a.cap
 	}
 
 	items := make([]action, 0, len(all))
@@ -56,15 +53,29 @@ func (m *model) filterPalette() {
 	m.palette.cursor = clamp(m.palette.cursor, 0, max(len(items)-1, 0))
 }
 
+// paletteKey reports whether key is the one that opens the palette in the mode it was
+// opened from — the list's, the browser's or the leader's, all of them the same action
+// under a different layer.
+func (m *model) paletteKey(key string) bool {
+	for _, l := range []keys.Layer{keys.List, keys.Browser, keys.Leader} {
+		switch m.binds.Action(l, key, m.cfg.VimKeys) {
+		case keys.Palette, keys.BrowserPalette, keys.LeaderPalette:
+			return true
+		}
+	}
+	return false
+}
+
 // handlePaletteKey routes a key while the palette is up. It swallows everything: the
 // palette is a text field over a list that binds single letters, so a key falling
 // through would act on the host underneath while you were typing its name.
 func (m *model) handlePaletteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", paletteKey:
+	// As with the menu: dialog keys, plus the one that opened it.
+	switch key := msg.String(); {
+	case key == "esc" || m.paletteKey(key):
 		m.closePalette()
 
-	case "enter":
+	case key == "enter":
 		if m.palette.cursor >= len(m.palette.items) {
 			return m, nil
 		}
@@ -74,21 +85,21 @@ func (m *model) handlePaletteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.closePalette()
 		return m.runAction(a)
 
-	case "up", "ctrl+p":
+	case key == "up" || key == "ctrl+p":
 		m.palette.cursor--
 		m.palette.cursor = clamp(m.palette.cursor, 0, max(len(m.palette.items)-1, 0))
 
-	case "down", "ctrl+n":
+	case key == "down" || key == "ctrl+n":
 		m.palette.cursor++
 		m.palette.cursor = clamp(m.palette.cursor, 0, max(len(m.palette.items)-1, 0))
 
-	case "backspace":
+	case key == "backspace":
 		if r := []rune(m.palette.query); len(r) > 0 {
 			m.palette.query = string(r[:len(r)-1])
 			m.filterPalette()
 		}
 
-	case "ctrl+u":
+	case key == "ctrl+u":
 		m.palette.query = ""
 		m.filterPalette()
 
