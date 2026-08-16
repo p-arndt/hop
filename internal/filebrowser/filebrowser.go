@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -116,6 +117,12 @@ type Browser struct {
 	// xfer is the transfer in flight, if any: SFTP copies run off the UI goroutine so a
 	// large file cannot stall a keystroke. See transfer.go.
 	xfer *transfer
+
+	// refusal is a "still transferring" message holding the last row for a moment, and
+	// refusedAt when it took it. It cannot be an ordinary status: the row it would go on
+	// is the one the progress line is already drawing. See Browser.busy.
+	refusal   string
+	refusedAt time.Time
 }
 
 // New builds a Browser starting in startDir (or the remote home when empty), ensuring
@@ -125,6 +132,7 @@ type Browser struct {
 // directory renamed on the server. The browser lands in the home directory with the
 // listing error as its status.
 func New(c Client, startDir string, opts Options, w, h int) (*Browser, error) {
+	opts.DownloadDir = expandHome(opts.DownloadDir)
 	if err := os.MkdirAll(opts.DownloadDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -161,15 +169,25 @@ func New(c Client, startDir string, opts Options, w, h int) (*Browser, error) {
 
 // SetOptions swaps in new user settings. A missing download directory is created on the
 // next download, so a settings edit never fails on it.
-func (b *Browser) SetOptions(opts Options) { b.opts = opts }
+//
+// The download directory is expanded here rather than trusted as typed: the settings
+// field offers "~/Downloads" as its placeholder, and an unexpanded "~" would have the
+// browser create a directory literally called "~" and check the wrong path for an
+// existing file — quietly skipping the overwrite confirm.
+func (b *Browser) SetOptions(opts Options) {
+	opts.DownloadDir = expandHome(opts.DownloadDir)
+	b.opts = opts
+}
 
-// load lists dir and, on success, commits it as the current directory. On error it sets
-// the status and leaves cwd/entries untouched.
-func (b *Browser) load(dir string) {
+// load lists dir and, on success, commits it as the current directory, reporting whether
+// it did. On error it sets the status and leaves cwd/entries untouched — a caller that
+// goes on to report its own success would paint over that error, so the ones that can
+// fail check the result.
+func (b *Browser) load(dir string) bool {
 	ents, err := b.client.List(dir)
 	if err != nil {
 		b.fail(err)
-		return
+		return false
 	}
 	b.cwd = dir
 	b.entries = b.applySort(ents)
@@ -177,6 +195,7 @@ func (b *Browser) load(dir string) {
 	b.scroll = 0
 	b.status = ""
 	b.statusErr = false
+	return true
 }
 
 // Handle applies a key message: an open question first (it owns the keyboard), then the
@@ -533,12 +552,19 @@ func (b *Browser) View() string {
 		lines = append(lines, "")
 	}
 
-	// The last line is one of three, in this order: an open question, which is the only
-	// thing the keyboard is answering; a transfer's progress, which is still moving; then
-	// the status of the last thing that finished.
+	// The last line is one of four, in this order: an open question, which is the only
+	// thing the keyboard is answering; a refusal, which is news the user just caused; a
+	// transfer's progress, which is still moving; then the status of the last thing that
+	// finished.
 	switch {
 	case b.overlay.active():
 		lines = append(lines, b.overlay.view(b.w))
+		if len(lines) > b.h {
+			lines = lines[:b.h]
+		}
+		return strings.Join(lines, "\n")
+	case b.refused() != "":
+		lines = append(lines, redStyle.Render(truncateText(b.refused(), b.w)))
 		if len(lines) > b.h {
 			lines = lines[:b.h]
 		}

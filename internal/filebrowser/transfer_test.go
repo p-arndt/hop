@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -308,10 +309,36 @@ func TestSecondTransferRefused(t *testing.T) {
 			if b.xfer == nil || b.xfer.name != "big.iso" {
 				t.Fatalf("%q clobbered the transfer in flight", k)
 			}
-			if !b.statusErr || !strings.Contains(b.status, "big.iso") {
-				t.Fatalf("%q: status = %q (err=%v), want a refusal naming the running transfer", k, b.status, b.statusErr)
+			// Asserted through View, not through the status field: the refusal shares its
+			// row with the progress line, so "it was recorded" and "it was shown" are two
+			// different claims and only the second one matters.
+			if view := b.View(); !strings.Contains(view, "big.iso") ||
+				!strings.Contains(view, "still transferring") {
+				t.Fatalf("%q: the refusal is not on screen. View:\n%s", k, view)
 			}
 		})
+	}
+}
+
+// The refusal holds the last row only briefly, and then the bar the user is watching
+// comes back — it must not sit on top of the transfer for the rest of its life.
+func TestRefusalYieldsBackToTheProgressLine(t *testing.T) {
+	b, _, _ := xferBrowser(t)
+	b.xfer = &transfer{dir: down, name: "big.iso", total: 1 << 30, done: 1 << 29}
+
+	b.cursor = 1
+	b.Handle(key(t, "d"))
+	if got := b.refused(); got == "" {
+		t.Fatal("the refusal was not taken up at all")
+	}
+
+	// Age it past its welcome rather than sleeping through it.
+	b.refusedAt = b.refusedAt.Add(-refusalFor - time.Second)
+	if got := b.refused(); got != "" {
+		t.Fatalf("refused() = %q after its time, want empty", got)
+	}
+	if view := b.View(); !strings.Contains(view, "50%") {
+		t.Fatalf("the progress line did not come back. View:\n%s", view)
 	}
 }
 
@@ -528,5 +555,69 @@ func TestUploadProgressIsReported(t *testing.T) {
 
 	if got := tr.moved.Load(); got != 800 {
 		t.Fatalf("the upload saw %d bytes reported, want 800", got)
+	}
+}
+
+// An upload names the directory it actually went to, and only re-lists when the user is
+// still standing there. Navigation is not blocked during a transfer, so both halves are
+// reachable.
+func TestUploadReportsItsRealDestination(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "new.txt")
+	if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	b, fc, _ := xferBrowser(t)
+	b.Handle(key(t, "u"))
+	cmd := typePath(t, b, src)
+
+	// The user wanders off while the bytes are moving.
+	b.cwd = "/home/u/sub"
+	before := len(fc.entries)
+	fc.entries = append(fc.entries, sftpx.Entry{Name: "elsewhere.txt"})
+
+	drive(t, b, cmd)
+
+	if fc.uploads[0][1] != "/home/u/new.txt" {
+		t.Fatalf("uploaded to %q, want the directory the upload was aimed at", fc.uploads[0][1])
+	}
+	if !strings.Contains(b.status, "/home/u") || strings.Contains(b.status, "/home/u/sub") {
+		t.Fatalf("status = %q, want the real destination /home/u", b.status)
+	}
+	// Re-listing here would show /home/u/sub's contents as if the file had landed there.
+	if len(b.entries) != before {
+		t.Fatalf("entries = %d, want the %d it had — a directory the file did not land in must not be re-listed", len(b.entries), before)
+	}
+}
+
+// A "~" in the download directory is a path the shell would have expanded, not a
+// directory of that name. Left literal it creates "~" in the process's working directory
+// and makes the overwrite check look somewhere the file will never be.
+func TestDownloadDirExpandsHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	b, fc, _ := xferBrowser(t)
+	b.SetOptions(Options{DownloadDir: "~/dl"})
+
+	b.cursor = 1 // a.txt
+	drive(t, b, b.Handle(key(t, "d")))
+
+	want := filepath.Join(home, "dl", "a.txt")
+	if len(fc.downloads) != 1 || fc.downloads[0][1] != want {
+		t.Fatalf("downloads = %v, want one to %s", fc.downloads, want)
+	}
+	if _, err := os.Stat(filepath.Join(home, "dl")); err != nil {
+		t.Fatalf("the expanded download directory was not created: %v", err)
+	}
+
+	// And the overwrite confirm has to see the same path, or it never fires.
+	if cmd := b.Handle(key(t, "d")); cmd != nil {
+		t.Fatal("a second d started a transfer without confirming the overwrite")
+	}
+	if !b.overlay.active() {
+		t.Fatal("downloading over the existing file asked nothing — the check used the unexpanded path")
 	}
 }

@@ -64,11 +64,20 @@ type fakeClient struct {
 	// steps are the running byte totals a transfer reports as it copies. Empty means a
 	// copy that reports nothing, which is what most of these tests want.
 	steps byteSteps
+
+	// listErr fails every subsequent List, standing in for a connection lost partway
+	// through a sequence rather than at its start.
+	listErr error
 }
 
 func (f *fakeClient) Home() (string, error) { return "/home/u", nil }
 
-func (f *fakeClient) List(string) ([]sftpx.Entry, error) { return f.entries, nil }
+func (f *fakeClient) List(string) ([]sftpx.Entry, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return f.entries, nil
+}
 
 func (f *fakeClient) DownloadProgress(remote, local string, progress func(int64)) (int64, error) {
 	f.downloads = append(f.downloads, [2]string{remote, local})

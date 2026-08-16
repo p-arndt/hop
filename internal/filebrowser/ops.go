@@ -31,8 +31,11 @@ func (b *Browser) remove() tea.Cmd {
 	// the cursor while the overlay owns the keyboard, but the delete is meant for the
 	// entry the question named, not for whatever is under the cursor when it is answered.
 	at := b.cursor
+	// The directory is captured with the row, for the same reason: the question names an
+	// entry in *this* directory, and the answer must not be carried out in another one.
+	dir := b.cwd
 	b.askConfirm(fmt.Sprintf("delete %s %s? (y/n)", what, e.Name), func(b *Browser, _ string) tea.Cmd {
-		if err := b.client.Remove(path.Join(b.cwd, e.Name)); err != nil {
+		if err := b.client.Remove(path.Join(dir, e.Name)); err != nil {
 			// The server refuses a directory that still has contents, and this browser
 			// does not offer a recursive delete: walking a remote tree and deleting it
 			// leaf-first is a great deal of destruction behind one keystroke, and a
@@ -46,7 +49,12 @@ func (b *Browser) remove() tea.Cmd {
 			}
 			return nil
 		}
-		b.refresh()
+		if !b.refresh() {
+			// The delete worked, the re-list did not. The listing error is the news, and
+			// reporting the delete over it would leave a stale entry on screen looking
+			// like a successful one.
+			return nil
+		}
 		// The row the deleted entry occupied now holds its successor, which is where the
 		// eye already is. Standing back on it beats jumping to the top of a directory the
 		// user was in the middle of.
@@ -65,6 +73,7 @@ func (b *Browser) rename() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	dir := b.cwd
 	b.ask("rename to:", e.Name, func(b *Browser, name string) tea.Cmd {
 		if err := checkTypedName(name); err != nil {
 			b.fail(err)
@@ -75,11 +84,13 @@ func (b *Browser) rename() tea.Cmd {
 		if name == e.Name {
 			return nil
 		}
-		if err := b.client.Rename(path.Join(b.cwd, e.Name), path.Join(b.cwd, name)); err != nil {
+		if err := b.client.Rename(path.Join(dir, e.Name), path.Join(dir, name)); err != nil {
 			b.fail(fmt.Errorf("rename %s: %w", e.Name, err))
 			return nil
 		}
-		b.refresh()
+		if !b.refresh() {
+			return nil
+		}
 		b.focus(name)
 		b.ok(fmt.Sprintf("renamed %s → %s", e.Name, name))
 		return nil
@@ -89,16 +100,19 @@ func (b *Browser) rename() tea.Cmd {
 
 // mkdir creates a directory under the current one.
 func (b *Browser) mkdir() tea.Cmd {
+	dir := b.cwd
 	b.ask("new directory:", "", func(b *Browser, name string) tea.Cmd {
 		if err := checkTypedName(name); err != nil {
 			b.fail(err)
 			return nil
 		}
-		if err := b.client.Mkdir(path.Join(b.cwd, name)); err != nil {
+		if err := b.client.Mkdir(path.Join(dir, name)); err != nil {
 			b.fail(fmt.Errorf("mkdir %s: %w", name, err))
 			return nil
 		}
-		b.refresh()
+		if !b.refresh() {
+			return nil
+		}
 		b.focus(name)
 		b.ok("created " + name)
 		return nil
@@ -130,11 +144,12 @@ func checkTypedName(name string) error {
 	return nil
 }
 
-// refresh re-lists the current directory after a mutation. load is the navigation path
-// and so starts a fresh listing at the top, which is wrong here: the user has not gone
-// anywhere. Callers put the cursor back themselves, since where "back" is depends on
-// what they did.
-func (b *Browser) refresh() { b.load(b.cwd) }
+// refresh re-lists the current directory after a mutation, reporting whether it worked.
+// load is the navigation path and so starts a fresh listing at the top, which is wrong
+// here: the user has not gone anywhere. Callers put the cursor back themselves, since
+// where "back" is depends on what they did — and skip their own success message when
+// this returns false, or it would paint over the listing error.
+func (b *Browser) refresh() bool { return b.load(b.cwd) }
 
 // focus stands the cursor on the entry called name, and leaves it alone when the listing
 // has no such entry — a server that renamed to something other than what was asked, or a

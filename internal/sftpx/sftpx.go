@@ -113,7 +113,7 @@ func (c *Client) DownloadProgress(remotePath, localPath string, progress func(in
 	}
 	defer lf.Close()
 
-	n, err := io.Copy(&countingWriter{w: lf, report: progress}, rf)
+	n, err := io.Copy(counted(lf, progress), rf)
 	if err != nil {
 		return n, fmt.Errorf("sftpx: download copy: %w", err)
 	}
@@ -141,17 +141,27 @@ func (c *Client) UploadProgress(localPath, remotePath string, progress func(int6
 	}
 	defer rf.Close()
 
-	n, err := io.Copy(&countingWriter{w: rf, report: progress}, lf)
+	n, err := io.Copy(counted(rf, progress), lf)
 	if err != nil {
 		return n, fmt.Errorf("sftpx: upload copy: %w", err)
 	}
 	return n, nil
 }
 
-// countingWriter passes bytes through to w and reports the running total after each
-// write. It sits on the writing side of both copies because that is the side that knows
-// what has actually landed: a read that io.Copy has buffered but not yet written is not
-// progress the user should be shown.
+// counted wraps w so the bytes going through it are reported, or hands back w untouched
+// when nobody is listening. The plain Download and Upload take that second path, so they
+// are exactly what they were before progress existed — wrapper included, they would not
+// be.
+func counted(w io.Writer, report func(int64)) io.Writer {
+	if report == nil {
+		return w
+	}
+	return &countingWriter{w: w, report: report}
+}
+
+// countingWriter passes bytes through to w and reports the running total as they go. It
+// sits on the writing side because that is the side that knows what has actually landed:
+// a read io.Copy has buffered but not yet written is not progress worth showing.
 //
 // io.Copy works in 32 KiB blocks, so report fires about that often — frequently enough
 // for a bar to move on a slow link, rarely enough that the callback need not be cheap to
@@ -165,9 +175,54 @@ type countingWriter struct {
 func (c *countingWriter) Write(p []byte) (int, error) {
 	n, err := c.w.Write(p)
 	c.n += int64(n)
-	if c.report != nil {
-		c.report(c.n)
+	c.report(c.n)
+	return n, err
+}
+
+// ReadFrom keeps the wrapped writer's bulk path reachable, and exists because losing it
+// costs far more than it looks like it should.
+//
+// io.Copy prefers the source's WriteTo, and *os.File has one — which then re-enters
+// io.Copy looking for a ReadFrom on the destination. Unwrapped, that destination is a
+// *sftp.File, whose ReadFrom is pkg/sftp's concurrent write pipeline: the documented way
+// to get throughput out of a high-latency link. A wrapper without this method is not a
+// ReaderFrom, so the whole upload would quietly fall back to sequential 32 KiB writes,
+// one round trip each.
+//
+// The price is where the counting happens. Delegating means the bytes are counted as
+// they are read out of the local file rather than as the server acknowledges them, so an
+// upload's progress runs slightly ahead of the wire. That is the honest trade: a bar a
+// little optimistic beats an upload an order of magnitude slower.
+func (c *countingWriter) ReadFrom(r io.Reader) (int64, error) {
+	rf, ok := c.w.(io.ReaderFrom)
+	if !ok {
+		// Nothing to preserve. onlyWriter hides this method from io.Copy, which would
+		// otherwise call it right back.
+		return io.Copy(onlyWriter{c}, r)
 	}
+	n, err := rf.ReadFrom(&countingReader{r: r, base: c.n, report: c.report})
+	c.n += n
+	return n, err
+}
+
+// onlyWriter is a writer with every other method hidden, so io.Copy cannot re-select the
+// fast path it is already inside.
+type onlyWriter struct{ io.Writer }
+
+// countingReader reports bytes as they are read, continuing the running total from base.
+// It is the counter of last resort, used only where writing side counting would cost the
+// bulk transfer path — see countingWriter.ReadFrom.
+type countingReader struct {
+	r      io.Reader
+	n      int64
+	base   int64
+	report func(int64)
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	c.report(c.base + c.n)
 	return n, err
 }
 

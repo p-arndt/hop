@@ -391,6 +391,40 @@ func TestDoubleClickInBrowserOpens(t *testing.T) {
 	}
 }
 
+// A browser waiting on an answer owns the pointer as well as the keyboard. Without this
+// a double-click would walk the listing out from under an open question, and the answer
+// — a rename, an upload, a delete — would then be carried out in a directory the user
+// never aimed at.
+func TestPointerIsIgnoredWhileTheBrowserIsAsking(t *testing.T) {
+	br, err := filebrowser.New(
+		mouseSFTP{ents: []sftpx.Entry{{Name: "logs", IsDir: true}, {Name: "app.conf", Size: 12}}},
+		"/srv", filebrowser.Options{DownloadDir: t.TempDir()}, 40, 12)
+	if err != nil {
+		t.Fatalf("build browser: %v", err)
+	}
+
+	m := newMouseModel(3)
+	m.active = "ha"
+	m.mode = modeBrowser
+	m.sessions["ha"] = &session{browser: br}
+
+	// "m" opens the "new directory:" question.
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	if !br.Prompting() {
+		t.Fatal("m did not open a question, so this test proves nothing")
+	}
+
+	m.handleMouse(click(40, 4))
+	m.handleMouse(click(40, 4))
+
+	if br.Path() != "/srv" {
+		t.Fatalf("the pointer moved the browser to %q while a question was open", br.Path())
+	}
+	if !br.Prompting() {
+		t.Fatal("the pointer closed the open question")
+	}
+}
+
 // scrollbackPane builds a pane that has history behind it: twelve lines through a
 // five-row screen leaves seven in scrollback.
 func scrollbackPane(t *testing.T) *terminal.Pane {

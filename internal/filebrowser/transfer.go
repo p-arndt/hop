@@ -87,8 +87,10 @@ func (b *Browser) begin(t *transfer, run func() (int64, error)) tea.Cmd {
 	t.started = time.Now()
 	b.xfer = t
 	// The old status would otherwise sit under the progress line and reappear, stale,
-	// the moment the transfer ends and fails to overwrite it.
+	// the moment the transfer ends and fails to overwrite it. A refusal from the previous
+	// transfer goes with it: it named a file that is no longer the one in flight.
 	b.status, b.statusErr = "", false
+	b.refusal = ""
 
 	return tea.Batch(
 		func() tea.Msg {
@@ -106,14 +108,33 @@ func tickFor(t *transfer) tea.Cmd {
 	})
 }
 
-// busy reports a refusal when a copy is already running, so a second key says so on the
-// status line instead of clobbering the transfer the user is watching.
+// refusalFor is how long a "still transferring" refusal holds the last row before the
+// progress line takes it back. Long enough to read, short enough that the bar the user
+// is watching is not hidden for meaningfully longer than the keystroke that hid it.
+const refusalFor = 2 * time.Second
+
+// busy reports a refusal when a copy is already running, so a second key says so instead
+// of being silently dropped.
+//
+// It cannot go through b.fail: the status line is the row the progress line is already
+// occupying, so a failure written there is never drawn. The refusal takes that row for
+// itself instead, and the ticks a running transfer is already producing are what redraw
+// it when the time is up.
 func (b *Browser) busy() bool {
 	if b.xfer == nil {
 		return false
 	}
-	b.fail(fmt.Errorf("%s is still transferring — wait for it to finish", b.xfer.name))
+	b.refusal = fmt.Sprintf("%s is still transferring — wait for it to finish", b.xfer.name)
+	b.refusedAt = time.Now()
 	return true
+}
+
+// refused is the refusal to draw on the last row, or "" once it has had its time.
+func (b *Browser) refused() string {
+	if b.refusal == "" || time.Since(b.refusedAt) > refusalFor {
+		return ""
+	}
+	return b.refusal
 }
 
 // handleTransferMsg takes the messages a running transfer produces. A message naming a
@@ -159,10 +180,18 @@ func (b *Browser) finish(t *transfer, n int64, err error) tea.Cmd {
 		b.ok("opened " + t.name)
 
 	case t.dir == up:
-		// Nothing else would show the new file: the listing was read before it existed.
-		// load resets the status, so the message is set after it.
-		b.load(b.cwd)
-		b.ok(fmt.Sprintf("uploaded %s → %s (%s)", t.name, b.cwd, humanizeBytes(n)))
+		// Where the file actually went, which is not necessarily where the user is now:
+		// navigation is not blocked during a transfer. Re-listing is only right when they
+		// are still standing in it, and the message names the destination either way.
+		dest := path.Dir(t.remote)
+		if dest == b.cwd {
+			// Nothing else would show the new file: the listing was read before it
+			// existed. load resets the status, so the message is set after it.
+			if !b.load(b.cwd) {
+				return nil
+			}
+		}
+		b.ok(fmt.Sprintf("uploaded %s → %s (%s)", t.name, dest, humanizeBytes(n)))
 
 	default:
 		b.ok(fmt.Sprintf("downloaded %s → %s", t.name, b.opts.DownloadDir))
@@ -237,14 +266,19 @@ func (b *Browser) upload() tea.Cmd {
 	if b.busy() {
 		return nil
 	}
-	b.ask("upload local file:", "", (*Browser).askedUpload)
+	// The destination is fixed when the question is asked, not when it is answered — the
+	// user is aiming at the directory they can see.
+	dir := b.cwd
+	b.ask("upload local file:", "", func(b *Browser, local string) tea.Cmd {
+		return b.askedUpload(dir, local)
+	})
 	return nil
 }
 
 // askedUpload takes the typed path and starts the copy, or explains why it cannot. A
 // directory is refused outright: a recursive upload is a different operation, with its
 // own progress and its own failure modes, and silently uploading nothing would be worse.
-func (b *Browser) askedUpload(local string) tea.Cmd {
+func (b *Browser) askedUpload(dir, local string) tea.Cmd {
 	local = expandHome(local)
 
 	fi, err := os.Stat(local)
@@ -261,20 +295,20 @@ func (b *Browser) askedUpload(local string) tea.Cmd {
 	for _, e := range b.entries {
 		if e.Name == name {
 			b.askConfirm(fmt.Sprintf("overwrite remote %s? (y/n)", name), func(b *Browser, _ string) tea.Cmd {
-				return b.startUpload(local, name, fi.Size())
+				return b.startUpload(dir, local, name, fi.Size())
 			})
 			return nil
 		}
 	}
-	return b.startUpload(local, name, fi.Size())
+	return b.startUpload(dir, local, name, fi.Size())
 }
 
-// startUpload begins the copy of local into the current directory under name.
-func (b *Browser) startUpload(local, name string, size int64) tea.Cmd {
+// startUpload begins the copy of local into dir under name.
+func (b *Browser) startUpload(dir, local, name string, size int64) tea.Cmd {
 	t := &transfer{
 		dir:    up,
 		name:   name,
-		remote: path.Join(b.cwd, name),
+		remote: path.Join(dir, name),
 		local:  local,
 		total:  size, // from the local file, since the remote side reports nothing
 	}

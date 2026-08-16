@@ -366,3 +366,57 @@ func TestCheckTypedName(t *testing.T) {
 		}
 	}
 }
+
+// A mutation that lands on a server whose listing then fails must not report success:
+// the entry is still on screen, and a green "deleted" over a hidden connection error is
+// the worst of both.
+func TestMutationDoesNotPaintOverAListingError(t *testing.T) {
+	for _, tc := range []struct{ name, key, answer string }{
+		{"delete", "x", "y"},
+		{"rename", "R", ""},
+		{"mkdir", "m", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, c := opsBrowser(files("a.txt", "b.txt")...)
+			b.cursor = 1
+
+			b.Handle(key(t, tc.key))
+			// The mutation itself succeeds; only the re-list behind it fails.
+			c.listErr = errors.New("connection lost")
+			if tc.answer != "" {
+				b.Handle(key(t, tc.answer))
+			} else {
+				typeText(t, b, "other")
+				b.Handle(key(t, "enter"))
+			}
+
+			if !b.statusErr {
+				t.Fatalf("status = %q (err=false), want the listing error to survive", b.status)
+			}
+			if !strings.Contains(b.status, "connection lost") {
+				t.Fatalf("status = %q, want the listing error", b.status)
+			}
+		})
+	}
+}
+
+// The directory an operation was aimed at is the one it acts in, even if something moves
+// the browser between the question and the answer.
+func TestOpsActInTheDirectoryTheyWereAimedAt(t *testing.T) {
+	b, c := opsBrowser(files("a.txt", "b.txt")...)
+	b.cursor = 1
+	name := b.entries[1].Name
+
+	b.Handle(key(t, "x"))
+	// Nothing in the keyboard or the pointer can do this now, but the callbacks must not
+	// depend on that: the path was fixed when the question was asked.
+	b.cwd = "/somewhere/else"
+	b.Handle(key(t, "y"))
+
+	if len(c.removes) != 1 {
+		t.Fatalf("removes = %v, want exactly one", c.removes)
+	}
+	if want := "/home/u/" + name; c.removes[0] != want {
+		t.Fatalf("removed %q, want %q — the answer followed the browser instead of the question", c.removes[0], want)
+	}
+}

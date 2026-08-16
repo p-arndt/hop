@@ -523,6 +523,13 @@ func (m *model) mouseEditor(s *session, msg tea.MouseMsg, x, y int) (tea.Model, 
 // click stands on an entry, a second click opens it.
 func (m *model) mouseBrowser(s *session, msg tea.MouseMsg, _, y int) (tea.Model, tea.Cmd) {
 	b := s.browser
+	// A browser waiting on an answer owns the pointer too, exactly as it owns the
+	// keyboard (see handleBrowserKey). Otherwise a double-click on a directory would
+	// walk the listing out from under an open question — and the answer, when it came,
+	// would be carried out somewhere the user never meant.
+	if b.Prompting() {
+		return m, nil
+	}
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
 		b.Scroll(-wheelStep)

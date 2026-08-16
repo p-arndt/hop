@@ -38,8 +38,11 @@ the package it works in — this file tracks *what*, not *why*.
       no longer freezes the TUI. Progress is *reported*, not guessed — `sftpx` copies through a
       `countingWriter` on the receiving side and hands the running total back through a callback
       (`DownloadProgress` / `UploadProgress`), so both directions show a real percentage. The
-      browser samples that count once per tick rather than redrawing per callback. One transfer
-      at a time; a second key is refused, not queued.
+      browser samples that count once per tick rather than redrawing per callback. The wrapper
+      implements `io.ReaderFrom` so `io.Copy` can still reach `*sftp.File.ReadFrom` — without it
+      an upload silently drops to sequential 32 KiB writes, one round trip each. One transfer at
+      a time; a second key is refused on the progress line's own row, since that row is the
+      status line and a refusal written there would never be drawn.
 - [x] **Sort toggle** (`s`): name / size / modified, directories first in every mode, and an
       mtime column in `ls -l`'s two formats. The cursor rides its own entry across a re-sort.
 - [x] **Confirm before overwriting** — a local file in the download directory, and a remote one

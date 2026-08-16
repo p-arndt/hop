@@ -256,10 +256,55 @@ func TestCountingWriter(t *testing.T) {
 		t.Fatalf("reported %v, want the running totals %v", seen, want)
 	}
 
-	// A nil report is the plain Download/Upload path and must not panic.
-	if _, err := io.WriteString(&countingWriter{w: &sink}, "x"); err != nil {
-		t.Fatalf("write with no report: %v", err)
+	// With nobody to report to there must be no wrapper at all: that is what keeps the
+	// plain Download and Upload byte-for-byte the calls they were before progress existed.
+	if got := counted(&sink, nil); got != io.Writer(&sink) {
+		t.Fatalf("counted(w, nil) = %T, want the writer itself", got)
 	}
+	if got := counted(&sink, func(int64) {}); got == io.Writer(&sink) {
+		t.Fatal("counted(w, report) handed back the bare writer, so nothing would be counted")
+	}
+}
+
+// The wrapper must not cost the destination its bulk transfer path: io.Copy reaches it
+// through ReadFrom, and a wrapper that is not an io.ReaderFrom silently downgrades an
+// upload to sequential 32 KiB writes. This is the assertion that would catch that.
+func TestCountingWriterKeepsTheBulkPath(t *testing.T) {
+	var w io.Writer = counted(&recordingReaderFrom{}, func(int64) {})
+	if _, ok := w.(io.ReaderFrom); !ok {
+		t.Fatal("a counted writer is not an io.ReaderFrom, so io.Copy cannot reach the destination's bulk path")
+	}
+
+	// And it must actually delegate rather than fall back to its own loop.
+	dst := &recordingReaderFrom{}
+	var seen []int64
+	cw := counted(dst, func(n int64) { seen = append(seen, n) }).(io.ReaderFrom)
+	n, err := cw.ReadFrom(strings.NewReader("hop-sftp"))
+	if err != nil {
+		t.Fatalf("ReadFrom: %v", err)
+	}
+	if !dst.used {
+		t.Fatal("ReadFrom did not delegate to the destination's own ReadFrom")
+	}
+	if n != 8 {
+		t.Fatalf("ReadFrom returned %d, want 8", n)
+	}
+	if len(seen) == 0 || seen[len(seen)-1] != 8 {
+		t.Fatalf("reported %v, want totals ending on 8", seen)
+	}
+}
+
+// recordingReaderFrom is a destination with a bulk path, which notes whether it was used.
+type recordingReaderFrom struct {
+	used bool
+	buf  strings.Builder
+}
+
+func (d *recordingReaderFrom) Write(p []byte) (int, error) { return d.buf.Write(p) }
+
+func (d *recordingReaderFrom) ReadFrom(r io.Reader) (int64, error) {
+	d.used = true
+	return io.Copy(&d.buf, r)
 }
 
 // The progress callback fires during a real transfer in both directions, with totals
