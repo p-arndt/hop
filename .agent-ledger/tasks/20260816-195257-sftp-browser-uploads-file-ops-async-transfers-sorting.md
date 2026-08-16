@@ -2,12 +2,12 @@
 id: "20260816-195257-sftp-browser-uploads-file-ops-async-transfers-sorting"
 title: "SFTP browser: uploads, file ops, async transfers, sorting"
 status: "completed"
-updated: "2026-08-16T20:10:00+02:00"
+updated: "2026-08-16T20:40:00+02:00"
 base_commit: "03935df3543c96572cd997ea43b9370863f9eca3"
 branch: "feat/sftp-browser"
 agent: null
 tags: ["async", "filebrowser", "sftp", "sftpx", "tui"]
-files: [".gitignore", "KEYBINDINGS.md", "README.md", "TODO.md", "docs/30-browser.md", "docs/62-roadmap.md", "index.html", "internal/filebrowser/filebrowser.go", "internal/filebrowser/filebrowser_test.go", "internal/filebrowser/ops.go", "internal/filebrowser/ops_test.go", "internal/filebrowser/prompt.go", "internal/filebrowser/sort.go", "internal/filebrowser/sort_test.go", "internal/filebrowser/transfer.go", "internal/filebrowser/transfer_test.go", "internal/sftpx/sftpx.go", "internal/sftpx/sftpx_test.go", "internal/tui/actions.go", "internal/tui/help.go", "internal/tui/keys.go", "internal/tui/model.go", "internal/tui/mouse_test.go", "internal/tui/reconnect_test.go", "internal/tui/view.go"]
+files: [".gitignore", "KEYBINDINGS.md", "README.md", "TODO.md", "docs/30-browser.md", "docs/62-roadmap.md", "index.html", "internal/filebrowser/filebrowser.go", "internal/filebrowser/filebrowser_test.go", "internal/filebrowser/ops.go", "internal/filebrowser/ops_test.go", "internal/filebrowser/prompt.go", "internal/filebrowser/sort.go", "internal/filebrowser/sort_test.go", "internal/filebrowser/transfer.go", "internal/filebrowser/transfer_test.go", "internal/sftpx/sftpx.go", "internal/sftpx/sftpx_test.go", "internal/tui/actions.go", "internal/tui/help.go", "internal/tui/keys.go", "internal/tui/model.go", "internal/tui/mouse.go", "internal/tui/mouse_test.go", "internal/tui/reconnect_test.go", "internal/tui/view.go"]
 ---
 
 # SFTP browser: uploads, file ops, async transfers, sorting
@@ -34,7 +34,14 @@ Close the five open SFTP-browser TODOs: upload (u), delete/rename/mkdir (x/R/m),
 
 - **Decision:** Report transfer progress from inside the copy: sftpx copies through a countingWriter and hands the running total back through a callback, so both directions show a real percentage.
   - **Reason:** The first cut observed progress instead (a download statting the growing local file, an upload showing only elapsed time behind an indeterminate bar) because sftpx had no callback to hook. That left an upload with no true percentage, which was not worth keeping once the parallel slices had landed and widening the interface was free.
-  - **Trade-off:** The counter sits on the writing side of io.Copy, not the reading side — a read io.Copy has buffered but not yet written is not progress the user should be shown.
+  - **Trade-off:** The counter sits on the writing side of io.Copy — a read io.Copy has buffered but not yet written is not progress worth showing. Except when delegating through ReadFrom, where it must count on the read side; see the ReadFrom decision.
+
+- **Decision:** countingWriter implements io.ReaderFrom and delegates to the wrapped writer's, and `counted()` returns the bare writer when there is no callback.
+  - **Reason:** io.Copy prefers the source's WriteTo, and *os.File has one, which re-enters io.Copy looking for a ReadFrom on the destination. Unwrapped that is *sftp.File, whose ReadFrom is pkg/sftp's concurrent write pipeline — the documented way to get throughput out of a high-latency link. A plain wrapper is not an io.ReaderFrom, so every upload silently fell back to sequential 32 KiB writes, one round trip each. Downloads were unaffected, because there the fast path is the source's WriteTo.
+  - **Trade-off:** Delegating counts bytes as they are read out of the local file rather than as the server acknowledges them, so an upload bar runs slightly ahead of the wire. A bar a little optimistic beats an upload an order of magnitude slower. TestCountingWriterKeepsTheBulkPath is the guard.
+
+- **Decision:** The "still transferring" refusal takes the last row for two seconds rather than going through b.fail.
+  - **Reason:** The status line and the progress line are the same row, and View returns on the progress branch before the status is considered — so the refusal was recorded and never drawn, making a second d/u/o look like it did nothing. The ticks a running transfer already produces are what redraw the row when the time is up.
 
 - **Decision:** Publish the count through an atomic.Int64 on the transfer, and snapshot it once per tick into a plain field the view reads.
   - **Reason:** The callback fires on the copying goroutine while the UI goroutine draws the bar. io.Copy reports every 32 KiB, which on a fast link is far more often than a terminal can usefully repaint, so the tick decides the redraw rate rather than the network.
@@ -52,6 +59,9 @@ Close the five open SFTP-browser TODOs: upload (u), delete/rename/mkdir (x/R/m),
   - **Reason:** sftpx.Remove refuses a non-empty directory and that refusal is passed on with the reason. Walking a remote tree leaf-first behind one keystroke is a great deal of destruction, and a symlink met on the way would take it outside the directory.
 
 ## Failures
+
+- **Approach:** Six findings from a high-effort /code-review of the branch, all confirmed against the code before fixing. Worth recording because four were invisible to the tests that existed.
+  - **Lesson:** The two that mattered most were invisible by construction: a lost io.Copy fast path (no test asserts throughput) and a message written to a row another branch of View had already returned on. Both are now asserted directly — one via an io.ReaderFrom type check, the other through View rather than the status field. A test that checks "was it recorded" does not check "was it shown".
 
 - **Approach:** Cutting the three agent worktrees before committing the seams meant none of them could compile against the real package.
   - **Lesson:** When fanning out onto files that share a package, commit the seams first and confirm the worktrees are cut from that commit — otherwise each agent has to reconstruct the seam in a scratch copy to verify anything.
@@ -86,6 +96,8 @@ Close the five open SFTP-browser TODOs: upload (u), delete/rename/mkdir (x/R/m),
 - Rendered the browser through throwaway tests and read the output: the listing with its mtime column, all three sort orders, a rename prompt mid-typing, a delete confirm, a 34-column pane, and progressLine at 0/38/100% plus an unknown total. Both tests were deleted afterwards.
 
 ## Remaining risks
+
+- A transfer's own directory is captured when its question is asked (ops.go, upload), and the pointer is gated on Prompting() in tui/mouse.go. Both exist because the callbacks resolve paths at answer time; anything new that can move b.cwd while an overlay is open reopens that hole.
 
 - Browser transfer messages are broadcast to every open browser from model.go's Update, not routed by alias. Safe only because transferTickMsg/transferDoneMsg carry the *transfer itself and handleTransferMsg compares pointer identity against b.xfer — a browser that did not start the copy matches nothing. Adding a message type without that identity check would cause cross-talk between two open browsers.
 
