@@ -26,11 +26,23 @@ the package it works in — this file tracks *what*, not *why*.
 
 - [x] Preview without download — done better: `enter` opens the file in a remote editor tab.
 - [x] Browser look verified end-to-end and screenshotted (`assets/screens/sftp.png`).
-- [ ] **Upload** (`u`): needs a text-input for the local path (or a local file picker).
-- [ ] In-browser file ops: delete (`x`), rename (`R`), mkdir (`m`) — `sftpx` supports these, no UI/keys yet.
-- [ ] Transfer progress + async transfers (currently synchronous → large files stall the UI).
-- [ ] Sort toggle (name/size/mtime) and show mtime column.
-- [ ] Confirm before overwriting an existing local download.
+- [x] **Upload** (`u`): a typed local path, `~` expanded, refusing a directory. A local file
+      picker was deliberately not built — a second browser, over the local disk, inside the pane
+      that is already a browser.
+- [x] **In-browser file ops:** delete (`x`) behind a confirm that names the entry, rename (`R`)
+      prefilled with the current name, mkdir (`m`) — all three through one typed-name guard that
+      refuses paths, dots and control characters. No recursive delete: the server's refusal of a
+      non-empty directory is passed on with the reason.
+- [x] **Async transfers + progress** (`internal/filebrowser/transfer.go`): the blocking `sftpx`
+      call runs on the command's goroutine and answers through `Browser.Update`, so a large file
+      no longer freezes the TUI. `sftpx` reports nothing intermediate, so progress is *observed* —
+      a download stats the growing local file each tick, an upload shows its size and elapsed
+      time behind an indeterminate bar. One at a time; a second key is refused, not queued.
+- [x] **Sort toggle** (`s`): name / size / modified, directories first in every mode, and an
+      mtime column in `ls -l`'s two formats. The cursor rides its own entry across a re-sort.
+- [x] **Confirm before overwriting** — a local file in the download directory, and a remote one
+      of the same name on upload.
+- [ ] Recursive upload/download of a directory tree, and more than one transfer at a time.
 
 ## 🖥️ Host management
 
@@ -111,12 +123,20 @@ the package it works in — this file tracks *what*, not *why*.
 - [ ] `store` import parsing + frecency ordering (`store.OpenAt` takes a path, so point a test at a temp db).
 - [ ] `action` package.
 - [ ] `keyToBytes` mapping table test in `terminal`.
+- [x] `filebrowser` sorting (`sort_test.go`), file ops (`ops_test.go`) and transfers
+      (`transfer_test.go`) — the last driving real commands through `Update` the way Bubble Tea
+      does, so an async transfer is asserted end to end.
 - [ ] `filebrowser` rendering.
 - [x] Mode *switches* (navigation ↔ terminal ↔ browsing ↔ editing ↔ scrollback), `mode_test.go`: every transition asserted through the real helpers, against a shell pane with genuine scrollback.
 
 ## 📝 Known limitations / notes
 
+- The browser asks its questions on the status line (`internal/filebrowser/prompt.go`) rather
+  than in a card: the listing behind it is the context for the question, and a card would cover
+  the very row being renamed. While one is open it owns the keyboard — `handleBrowserKey` checks
+  `Prompting()` first, or a "," typed into a filename would open the settings popover.
 - Auto-tracked "recent directories" in the sidebar was built then removed — the sidebar is a host list; dirs shouldn't appear implicitly. **Don't reintroduce implicit tracking.**
 - `x/vt` is an untagged dep (pinned to a pseudo-version) — watch for breaking changes on update.
-- SFTP ops are synchronous (acceptable for MVP; see async item above).
+- SFTP *transfers* are async; listing and the file ops are still synchronous, which is fine —
+  they are a round trip, not a copy.
 - `alt+…` chords need "Option as Meta" on macOS terminals, so they are only ever *aliases* — every hop binding must be reachable with `ctrl`/`shift`. See KEYBINDINGS.md.

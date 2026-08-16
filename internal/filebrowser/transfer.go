@@ -39,9 +39,10 @@ const (
 )
 
 // transfer is a copy in flight: what is being moved, between which two paths, and how
-// far along it is. It is created on the UI goroutine and only ever read and written
-// there — the goroutine doing the copy is handed the paths by value and answers with a
-// message, so nothing here needs a lock.
+// far along it is. Nothing here needs a lock, and the reason is worth stating: every
+// field is set before begin starts the copying goroutine and none is written afterwards
+// except done, which only the UI goroutine touches. So the copying goroutine reads paths
+// that can no longer change, and answers with a message rather than by writing back.
 type transfer struct {
 	dir    direction
 	name   string // the file's name, as shown
