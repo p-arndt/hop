@@ -2,12 +2,12 @@
 id: "20260816-195257-sftp-browser-uploads-file-ops-async-transfers-sorting"
 title: "SFTP browser: uploads, file ops, async transfers, sorting"
 status: "completed"
-updated: "2026-08-16T20:40:00+02:00"
+updated: "2026-08-16T21:20:00+02:00"
 base_commit: "03935df3543c96572cd997ea43b9370863f9eca3"
 branch: "feat/sftp-browser"
 agent: null
 tags: ["async", "filebrowser", "sftp", "sftpx", "tui"]
-files: [".gitignore", "KEYBINDINGS.md", "README.md", "TODO.md", "docs/30-browser.md", "docs/62-roadmap.md", "index.html", "internal/filebrowser/filebrowser.go", "internal/filebrowser/filebrowser_test.go", "internal/filebrowser/ops.go", "internal/filebrowser/ops_test.go", "internal/filebrowser/prompt.go", "internal/filebrowser/sort.go", "internal/filebrowser/sort_test.go", "internal/filebrowser/transfer.go", "internal/filebrowser/transfer_test.go", "internal/sftpx/sftpx.go", "internal/sftpx/sftpx_test.go", "internal/tui/actions.go", "internal/tui/help.go", "internal/tui/keys.go", "internal/tui/model.go", "internal/tui/mouse.go", "internal/tui/mouse_test.go", "internal/tui/reconnect_test.go", "internal/tui/view.go"]
+files: [".gitignore", "KEYBINDINGS.md", "README.md", "TODO.md", "docs/30-browser.md", "docs/62-roadmap.md", "index.html", "internal/filebrowser/fbtest/fbtest.go", "internal/filebrowser/filebrowser.go", "internal/filebrowser/filebrowser_test.go", "internal/filebrowser/mouse_test.go", "internal/filebrowser/ops.go", "internal/filebrowser/ops_test.go", "internal/filebrowser/prompt.go", "internal/filebrowser/sort.go", "internal/filebrowser/sort_test.go", "internal/filebrowser/transfer.go", "internal/filebrowser/transfer_test.go", "internal/pathx/pathx.go", "internal/pathx/pathx_test.go", "internal/sftpx/sftpx.go", "internal/sftpx/sftpx_test.go", "internal/sshx/keys.go", "internal/sshx/proxy.go", "internal/sshx/proxy_e2e_test.go", "internal/tui/actions.go", "internal/tui/commands.go", "internal/tui/editor_test.go", "internal/tui/help.go", "internal/tui/importer.go", "internal/tui/importer_test.go", "internal/tui/keys.go", "internal/tui/mode_test.go", "internal/tui/model.go", "internal/tui/mouse.go", "internal/tui/mouse_test.go", "internal/tui/reconnect_test.go", "internal/tui/session.go", "internal/tui/view.go"]
 ---
 
 # SFTP browser: uploads, file ops, async transfers, sorting
@@ -58,6 +58,16 @@ Close the five open SFTP-browser TODOs: upload (u), delete/rename/mkdir (x/R/m),
 - **Decision:** No recursive delete and no recursive upload.
   - **Reason:** sftpx.Remove refuses a non-empty directory and that refusal is passed on with the reason. Walking a remote tree leaf-first behind one keystroke is a great deal of destruction, and a symlink met on the way would take it outside the directory.
 
+- **Decision:** Browser messages are wrapped in an exported `filebrowser.Msg{Alias, Body}` and routed by alias in `model.go`, replacing a catch-all that offered every unclaimed message to every open browser.
+  - **Reason:** All nine other per-session messages in `msgs.go` carry an alias; the broadcast was the one exception, and it sat in the type switch's `default`, so any message type added later and forgotten would silently tour the browsers. `OpenFileMsg` had the same gap — it resolved its session from `m.active`, so a file activated in one browser could open a tab in another.
+  - **Trade-off:** `Msg.Body` is `any`, so the model cannot type-switch on what a transfer is — which is the point: the alias answers "whose", the pointer identity inside the browser still answers "which".
+
+- **Decision:** One `note` (text, err, optional deadline) replaces `status`/`statusErr` plus `refusal`/`refusedAt`, and one `footerLine` replaces four `View` branches that each repeated the frame's tail.
+  - **Reason:** Four fields and four exit points encoded one question — what goes on the last row. The deadline *is* the precedence rule: a transient note outranks the progress bar, a standing one waits behind it.
+
+- **Decision:** A transfer carries `arrow` and a `landed` closure instead of a `direction` enum and an `openAfter` flag.
+  - **Reason:** `finish` was a three-way switch over two discriminators that mapped exactly onto the three call sites — the transfer carried fields so that a switch could work back out which call site had built it. Saying it where the transfer is built is shorter and cannot drift.
+
 ## Failures
 
 - **Approach:** Six findings from a high-effort /code-review of the branch, all confirmed against the code before fixing. Worth recording because four were invisible to the tests that existed.
@@ -89,6 +99,8 @@ Close the five open SFTP-browser TODOs: upload (u), delete/rename/mkdir (x/R/m),
 
 - go vet ./... — passed
 
+- A four-angle simplification review (reuse / simplification / efficiency / altitude) after the correctness review; its findings are the decisions above. Applied and re-verified: `go build`, `go vet`, `go test ./...`, `go test -race` over filebrowser, tui, sftpx and pathx.
+
 - just docs — regenerated; the drift test in go test ./... passes
 
 - New progress tests: TestCountingWriter, and TestTransferProgressReports against the in-process SFTP server with a 200 KiB payload so several 32 KiB reports must fire, asserting monotonic totals ending on the size. TestReportedBytesReachTheProgressLine and TestUploadProgressIsReported cover the callback -> atomic -> tick -> rendered percentage path.
@@ -96,6 +108,8 @@ Close the five open SFTP-browser TODOs: upload (u), delete/rename/mkdir (x/R/m),
 - Rendered the browser through throwaway tests and read the output: the listing with its mtime column, all three sort orders, a rename prompt mid-typing, a delete confirm, a 34-column pane, and progressLine at 0/38/100% plus an unknown total. Both tests were deleted afterwards.
 
 ## Remaining risks
+
+- `capturing()` in `internal/tui/view.go` is now the single "something has taken the input" predicate (modal card, context menu, browser prompt). Anything new that captures input belongs there, or the pointer will reach past it as it did before this pass.
 
 - A transfer's own directory is captured when its question is asked (ops.go, upload), and the pointer is gated on Prompting() in tui/mouse.go. Both exist because the callbacks resolve paths at answer time; anything new that can move b.cwd while an overlay is open reopens that hole.
 
