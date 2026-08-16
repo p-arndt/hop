@@ -12,10 +12,10 @@ import (
 )
 
 // hostMgmtModel builds a navigation-mode model backed by a real temp-file store, so the
-// add/edit/delete flows exercise the actual SQLite round-trip.
+// add/edit/delete flows exercise the actual config-file round-trip.
 func hostMgmtModel(t *testing.T, seed ...store.Host) *model {
 	t.Helper()
-	st, err := store.OpenAt(t.TempDir() + "/hop.db")
+	st, err := store.OpenAt(t.TempDir()+"/hop.config", "")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

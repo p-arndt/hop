@@ -270,6 +270,12 @@ func Run(st *store.Store) error {
 	case len(hosts) == 0 && haveSSHConfig():
 		m.openImport(true)
 	}
+	// hop's hosts are only reachable from ssh and scp while ~/.ssh/config includes them.
+	// Failing to add that line costs the integration and nothing else, so it is a status
+	// line rather than a refusal to start.
+	if err := st.IncludeWarning(); err != nil {
+		m.setStatus(statusWarn, "hosts saved, but ~/.ssh/config was not updated: %v", err)
+	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err = p.Run()
 	return err

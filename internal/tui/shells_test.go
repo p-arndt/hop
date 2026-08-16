@@ -12,7 +12,7 @@ import (
 // testStore opens an empty store on a throwaway database.
 func testStore(t *testing.T) *store.Store {
 	t.Helper()
-	st, err := store.OpenAt(filepath.Join(t.TempDir(), "hop.db"))
+	st, err := store.OpenAt(filepath.Join(t.TempDir(), "hop.config"), "")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

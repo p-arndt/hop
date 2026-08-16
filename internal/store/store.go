@@ -1,16 +1,30 @@
+// Package store holds hop's saved SSH connections.
+//
+// A host is kept in two files. Everything OpenSSH understands — HostName, User, Port,
+// IdentityFile, ProxyCommand, ProxyJump and the port forwards — is written as a real Host
+// block in an OpenSSH config file that hop manages and ~/.ssh/config includes, so every
+// host you save in hop is a host plain ssh, scp and rsync can reach too. Everything that
+// is hop's own — tags, group, pin order, how often you connect — sits in a JSON sidecar
+// keyed by alias, where it cannot confuse OpenSSH.
+//
+// The whole set is small enough to hold in memory: hop reads both files once at Open and
+// rewrites them on each change. That costs a file rewrite per edit and buys the absence
+// of a SQL engine, which is the shape this data always had.
 package store
 
 import (
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kevinburke/ssh_config"
-	_ "modernc.org/sqlite"
+
+	"hop/internal/config"
 )
 
 // Host represents a saved SSH connection target.
@@ -40,7 +54,8 @@ type Host struct {
 	PinOrder int
 
 	// Forwards are the TCP tunnels defined for this host, loaded with it so View never
-	// queries, and stored in their own table so editing a host never rewrites them.
+	// queries. They are written as LocalForward and RemoteForward directives, which means
+	// ssh -N runs the same tunnels hop does.
 	Forwards []Forward
 }
 
@@ -82,592 +97,558 @@ func (f Forward) Validate() error {
 	return nil
 }
 
-// Store wraps the SQLite database holding hosts.
+// Store is the saved host list, held in memory and backed by the two files described in
+// the package comment. Its methods are safe for concurrent use: the TUI touches it from
+// its update loop while a dial in flight calls HostByAlias to resolve a jump.
 type Store struct {
-	db *sql.DB
+	hostsPath string
+	metaPath  string
+
+	mu    sync.Mutex
+	hosts []Host
+	meta  *meta
+	// nextForwardID hands out forward identities. They are per-process: nothing persists
+	// a forward id, because the config file identifies a forward by its listening
+	// endpoint, which is what makes it a forward in the first place.
+	nextForwardID int64
+
+	// includeErr records a failed ~/.ssh/config update. It is written once, before the
+	// store is handed to a caller, and read-only after — losing the Include costs the
+	// ssh/scp integration, not hop's own host list, so it does not fail Open.
+	includeErr error
 }
 
-const schema = `
-CREATE TABLE IF NOT EXISTS hosts (
-	id            INTEGER PRIMARY KEY,
-	alias         TEXT UNIQUE NOT NULL,
-	hostname      TEXT,
-	user          TEXT,
-	port          INTEGER DEFAULT 22,
-	identity_file TEXT,
-	tags          TEXT,
-	grp           TEXT,
-	visits        INTEGER DEFAULT 0,
-	last_connect  INTEGER DEFAULT 0,
-	pinned        INTEGER DEFAULT 0,
-	pin_order     INTEGER DEFAULT 0,
-	default_dir   TEXT DEFAULT '',
-	proxy_command TEXT DEFAULT '',
-	proxy_jump    TEXT DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS forwards (
-	id          INTEGER PRIMARY KEY,
-	host_id     INTEGER NOT NULL,
-	kind        TEXT NOT NULL CHECK (kind IN ('local', 'remote')),
-	bind_host   TEXT,
-	bind_port   INTEGER NOT NULL,
-	target_host TEXT NOT NULL,
-	target_port INTEGER NOT NULL,
-	FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE,
-	UNIQUE (host_id, kind, bind_host, bind_port)
-);`
-
-// addedColumns are the columns that arrived after the first release. CREATE TABLE IF NOT
-// EXISTS is a no-op on a database that already has the table, hence migrate's ALTER pass.
-var addedColumns = []struct{ name, ddl string }{
-	{"pinned", `ALTER TABLE hosts ADD COLUMN pinned INTEGER DEFAULT 0`},
-	{"pin_order", `ALTER TABLE hosts ADD COLUMN pin_order INTEGER DEFAULT 0`},
-	{"default_dir", `ALTER TABLE hosts ADD COLUMN default_dir TEXT DEFAULT ''`},
-	{"proxy_command", `ALTER TABLE hosts ADD COLUMN proxy_command TEXT DEFAULT ''`},
-	{"proxy_jump", `ALTER TABLE hosts ADD COLUMN proxy_jump TEXT DEFAULT ''`},
-}
-
-// migrate adds any column in addedColumns the table lacks. It asks PRAGMA table_info
-// rather than swallowing the duplicate-column error, which is a driver-specific string
-// that would hide real failures.
-func migrate(db *sql.DB) error {
-	rows, err := db.Query(`PRAGMA table_info(hosts)`)
+// Open opens the default store: hosts in ~/.ssh/hop.config, where OpenSSH can read them,
+// their hop-only metadata under the "hosts" key of hop's own config.json, where OpenSSH
+// will never trip over it, and an Include in ~/.ssh/config so the rest of the toolchain
+// sees the hosts.
+//
+// A hop.db left by an older version is migrated on the way past, once.
+func Open() (*Store, error) {
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	have := map[string]bool{}
-	for rows.Next() {
-		var (
-			cid       int
-			name, typ string
-			notNull   int
-			dflt      sql.NullString
-			pk        int
-		)
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
-			rows.Close()
-			return err
-		}
-		have[name] = true
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		return nil, err
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	rows.Close()
+	hostsPath := filepath.Join(sshDir, "hop.config")
 
-	for _, c := range addedColumns {
-		if have[c.name] {
+	metaPath, err := defaultMetaPath()
+	if err != nil {
+		return nil, err
+	}
+	if err := migrateLegacyDB(legacyDBPath(), hostsPath, metaPath); err != nil {
+		return nil, err
+	}
+	s, err := OpenAt(hostsPath, metaPath)
+	if err != nil {
+		return nil, err
+	}
+	// A failure here costs the ssh/scp integration, not hop's own host list, so it is
+	// reported through the store rather than refusing to start.
+	if err := ensureInclude(filepath.Join(sshDir, "config"), hostsPath); err != nil {
+		s.includeErr = err
+	}
+	return s, nil
+}
+
+// legacyDBPath is where versions of hop before the SQLite removal kept their database.
+func legacyDBPath() string {
+	cfgDir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(cfgDir, "hop", "hop.db")
+}
+
+// defaultMetaPath is hop's config.json. Tags, pins and visit counts are hop's own
+// preferences about your hosts, so they sit beside the rest of the settings rather than
+// in ~/.ssh, which belongs to OpenSSH, or in a third file of their own.
+func defaultMetaPath() (string, error) { return config.Path() }
+
+// OpenAt opens the store whose hosts live at hostsPath and whose hop-only metadata lives
+// under the "hosts" key of the JSON file at metaPath. The two are named separately
+// because they belong in different places: the hosts where OpenSSH reads them, the
+// metadata where it does not.
+//
+// A blank metaPath puts the metadata in a JSON file beside the hosts file, which is what
+// a self-contained store in one directory — a test, the demo server — wants.
+//
+// When hostsPath is a SQLite database left by an older hop, it is migrated in place first.
+func OpenAt(hostsPath, metaPath string) (*Store, error) {
+	if metaPath == "" {
+		metaPath = hostsPath + ".json"
+	}
+	if isSQLiteFile(hostsPath) {
+		if err := migrateLegacyDB(hostsPath, hostsPath, metaPath); err != nil {
+			return nil, err
+		}
+	}
+	for _, dir := range []string{filepath.Dir(hostsPath), filepath.Dir(metaPath)} {
+		if dir == "" {
 			continue
 		}
-		if _, err := db.Exec(c.ddl); err != nil {
-			return err
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	s := &Store{hostsPath: hostsPath, metaPath: metaPath}
+	if err := s.load(); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// load reads both files into memory and reconciles them: ids and metadata come from the
+// sidecar, everything else from the config file, and the sidecar is pruned of aliases the
+// config no longer has.
+func (s *Store) load() error {
+	hosts, err := readHosts(s.hostsPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", s.hostsPath, err)
+	}
+	s.meta = loadMeta(s.metaPath)
+
+	live := make(map[string]bool, len(hosts))
+	for i := range hosts {
+		live[hosts[i].Alias] = true
+		hm := s.meta.get(hosts[i].Alias)
+		hosts[i].ID = hm.ID
+		hosts[i].Tags = append([]string(nil), hm.Tags...)
+		hosts[i].Group = hm.Group
+		hosts[i].Visits = hm.Visits
+		hosts[i].LastConnect = hm.LastConnect
+		hosts[i].Pinned = hm.Pinned
+		hosts[i].PinOrder = hm.PinOrder
+		hosts[i].DefaultDir = hm.DefaultDir
+		for j := range hosts[i].Forwards {
+			s.nextForwardID++
+			hosts[i].Forwards[j].ID = s.nextForwardID
+			hosts[i].Forwards[j].HostID = hosts[i].ID
+		}
+	}
+	s.meta.prune(live)
+
+	// File order is id order, so a rewrite never reshuffles the file.
+	sort.SliceStable(hosts, func(i, j int) bool { return hosts[i].ID < hosts[j].ID })
+	s.hosts = hosts
+	s.renumberPins()
+	return nil
+}
+
+// persist writes both files. The config file goes first: it holds the hosts, and a
+// sidecar naming an alias that does not exist yet is harmless where the reverse is not.
+func (s *Store) persist() error {
+	if err := writeHosts(s.hostsPath, s.hosts); err != nil {
+		return fmt.Errorf("write %s: %w", s.hostsPath, err)
+	}
+	for i := range s.hosts {
+		h := &s.hosts[i]
+		hm := s.meta.get(h.Alias)
+		hm.Tags = append([]string(nil), h.Tags...)
+		hm.Group = h.Group
+		hm.Visits = h.Visits
+		hm.LastConnect = h.LastConnect
+		hm.Pinned = h.Pinned
+		hm.PinOrder = h.PinOrder
+		hm.DefaultDir = h.DefaultDir
+	}
+	if err := s.meta.save(s.metaPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Close releases the store. There is no open handle to release — every change is already
+// on disk — but callers close it, and keeping the method keeps them honest if that
+// changes.
+func (s *Store) Close() error { return nil }
+
+// IncludeWarning reports a failure to add the Include line to ~/.ssh/config, if any. The
+// host list works regardless; what is lost is ssh and scp seeing hop's hosts.
+func (s *Store) IncludeWarning() error { return s.includeErr }
+
+// find returns a pointer to the stored host with this alias. Callers hold s.mu.
+func (s *Store) find(alias string) *Host {
+	for i := range s.hosts {
+		if s.hosts[i].Alias == alias {
+			return &s.hosts[i]
 		}
 	}
 	return nil
 }
 
-// hostColumns is the read projection shared by Hosts and HostByAlias; hostInsert the
-// write one shared by Upsert and Add. Both pair with a helper below, so a new column is
-// two edits rather than a hunt through four queries that must agree.
-const hostColumns = `id, alias, hostname, user, port, identity_file, tags, grp, visits, last_connect,
-	       pinned, pin_order, COALESCE(default_dir, ''),
-	       COALESCE(proxy_command, ''), COALESCE(proxy_jump, '')`
-
-const hostInsert = `
-	INSERT INTO hosts (alias, hostname, user, port, identity_file, tags, grp, visits, last_connect, default_dir, proxy_command, proxy_jump)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-
-// rowScanner is what *sql.Row and *sql.Rows have in common.
-type rowScanner interface {
-	Scan(dest ...any) error
+// findID returns a pointer to the stored host with this id. Callers hold s.mu.
+func (s *Store) findID(id int64) *Host {
+	for i := range s.hosts {
+		if s.hosts[i].ID == id {
+			return &s.hosts[i]
+		}
+	}
+	return nil
 }
 
-// scanHost reads one hostColumns row.
-func scanHost(sc rowScanner) (Host, error) {
-	var (
-		h    Host
-		tags string
-	)
-	if err := sc.Scan(
-		&h.ID, &h.Alias, &h.HostName, &h.User, &h.Port,
-		&h.IdentityFile, &tags, &h.Group, &h.Visits, &h.LastConnect,
-		&h.Pinned, &h.PinOrder, &h.DefaultDir,
-		&h.ProxyCommand, &h.ProxyJump,
-	); err != nil {
-		return Host{}, err
-	}
-	h.Tags = splitTags(tags)
-	return h, nil
-}
-
-// hostInsertArgs binds h to hostInsert's placeholders, applying ssh's default port.
-func hostInsertArgs(h Host) []any {
-	port := h.Port
-	if port == 0 {
-		port = 22
-	}
-	return []any{
-		h.Alias, h.HostName, h.User, port, h.IdentityFile, joinTags(h.Tags), h.Group,
-		h.Visits, h.LastConnect, h.DefaultDir, h.ProxyCommand, h.ProxyJump,
-	}
-}
-
-// Open opens (creating if needed) the hop database at
-// <UserConfigDir>/hop/hop.db and ensures the schema exists.
-func Open() (*Store, error) {
-	cfgDir, err := os.UserConfigDir()
-	if err != nil {
-		return nil, err
-	}
-	dir := filepath.Join(cfgDir, "hop")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-	return OpenAt(filepath.Join(dir, "hop.db"))
-}
-
-// OpenAt opens (creating if needed) the hop database at path and ensures the
-// schema exists.
-func OpenAt(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := db.Exec(schema); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := migrate(db); err != nil {
-		db.Close()
-		return nil, err
-	}
-	// Drop the table behind the withdrawn "recent directories" feature, so an older
-	// database does not keep its browsing history.
-	if _, err := db.Exec(`DROP TABLE IF EXISTS dirs`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return &Store{db: db}, nil
-}
-
-// Close closes the underlying database.
-func (s *Store) Close() error {
-	return s.db.Close()
+// clone deep-copies a host, so a caller mutating the slices it gets back cannot reach
+// into the store's own state.
+func clone(h Host) Host {
+	out := h
+	out.Tags = append([]string(nil), h.Tags...)
+	out.Forwards = append([]Forward(nil), h.Forwards...)
+	return out
 }
 
 // Hosts returns all hosts: the pinned ones in the user's order, then the rest by Visits
 // desc then LastConnect desc.
 func (s *Store) Hosts() ([]Host, error) {
-	rows, err := s.db.Query(`
-		SELECT ` + hostColumns + `
-		FROM hosts
-		ORDER BY pinned DESC, pin_order ASC, visits DESC, last_connect DESC`)
-	if err != nil {
-		return nil, err
-	}
-	var hosts []Host
-	for rows.Next() {
-		h, err := scanHost(rows)
-		if err != nil {
-			return nil, err
-		}
-		hosts = append(hosts, h)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, err
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	byID := make(map[int64]int, len(hosts))
-	for i := range hosts {
-		byID[hosts[i].ID] = i
+	out := make([]Host, 0, len(s.hosts))
+	for _, h := range s.hosts {
+		out = append(out, clone(h))
 	}
-	forwardRows, err := s.db.Query(`
-		SELECT id, host_id, kind, bind_host, bind_port, target_host, target_port
-		FROM forwards
-		ORDER BY host_id, id`)
-	if err != nil {
-		return nil, err
-	}
-	defer forwardRows.Close()
-	for forwardRows.Next() {
-		var f Forward
-		if err := forwardRows.Scan(&f.ID, &f.HostID, &f.Kind, &f.BindHost, &f.BindPort, &f.TargetHost, &f.TargetPort); err != nil {
-			return nil, err
-		}
-		if i, ok := byID[f.HostID]; ok {
-			hosts[i].Forwards = append(hosts[i].Forwards, f)
-		}
-	}
-	if err := forwardRows.Err(); err != nil {
-		return nil, err
-	}
-	return hosts, nil
+	sort.SliceStable(out, func(i, j int) bool { return lessHost(out[i], out[j]) })
+	return out, nil
 }
 
-// HostByAlias returns the single host with this alias — one indexed row, rather than
-// Hosts()'s whole table plus every forward, since the jump resolver asks on each dial.
-// Forwards are not loaded: nothing looking a host up by name runs its tunnels.
+// lessHost is the list order: pinned first in pin order, then most-used, then most-recent.
+func lessHost(a, b Host) bool {
+	if a.Pinned != b.Pinned {
+		return a.Pinned
+	}
+	if a.Pinned && a.PinOrder != b.PinOrder {
+		return a.PinOrder < b.PinOrder
+	}
+	if a.Visits != b.Visits {
+		return a.Visits > b.Visits
+	}
+	return a.LastConnect > b.LastConnect
+}
+
+// HostByAlias returns the single host with this alias. Forwards come with it, which the
+// SQLite version skipped as an optimisation that an in-memory list no longer needs.
 func (s *Store) HostByAlias(alias string) (Host, bool, error) {
-	h, err := scanHost(s.db.QueryRow(`
-		SELECT `+hostColumns+`
-		FROM hosts WHERE alias = ?`, alias))
-	if err == sql.ErrNoRows {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	h := s.find(alias)
+	if h == nil {
 		return Host{}, false, nil
 	}
-	if err != nil {
-		return Host{}, false, err
-	}
-	return h, true, nil
+	return clone(*h), true, nil
 }
 
-// Upsert inserts or updates a host keyed by its Alias and returns the row id.
+// Upsert inserts or updates a host keyed by its Alias and returns its id. An update
+// leaves visits, last connect, pin state and forwards alone: an edit must not reset the
+// frecency Touch has been accumulating, nor drop tunnels the form does not carry.
 func (s *Store) Upsert(h Host) (int64, error) {
-	// visits and last_connect are deliberately absent from the update: an edit must not
-	// reset the frecency Touch has been accumulating.
-	_, err := s.db.Exec(hostInsert+`
-		ON CONFLICT(alias) DO UPDATE SET
-			hostname      = excluded.hostname,
-			user          = excluded.user,
-			port          = excluded.port,
-			identity_file = excluded.identity_file,
-			tags          = excluded.tags,
-			grp           = excluded.grp,
-			default_dir   = excluded.default_dir,
-			proxy_command = excluded.proxy_command,
-			proxy_jump    = excluded.proxy_jump`,
-		hostInsertArgs(h)...,
-	)
-	if err != nil {
-		return 0, err
-	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	// LastInsertId is unreliable on an ON CONFLICT update; resolve by alias instead.
-	var rowID int64
-	if qerr := s.db.QueryRow(`SELECT id FROM hosts WHERE alias = ?`, h.Alias).Scan(&rowID); qerr != nil {
-		return 0, qerr
+	h = normalizeHost(h)
+	if existing := s.find(h.Alias); existing != nil {
+		existing.HostName = h.HostName
+		existing.User = h.User
+		existing.Port = h.Port
+		existing.IdentityFile = h.IdentityFile
+		existing.Tags = append([]string(nil), h.Tags...)
+		existing.Group = h.Group
+		existing.DefaultDir = h.DefaultDir
+		existing.ProxyCommand = h.ProxyCommand
+		existing.ProxyJump = h.ProxyJump
+		id := existing.ID
+		return id, s.persist()
 	}
-	return rowID, nil
+	return s.insert(h)
 }
 
 // Add inserts a new host, failing when the alias is taken. Unlike Upsert it never
 // overwrites, so a stale in-memory list cannot clobber a host added since — from the
-// CLI, say. The UNIQUE constraint is the real guarantee; the pre-check only turns a
-// driver-specific error into a readable one. Returns the new row id.
+// CLI, say. Returns the new id.
 func (s *Store) Add(h Host) (int64, error) {
-	var exists int
-	if err := s.db.QueryRow(`SELECT 1 FROM hosts WHERE alias = ?`, h.Alias).Scan(&exists); err == nil {
-		return 0, fmt.Errorf("host %q already exists", h.Alias)
-	} else if err != sql.ErrNoRows {
-		return 0, err
-	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	res, err := s.db.Exec(hostInsert, hostInsertArgs(h)...)
-	if err != nil {
-		return 0, err
+	if s.find(h.Alias) != nil {
+		return 0, fmt.Errorf("host %q already exists", h.Alias)
 	}
-	return res.LastInsertId()
+	return s.insert(normalizeHost(h))
+}
+
+// insert appends a new host and persists. Callers hold s.mu.
+func (s *Store) insert(h Host) (int64, error) {
+	if strings.TrimSpace(h.Alias) == "" {
+		return 0, fmt.Errorf("host alias can't be empty")
+	}
+	// Forwards are added through AddForward, matching the old schema where they were a
+	// table of their own and an insert never carried them.
+	h.Forwards = nil
+	h.ID = s.meta.get(h.Alias).ID
+	s.hosts = append(s.hosts, h)
+	return h.ID, s.persist()
 }
 
 // Delete removes the host with the given alias, closing the hole a pinned one leaves in
 // the pin order.
 func (s *Store) Delete(alias string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	if _, err := tx.Exec(`DELETE FROM forwards WHERE host_id = (SELECT id FROM hosts WHERE alias = ?)`, alias); err != nil {
-		return err
+	for i := range s.hosts {
+		if s.hosts[i].Alias == alias {
+			s.hosts = append(s.hosts[:i], s.hosts[i+1:]...)
+			delete(s.meta.Hosts, alias)
+			s.renumberPins()
+			return s.persist()
+		}
 	}
-	if _, err := tx.Exec(`DELETE FROM hosts WHERE alias = ?`, alias); err != nil {
-		return err
-	}
-	if err := renumberPins(tx); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return nil
 }
 
 // AddForward persists a new forwarding definition for hostID. A host cannot have two
 // forwards competing for the same listener on the same side.
 func (s *Store) AddForward(hostID int64, f Forward) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	f = normalizeForward(hostID, f)
 	if err := f.Validate(); err != nil {
 		return 0, err
 	}
-	var exists int
-	if err := s.db.QueryRow(`SELECT 1 FROM hosts WHERE id = ?`, hostID).Scan(&exists); err != nil {
-		if err == sql.ErrNoRows {
-			return 0, fmt.Errorf("forward: no such host")
+	h := s.findID(hostID)
+	if h == nil {
+		return 0, fmt.Errorf("forward: no such host")
+	}
+	for _, existing := range h.Forwards {
+		if sameListener(existing, f) {
+			return 0, fmt.Errorf("add forward: a %s forward already listens on %s", f.Kind, joinHostPort(f.BindHost, f.BindPort))
 		}
-		return 0, err
 	}
-	res, err := s.db.Exec(`
-		INSERT INTO forwards (host_id, kind, bind_host, bind_port, target_host, target_port)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		hostID, f.Kind, f.BindHost, f.BindPort, f.TargetHost, f.TargetPort)
-	if err != nil {
-		return 0, fmt.Errorf("add forward: %w", err)
-	}
-	return res.LastInsertId()
+	s.nextForwardID++
+	f.ID = s.nextForwardID
+	h.Forwards = append(h.Forwards, f)
+	return f.ID, s.persist()
+}
+
+// sameListener reports whether two forwards claim the same socket on the same side,
+// which is what the old schema's UNIQUE constraint enforced.
+func sameListener(a, b Forward) bool {
+	return a.Kind == b.Kind && a.BindHost == b.BindHost && a.BindPort == b.BindPort
 }
 
 // UpdateForward replaces an existing definition, preserving its identity so a running
 // tunnel can be matched and stopped first.
 func (s *Store) UpdateForward(f Forward) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	f = normalizeForward(f.HostID, f)
 	if err := f.Validate(); err != nil {
 		return err
 	}
-	res, err := s.db.Exec(`
-		UPDATE forwards
-		SET kind = ?, bind_host = ?, bind_port = ?, target_host = ?, target_port = ?
-		WHERE id = ? AND host_id = ?`,
-		f.Kind, f.BindHost, f.BindPort, f.TargetHost, f.TargetPort, f.ID, f.HostID)
-	if err != nil {
-		return fmt.Errorf("update forward: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
+	h := s.findID(f.HostID)
+	if h == nil {
 		return fmt.Errorf("update forward: no such forward")
 	}
-	return nil
-}
-
-func normalizeForward(hostID int64, f Forward) Forward {
-	f.HostID = hostID
-	f.BindHost = strings.TrimSpace(f.BindHost)
-	if f.BindHost == "" {
-		f.BindHost = "127.0.0.1"
+	for i := range h.Forwards {
+		if h.Forwards[i].ID != f.ID {
+			continue
+		}
+		for j := range h.Forwards {
+			if j != i && sameListener(h.Forwards[j], f) {
+				return fmt.Errorf("update forward: a %s forward already listens on %s", f.Kind, joinHostPort(f.BindHost, f.BindPort))
+			}
+		}
+		h.Forwards[i] = f
+		return s.persist()
 	}
-	if f.BindHost == "*" {
-		f.BindHost = "0.0.0.0"
-	}
-	f.TargetHost = strings.TrimSpace(f.TargetHost)
-	return f
+	return fmt.Errorf("update forward: no such forward")
 }
 
 // upsertImportedForward syncs one OpenSSH LocalForward/RemoteForward by its listening
 // endpoint. User-created definitions go through AddForward and still get a duplicate
 // error; re-importing is allowed to update the target behind an existing listener.
+// Callers hold s.mu.
 func (s *Store) upsertImportedForward(hostID int64, f Forward) error {
 	f = normalizeForward(hostID, f)
 	if err := f.Validate(); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`
-		INSERT INTO forwards (host_id, kind, bind_host, bind_port, target_host, target_port)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(host_id, kind, bind_host, bind_port) DO UPDATE SET
-			target_host = excluded.target_host,
-			target_port = excluded.target_port`,
-		hostID, f.Kind, f.BindHost, f.BindPort, f.TargetHost, f.TargetPort)
-	return err
+	h := s.findID(hostID)
+	if h == nil {
+		return fmt.Errorf("forward: no such host")
+	}
+	for i := range h.Forwards {
+		if sameListener(h.Forwards[i], f) {
+			h.Forwards[i].TargetHost = f.TargetHost
+			h.Forwards[i].TargetPort = f.TargetPort
+			return nil
+		}
+	}
+	s.nextForwardID++
+	f.ID = s.nextForwardID
+	h.Forwards = append(h.Forwards, f)
+	return nil
 }
 
 // DeleteForward removes one definition belonging to hostID.
 func (s *Store) DeleteForward(hostID, id int64) error {
-	res, err := s.db.Exec(`DELETE FROM forwards WHERE id = ? AND host_id = ?`, id, hostID)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	h := s.findID(hostID)
+	if h == nil {
 		return fmt.Errorf("delete forward: no such forward")
 	}
-	return nil
+	for i := range h.Forwards {
+		if h.Forwards[i].ID == id {
+			h.Forwards = append(h.Forwards[:i], h.Forwards[i+1:]...)
+			return s.persist()
+		}
+	}
+	return fmt.Errorf("delete forward: no such forward")
 }
 
 // Rename changes a host's alias, preserving its visit count and connect history, which
 // a plain Upsert of a new alias would zero. A no-op when the two are equal; it fails when
 // newAlias is taken or oldAlias does not exist.
 func (s *Store) Rename(oldAlias, newAlias string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if oldAlias == newAlias {
 		return nil
 	}
-
-	var exists int
-	if err := s.db.QueryRow(`SELECT 1 FROM hosts WHERE alias = ?`, newAlias).Scan(&exists); err == nil {
+	if s.find(newAlias) != nil {
 		return fmt.Errorf("rename: host %q already exists", newAlias)
-	} else if err != sql.ErrNoRows {
-		return err
 	}
-
-	res, err := s.db.Exec(`UPDATE hosts SET alias = ? WHERE alias = ?`, newAlias, oldAlias)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
+	h := s.find(oldAlias)
+	if h == nil {
 		return fmt.Errorf("rename: no such host %q", oldAlias)
 	}
-	return nil
+	h.Alias = newAlias
+	// Carry the metadata across so the rename keeps the id, the pin and the frecency.
+	if hm, ok := s.meta.Hosts[oldAlias]; ok {
+		delete(s.meta.Hosts, oldAlias)
+		s.meta.Hosts[newAlias] = hm
+	}
+	return s.persist()
 }
 
 // SetPinned pins or unpins a host. A newly pinned host goes to the end of the section:
 // pinning is "keep this where I can find it", and reshuffling would fight the order set
 // with MovePin. It fails when there is no such host.
 func (s *Store) SetPinned(alias string, pinned bool) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	var (
-		id  int64
-		was bool
-	)
-	if err := tx.QueryRow(`SELECT id, pinned FROM hosts WHERE alias = ?`, alias).Scan(&id, &was); err != nil {
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("pin: no such host %q", alias)
-		}
-		return err
+	h := s.find(alias)
+	if h == nil {
+		return fmt.Errorf("pin: no such host %q", alias)
 	}
-	if was == pinned {
+	if h.Pinned == pinned {
 		return nil
 	}
-
 	if pinned {
-		var next int
-		if err := tx.QueryRow(`SELECT COALESCE(MAX(pin_order), 0) + 1 FROM hosts WHERE pinned = 1`).Scan(&next); err != nil {
-			return err
+		next := 0
+		for _, other := range s.hosts {
+			if other.Pinned && other.PinOrder > next {
+				next = other.PinOrder
+			}
 		}
-		if _, err := tx.Exec(`UPDATE hosts SET pinned = 1, pin_order = ? WHERE id = ?`, next, id); err != nil {
-			return err
-		}
-	} else if _, err := tx.Exec(`UPDATE hosts SET pinned = 0, pin_order = 0 WHERE id = ?`, id); err != nil {
-		return err
+		h.Pinned, h.PinOrder = true, next+1
+	} else {
+		h.Pinned, h.PinOrder = false, 0
 	}
-
-	if err := renumberPins(tx); err != nil {
-		return err
-	}
-	return tx.Commit()
+	s.renumberPins()
+	return s.persist()
 }
 
 // MovePin moves a pinned host delta places within the pinned section (-1 up, +1 down)
 // and reports whether it moved. An unpinned host, or one already at the end, is a no-op
 // rather than an error: it is a held-down key hitting the edge of the list.
 func (s *Store) MovePin(alias string, delta int) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if delta == 0 {
 		return false, nil
 	}
-
-	tx, err := s.db.Begin()
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
-
-	// In draw order, so "up" here is up on screen.
-	rows, err := tx.Query(`SELECT id, alias FROM hosts WHERE pinned = 1 ORDER BY pin_order ASC, visits DESC, last_connect DESC`)
-	if err != nil {
-		return false, err
-	}
-	var (
-		ids []int64
-		at  = -1
-	)
-	for rows.Next() {
-		var (
-			id int64
-			a  string
-		)
-		if err := rows.Scan(&id, &a); err != nil {
-			rows.Close()
-			return false, err
+	order := s.pinnedOrder()
+	at := -1
+	for i, name := range order {
+		if name == alias {
+			at = i
+			break
 		}
-		if a == alias {
-			at = len(ids)
-		}
-		ids = append(ids, id)
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return false, err
-	}
-	rows.Close()
-
 	if at < 0 {
 		return false, nil
 	}
 	to := at + delta
-	if to < 0 || to >= len(ids) {
+	if to < 0 || to >= len(order) {
 		return false, nil
 	}
 
-	id := ids[at]
-	ids = append(ids[:at], ids[at+1:]...)
-	ids = append(ids[:to], append([]int64{id}, ids[to:]...)...)
-
-	if err := writePinOrder(tx, ids); err != nil {
-		return false, err
-	}
-	if err := tx.Commit(); err != nil {
-		return false, err
-	}
-	return true, nil
+	moved := order[at]
+	order = append(order[:at], order[at+1:]...)
+	order = append(order[:to], append([]string{moved}, order[to:]...)...)
+	s.writePinOrder(order)
+	return true, s.persist()
 }
 
-// renumberPins rewrites pin_order as 1..n over the pinned hosts in their current order,
-// so a delete or unpin cannot leave a hole for MovePin's arithmetic. A host pinned before
-// this column existed sorts by frecency, the order it was already in.
-func renumberPins(tx *sql.Tx) error {
-	rows, err := tx.Query(`SELECT id FROM hosts WHERE pinned = 1 ORDER BY pin_order ASC, visits DESC, last_connect DESC`)
-	if err != nil {
-		return err
-	}
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
+// pinnedOrder lists the pinned aliases in draw order, so "up" here is up on screen.
+// Callers hold s.mu.
+func (s *Store) pinnedOrder() []string {
+	pinned := make([]Host, 0, len(s.hosts))
+	for _, h := range s.hosts {
+		if h.Pinned {
+			pinned = append(pinned, h)
 		}
-		ids = append(ids, id)
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
+	sort.SliceStable(pinned, func(i, j int) bool {
+		if pinned[i].PinOrder != pinned[j].PinOrder {
+			return pinned[i].PinOrder < pinned[j].PinOrder
+		}
+		if pinned[i].Visits != pinned[j].Visits {
+			return pinned[i].Visits > pinned[j].Visits
+		}
+		return pinned[i].LastConnect > pinned[j].LastConnect
+	})
+	out := make([]string, len(pinned))
+	for i, h := range pinned {
+		out[i] = h.Alias
 	}
-	rows.Close()
-	return writePinOrder(tx, ids)
+	return out
 }
 
-// writePinOrder stamps ids with pin_order 1..n, in the order given.
-func writePinOrder(tx *sql.Tx, ids []int64) error {
-	for i, id := range ids {
-		if _, err := tx.Exec(`UPDATE hosts SET pin_order = ? WHERE id = ?`, i+1, id); err != nil {
-			return err
+// renumberPins rewrites PinOrder as 1..n over the pinned hosts in their current order, so
+// a delete or unpin cannot leave a hole for MovePin's arithmetic. Callers hold s.mu.
+func (s *Store) renumberPins() { s.writePinOrder(s.pinnedOrder()) }
+
+// writePinOrder stamps aliases with PinOrder 1..n, in the order given. Callers hold s.mu.
+func (s *Store) writePinOrder(order []string) {
+	for i, alias := range order {
+		if h := s.find(alias); h != nil {
+			h.PinOrder = i + 1
 		}
 	}
-	return nil
 }
 
 // Touch increments the visit count and records the current connect time.
 func (s *Store) Touch(alias string) error {
-	_, err := s.db.Exec(
-		`UPDATE hosts SET visits = visits + 1, last_connect = ? WHERE alias = ?`,
-		time.Now().Unix(), alias,
-	)
-	return err
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	h := s.find(alias)
+	if h == nil {
+		return nil
+	}
+	h.Visits++
+	h.LastConnect = time.Now().Unix()
+	return s.persist()
 }
 
 // ImportSSHConfig parses an OpenSSH config file and upserts each concrete Host alias,
@@ -684,62 +665,84 @@ func (s *Store) ImportSSHConfig(path string) (int, error) {
 		return 0, err
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	count := 0
-	for _, host := range cfg.Hosts {
-		for _, pat := range host.Patterns {
-			alias := pat.String()
-			if alias == "" || strings.ContainsAny(alias, "*?") {
+	seen := map[string]bool{}
+	for _, block := range cfg.Hosts {
+		for _, pattern := range block.Patterns {
+			alias := pattern.String()
+			if alias == "" || strings.ContainsAny(alias, "*?") || seen[alias] {
 				continue
 			}
+			seen[alias] = true
 
-			hostName, _ := cfg.Get(alias, "HostName")
-			user, _ := cfg.Get(alias, "User")
-			portStr, _ := cfg.Get(alias, "Port")
-			identity, _ := cfg.Get(alias, "IdentityFile")
-			proxyCommand, _ := cfg.Get(alias, "ProxyCommand")
-			proxyJump, _ := cfg.Get(alias, "ProxyJump")
-
-			port := 22
-			if portStr != "" {
-				if p, perr := strconv.Atoi(strings.TrimSpace(portStr)); perr == nil && p > 0 {
-					port = p
+			imported := hostFromConfig(cfg, alias)
+			hostID := int64(0)
+			if existing := s.find(alias); existing != nil {
+				existing.HostName = imported.HostName
+				existing.User = imported.User
+				existing.Port = imported.Port
+				existing.IdentityFile = imported.IdentityFile
+				existing.ProxyCommand = imported.ProxyCommand
+				existing.ProxyJump = imported.ProxyJump
+				hostID = existing.ID
+			} else {
+				forwards := imported.Forwards
+				imported.Forwards = nil
+				id, err := s.insertLocked(imported)
+				if err != nil {
+					return count, err
 				}
+				hostID, imported.Forwards = id, forwards
 			}
-			if hostName == "" {
-				hostName = alias
-			}
-
-			hostID, err := s.Upsert(Host{
-				Alias:        alias,
-				HostName:     hostName,
-				User:         user,
-				Port:         port,
-				IdentityFile: identity,
-				ProxyCommand: normalizeProxyCommand(proxyCommand),
-				ProxyJump:    strings.TrimSpace(proxyJump),
-			})
-			if err != nil {
-				return count, err
-			}
-			for _, directive := range []struct {
-				key  string
-				kind ForwardKind
-			}{{"LocalForward", ForwardLocal}, {"RemoteForward", ForwardRemote}} {
-				values, _ := cfg.GetAll(alias, directive.key)
-				for _, value := range values {
-					forward, ok := parseSSHForward(value, directive.kind)
-					if !ok {
-						continue // dynamic and Unix-socket forwarding are not TCP tunnels
-					}
-					if err := s.upsertImportedForward(hostID, forward); err != nil {
-						return count, err
-					}
+			for _, forward := range imported.Forwards {
+				if err := s.upsertImportedForward(hostID, forward); err != nil {
+					return count, err
 				}
 			}
 			count++
 		}
 	}
+	if err := s.persist(); err != nil {
+		return count, err
+	}
 	return count, nil
+}
+
+// insertLocked appends a host without persisting, for callers that write once at the end
+// of a batch. Callers hold s.mu.
+func (s *Store) insertLocked(h Host) (int64, error) {
+	if strings.TrimSpace(h.Alias) == "" {
+		return 0, fmt.Errorf("host alias can't be empty")
+	}
+	h.ID = s.meta.get(h.Alias).ID
+	s.hosts = append(s.hosts, h)
+	return h.ID, nil
+}
+
+// normalizeHost fills in the defaults the SQLite schema used to apply on write, so a
+// caller that leaves Port at zero still gets a host that dials port 22.
+func normalizeHost(h Host) Host {
+	h.Alias = strings.TrimSpace(h.Alias)
+	if h.Port == 0 {
+		h.Port = 22
+	}
+	return h
+}
+
+func normalizeForward(hostID int64, f Forward) Forward {
+	f.HostID = hostID
+	f.BindHost = strings.TrimSpace(f.BindHost)
+	if f.BindHost == "" {
+		f.BindHost = "127.0.0.1"
+	}
+	if f.BindHost == "*" {
+		f.BindHost = "0.0.0.0"
+	}
+	f.TargetHost = strings.TrimSpace(f.TargetHost)
+	return f
 }
 
 // parseSSHForward accepts OpenSSH's TCP forwarding shape, [bind_address:]port
@@ -798,10 +801,8 @@ func netSplitHostPortLoose(value string) (string, string, error) {
 	return value[:i], value[i+1:], nil
 }
 
-func joinTags(tags []string) string {
-	return strings.Join(tags, ",")
-}
-
+// splitTags parses the comma-separated tag column the SQLite schema used, for the
+// migration to read.
 func splitTags(s string) []string {
 	if strings.TrimSpace(s) == "" {
 		return nil
@@ -828,4 +829,32 @@ func normalizeProxyCommand(v string) string {
 		return ""
 	}
 	return v
+}
+
+// writeFileAtomic writes via a temporary file in the same directory and renames it into
+// place, so a crash mid-write leaves the previous file rather than a truncated one.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(name, perm); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
 }

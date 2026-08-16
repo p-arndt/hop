@@ -637,11 +637,11 @@
       </thead>
       <tbody>
       <tr>
-      <td>Host database</td>
-      <td><code>&lt;config dir&gt;/hop/hop.db</code> (SQLite)</td>
+      <td>Hosts</td>
+      <td><code>~/.ssh/hop.config</code> (OpenSSH config syntax, hand-editable)</td>
       </tr>
       <tr>
-      <td>Settings</td>
+      <td>Settings, plus host tags, pins and visit counts</td>
       <td><code>&lt;config dir&gt;/hop/config.json</code> (plain JSON, hand-editable)</td>
       </tr>
       <tr>
@@ -676,7 +676,19 @@
       </tr>
       </tbody>
       </table></div>
+      <p>hop keeps its hosts in an OpenSSH config file of its own and adds a single <code>Include hop.config</code> line to the top of your <code>~/.ssh/config</code>. Every host you save in hop is
+      therefore a host <code>ssh</code>, <code>scp</code> and <code>rsync</code> can reach by the same alias, and a host you
+      write into <code>~/.ssh/hop.config</code> by hand shows up in hop. hop rewrites that file when you
+      add, edit or remove a host, so comments inside it are not preserved — hosts you want hop
+      to leave alone belong in <code>~/.ssh/config</code> itself.</p>
+      <p>Anything OpenSSH has no keyword for — tags, groups, pin order, how often you connect — is
+      hop&rsquo;s own preference about a host, so it sits under the <code>hosts</code> key of <code>config.json</code>
+      alongside the rest of your settings, out of <code>~/.ssh</code> entirely. Losing that key costs your
+      pins and ordering, never a host.</p>
       <p>A missing or malformed config file starts hop on defaults rather than refusing to start.</p>
+      <p>Upgrading from a version that kept its hosts in SQLite? The first start converts
+      <code>&lt;config dir&gt;/hop/hop.db</code> into the files above and leaves the database behind as
+      <code>hop.db.bak</code>. Nothing deletes it.</p>
     </section>
 
     <section id="modes">
@@ -2103,15 +2115,18 @@
 {"s":"CLI","h":"","a":"#cli","t":"hop version · print the version"},
 {"s":"Where things live","h":"","a":"#files","t":"Where things live"},
 {"s":"Where things live","h":"","a":"#files","t":"What · Path"},
-{"s":"Where things live","h":"","a":"#files","t":"Host database · \u003cconfig dir\u003e/hop/hop.db (SQLite)"},
-{"s":"Where things live","h":"","a":"#files","t":"Settings · \u003cconfig dir\u003e/hop/config.json (plain JSON, hand-editable)"},
+{"s":"Where things live","h":"","a":"#files","t":"Hosts · ~/.ssh/hop.config (OpenSSH config syntax, hand-editable)"},
+{"s":"Where things live","h":"","a":"#files","t":"Settings, plus host tags, pins and visit counts · \u003cconfig dir\u003e/hop/config.json (plain JSON, hand-editable)"},
 {"s":"Where things live","h":"","a":"#files","t":"Update check cache · \u003cconfig dir\u003e/hop/update-check.json (last check + latest version seen)"},
 {"s":"Where things live","h":"","a":"#files","t":"Known hosts · your usual ~/.ssh/known_hosts"},
 {"s":"Where things live","h":"","a":"#files","t":"Platform · \u003cconfig dir\u003e"},
 {"s":"Where things live","h":"","a":"#files","t":"Windows · %AppData%\\hop\\"},
 {"s":"Where things live","h":"","a":"#files","t":"macOS · ~/Library/Application Support/hop/"},
 {"s":"Where things live","h":"","a":"#files","t":"Linux · ~/.config/hop/"},
+{"s":"Where things live","h":"","a":"#files","t":"hop keeps its hosts in an OpenSSH config file of its own and adds a single Include hop.config line to the top of your ~/.ssh/config. Every host you save in hop is therefore a host ssh, scp and rsync can reach by the same alias, and a host you write into ~/.ssh/hop.config by hand shows up in hop. hop rewrites that file when you add, edit or remove a host, so comments inside it are not preserved — hosts you want hop to leave alone belong in ~/.ssh/config itself."},
+{"s":"Where things live","h":"","a":"#files","t":"Anything OpenSSH has no keyword for — tags, groups, pin order, how often you connect — is hop’s own preference about a host, so it sits under the hosts key of config.json alongside the rest of your settings, out of ~/.ssh entirely. Losing that key costs your pins and ordering, never a host."},
 {"s":"Where things live","h":"","a":"#files","t":"A missing or malformed config file starts hop on defaults rather than refusing to start."},
+{"s":"Where things live","h":"","a":"#files","t":"Upgrading from a version that kept its hosts in SQLite? The first start converts \u003cconfig dir\u003e/hop/hop.db into the files above and leaves the database behind as hop.db.bak. Nothing deletes it."},
 {"s":"The three modes","h":"","a":"#modes","t":"The three modes"},
 {"s":"The three modes","h":"","a":"#modes","t":"How they fit together"},
 {"s":"The three modes","h":"","a":"#modes","t":"Every mode returns to the host list — from a pane with ctrl+o o, from the browser with ctrl+o, and from either with a double esc inside 400 ms. In the list itself esc esc is the last level out: it quits hop."},

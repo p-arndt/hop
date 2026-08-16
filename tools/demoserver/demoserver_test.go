@@ -163,13 +163,13 @@ func TestEditorOpensAndQuits(t *testing.T) {
 // The seeded database is what the recording shows in the sidebar, so it has to hold
 // every sample host, all pointing at the demo server, ordered by frecency.
 func TestSeedWritesTheSampleFleet(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "hop.db")
+	hostsPath := filepath.Join(t.TempDir(), "hop.config")
 	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 2222}
-	if err := seed(dbPath, addr); err != nil {
+	if err := seed(hostsPath, addr); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
-	st, err := store.OpenAt(dbPath)
+	st, err := store.OpenAt(hostsPath, "")
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

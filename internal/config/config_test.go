@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -210,5 +211,85 @@ func TestExists(t *testing.T) {
 	}
 	if !Exists() {
 		t.Fatal("Exists() is false after a save")
+	}
+}
+
+// The config file is shared with internal/store, which keeps host metadata under its own
+// key. Saving settings must merge into the file rather than replace it, or changing the
+// accent colour would silently drop every pin and visit count.
+func TestSavePreservesForeignKeys(t *testing.T) {
+	isolate(t)
+	path, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	existing := `{"accent":"99","hosts":{"version":1,"nextId":7,"entries":{"web":{"id":3,"pinned":true}}}}`
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Default()
+	cfg.Accent = "212"
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("the saved file does not parse: %v\n%s", err, data)
+	}
+
+	// The store's key survived untouched...
+	hosts, ok := doc["hosts"].(map[string]any)
+	if !ok {
+		t.Fatalf("the host metadata was dropped: %s", data)
+	}
+	entries, ok := hosts["entries"].(map[string]any)
+	if !ok || entries["web"] == nil {
+		t.Fatalf("the host entries were dropped: %s", data)
+	}
+	if nextID, _ := hosts["nextId"].(float64); nextID != 7 {
+		t.Fatalf("nextId = %v, want 7: %s", hosts["nextId"], data)
+	}
+
+	// ...and the setting actually changed.
+	if got, _ := doc["accent"].(string); got != "212" {
+		t.Fatalf("accent = %v, want 212", doc["accent"])
+	}
+	if Load().Accent != "212" {
+		t.Fatalf("Load().Accent = %q, want 212", Load().Accent)
+	}
+}
+
+// A file that does not parse is replaced rather than propagated, matching Load's own
+// treatment of it: the settings UI has to remain able to fix a broken file.
+func TestSaveOverwritesCorruptFile(t *testing.T) {
+	isolate(t)
+	path, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json at all"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Default()
+	cfg.Editor = "vim"
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if got := Load().Editor; got != "vim" {
+		t.Fatalf("Editor = %q, want vim", got)
 	}
 }

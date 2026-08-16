@@ -1,7 +1,7 @@
 package store
 
 import (
-	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -9,10 +9,10 @@ import (
 	"testing"
 )
 
-// newStore opens a fresh, isolated store backed by a temp-dir database.
+// newStore opens a fresh, isolated store backed by files in a temp dir.
 func newStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := OpenAt(filepath.Join(t.TempDir(), "hop.db"))
+	s, err := OpenAt(filepath.Join(t.TempDir(), "hop.config"), "")
 	if err != nil {
 		t.Fatalf("OpenAt: %v", err)
 	}
@@ -110,9 +110,13 @@ func TestDelete(t *testing.T) {
 	if h := findHost(t, s, "temp"); h != nil {
 		t.Fatalf("host %q still present after Delete", "temp")
 	}
-	var forwards int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM forwards`).Scan(&forwards); err != nil {
-		t.Fatalf("count forwards: %v", err)
+	hosts, err := s.Hosts()
+	if err != nil {
+		t.Fatalf("Hosts: %v", err)
+	}
+	forwards := 0
+	for _, h := range hosts {
+		forwards += len(h.Forwards)
 	}
 	if forwards != 0 {
 		t.Fatalf("deleted host left %d forwarding definitions behind", forwards)
@@ -565,38 +569,15 @@ func TestPinOrderStaysDense(t *testing.T) {
 	}
 }
 
-// A database written before the pin columns existed opens, migrates and reads
-// back — CREATE TABLE IF NOT EXISTS is a no-op on it, so the ALTER pass is the
-// only thing standing between an old install and a crash on every query.
-func TestOpenMigratesOldDatabase(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hop.db")
+// A database written before the pin columns existed still migrates: the reader fills the
+// missing columns with their zero values rather than failing, which is what an install
+// that predates pinning must see.
+func TestOpenMigratesFirstSchema(t *testing.T) {
+	path := copyFixture(t, "legacy-hop-v1.db")
 
-	db, err := sql.Open("sqlite", path)
+	s, err := OpenAt(path, "")
 	if err != nil {
-		t.Fatalf("sql.Open: %v", err)
-	}
-	if _, err := db.Exec(`
-		CREATE TABLE hosts (
-			id            INTEGER PRIMARY KEY,
-			alias         TEXT UNIQUE NOT NULL,
-			hostname      TEXT,
-			user          TEXT,
-			port          INTEGER DEFAULT 22,
-			identity_file TEXT,
-			tags          TEXT,
-			grp           TEXT,
-			visits        INTEGER DEFAULT 0,
-			last_connect  INTEGER DEFAULT 0
-		);
-		INSERT INTO hosts (alias, hostname, user, identity_file, tags, grp)
-		VALUES ('old', 'old.test', 'me', '', '', '');`); err != nil {
-		t.Fatalf("seeding the old schema: %v", err)
-	}
-	db.Close()
-
-	s, err := OpenAt(path)
-	if err != nil {
-		t.Fatalf("OpenAt on an old database: %v", err)
+		t.Fatalf("OpenAt on a first-schema database: %v", err)
 	}
 	defer s.Close()
 
@@ -604,9 +585,21 @@ func TestOpenMigratesOldDatabase(t *testing.T) {
 	if h == nil {
 		t.Fatal("the host from the old database is gone")
 	}
-	if h.Pinned {
+	if h.Pinned || h.PinOrder != 0 {
 		t.Fatalf("migrated host = %+v, want it unpinned", h)
 	}
+	if h.DefaultDir != "" {
+		t.Fatalf("migrated host = %+v, want an empty DefaultDir", h)
+	}
+	// The columns that did exist came across intact.
+	if h.HostName != "old.test" || h.User != "me" || h.Visits != 3 || h.LastConnect != 1690000000 {
+		t.Fatalf("migrated host = %+v, want the old values preserved", h)
+	}
+	if len(h.Tags) != 1 || h.Tags[0] != "legacy" || h.Group != "team" {
+		t.Fatalf("migrated host = %+v, want tags [legacy] and group team", h)
+	}
+
+	// And the store is fully usable afterwards.
 	if err := s.SetPinned("old", true); err != nil {
 		t.Fatalf("SetPinned after migrating: %v", err)
 	}
@@ -651,52 +644,6 @@ func TestDefaultDirRoundTrips(t *testing.T) {
 	}
 	if h := findHost(t, s, "web"); h == nil || h.DefaultDir != "" {
 		t.Fatalf("after clearing, host = %+v, want an empty DefaultDir", h)
-	}
-}
-
-// default_dir arrived after the first release, so a database that predates it must
-// gain the column rather than fail to read — and its hosts start with no default
-// directory, which is exactly what they had before the column existed.
-func TestOpenMigratesDefaultDir(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hop.db")
-
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatalf("sql.Open: %v", err)
-	}
-	if _, err := db.Exec(`
-		CREATE TABLE hosts (
-			id            INTEGER PRIMARY KEY,
-			alias         TEXT UNIQUE NOT NULL,
-			hostname      TEXT,
-			user          TEXT,
-			port          INTEGER DEFAULT 22,
-			identity_file TEXT,
-			tags          TEXT,
-			grp           TEXT,
-			visits        INTEGER DEFAULT 0,
-			last_connect  INTEGER DEFAULT 0
-		);
-		INSERT INTO hosts (alias, hostname, user, identity_file, tags, grp)
-		VALUES ('old', 'old.test', 'me', '', '', '');`); err != nil {
-		t.Fatalf("seeding the old schema: %v", err)
-	}
-	db.Close()
-
-	s, err := OpenAt(path)
-	if err != nil {
-		t.Fatalf("OpenAt on an old database: %v", err)
-	}
-	defer s.Close()
-
-	if h := findHost(t, s, "old"); h == nil || h.DefaultDir != "" {
-		t.Fatalf("migrated host = %+v, want an empty DefaultDir", h)
-	}
-	if _, err := s.Upsert(Host{Alias: "old", HostName: "old.test", DefaultDir: "/opt"}); err != nil {
-		t.Fatalf("Upsert after migrating: %v", err)
-	}
-	if h := findHost(t, s, "old"); h == nil || h.DefaultDir != "/opt" {
-		t.Fatalf("host after setting a default dir = %+v, want /opt", h)
 	}
 }
 
@@ -834,5 +781,317 @@ func TestAddRoundTripsAllFields(t *testing.T) {
 		got.DefaultDir != want.DefaultDir || got.ProxyCommand != want.ProxyCommand ||
 		got.ProxyJump != want.ProxyJump || strings.Join(got.Tags, ",") != "prod,eu" {
 		t.Fatalf("Add lost fields: %+v", got)
+	}
+}
+
+// copyFixture puts a checked-in legacy database in a temp dir, so the migration can move
+// it aside without touching the fixture in the repo.
+func copyFixture(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "hop.db")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	return path
+}
+
+// The full legacy schema migrates with every field, forward and pin intact. This is the
+// database shape the last SQLite release of hop wrote, so it is the one real installs
+// are upgrading from.
+func TestMigrateFullLegacyDatabase(t *testing.T) {
+	path := copyFixture(t, "legacy-hop.db")
+
+	s, err := OpenAt(path, "")
+	if err != nil {
+		t.Fatalf("OpenAt on a legacy database: %v", err)
+	}
+	defer s.Close()
+
+	hosts, err := s.Hosts()
+	if err != nil {
+		t.Fatalf("Hosts: %v", err)
+	}
+	if len(hosts) != 5 {
+		t.Fatalf("got %d hosts, want 5", len(hosts))
+	}
+
+	// Pinned hosts keep their order, ahead of everything else.
+	if hosts[0].Alias != "web-prod" || hosts[1].Alias != "db-prod" {
+		t.Fatalf("order = %s, %s; want the pinned hosts first", hosts[0].Alias, hosts[1].Alias)
+	}
+	if !hosts[0].Pinned || hosts[0].PinOrder != 1 || !hosts[1].Pinned || hosts[1].PinOrder != 2 {
+		t.Fatalf("pins = %+v / %+v", hosts[0], hosts[1])
+	}
+
+	web := findHost(t, s, "web-prod")
+	if web.HostName != "10.1.0.5" || web.User != "deploy" || web.Port != 2222 {
+		t.Fatalf("web-prod = %+v", web)
+	}
+	if web.IdentityFile != "~/.ssh/id_ed25519" || web.DefaultDir != "/srv/app" || web.ProxyJump != "bastion" {
+		t.Fatalf("web-prod = %+v", web)
+	}
+	if web.Visits != 42 || web.LastConnect != 1700000000 {
+		t.Fatalf("web-prod frecency = %d visits, %d", web.Visits, web.LastConnect)
+	}
+	if len(web.Tags) != 2 || web.Tags[0] != "prod" || web.Tags[1] != "web" || web.Group != "eu-west" {
+		t.Fatalf("web-prod tags = %v, group = %q", web.Tags, web.Group)
+	}
+	if len(web.Forwards) != 1 || web.Forwards[0].BindPort != 8080 || web.Forwards[0].TargetPort != 80 {
+		t.Fatalf("web-prod forwards = %+v", web.Forwards)
+	}
+
+	// Both forward kinds survive, on the host that had one of each.
+	db := findHost(t, s, "db-prod")
+	if len(db.Forwards) != 2 {
+		t.Fatalf("db-prod forwards = %+v, want 2", db.Forwards)
+	}
+	var local, remote int
+	for _, f := range db.Forwards {
+		switch f.Kind {
+		case ForwardLocal:
+			local++
+		case ForwardRemote:
+			remote++
+		}
+	}
+	if local != 1 || remote != 1 {
+		t.Fatalf("db-prod forwards = %+v, want one of each kind", db.Forwards)
+	}
+
+	// The overflow-page host: a ProxyCommand far longer than one SQLite page.
+	broker := findHost(t, s, "via-broker")
+	if len(broker.ProxyCommand) < 9000 {
+		t.Fatalf("via-broker ProxyCommand = %d chars, want the full long value", len(broker.ProxyCommand))
+	}
+	if !strings.Contains(broker.ProxyCommand, "aws ssm start-session") {
+		t.Fatalf("via-broker ProxyCommand = %.60q...", broker.ProxyCommand)
+	}
+}
+
+// Migration is one-way and keeps the original: the database moves aside under .bak rather
+// than being deleted, and a second open does not run again.
+func TestMigrateKeepsBackupAndRunsOnce(t *testing.T) {
+	path := copyFixture(t, "legacy-hop.db")
+
+	s, err := OpenAt(path, "")
+	if err != nil {
+		t.Fatalf("OpenAt: %v", err)
+	}
+	if _, err := s.Add(Host{Alias: "added-after", HostName: "new.test"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	s.Close()
+
+	if _, err := os.Stat(path + ".bak"); err != nil {
+		t.Fatalf("the original database was not kept: %v", err)
+	}
+	if isSQLiteFile(path) {
+		t.Fatal("the hosts file is still a SQLite database")
+	}
+
+	// Reopening reads the config file, not the backup, and keeps the later addition.
+	again, err := OpenAt(path, "")
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer again.Close()
+	hosts, err := again.Hosts()
+	if err != nil {
+		t.Fatalf("Hosts: %v", err)
+	}
+	if len(hosts) != 6 {
+		t.Fatalf("got %d hosts after reopen, want 6", len(hosts))
+	}
+	if findHost(t, again, "added-after") == nil {
+		t.Fatal("the host added after migrating is gone")
+	}
+}
+
+// The two files live in different directories in the real install: hosts where OpenSSH
+// reads them, metadata in hop's own config.json. Both halves have to survive that split.
+func TestHostsAndMetadataSplitAcrossDirectories(t *testing.T) {
+	sshDir, cfgDir := t.TempDir(), t.TempDir()
+	hostsPath := filepath.Join(sshDir, "hop.config")
+	metaPath := filepath.Join(cfgDir, "hop", "config.json")
+
+	s, err := OpenAt(hostsPath, metaPath)
+	if err != nil {
+		t.Fatalf("OpenAt: %v", err)
+	}
+	if _, err := s.Add(Host{Alias: "web", HostName: "web.test", Tags: []string{"prod"}, Group: "eu"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := s.SetPinned("web", true); err != nil {
+		t.Fatalf("SetPinned: %v", err)
+	}
+	if err := s.Touch("web"); err != nil {
+		t.Fatalf("Touch: %v", err)
+	}
+	s.Close()
+
+	// Nothing hop-only leaked into the directory OpenSSH reads.
+	entries, err := os.ReadDir(sshDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "hop.config" {
+		t.Fatalf("~/.ssh got %v, want only hop.config", entries)
+	}
+	if _, err := os.Stat(metaPath); err != nil {
+		t.Fatalf("the metadata was not written to its own directory: %v", err)
+	}
+
+	// And both halves come back on reopen.
+	again, err := OpenAt(hostsPath, metaPath)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer again.Close()
+	h := findHost(t, again, "web")
+	if h == nil {
+		t.Fatal("host gone after reopen")
+	}
+	if h.HostName != "web.test" {
+		t.Fatalf("host = %+v, want the config-file half", h)
+	}
+	if !h.Pinned || h.PinOrder != 1 || h.Visits != 1 || h.Group != "eu" {
+		t.Fatalf("host = %+v, want the sidecar half", h)
+	}
+	if len(h.Tags) != 1 || h.Tags[0] != "prod" {
+		t.Fatalf("tags = %v", h.Tags)
+	}
+}
+
+// The hosts file is the truth about which hosts exist. A host added to it by hand shows
+// up in hop, with zero metadata rather than none at all.
+func TestHandWrittenHostIsPickedUp(t *testing.T) {
+	dir := t.TempDir()
+	hostsPath := filepath.Join(dir, "hop.config")
+
+	s, err := OpenAt(hostsPath, "")
+	if err != nil {
+		t.Fatalf("OpenAt: %v", err)
+	}
+	if _, err := s.Add(Host{Alias: "known", HostName: "known.test"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	s.Close()
+
+	existing, err := os.ReadFile(hostsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	added := string(existing) + "\nHost byhand\n    HostName byhand.test\n    User someone\n"
+	if err := os.WriteFile(hostsPath, []byte(added), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := OpenAt(hostsPath, "")
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer again.Close()
+	h := findHost(t, again, "byhand")
+	if h == nil {
+		t.Fatal("the hand-written host was not picked up")
+	}
+	if h.HostName != "byhand.test" || h.User != "someone" || h.ID == 0 {
+		t.Fatalf("host = %+v", h)
+	}
+	if findHost(t, again, "known") == nil {
+		t.Fatal("the host hop wrote is gone")
+	}
+}
+
+// Metadata for a host that no longer exists is dropped rather than accumulating forever.
+func TestSidecarIsPrunedOfDeletedHosts(t *testing.T) {
+	dir := t.TempDir()
+	hostsPath := filepath.Join(dir, "hop.config")
+	metaPath := hostsPath + ".json"
+
+	s, err := OpenAt(hostsPath, metaPath)
+	if err != nil {
+		t.Fatalf("OpenAt: %v", err)
+	}
+	if _, err := s.Add(Host{Alias: "gone", HostName: "gone.test", Tags: []string{"stale"}}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := s.Delete("gone"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	s.Close()
+
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "gone") {
+		t.Fatalf("the metadata still carries the deleted host: %s", data)
+	}
+}
+
+// The store shares config.json with the settings. Writing a host must merge into the
+// file, or saving a visit count would wipe every setting the user has chosen.
+func TestPersistPreservesSettingsInSharedFile(t *testing.T) {
+	dir := t.TempDir()
+	hostsPath := filepath.Join(dir, "hop.config")
+	metaPath := filepath.Join(dir, "config.json")
+
+	settings := `{"editor":"nvim","accent":"99","vimKeys":true}`
+	if err := os.WriteFile(metaPath, []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := OpenAt(hostsPath, metaPath)
+	if err != nil {
+		t.Fatalf("OpenAt: %v", err)
+	}
+	if _, err := s.Add(Host{Alias: "web", HostName: "web.test", Tags: []string{"prod"}}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := s.Touch("web"); err != nil {
+		t.Fatalf("Touch: %v", err)
+	}
+	s.Close()
+
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("the saved file does not parse: %v\n%s", err, data)
+	}
+	if doc["editor"] != "nvim" || doc["accent"] != "99" || doc["vimKeys"] != true {
+		t.Fatalf("the settings were dropped: %s", data)
+	}
+	if _, ok := doc["hosts"]; !ok {
+		t.Fatalf("the host metadata was not written: %s", data)
+	}
+}
+
+// A config.json full of settings but with no host metadata yet is the first run after the
+// upgrade: it must load as an empty store rather than an error.
+func TestLoadIgnoresConfigWithoutHostMetadata(t *testing.T) {
+	dir := t.TempDir()
+	metaPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(metaPath, []byte(`{"editor":"nvim"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenAt(filepath.Join(dir, "hop.config"), metaPath)
+	if err != nil {
+		t.Fatalf("OpenAt: %v", err)
+	}
+	defer s.Close()
+	hosts, err := s.Hosts()
+	if err != nil {
+		t.Fatalf("Hosts: %v", err)
+	}
+	if len(hosts) != 0 {
+		t.Fatalf("got %d hosts, want none", len(hosts))
 	}
 }

@@ -1,4 +1,4 @@
-// Package config holds hop's user settings: a small JSON file next to the hosts database,
+// Package config holds hop's user settings: a small JSON file in hop's config directory,
 // edited from the settings popover or by hand.
 //
 // Loading never fails hard. A missing file is the normal first-run case and a corrupt one
@@ -108,7 +108,7 @@ func defaultDownloadDir() string {
 	return dl
 }
 
-// Path is the config file's location, alongside hop.db.
+// Path is the config file's location, in hop's own config directory.
 func Path() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -181,14 +181,16 @@ func (c Config) Save() error {
 		return fmt.Errorf("config: create config dir: %w", err)
 	}
 
-	data, err := json.MarshalIndent(c.normalized(), "", "  ")
+	// The file is shared: internal/store keeps its host metadata under its own key in it.
+	// Saving settings therefore merges into whatever is on disk rather than replacing it,
+	// so writing a new accent colour cannot drop the pin order written a moment earlier.
+	merged, err := mergeIntoFile(path, c.normalized())
 	if err != nil {
-		return fmt.Errorf("config: encode: %w", err)
+		return err
 	}
-	data = append(data, '\n')
 
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, merged, 0o644); err != nil {
 		return fmt.Errorf("config: write: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -196,4 +198,34 @@ func (c Config) Save() error {
 		return fmt.Errorf("config: replace: %w", err)
 	}
 	return nil
+}
+
+// mergeIntoFile encodes value's keys over the JSON object already at path, keeping every
+// key it does not itself define. A missing or unreadable file merges into an empty
+// object, which is how a first save writes a whole config.
+func mergeIntoFile(path string, value any) ([]byte, error) {
+	doc := map[string]json.RawMessage{}
+	if existing, err := os.ReadFile(path); err == nil {
+		// A corrupt file is overwritten rather than propagated: Load already treats it as
+		// absent, so refusing to save would leave the user unable to fix it from the UI.
+		_ = json.Unmarshal(existing, &doc)
+	}
+
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("config: encode: %w", err)
+	}
+	var own map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &own); err != nil {
+		return nil, fmt.Errorf("config: encode: %w", err)
+	}
+	for k, v := range own {
+		doc[k] = v
+	}
+
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("config: encode: %w", err)
+	}
+	return append(out, '\n'), nil
 }

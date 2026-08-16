@@ -181,7 +181,7 @@ func writeKnownHosts(p string, addr net.Addr, key ssh.PublicKey) error {
 
 // seed writes the sample host list into a hop database. Every host points at this server,
 // but only the aliases are on screen, so the list reads as somebody's real fleet.
-func seed(dbPath string, addr net.Addr) error {
+func seed(hostsPath string, addr net.Addr) error {
 	_, portStr, err := net.SplitHostPort(addr.String())
 	if err != nil {
 		return fmt.Errorf("split listen addr: %w", err)
@@ -191,7 +191,7 @@ func seed(dbPath string, addr net.Addr) error {
 		return fmt.Errorf("parse listen port: %w", err)
 	}
 
-	st, err := store.OpenAt(dbPath)
+	st, err := store.OpenAt(hostsPath, "")
 	if err != nil {
 		return fmt.Errorf("open seed db: %w", err)
 	}

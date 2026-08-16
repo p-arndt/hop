@@ -1,7 +1,7 @@
 # hop — TODO
 
 A Windows-first TUI SSH/server manager with embedded terminal panes.
-Stack: Go, Bubble Tea/Lip Gloss, pure-Go SSH (`x/crypto/ssh`), `x/vt` emulator, SQLite (`modernc`), `pkg/sftp`.
+Stack: Go, Bubble Tea/Lip Gloss, pure-Go SSH (`x/crypto/ssh`), `x/vt` emulator, `pkg/sftp`.
 
 See also: [KEYBINDINGS.md](KEYBINDINGS.md). Rationale lives in the package it belongs to — this
 file tracks *what*, not *why*.
@@ -14,6 +14,7 @@ file tracks *what*, not *why*.
 - [x] **Phase 2 — SFTP browser:** `internal/sftpx` + `internal/filebrowser`.
 - [x] **Working directory → VS Code:** panes track remote cwd over OSC 7; `ctrl+o ctrl+o` / `o` opens VS Code there.
 - [x] **Phase 3 — Tunnels:** `T` per-host manager, local/remote forwards, SSH-config import, restored on reconnect.
+- [x] **SQLite removed:** hosts live in `~/.ssh/hop.config` (included from `~/.ssh/config`), hop-only metadata under the `hosts` key of `config.json`. A legacy `hop.db` migrates once, via a dependency-free reader, and is kept as `hop.db.bak`.
 - [ ] **Phase 4 — Status/health panel:** per-host reachability, latency, `uptime`/disk in the background.
 
 ## 🪟 Panes & tabs
@@ -95,6 +96,7 @@ file tracks *what*, not *why*.
 - [x] Round-trips: `TestEmbeddedRoundTrip`, `TestSFTPRoundTrip`.
 - [x] Mode switches (`mode_test.go`), every transition against a real shell pane.
 - [x] `store` import parsing + frecency ordering.
+- [x] `store` config-file round-trip, `Include` handling, and migration from checked-in legacy `hop.db` fixtures.
 - [x] `action` package.
 - [x] `keyToBytes` mapping table test in `terminal`.
 - [x] `filebrowser` rendering.
