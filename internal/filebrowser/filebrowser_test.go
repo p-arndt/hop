@@ -24,6 +24,8 @@ func key(t *testing.T, name string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyLeft}
 	case "backspace":
 		return tea.KeyMsg{Type: tea.KeyBackspace}
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEscape}
 	case "up":
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "down":
@@ -352,9 +354,9 @@ func TestOpenInAppKey(t *testing.T) {
 	opened, _ := stubOpen(t)
 
 	b.cursor = 1 // a.txt
-	if cmd := b.Handle(key(t, "o")); cmd != nil {
-		t.Fatal("o returned a tea.Cmd; the default-app launch must not suspend the TUI")
-	}
+	// The fetch behind "o" is a transfer like any other, so the key hands back a command
+	// rather than a finished download; drive runs it to completion the way the TUI does.
+	drive(t, b, b.Handle(key(t, "o")))
 
 	want := filepath.Join(tmp, "a.txt")
 	if len(fc.downloads) != 1 {
@@ -388,7 +390,7 @@ func TestOpenWithOverride(t *testing.T) {
 
 	b.SetOptions(Options{DownloadDir: b.opts.DownloadDir, OpenWith: "code -n"})
 	b.cursor = 1 // a.txt
-	b.Handle(key(t, "o"))
+	drive(t, b, b.Handle(key(t, "o")))
 
 	if *with != "code -n" {
 		t.Fatalf("openCmd got %q, want the configured %q", *with, "code -n")
@@ -404,7 +406,7 @@ func TestDownloadKey(t *testing.T) {
 	opened, _ := stubOpen(t)
 
 	b.cursor = 1 // a.txt
-	b.Handle(key(t, "d"))
+	drive(t, b, b.Handle(key(t, "d")))
 
 	want := filepath.Join(dl, "a.txt")
 	if len(fc.downloads) != 1 || fc.downloads[0][1] != want {
@@ -456,7 +458,7 @@ func TestAcceptsOrdinaryNames(t *testing.T) {
 		b.entries[1].Name = name
 		b.cursor = 1
 
-		b.Handle(key(t, "d"))
+		drive(t, b, b.Handle(key(t, "d")))
 
 		want := filepath.Join(dl, name)
 		if len(fc.downloads) != 1 || fc.downloads[0][1] != want {
@@ -545,7 +547,7 @@ func TestOpenInAppExecutableAllowedWithOpenWith(t *testing.T) {
 	b.SetOptions(Options{DownloadDir: b.opts.DownloadDir, OpenWith: "code -n"})
 	b.entries[1].Name = "script.ps1"
 	b.cursor = 1
-	b.Handle(key(t, "o"))
+	drive(t, b, b.Handle(key(t, "o")))
 
 	if *with != "code -n" {
 		t.Fatalf("openCmd got %q, want the configured %q", *with, "code -n")
@@ -562,7 +564,7 @@ func TestDownloadExecutableAllowed(t *testing.T) {
 
 	b.entries[1].Name = "invoice.pdf.hta"
 	b.cursor = 1
-	b.Handle(key(t, "d"))
+	drive(t, b, b.Handle(key(t, "d")))
 
 	want := filepath.Join(dl, "invoice.pdf.hta")
 	if len(fc.downloads) != 1 || fc.downloads[0][1] != want {
