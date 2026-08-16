@@ -56,8 +56,8 @@ func SetAccent(color string) {
 type Client interface {
 	Home() (string, error)
 	List(dir string) ([]sftpx.Entry, error)
-	Download(remotePath, localPath string) (int64, error)
-	Upload(localPath, remotePath string) (int64, error)
+	DownloadProgress(remotePath, localPath string, progress func(int64)) (int64, error)
+	UploadProgress(localPath, remotePath string, progress func(int64)) (int64, error)
 	Mkdir(p string) error
 	Remove(p string) error
 	Rename(oldp, newp string) error

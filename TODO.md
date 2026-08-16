@@ -35,14 +35,17 @@ the package it works in — this file tracks *what*, not *why*.
       non-empty directory is passed on with the reason.
 - [x] **Async transfers + progress** (`internal/filebrowser/transfer.go`): the blocking `sftpx`
       call runs on the command's goroutine and answers through `Browser.Update`, so a large file
-      no longer freezes the TUI. `sftpx` reports nothing intermediate, so progress is *observed* —
-      a download stats the growing local file each tick, an upload shows its size and elapsed
-      time behind an indeterminate bar. One at a time; a second key is refused, not queued.
+      no longer freezes the TUI. Progress is *reported*, not guessed — `sftpx` copies through a
+      `countingWriter` on the receiving side and hands the running total back through a callback
+      (`DownloadProgress` / `UploadProgress`), so both directions show a real percentage. The
+      browser samples that count once per tick rather than redrawing per callback. One transfer
+      at a time; a second key is refused, not queued.
 - [x] **Sort toggle** (`s`): name / size / modified, directories first in every mode, and an
       mtime column in `ls -l`'s two formats. The cursor rides its own entry across a re-sort.
 - [x] **Confirm before overwriting** — a local file in the download directory, and a remote one
       of the same name on upload.
 - [ ] Recursive upload/download of a directory tree, and more than one transfer at a time.
+- [ ] Cancel a transfer in flight (`sftpx` copies would need a `context.Context`).
 
 ## 🖥️ Host management
 

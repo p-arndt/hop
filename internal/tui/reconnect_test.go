@@ -15,14 +15,14 @@ import (
 // not there: enough to build and close a real Browser without a server behind it.
 type fakeSFTP struct{ dir string }
 
-func (f fakeSFTP) Home() (string, error)             { return f.dir, nil }
-func (fakeSFTP) List(string) ([]sftpx.Entry, error)  { return nil, nil }
-func (fakeSFTP) Download(_, _ string) (int64, error) { return 0, nil }
-func (fakeSFTP) Upload(_, _ string) (int64, error)   { return 0, nil }
-func (fakeSFTP) Mkdir(string) error                  { return nil }
-func (fakeSFTP) Remove(string) error                 { return nil }
-func (fakeSFTP) Rename(_, _ string) error            { return nil }
-func (fakeSFTP) Close() error                        { return nil }
+func (f fakeSFTP) Home() (string, error)                                    { return f.dir, nil }
+func (fakeSFTP) List(string) ([]sftpx.Entry, error)                         { return nil, nil }
+func (fakeSFTP) DownloadProgress(_, _ string, _ func(int64)) (int64, error) { return 0, nil }
+func (fakeSFTP) UploadProgress(_, _ string, _ func(int64)) (int64, error)   { return 0, nil }
+func (fakeSFTP) Mkdir(string) error                                         { return nil }
+func (fakeSFTP) Remove(string) error                                        { return nil }
+func (fakeSFTP) Rename(_, _ string) error                                   { return nil }
+func (fakeSFTP) Close() error                                               { return nil }
 
 // fakeBrowser builds a Browser standing in dir, over the fake above.
 func fakeBrowser(t *testing.T, dir string) *filebrowser.Browser {

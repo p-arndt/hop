@@ -60,25 +60,31 @@ type fakeClient struct {
 	// Errors to return instead of succeeding, keyed by the operation name
 	// ("upload", "mkdir", "remove", "rename", "download").
 	errs map[string]error
+
+	// steps are the running byte totals a transfer reports as it copies. Empty means a
+	// copy that reports nothing, which is what most of these tests want.
+	steps byteSteps
 }
 
 func (f *fakeClient) Home() (string, error) { return "/home/u", nil }
 
 func (f *fakeClient) List(string) ([]sftpx.Entry, error) { return f.entries, nil }
 
-func (f *fakeClient) Download(remote, local string) (int64, error) {
+func (f *fakeClient) DownloadProgress(remote, local string, progress func(int64)) (int64, error) {
 	f.downloads = append(f.downloads, [2]string{remote, local})
 	if err := f.errs["download"]; err != nil {
 		return 0, err
 	}
-	// Create the local file like the real client would: fetch quarantines the
-	// copy after downloading, and the xattr call needs a file to land on.
+	// Create the local file like the real client would: the scratch fetch behind "o"
+	// quarantines the copy afterwards, and the xattr call needs a file to land on.
 	if err := os.WriteFile(local, nil, 0o644); err != nil {
 		return 0, err
 	}
-	return 0, nil
+	report(progress, f.steps)
+	return f.steps.last(), nil
 }
-func (f *fakeClient) Upload(local, remote string) (int64, error) {
+
+func (f *fakeClient) UploadProgress(local, remote string, progress func(int64)) (int64, error) {
 	f.uploads = append(f.uploads, [2]string{local, remote})
 	if err := f.errs["upload"]; err != nil {
 		return 0, err
@@ -87,7 +93,32 @@ func (f *fakeClient) Upload(local, remote string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	if len(f.steps) > 0 {
+		report(progress, f.steps)
+		return f.steps.last(), nil
+	}
 	return fi.Size(), nil
+}
+
+// byteSteps is a scripted progress report: the running totals a copy publishes on its way
+// through, standing in for the 32 KiB blocks the real counting writer reports.
+type byteSteps []int64
+
+func (s byteSteps) last() int64 {
+	if len(s) == 0 {
+		return 0
+	}
+	return s[len(s)-1]
+}
+
+// report replays steps into a progress callback, as sftpx does from inside io.Copy.
+func report(progress func(int64), steps byteSteps) {
+	if progress == nil {
+		return
+	}
+	for _, n := range steps {
+		progress(n)
+	}
 }
 
 func (f *fakeClient) Mkdir(p string) error {

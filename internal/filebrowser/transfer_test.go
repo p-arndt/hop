@@ -341,27 +341,40 @@ func TestProgressLine(t *testing.T) {
 		t.Fatalf("progressLine = %q, want the name and the half-done percentage", line)
 	}
 
-	// An upload has no fraction to report, so it shows elapsed time and never a percentage.
-	b.xfer = &transfer{dir: up, name: "a.txt", total: 1024}
+	// An upload's count is reported the same way a download's is, so it gets a real
+	// percentage too.
+	up1 := &transfer{dir: up, name: "a.txt", total: 1024, done: 256}
+	b.xfer = up1
+	if line := b.progressLine(40); !strings.Contains(line, "25%") {
+		t.Fatalf("upload progressLine = %q, want the reported percentage", line)
+	}
+
+	// Without a known total there is no fraction to show, in either direction: the line
+	// falls back to what has moved so far and how long it has been going.
+	b.xfer = &transfer{dir: up, name: "a.txt", done: 4096}
 	if line := b.progressLine(40); strings.Contains(line, "%") {
-		t.Fatalf("upload progressLine = %q, want no percentage — the count is not knowable", line)
+		t.Fatalf("progressLine without a total = %q, want no percentage", line)
 	}
 }
 
-// A tick reads the growing local file, which is the only evidence a blocking whole-file
-// copy leaves behind.
-func TestTickObservesLocalFile(t *testing.T) {
+// A tick snapshots the count the copy is publishing. The copy runs on another goroutine,
+// so the tick is where that count becomes something the view may read.
+func TestTickSnapshotsTheReportedCount(t *testing.T) {
 	b, _, dl := xferBrowser(t)
 	local := filepath.Join(dl, "a.txt")
-	if err := os.WriteFile(local, make([]byte, 300), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	tr := &transfer{dir: down, name: "a.txt", local: local, total: 1024}
 	b.xfer = tr
 
+	// Nothing reported yet: a tick must not invent progress.
+	b.Update(transferTickMsg{t: tr})
+	if tr.done != 0 {
+		t.Fatalf("done = %d before anything was reported, want 0", tr.done)
+	}
+
+	tr.moved.Store(300)
 	b.Update(transferTickMsg{t: tr})
 	if tr.done != 300 {
-		t.Fatalf("done = %d after a tick, want the 300 bytes on disk", tr.done)
+		t.Fatalf("done = %d after a tick, want the 300 bytes reported", tr.done)
 	}
 
 	// A tick belonging to a transfer that has already ended must be ignored rather than
@@ -454,5 +467,66 @@ func TestExpandHome(t *testing.T) {
 		if got := expandHome(p); got != p {
 			t.Fatalf("expandHome(%q) = %q, want it left alone", p, got)
 		}
+	}
+}
+
+// The count sftpx reports reaches the transfer, and a tick turns it into what the bar
+// draws. This is the whole path — client callback, atomic, tick snapshot, rendered
+// percentage — which no single one of the tests above covers end to end.
+func TestReportedBytesReachTheProgressLine(t *testing.T) {
+	b, fc, _ := xferBrowser(t)
+	fc.steps = byteSteps{256, 512, 1024}
+
+	b.cursor = 1 // a.txt, 1024 bytes in the listing
+	cmd := b.Handle(key(t, "d"))
+	tr := b.xfer
+	if tr == nil {
+		t.Fatal("d left no transfer in flight")
+	}
+	// Before anything has been reported the line is honestly at zero.
+	if line := b.progressLine(40); !strings.Contains(line, "0%") {
+		t.Fatalf("progressLine before any report = %q, want 0%%", line)
+	}
+
+	drive(t, b, cmd)
+
+	if got := tr.moved.Load(); got != 1024 {
+		t.Fatalf("the transfer saw %d bytes reported, want the client's final 1024", got)
+	}
+
+	// A tick after the copy finished cannot be observed through b.xfer — it is already
+	// nil — so the snapshot is taken directly, which is what the tick would have done.
+	tr.observe()
+	b.xfer = tr
+	if line := b.progressLine(40); !strings.Contains(line, "100%") {
+		t.Fatalf("progressLine = %q, want the reported bytes as 100%%", line)
+	}
+}
+
+// An upload draws from the same count, so its bar is a real fraction rather than the
+// indeterminate pacing block it used to be.
+func TestUploadProgressIsReported(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "new.txt")
+	if err := os.WriteFile(src, make([]byte, 800), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	b, fc, _ := xferBrowser(t)
+	fc.steps = byteSteps{400, 800}
+	b.Handle(key(t, "u"))
+	cmd := typePath(t, b, src)
+	tr := b.xfer
+	if tr == nil {
+		t.Fatal("the upload left no transfer in flight")
+	}
+	if tr.total != 800 {
+		t.Fatalf("total = %d, want the local file's 800 bytes", tr.total)
+	}
+
+	drive(t, b, cmd)
+
+	if got := tr.moved.Load(); got != 800 {
+		t.Fatalf("the upload saw %d bytes reported, want 800", got)
 	}
 }

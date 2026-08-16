@@ -6,6 +6,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -25,8 +26,8 @@ import (
 // alternative is a scheduler and a transfer list for a case — two big files at once —
 // that a browser pane is not really for.
 
-// transferInterval is how often the progress line is redrawn. Fast enough that a bar
-// looks alive, slow enough that a download's os.Stat poll is not a syscall storm.
+// transferInterval is how often the progress line is redrawn — and, since the bar's
+// indeterminate block moves one cell per tick, also how fast that block paces.
 const transferInterval = 150 * time.Millisecond
 
 // direction is which way the bytes are moving, which decides the arrow, the wording of
@@ -39,18 +40,24 @@ const (
 )
 
 // transfer is a copy in flight: what is being moved, between which two paths, and how
-// far along it is. Nothing here needs a lock, and the reason is worth stating: every
-// field is set before begin starts the copying goroutine and none is written afterwards
-// except done, which only the UI goroutine touches. So the copying goroutine reads paths
-// that can no longer change, and answers with a message rather than by writing back.
+// far along it is.
+//
+// Only one field crosses goroutines. Everything else is set before begin starts the
+// copying goroutine and never written again, so the copy reads paths that can no longer
+// change and answers with a message rather than by writing back. The exception is moved,
+// which sftpx reports from inside the copy while the UI goroutine reads it to draw the
+// bar — hence the atomic, and hence done, which is the UI's own snapshot of it.
 type transfer struct {
 	dir    direction
 	name   string // the file's name, as shown
 	remote string
 	local  string
 
-	// done is the bytes moved so far and total the bytes expected, either of which may
-	// be zero when it is not knowable. See observe.
+	// moved is the running byte count sftpx reports from the copying goroutine.
+	moved atomic.Int64
+
+	// done is that count as of the last tick, and total the bytes expected. done is read
+	// and written only on the UI goroutine, so the view never sees it change mid-render.
 	done  int64
 	total int64
 
@@ -163,22 +170,14 @@ func (b *Browser) finish(t *transfer, n int64, err error) tea.Cmd {
 	return nil
 }
 
-// observe updates the byte count from whatever the system will tell us.
+// observe takes the tick's snapshot of the byte count the copy is publishing.
 //
-// sftpx.Client.Download and Upload are whole-file io.Copy calls that block until they
-// are finished and report no intermediate progress, so the count here is watched rather
-// than reported. For a download the growing local file is the evidence: os.Stat it on
-// each tick. An upload writes to the remote host, where the browser has no cheap way to
-// look — a stat over SFTP every tick would compete with the transfer itself — so its
-// line shows the total and the elapsed time and its bar is indeterminate.
-func (t *transfer) observe() {
-	if t.dir != down {
-		return
-	}
-	if fi, err := os.Stat(t.local); err == nil {
-		t.done = fi.Size()
-	}
-}
+// The count is real in both directions: sftpx copies through a counting writer on the
+// receiving side, so what is reported is what has actually landed rather than what has
+// been read. Sampling it once per tick rather than redrawing on every callback keeps the
+// repaint rate the browser's business — io.Copy reports every 32 KiB, which on a fast
+// link is far more often than a terminal can usefully be redrawn.
+func (t *transfer) observe() { t.done = t.moved.Load() }
 
 // ---- the keys ----
 
@@ -225,7 +224,9 @@ func (b *Browser) startDownload(e sftpx.Entry) tea.Cmd {
 		total:  e.Size, // the listing already knows how big it is
 	}
 	client := b.client
-	return b.begin(t, func() (int64, error) { return client.Download(t.remote, t.local) })
+	return b.begin(t, func() (int64, error) {
+		return client.DownloadProgress(t.remote, t.local, t.moved.Store)
+	})
 }
 
 // upload copies a local file into the current remote directory. The path is typed rather
@@ -278,7 +279,9 @@ func (b *Browser) startUpload(local, name string, size int64) tea.Cmd {
 		total:  size, // from the local file, since the remote side reports nothing
 	}
 	client := b.client
-	return b.begin(t, func() (int64, error) { return client.Upload(t.local, t.remote) })
+	return b.begin(t, func() (int64, error) {
+		return client.UploadProgress(t.local, t.remote, t.moved.Store)
+	})
 }
 
 // openInApp fetches the file under the cursor into the scratch directory and hands the
@@ -325,7 +328,7 @@ func (b *Browser) openInApp() tea.Cmd {
 	}
 	client := b.client
 	return b.begin(t, func() (int64, error) {
-		n, err := client.Download(t.remote, t.local)
+		n, err := client.DownloadProgress(t.remote, t.local, t.moved.Store)
 		if err != nil {
 			return n, err
 		}
@@ -389,20 +392,18 @@ func (b *Browser) progressLine(w int) string {
 		prefix = "↑ "
 	}
 
-	// A download's fraction is real, observed from the local file. An upload has no
-	// fraction to show, so it shows the size it is moving and how long it has been at it.
+	// The fraction is real in both directions. It is still only shown when the total is
+	// known — an entry whose size the listing did not carry leaves the elapsed time as
+	// the only honest thing to say.
 	var tail string
-	switch {
-	case t.dir == down && t.total > 0:
+	if t.total > 0 {
 		pct := t.done * 100 / t.total
 		if pct > 100 {
 			pct = 100
 		}
 		tail = fmt.Sprintf("  %s/%s %d%%", humanizeBytes(t.done), humanizeBytes(t.total), pct)
-	case t.total > 0:
-		tail = fmt.Sprintf("  %s  %.0fs", humanizeBytes(t.total), time.Since(t.started).Seconds())
-	default:
-		tail = fmt.Sprintf("  %.0fs", time.Since(t.started).Seconds())
+	} else {
+		tail = fmt.Sprintf("  %s  %.0fs", humanizeBytes(t.done), time.Since(t.started).Seconds())
 	}
 
 	avail := w - lipgloss.Width(prefix) - lipgloss.Width(tail)
@@ -421,9 +422,10 @@ func (b *Browser) progressLine(w int) string {
 	return truncateText(line, w)
 }
 
-// bar draws t's progress into exactly w cells, brackets included. A download fills from
-// the left in proportion to the bytes on disk; an upload, whose progress is unknowable,
-// gets a block that paces back and forth so the line reads as "working", not "stuck".
+// bar draws t's progress into exactly w cells, brackets included. It fills from the left
+// in proportion to the bytes moved; a transfer whose total is unknown has no proportion
+// to fill, so it gets a block that paces back and forth — the line then reads as
+// "working" rather than "stuck".
 func (t *transfer) bar(w int) string {
 	inner := w - 2
 	if inner < 1 {
@@ -435,7 +437,7 @@ func (t *transfer) bar(w int) string {
 		cells[i] = '░'
 	}
 
-	if t.dir == down && t.total > 0 {
+	if t.total > 0 {
 		filled := int(int64(inner) * t.done / t.total)
 		if filled < 0 {
 			filled = 0

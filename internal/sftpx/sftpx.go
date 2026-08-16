@@ -90,6 +90,13 @@ func (c *Client) List(dir string) ([]Entry, error) {
 // Download copies a remote file to localPath, creating parent directories as
 // needed, and returns the number of bytes written.
 func (c *Client) Download(remotePath, localPath string) (int64, error) {
+	return c.DownloadProgress(remotePath, localPath, nil)
+}
+
+// DownloadProgress is Download, reporting the running byte count to progress as the copy
+// proceeds. progress may be nil, and is called from the calling goroutine — a caller
+// showing the count on another one has to publish it safely itself.
+func (c *Client) DownloadProgress(remotePath, localPath string, progress func(int64)) (int64, error) {
 	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
 		return 0, fmt.Errorf("sftpx: download: %w", err)
 	}
@@ -106,7 +113,7 @@ func (c *Client) Download(remotePath, localPath string) (int64, error) {
 	}
 	defer lf.Close()
 
-	n, err := io.Copy(lf, rf)
+	n, err := io.Copy(&countingWriter{w: lf, report: progress}, rf)
 	if err != nil {
 		return n, fmt.Errorf("sftpx: download copy: %w", err)
 	}
@@ -116,6 +123,12 @@ func (c *Client) Download(remotePath, localPath string) (int64, error) {
 // Upload copies a local file to remotePath and returns the number of bytes
 // written.
 func (c *Client) Upload(localPath, remotePath string) (int64, error) {
+	return c.UploadProgress(localPath, remotePath, nil)
+}
+
+// UploadProgress is Upload, reporting the running byte count to progress as the copy
+// proceeds. The same caveats as DownloadProgress apply.
+func (c *Client) UploadProgress(localPath, remotePath string, progress func(int64)) (int64, error) {
 	lf, err := os.Open(localPath)
 	if err != nil {
 		return 0, fmt.Errorf("sftpx: upload open local %s: %w", localPath, err)
@@ -128,11 +141,34 @@ func (c *Client) Upload(localPath, remotePath string) (int64, error) {
 	}
 	defer rf.Close()
 
-	n, err := io.Copy(rf, lf)
+	n, err := io.Copy(&countingWriter{w: rf, report: progress}, lf)
 	if err != nil {
 		return n, fmt.Errorf("sftpx: upload copy: %w", err)
 	}
 	return n, nil
+}
+
+// countingWriter passes bytes through to w and reports the running total after each
+// write. It sits on the writing side of both copies because that is the side that knows
+// what has actually landed: a read that io.Copy has buffered but not yet written is not
+// progress the user should be shown.
+//
+// io.Copy works in 32 KiB blocks, so report fires about that often — frequently enough
+// for a bar to move on a slow link, rarely enough that the callback need not be cheap to
+// the point of inlining.
+type countingWriter struct {
+	w      io.Writer
+	n      int64
+	report func(int64)
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	if c.report != nil {
+		c.report(c.n)
+	}
+	return n, err
 }
 
 // Mkdir creates p and any necessary parents on the remote host.
