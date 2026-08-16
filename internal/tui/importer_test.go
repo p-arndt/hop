@@ -193,26 +193,6 @@ func TestImportBackspaceEditsPath(t *testing.T) {
 	}
 }
 
-// expandHome resolves a leading ~, and leaves everything else alone.
-func TestExpandHome(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("no home directory in this environment")
-	}
-	cases := []struct{ in, want string }{
-		{"~/.ssh/config", filepath.Join(home, ".ssh", "config")},
-		{"~", home},
-		{"/etc/ssh/ssh_config", "/etc/ssh/ssh_config"},
-		{"relative/config", "relative/config"},
-		{"~user/.ssh/config", "~user/.ssh/config"},
-	}
-	for _, c := range cases {
-		if got := expandHome(c.in); got != c.want {
-			t.Errorf("expandHome(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
 // A path typed with a ~ imports the file it names.
 func TestImportExpandsHomePath(t *testing.T) {
 	home := setHome(t)

@@ -24,6 +24,8 @@ func key(t *testing.T, name string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyLeft}
 	case "backspace":
 		return tea.KeyMsg{Type: tea.KeyBackspace}
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEscape}
 	case "up":
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "down":
@@ -44,26 +46,105 @@ func key(t *testing.T, name string) tea.KeyMsg {
 	}
 }
 
-// fakeClient serves a fixed listing for every directory and records the paths
-// Download was called with.
+// fakeClient serves a fixed listing for every directory and records the paths every
+// mutating call was made with, so a test can assert what reached the server rather than
+// only what the status line says.
 type fakeClient struct {
 	entries   []sftpx.Entry
 	downloads [][2]string // {remote, local}
+	uploads   [][2]string // {local, remote}
+	mkdirs    []string
+	removes   []string
+	renames   [][2]string // {old, new}
+
+	// Errors to return instead of succeeding, keyed by the operation name
+	// ("upload", "mkdir", "remove", "rename", "download").
+	errs map[string]error
+
+	// steps are the running byte totals a transfer reports as it copies. Empty means a
+	// copy that reports nothing, which is what most of these tests want.
+	steps byteSteps
+
+	// listErr fails every subsequent List, standing in for a connection lost partway
+	// through a sequence rather than at its start.
+	listErr error
 }
 
 func (f *fakeClient) Home() (string, error) { return "/home/u", nil }
 
-func (f *fakeClient) List(string) ([]sftpx.Entry, error) { return f.entries, nil }
+func (f *fakeClient) List(string) ([]sftpx.Entry, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return f.entries, nil
+}
 
-func (f *fakeClient) Download(remote, local string) (int64, error) {
+func (f *fakeClient) DownloadProgress(remote, local string, progress func(int64)) (int64, error) {
 	f.downloads = append(f.downloads, [2]string{remote, local})
-	// Create the local file like the real client would: fetch quarantines the
-	// copy after downloading, and the xattr call needs a file to land on.
+	if err := f.errs["download"]; err != nil {
+		return 0, err
+	}
+	// Create the local file like the real client would: the scratch fetch behind "o"
+	// quarantines the copy afterwards, and the xattr call needs a file to land on.
 	if err := os.WriteFile(local, nil, 0o644); err != nil {
 		return 0, err
 	}
-	return 0, nil
+	report(progress, f.steps)
+	return f.steps.last(), nil
 }
+
+func (f *fakeClient) UploadProgress(local, remote string, progress func(int64)) (int64, error) {
+	f.uploads = append(f.uploads, [2]string{local, remote})
+	if err := f.errs["upload"]; err != nil {
+		return 0, err
+	}
+	fi, err := os.Stat(local)
+	if err != nil {
+		return 0, err
+	}
+	if len(f.steps) > 0 {
+		report(progress, f.steps)
+		return f.steps.last(), nil
+	}
+	return fi.Size(), nil
+}
+
+// byteSteps is a scripted progress report: the running totals a copy publishes on its way
+// through, standing in for the 32 KiB blocks the real counting writer reports.
+type byteSteps []int64
+
+func (s byteSteps) last() int64 {
+	if len(s) == 0 {
+		return 0
+	}
+	return s[len(s)-1]
+}
+
+// report replays steps into a progress callback, as sftpx does from inside io.Copy.
+func report(progress func(int64), steps byteSteps) {
+	if progress == nil {
+		return
+	}
+	for _, n := range steps {
+		progress(n)
+	}
+}
+
+func (f *fakeClient) Mkdir(p string) error {
+	f.mkdirs = append(f.mkdirs, p)
+	return f.errs["mkdir"]
+}
+
+func (f *fakeClient) Remove(p string) error {
+	f.removes = append(f.removes, p)
+	return f.errs["remove"]
+}
+
+func (f *fakeClient) Rename(oldp, newp string) error {
+	f.renames = append(f.renames, [2]string{oldp, newp})
+	return f.errs["rename"]
+}
+
 func (f *fakeClient) Close() error { return nil }
 
 // newTestBrowser builds a Browser over n synthetic entries with room for 10 content rows,
@@ -76,6 +157,7 @@ func newTestBrowser(n int) (*Browser, *fakeClient) {
 	fc := &fakeClient{entries: ents}
 	return &Browser{
 		client:  fc,
+		alias:   "web1",
 		cwd:     "/home/u",
 		entries: ents,
 		opts:    Options{VimKeys: true},
@@ -239,6 +321,7 @@ func fileTestBrowser(t *testing.T) (*Browser, *fakeClient, string, string) {
 	tmp, dl := t.TempDir(), t.TempDir()
 	return &Browser{
 		client:  fc,
+		alias:   "web1",
 		cwd:     "/home/u",
 		entries: ents,
 		opts:    Options{DownloadDir: dl},
@@ -272,9 +355,17 @@ func TestEnterAsksToOpenFile(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("enter returned no tea.Cmd, want an OpenFileMsg for the model")
 	}
-	msg, ok := cmd().(OpenFileMsg)
+	// Everything the browser sends is addressed, so the model can route it by session.
+	wrapped, ok := cmd().(Msg)
 	if !ok {
-		t.Fatalf("enter produced %T, want OpenFileMsg", cmd())
+		t.Fatalf("enter produced %T, want a filebrowser.Msg", cmd())
+	}
+	if wrapped.Alias != "web1" {
+		t.Fatalf("Msg.Alias = %q, want the session the browser belongs to", wrapped.Alias)
+	}
+	msg, ok := wrapped.Body.(OpenFileMsg)
+	if !ok {
+		t.Fatalf("enter produced a %T body, want OpenFileMsg", wrapped.Body)
 	}
 	if msg.Path != "/home/u/a.txt" || msg.Name != "a.txt" {
 		t.Fatalf("OpenFileMsg = %+v, want {/home/u/a.txt a.txt}", msg)
@@ -313,9 +404,9 @@ func TestOpenInAppKey(t *testing.T) {
 	opened, _ := stubOpen(t)
 
 	b.cursor = 1 // a.txt
-	if cmd := b.Handle(key(t, "o")); cmd != nil {
-		t.Fatal("o returned a tea.Cmd; the default-app launch must not suspend the TUI")
-	}
+	// The fetch behind "o" is a transfer like any other, so the key hands back a command
+	// rather than a finished download; drive runs it to completion the way the TUI does.
+	drive(t, b, b.Handle(key(t, "o")))
 
 	want := filepath.Join(tmp, "a.txt")
 	if len(fc.downloads) != 1 {
@@ -327,8 +418,8 @@ func TestOpenInAppKey(t *testing.T) {
 	if *opened != want {
 		t.Fatalf("opened %q, want %q", *opened, want)
 	}
-	if b.statusErr || b.status != "opened a.txt" {
-		t.Fatalf("status = %q (err=%v), want %q", b.status, b.statusErr, "opened a.txt")
+	if b.note.err || b.note.text != "opened a.txt" {
+		t.Fatalf("status = %q (err=%v), want %q", b.note.text, b.note.err, "opened a.txt")
 	}
 	if entries, _ := os.ReadDir(dl); len(entries) != 0 {
 		t.Fatalf("download dir is not empty: %v", entries)
@@ -349,7 +440,7 @@ func TestOpenWithOverride(t *testing.T) {
 
 	b.SetOptions(Options{DownloadDir: b.opts.DownloadDir, OpenWith: "code -n"})
 	b.cursor = 1 // a.txt
-	b.Handle(key(t, "o"))
+	drive(t, b, b.Handle(key(t, "o")))
 
 	if *with != "code -n" {
 		t.Fatalf("openCmd got %q, want the configured %q", *with, "code -n")
@@ -365,7 +456,7 @@ func TestDownloadKey(t *testing.T) {
 	opened, _ := stubOpen(t)
 
 	b.cursor = 1 // a.txt
-	b.Handle(key(t, "d"))
+	drive(t, b, b.Handle(key(t, "d")))
 
 	want := filepath.Join(dl, "a.txt")
 	if len(fc.downloads) != 1 || fc.downloads[0][1] != want {
@@ -374,8 +465,8 @@ func TestDownloadKey(t *testing.T) {
 	if *opened != "" {
 		t.Fatalf("download launched the default app on %q", *opened)
 	}
-	if b.statusErr || !strings.HasPrefix(b.status, "downloaded a.txt") {
-		t.Fatalf("status = %q (err=%v), want a downloaded... message", b.status, b.statusErr)
+	if b.note.err || !strings.HasPrefix(b.note.text, "downloaded a.txt") {
+		t.Fatalf("status = %q (err=%v), want a downloaded... message", b.note.text, b.note.err)
 	}
 }
 
@@ -402,8 +493,8 @@ func TestRejectsUnsafeRemoteNames(t *testing.T) {
 				if *opened != "" {
 					t.Fatalf("%q on %q launched the default app on %q", k, name, *opened)
 				}
-				if !b.statusErr {
-					t.Fatalf("%q on %q: status = %q, want an error", k, name, b.status)
+				if !b.note.err {
+					t.Fatalf("%q on %q: status = %q, want an error", k, name, b.note.text)
 				}
 			}
 		})
@@ -417,7 +508,7 @@ func TestAcceptsOrdinaryNames(t *testing.T) {
 		b.entries[1].Name = name
 		b.cursor = 1
 
-		b.Handle(key(t, "d"))
+		drive(t, b, b.Handle(key(t, "d")))
 
 		want := filepath.Join(dl, name)
 		if len(fc.downloads) != 1 || fc.downloads[0][1] != want {
@@ -491,8 +582,8 @@ func TestOpenInAppRefusesExecutable(t *testing.T) {
 		if *opened != "" {
 			t.Fatalf("o on %q launched the default app on %q", name, *opened)
 		}
-		if !b.statusErr {
-			t.Fatalf("o on %q: status = %q, want an error", name, b.status)
+		if !b.note.err {
+			t.Fatalf("o on %q: status = %q, want an error", name, b.note.text)
 		}
 	}
 }
@@ -506,7 +597,7 @@ func TestOpenInAppExecutableAllowedWithOpenWith(t *testing.T) {
 	b.SetOptions(Options{DownloadDir: b.opts.DownloadDir, OpenWith: "code -n"})
 	b.entries[1].Name = "script.ps1"
 	b.cursor = 1
-	b.Handle(key(t, "o"))
+	drive(t, b, b.Handle(key(t, "o")))
 
 	if *with != "code -n" {
 		t.Fatalf("openCmd got %q, want the configured %q", *with, "code -n")
@@ -523,14 +614,14 @@ func TestDownloadExecutableAllowed(t *testing.T) {
 
 	b.entries[1].Name = "invoice.pdf.hta"
 	b.cursor = 1
-	b.Handle(key(t, "d"))
+	drive(t, b, b.Handle(key(t, "d")))
 
 	want := filepath.Join(dl, "invoice.pdf.hta")
 	if len(fc.downloads) != 1 || fc.downloads[0][1] != want {
 		t.Fatalf("download of an executable = %v, want one to %s", fc.downloads, want)
 	}
-	if b.statusErr {
-		t.Fatalf("download of an executable failed: %q", b.status)
+	if b.note.err {
+		t.Fatalf("download of an executable failed: %q", b.note.text)
 	}
 }
 
@@ -553,8 +644,8 @@ func TestRejectsNormalizedReservedNames(t *testing.T) {
 				if *opened != "" {
 					t.Fatalf("%q on %q launched the default app on %q", k, name, *opened)
 				}
-				if !b.statusErr {
-					t.Fatalf("%q on %q: status = %q, want an error", k, name, b.status)
+				if !b.note.err {
+					t.Fatalf("%q on %q: status = %q, want an error", k, name, b.note.text)
 				}
 			}
 		})
@@ -580,6 +671,11 @@ type pickyClient struct {
 	ok map[string]bool
 }
 
+func (p *pickyClient) Upload(string, string) (int64, error) { return 0, nil }
+func (p *pickyClient) Mkdir(string) error                   { return nil }
+func (p *pickyClient) Remove(string) error                  { return nil }
+func (p *pickyClient) Rename(string, string) error          { return nil }
+
 func (p *pickyClient) List(dir string) ([]sftpx.Entry, error) {
 	if !p.ok[dir] {
 		return nil, fmt.Errorf("stat %s: no such file or directory", dir)
@@ -590,7 +686,7 @@ func (p *pickyClient) List(dir string) ([]sftpx.Entry, error) {
 // A start directory that lists is where the browser opens.
 func TestNewOpensInTheStartDir(t *testing.T) {
 	c := &pickyClient{ok: map[string]bool{"/srv/app": true, "/home/u": true}}
-	b, err := New(c, "/srv/app", Options{DownloadDir: t.TempDir()}, 40, 13)
+	b, err := New(c, "web1", "/srv/app", Options{DownloadDir: t.TempDir()}, 40, 13)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -606,7 +702,7 @@ func TestNewOpensInTheStartDir(t *testing.T) {
 // directory instead, with the reason on the status line.
 func TestNewFallsBackWhenTheStartDirIsGone(t *testing.T) {
 	c := &pickyClient{ok: map[string]bool{"/home/u": true}}
-	b, err := New(c, "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13)
+	b, err := New(c, "web1", "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -622,7 +718,7 @@ func TestNewFallsBackWhenTheStartDirIsGone(t *testing.T) {
 // show, and New says so rather than handing back an empty browser.
 func TestNewFailsWhenNothingLists(t *testing.T) {
 	c := &pickyClient{ok: map[string]bool{}}
-	if _, err := New(c, "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13); err == nil {
+	if _, err := New(c, "web1", "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13); err == nil {
 		t.Fatal("New on a host that lists nothing: got nil error, want non-nil")
 	}
 }

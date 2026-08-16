@@ -7,6 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"hop/internal/pathx"
 )
 
 // importUI is the SSH-config import card's own state: which file to read, plus whether
@@ -51,22 +53,6 @@ func haveSSHConfig() bool {
 	return err == nil && !fi.IsDir()
 }
 
-// expandHome resolves a leading "~" against the home directory. Anything else is returned
-// untouched, including a bare "~user/…", which hop does not resolve.
-func expandHome(path string) string {
-	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, `~\`) {
-		return path
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return path
-	}
-	if path == "~" {
-		return home
-	}
-	return filepath.Join(home, path[2:])
-}
-
 // handleImportKey routes a key while the card is up. The path field always has the
 // keyboard, and like every modal here it swallows everything.
 func (m *model) handleImportKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -108,7 +94,7 @@ func (m *model) submitImport() {
 		return
 	}
 
-	n, err := m.st.ImportSSHConfig(expandHome(path))
+	n, err := m.st.ImportSSHConfig(pathx.ExpandHome(path))
 	if err != nil {
 		m.setStatus(statusErr, "import: %v", err)
 		return

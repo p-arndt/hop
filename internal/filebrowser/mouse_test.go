@@ -112,9 +112,13 @@ func TestActivate(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("activating a file returned no command, want an OpenFileMsg")
 	}
-	msg, ok := cmd().(OpenFileMsg)
+	wrapped, ok := cmd().(Msg)
 	if !ok {
-		t.Fatalf("activating a file yielded %T, want OpenFileMsg", cmd())
+		t.Fatalf("activating a file yielded %T, want a filebrowser.Msg", cmd())
+	}
+	msg, ok := wrapped.Body.(OpenFileMsg)
+	if !ok {
+		t.Fatalf("activating a file yielded a %T body, want OpenFileMsg", wrapped.Body)
 	}
 	if msg.Path != "/home/u/notes.txt" {
 		t.Fatalf("OpenFileMsg.Path = %q, want /home/u/notes.txt", msg.Path)

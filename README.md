@@ -438,6 +438,11 @@ which are otherwise held in every mode.
 | `enter` `→` | enter a directory, or open a file in an editor tab |
 | `o` | open the file in the local OS default app (GUI) |
 | `d` | download the file to `~/Downloads` |
+| `u` | upload a local file into this directory |
+| `R` | rename the entry |
+| `x` | delete the entry |
+| `m` | make a directory here |
+| `s` | sort by name / size / modified |
 | `←` `backspace` | up one directory |
 | `r` | refresh the listing |
 | `ctrl+k` | the [palette](KEYBINDINGS.md#actions--the-menu-and-the-palette): everything the browser can do, searchable |
@@ -450,6 +455,15 @@ which are otherwise held in every mode.
 With [vim keys](KEYBINDINGS.md#vim-keys) on the browser keeps the *whole* motion set (the host list only the
 step keys): `j`/`k`, `gg`, `G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`,
 `ctrl+f`, plus `l` to descend and `h` to back out.
+
+Anything that needs an answer — a name to rename to, a local path to upload, a yes before
+an overwrite — asks on the status line, and while the question is up every key is its
+answer: a `,` typed into a filename is a comma, not the settings popover. `enter`
+answers, `esc` cancels, `ctrl+u` clears the line.
+
+Transfers run off the UI, so a large file no longer freezes the browser — the status line
+becomes a progress line until it lands. Deleting asks first, and so does overwriting a
+file that is already in your download directory.
 
 </details>
 
@@ -616,14 +630,14 @@ so the exec bit survives.
 **Shipped:** embedded shells · multi-shell tabs · SFTP browser · remote editor tabs ·
 scrollback · tunnels · ProxyCommand/ProxyJump · 2FA · reconnect · mouse · copy and paste ·
 host management · host-key confirmation · SSH config import · live settings ·
-cross-platform releases.
+uploads and file ops · async transfers · cross-platform releases.
 
 Next up:
 
 |  | |
 | --- | --- |
 | 💓 **Health panel** | Per-host reachability, latency, uptime and disk, shown like VS Code's connection status. |
-| ⬆️ **Uploads & file ops** | `u`, `x`, `R`, `m` in the browser, with async transfer progress. |
+| 📂 **Whole directories** | Recursive upload and download, and more than one transfer at a time. |
 | 🏷️ **Groups & tags** | Section the list by group, filter by tag, pin favourites. |
 | 📐 **Narrow terminals** | Narrow-terminal layouts and cursor-style fidelity. |
 

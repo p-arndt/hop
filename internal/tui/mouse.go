@@ -73,13 +73,7 @@ func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 // routeMouse hands the event to whichever region it landed in.
 func (m *model) routeMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if m.modalCard() != "" {
-		return m, nil
-	}
-	// The menu is not a modal card — it is anchored to a row rather than centred — but it
-	// takes the pointer like one: it is a question about the host it was opened on, and a
-	// click elsewhere would answer it by moving the cursor out from under it.
-	if m.menu.open {
+	if m.capturing() {
 		return m, nil
 	}
 	// A drag that ran off the pane is still that drag: it keeps its events wherever the

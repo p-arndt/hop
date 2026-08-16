@@ -11,6 +11,7 @@ import (
 
 	"hop/internal/config"
 	"hop/internal/filebrowser"
+	"hop/internal/filebrowser/fbtest"
 	"hop/internal/sftpx"
 	"hop/internal/sshx"
 	"hop/internal/store"
@@ -354,21 +355,12 @@ func TestClickShellTab(t *testing.T) {
 	}
 }
 
-// mouseSFTP is a listing to point at: enough of an SFTP connection to build a real
-// browser with entries in it, unlike fakeSFTP's empty directory.
-type mouseSFTP struct{ ents []sftpx.Entry }
-
-func (mouseSFTP) Home() (string, error)                { return "/srv", nil }
-func (f mouseSFTP) List(string) ([]sftpx.Entry, error) { return f.ents, nil }
-func (mouseSFTP) Download(_, _ string) (int64, error)  { return 0, nil }
-func (mouseSFTP) Close() error                         { return nil }
-
 // A double-click in the browser opens what it landed on. The row is mapped through the
 // pane's borders and the browser's own header and rule.
 func TestDoubleClickInBrowserOpens(t *testing.T) {
 	br, err := filebrowser.New(
-		mouseSFTP{ents: []sftpx.Entry{{Name: "logs", IsDir: true}, {Name: "app.conf", Size: 12}}},
-		"/srv", filebrowser.Options{DownloadDir: t.TempDir()}, 40, 12)
+		fbtest.Stub{Dir: "/srv", Entries: []sftpx.Entry{{Name: "logs", IsDir: true}, {Name: "app.conf", Size: 12}}},
+		"ha", "/srv", filebrowser.Options{DownloadDir: t.TempDir()}, 40, 12)
 	if err != nil {
 		t.Fatalf("build browser: %v", err)
 	}
@@ -384,6 +376,40 @@ func TestDoubleClickInBrowserOpens(t *testing.T) {
 
 	if br.Path() != "/srv/logs" {
 		t.Fatalf("browser path = %q after double-clicking a directory, want /srv/logs", br.Path())
+	}
+}
+
+// A browser waiting on an answer owns the pointer as well as the keyboard. Without this
+// a double-click would walk the listing out from under an open question, and the answer
+// — a rename, an upload, a delete — would then be carried out in a directory the user
+// never aimed at.
+func TestPointerIsIgnoredWhileTheBrowserIsAsking(t *testing.T) {
+	br, err := filebrowser.New(
+		fbtest.Stub{Dir: "/srv", Entries: []sftpx.Entry{{Name: "logs", IsDir: true}, {Name: "app.conf", Size: 12}}},
+		"ha", "/srv", filebrowser.Options{DownloadDir: t.TempDir()}, 40, 12)
+	if err != nil {
+		t.Fatalf("build browser: %v", err)
+	}
+
+	m := newMouseModel(3)
+	m.active = "ha"
+	m.mode = modeBrowser
+	m.sessions["ha"] = &session{browser: br}
+
+	// "m" opens the "new directory:" question.
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	if !br.Prompting() {
+		t.Fatal("m did not open a question, so this test proves nothing")
+	}
+
+	m.handleMouse(click(40, 4))
+	m.handleMouse(click(40, 4))
+
+	if br.Path() != "/srv" {
+		t.Fatalf("the pointer moved the browser to %q while a question was open", br.Path())
+	}
+	if !br.Prompting() {
+		t.Fatal("the pointer closed the open question")
 	}
 }
 

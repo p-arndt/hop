@@ -3,10 +3,13 @@ package sftpx
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"io"
 	"net"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -230,5 +233,172 @@ func TestSFTPRoundTrip(t *testing.T) {
 	}
 	if err := c.Remove(p); err != nil {
 		t.Fatalf("Remove dir: %v", err)
+	}
+}
+
+// A counting writer passes every byte through unchanged and reports the running total
+// after each write, which is the whole contract the progress callbacks rest on.
+func TestCountingWriter(t *testing.T) {
+	var sink strings.Builder
+	var seen []int64
+	cw := &countingWriter{w: &sink, report: func(n int64) { seen = append(seen, n) }}
+
+	for _, part := range []string{"hop", "-", "sftp"} {
+		if _, err := io.WriteString(cw, part); err != nil {
+			t.Fatalf("write %q: %v", part, err)
+		}
+	}
+
+	if sink.String() != "hop-sftp" {
+		t.Fatalf("passed through %q, want %q", sink.String(), "hop-sftp")
+	}
+	if want := []int64{3, 4, 8}; !slices.Equal(seen, want) {
+		t.Fatalf("reported %v, want the running totals %v", seen, want)
+	}
+
+	// With nobody to report to there must be no wrapper at all: that is what keeps the
+	// plain Download and Upload byte-for-byte the calls they were before progress existed.
+	if got := counted(&sink, nil); got != io.Writer(&sink) {
+		t.Fatalf("counted(w, nil) = %T, want the writer itself", got)
+	}
+	if got := counted(&sink, func(int64) {}); got == io.Writer(&sink) {
+		t.Fatal("counted(w, report) handed back the bare writer, so nothing would be counted")
+	}
+}
+
+// The wrapper must not cost the destination its bulk transfer path: io.Copy reaches it
+// through ReadFrom, and a wrapper that is not an io.ReaderFrom silently downgrades an
+// upload to sequential 32 KiB writes. This is the assertion that would catch that.
+func TestCountingWriterKeepsTheBulkPath(t *testing.T) {
+	var w io.Writer = counted(&recordingReaderFrom{}, func(int64) {})
+	if _, ok := w.(io.ReaderFrom); !ok {
+		t.Fatal("a counted writer is not an io.ReaderFrom, so io.Copy cannot reach the destination's bulk path")
+	}
+
+	// And it must actually delegate rather than fall back to its own loop.
+	dst := &recordingReaderFrom{}
+	var seen []int64
+	cw := counted(dst, func(n int64) { seen = append(seen, n) }).(io.ReaderFrom)
+	n, err := cw.ReadFrom(strings.NewReader("hop-sftp"))
+	if err != nil {
+		t.Fatalf("ReadFrom: %v", err)
+	}
+	if !dst.used {
+		t.Fatal("ReadFrom did not delegate to the destination's own ReadFrom")
+	}
+	if n != 8 {
+		t.Fatalf("ReadFrom returned %d, want 8", n)
+	}
+	if len(seen) == 0 || seen[len(seen)-1] != 8 {
+		t.Fatalf("reported %v, want totals ending on 8", seen)
+	}
+}
+
+// recordingReaderFrom is a destination with a bulk path, which notes whether it was used.
+type recordingReaderFrom struct {
+	used bool
+	buf  strings.Builder
+}
+
+func (d *recordingReaderFrom) Write(p []byte) (int, error) { return d.buf.Write(p) }
+
+func (d *recordingReaderFrom) ReadFrom(r io.Reader) (int64, error) {
+	d.used = true
+	return io.Copy(&d.buf, r)
+}
+
+// The progress callback fires during a real transfer in both directions, with totals
+// that only ever grow and end on the file's size. The payload is deliberately larger
+// than io.Copy's 32 KiB block so more than one report has to happen — a callback that
+// only fired once at the end would satisfy a smaller file and tell the user nothing.
+func TestTransferProgressReports(t *testing.T) {
+	hostKey := newSigner(t)
+	clientKey := newSigner(t)
+	addr := startSFTPServer(t, hostKey)
+
+	sshClient, err := ssh.Dial("tcp", addr, &ssh.ClientConfig{
+		User:            "tester",
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(clientKey)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("ssh.Dial: %v", err)
+	}
+	defer sshClient.Close()
+
+	c, err := Open(sshClient)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer c.Close()
+
+	base, err := c.Home()
+	if err != nil {
+		t.Fatalf("Home: %v", err)
+	}
+	dir := path.Join(base, "hop_sftp_progress")
+	if err := c.Mkdir(dir); err != nil {
+		t.Fatalf("Mkdir %s: %v", dir, err)
+	}
+	remote := path.Join(dir, "big.bin")
+	// Best-effort only, and it really is only that: t.Cleanup runs after this function's
+	// defers, by which time the client is closed and these calls cannot work. The
+	// removals that matter are the explicit ones at the end.
+	t.Cleanup(func() {
+		os.Remove(filepath.Join("hop_sftp_progress", "big.bin"))
+		os.Remove("hop_sftp_progress")
+	})
+
+	const size = 200 * 1024
+	src := filepath.Join(t.TempDir(), "big.bin")
+	if err := os.WriteFile(src, make([]byte, size), 0o644); err != nil {
+		t.Fatalf("write local source: %v", err)
+	}
+
+	// check asserts the shape every progress report must have, whichever way the bytes
+	// were going: at least two of them, never going backwards, ending on the size.
+	check := func(what string, seen []int64) {
+		t.Helper()
+		if len(seen) < 2 {
+			t.Fatalf("%s reported %d times (%v), want several — a bar cannot move on one", what, len(seen), seen)
+		}
+		if !slices.IsSorted(seen) {
+			t.Fatalf("%s reported %v, want totals that only grow", what, seen)
+		}
+		if got := seen[len(seen)-1]; got != size {
+			t.Fatalf("%s finished reporting %d, want the full %d", what, got, size)
+		}
+	}
+
+	var upSeen []int64
+	n, err := c.UploadProgress(src, remote, func(n int64) { upSeen = append(upSeen, n) })
+	if err != nil {
+		t.Fatalf("UploadProgress: %v", err)
+	}
+	if n != size {
+		t.Fatalf("UploadProgress returned %d, want %d", n, size)
+	}
+	check("upload", upSeen)
+
+	var downSeen []int64
+	dst := filepath.Join(t.TempDir(), "big-back.bin")
+	m, err := c.DownloadProgress(remote, dst, func(n int64) { downSeen = append(downSeen, n) })
+	if err != nil {
+		t.Fatalf("DownloadProgress: %v", err)
+	}
+	if m != size {
+		t.Fatalf("DownloadProgress returned %d, want %d", m, size)
+	}
+	check("download", downSeen)
+
+	// While the client is still open, so the server actually sees them. The test server
+	// is rooted at the real filesystem, and a leftover 200 KiB file would land in the
+	// package directory.
+	if err := c.Remove(remote); err != nil {
+		t.Fatalf("Remove %s: %v", remote, err)
+	}
+	if err := c.Remove(dir); err != nil {
+		t.Fatalf("Remove %s: %v", dir, err)
 	}
 }

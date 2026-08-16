@@ -1,6 +1,7 @@
 // Package filebrowser implements a remote directory browser for hop's TUI. It mirrors
-// terminal.Pane: the TUI forwards keys via Handle and renders with View. SFTP runs
-// synchronously, so a slow directory briefly stalls the UI.
+// terminal.Pane: the TUI forwards keys via Handle, routes the browser's own messages
+// back through Update, and renders with View. Listing runs synchronously — a directory
+// is small — but transfers do not, so a large file cannot stall a keystroke.
 package filebrowser
 
 import (
@@ -11,11 +12,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/keymap"
+	"hop/internal/pathx"
 	"hop/internal/sftpx"
 )
 
@@ -55,13 +58,27 @@ func SetAccent(color string) {
 type Client interface {
 	Home() (string, error)
 	List(dir string) ([]sftpx.Entry, error)
-	Download(remotePath, localPath string) (int64, error)
+	DownloadProgress(remotePath, localPath string, progress func(int64)) (int64, error)
+	UploadProgress(localPath, remotePath string, progress func(int64)) (int64, error)
+	Mkdir(p string) error
+	Remove(p string) error
+	Rename(oldp, newp string) error
 	Close() error
+}
+
+// Msg wraps everything a Browser sends its enclosing model. The Alias says which session
+// it came from, so the model can route it the way it routes every other per-session
+// message rather than offering it to each browser in turn and letting them sort it out.
+type Msg struct {
+	Alias string
+	// Body is the browser's own message. It is deliberately opaque: what a transfer tick
+	// is remains the browser's business, and Update is where it is understood.
+	Body any
 }
 
 // OpenFileMsg asks the enclosing model to open a remote file in an editor pane. The
 // editor runs on the remote host over the SSH connection the TUI owns, which the
-// browser knows nothing about.
+// browser knows nothing about. It arrives inside a Msg, like everything else.
 type OpenFileMsg struct {
 	Path string // absolute remote path
 	Name string
@@ -84,15 +101,21 @@ type Options struct {
 // Browser is a remote directory browser the TUI drives by forwarding key
 // messages and rendering View.
 type Browser struct {
-	client    Client
-	cwd       string
-	entries   []sftpx.Entry
-	cursor    int
-	scroll    int
-	status    string
-	statusErr bool
-	opts      Options
-	w, h      int
+	client Client
+	// alias is the session this browser belongs to, stamped onto everything it sends so
+	// the model can route it by name.
+	alias   string
+	cwd     string
+	entries []sftpx.Entry
+	cursor  int
+	scroll  int
+
+	// note is the last thing the browser has to say, and what footerLine draws when
+	// nothing more urgent wants the row.
+	note note
+
+	opts Options
+	w, h int
 
 	// tmpDir is the scratch directory "o" fetches into, created on first use.
 	tmpDir string
@@ -100,6 +123,17 @@ type Browser struct {
 	// keys resolves the listing's motion keys and holds a half-typed "gg". What they do
 	// to the cursor is Browser.move.
 	keys keymap.Reader
+
+	// overlay is the open question — a name to type, a yes to give — which owns the
+	// keyboard while it is up. See prompt.go.
+	overlay overlay
+
+	// sortBy is the order the listing is held in, which the "s" key cycles. See sort.go.
+	sortBy sortMode
+
+	// xfer is the transfer in flight, if any: SFTP copies run off the UI goroutine so a
+	// large file cannot stall a keystroke. See transfer.go.
+	xfer *transfer
 }
 
 // New builds a Browser starting in startDir (or the remote home when empty), ensuring
@@ -108,13 +142,15 @@ type Browser struct {
 // A startDir that cannot be listed does not fail the open — usually a host's default
 // directory renamed on the server. The browser lands in the home directory with the
 // listing error as its status.
-func New(c Client, startDir string, opts Options, w, h int) (*Browser, error) {
+func New(c Client, alias, startDir string, opts Options, w, h int) (*Browser, error) {
+	opts.DownloadDir = pathx.ExpandHome(opts.DownloadDir)
 	if err := os.MkdirAll(opts.DownloadDir, 0o755); err != nil {
 		return nil, err
 	}
 
 	b := &Browser{
 		client: c,
+		alias:  alias,
 		opts:   opts,
 		w:      w,
 		h:      h,
@@ -132,45 +168,61 @@ func New(c Client, startDir string, opts Options, w, h int) (*Browser, error) {
 	if err != nil {
 		return nil, err
 	}
-	failed := b.status
+	failed := b.note.text
 	b.load(home)
 	if b.cwd == "" {
-		return nil, fmt.Errorf("%s", b.status)
+		return nil, fmt.Errorf("%s", b.note.text)
 	}
 	if failed != "" {
-		b.status, b.statusErr = failed, true
+		b.note = note{text: failed, err: true}
 	}
 	return b, nil
 }
 
 // SetOptions swaps in new user settings. A missing download directory is created on the
 // next download, so a settings edit never fails on it.
-func (b *Browser) SetOptions(opts Options) { b.opts = opts }
+//
+// The download directory is expanded here rather than trusted as typed: the settings
+// field offers "~/Downloads" as its placeholder, and an unexpanded "~" would have the
+// browser create a directory literally called "~" and check the wrong path for an
+// existing file — quietly skipping the overwrite confirm.
+func (b *Browser) SetOptions(opts Options) {
+	opts.DownloadDir = pathx.ExpandHome(opts.DownloadDir)
+	b.opts = opts
+}
 
-// load lists dir and, on success, commits it as the current directory. On error it sets
-// the status and leaves cwd/entries untouched.
-func (b *Browser) load(dir string) {
+// load lists dir and, on success, commits it as the current directory, reporting whether
+// it did. On error it sets the status and leaves cwd/entries untouched — a caller that
+// goes on to report its own success would paint over that error, so the ones that can
+// fail check the result.
+func (b *Browser) load(dir string) bool {
 	ents, err := b.client.List(dir)
 	if err != nil {
 		b.fail(err)
-		return
+		return false
 	}
 	b.cwd = dir
-	b.entries = ents
+	b.entries = b.applySort(ents)
 	b.cursor = 0
 	b.scroll = 0
-	b.status = ""
-	b.statusErr = false
+	b.clearNote()
+	return true
 }
 
-// Handle applies a key message: the motions through the shared keymap, then the
-// browser's own keys — refresh, "o" (open a local copy in the desktop's default app)
-// and "d" (download). All SFTP work runs synchronously.
+// Handle applies a key message: an open question first (it owns the keyboard), then the
+// motions through the shared keymap, then the browser's own keys — refresh, transfers,
+// the file operations and the sort toggle.
 //
-// The returned tea.Cmd is non-nil only for entering a file, which yields an OpenFileMsg.
-// No key here leaves the browser: dismissal is the model's business, and Out is a strict
-// "up a directory".
+// The returned tea.Cmd carries whatever the key started: an OpenFileMsg for entering a
+// file, or a transfer's first step. No key here leaves the browser: dismissal is the
+// model's business, and Out is a strict "up a directory".
 func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
+	// An open question first: while one is up every key is its answer, so "d" typed into
+	// a filename is a "d" rather than a download.
+	if cmd, handled := b.overlayKey(msg); handled {
+		return cmd
+	}
+
 	key := msg.String()
 
 	if mo := b.keys.Motion(keymap.Full, key, b.opts.VimKeys); mo != keymap.None {
@@ -187,12 +239,40 @@ func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 		b.load(b.cwd)
 
 	case "o":
-		b.openInApp()
+		return b.openInApp()
 
 	case "d":
-		b.download()
+		return b.download()
+
+	case "u":
+		return b.upload()
+
+	case "x":
+		return b.remove()
+
+	case "R":
+		return b.rename()
+
+	case "m":
+		return b.mkdir()
+
+	case "s":
+		b.cycleSort()
 	}
 	return nil
+}
+
+// Update takes the messages the browser's own commands produce — transfer progress and
+// completion — which the enclosing model routes back here by alias. Keys come through
+// Handle; this is the other half, and the reason a transfer can run without the UI
+// waiting on it.
+func (b *Browser) Update(msg Msg) tea.Cmd { return b.handleTransferMsg(msg.Body) }
+
+// send wraps one of the browser's own messages as the command that delivers it, stamped
+// with the session it belongs to.
+func (b *Browser) send(body any) tea.Cmd {
+	msg := Msg{Alias: b.alias, Body: body}
+	return func() tea.Msg { return msg }
 }
 
 // ---- mouse ----
@@ -290,67 +370,7 @@ func (b *Browser) activate() tea.Cmd {
 		return nil
 	}
 
-	msg := OpenFileMsg{Path: path.Join(b.cwd, e.Name), Name: e.Name}
-	return func() tea.Msg { return msg }
-}
-
-// openInApp fetches the file under the cursor and hands the local copy to the desktop's
-// default application, fire-and-forget. "o" on a directory is a no-op.
-func (b *Browser) openInApp() {
-	e, ok := b.selected()
-	if !ok || e.IsDir {
-		return
-	}
-	if err := checkLocalName(e.Name); err != nil {
-		b.fail(err)
-		return
-	}
-	// The OS default handler would run an executable-extension file rather than view it,
-	// so a server that names a payload like a document could get code executed on a
-	// single "o". An explicit OpenWith passes the file to a program the user chose, so
-	// that path is left alone.
-	if b.opts.OpenWith == "" && executableName(e.Name) {
-		b.fail(fmt.Errorf("refusing to open executable file %q — use d to download instead", e.Name))
-		return
-	}
-
-	local, err := b.fetch(e)
-	if err != nil {
-		b.fail(err)
-		return
-	}
-	cmd := openCmd(b.opts.OpenWith, local)
-	if err := cmd.Start(); err != nil {
-		b.fail(fmt.Errorf("open %s: %w", e.Name, err))
-		return
-	}
-	// The launcher exits as soon as the real application is up; reap it.
-	go cmd.Wait()
-	b.ok("opened " + e.Name)
-}
-
-// download copies the file under the cursor into downloadDir, where — unlike the scratch
-// copy "o" makes — it is meant to be kept.
-func (b *Browser) download() {
-	e, ok := b.selected()
-	if !ok || e.IsDir {
-		return
-	}
-	if err := checkLocalName(e.Name); err != nil {
-		b.fail(err)
-		return
-	}
-
-	local := filepath.Join(b.opts.DownloadDir, e.Name)
-	if err := os.MkdirAll(b.opts.DownloadDir, 0o755); err != nil {
-		b.fail(err)
-		return
-	}
-	if _, err := b.client.Download(path.Join(b.cwd, e.Name), local); err != nil {
-		b.fail(err)
-		return
-	}
-	b.ok(fmt.Sprintf("downloaded %s → %s", e.Name, b.opts.DownloadDir))
+	return b.send(OpenFileMsg{Path: path.Join(b.cwd, e.Name), Name: e.Name})
 }
 
 // selected returns the entry under the cursor, or ok=false in an empty listing.
@@ -361,66 +381,49 @@ func (b *Browser) selected() (sftpx.Entry, bool) {
 	return b.entries[b.cursor], true
 }
 
-// fetch downloads e into the scratch directory and returns the local path.
-func (b *Browser) fetch(e sftpx.Entry) (string, error) {
-	dir, err := b.scratch()
-	if err != nil {
-		return "", err
-	}
-	local := filepath.Join(dir, e.Name)
-	if _, err := b.client.Download(path.Join(b.cwd, e.Name), local); err != nil {
-		return "", err
-	}
-	// Mark the copy the way a browser download would be. On macOS that sets
-	// com.apple.quarantine, keeping Gatekeeper in the loop for types the extension guard
-	// does not know about; elsewhere it is a no-op.
-	if err := quarantine(local); err != nil {
-		return "", fmt.Errorf("quarantine %s: %w", e.Name, err)
-	}
-	return local, nil
+// note is something the browser has to say on its last row: the outcome of the last
+// action, or a refusal of one it would not start.
+//
+// A transient note carries a deadline, and that deadline is also its precedence: while it
+// is live it outranks a running transfer's progress line, and once it expires the bar
+// takes the row back. That is the whole reason the type has an expiry — a refusal has to
+// be seen, and the row it would otherwise go on is the one the bar is drawing.
+type note struct {
+	text string
+	err  bool
+	// until is zero for a note that holds until something replaces it, and a deadline
+	// for one that is only borrowing the row.
+	until time.Time
 }
 
-// scratch returns the browser's temp directory, creating it on first use. Files handed
-// to the desktop's default app land here rather than in downloadDir. It is never
-// removed: the app may still hold a file open long after the browser closes.
-func (b *Browser) scratch() (string, error) {
-	if b.tmpDir != "" {
-		return b.tmpDir, nil
-	}
-	dir, err := os.MkdirTemp("", "hop-sftp-*")
-	if err != nil {
-		return "", err
-	}
-	b.tmpDir = dir
-	return dir, nil
+// live reports whether a transient note is still within its time. A permanent note is
+// never "live" in this sense: it does not outrank anything, it just waits its turn.
+func (n note) live() bool { return !n.until.IsZero() && time.Now().Before(n.until) }
+
+// ok, fail and say set the note. ok and fail are the outcome of an action and hold the
+// row until the next one; say borrows it for d and then gives it back.
+func (b *Browser) ok(msg string) { b.note = note{text: msg} }
+
+func (b *Browser) fail(err error) { b.note = note{text: err.Error(), err: true} }
+
+func (b *Browser) say(msg string, d time.Duration) {
+	b.note = note{text: msg, err: true, until: time.Now().Add(d)}
 }
 
-// ok and fail set the status line and the colour View renders it in.
-func (b *Browser) ok(msg string) {
-	b.status = msg
-	b.statusErr = false
-}
-
-func (b *Browser) fail(err error) {
-	b.status = err.Error()
-	b.statusErr = true
-}
+// clearNote takes the last message down. Starting something that will report for itself
+// does this first, so a stale outcome cannot reappear underneath it.
+func (b *Browser) clearNote() { b.note = note{} }
 
 // checkLocalName rejects a server-supplied entry name that cannot safely be used as a
 // local file name. Path separators or ".." would let a download write outside the
 // download directory, a colon addresses an NTFS stream or a drive, and the reserved
 // names open Windows devices rather than files.
 func checkLocalName(name string) error {
-	if name == "" || name == "." || name == ".." {
-		return fmt.Errorf("refusing unsafe remote file name %q", name)
+	if err := checkNameBasics(name); err != nil {
+		return err
 	}
 	if strings.ContainsAny(name, `/\:`) {
 		return fmt.Errorf("refusing unsafe remote file name %q", name)
-	}
-	for _, r := range name {
-		if r < 0x20 || r == 0x7f {
-			return fmt.Errorf("refusing remote file name with control characters")
-		}
 	}
 	// Windows strips trailing dots and spaces while normalizing, so "con." resolves to
 	// the device CON. Trim before splitting off the stem.
@@ -436,6 +439,24 @@ func checkLocalName(name string) error {
 		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
 		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
 		return fmt.Errorf("refusing reserved device name %q", name)
+	}
+	return nil
+}
+
+// checkNameBasics rejects what no file name may be, wherever it came from: the empty
+// name, the two directory names, and anything carrying control characters.
+//
+// The control-character rule is the one worth spelling out. Entry names are stripped of
+// them for display, so a name containing one would afterwards read on screen as a name it
+// does not have — here, and in any shell that later has to address it.
+func checkNameBasics(name string) error {
+	if name == "" || name == "." || name == ".." {
+		return fmt.Errorf("refusing name %q", name)
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("refusing name with control characters")
+		}
 	}
 	return nil
 }
@@ -579,28 +600,49 @@ func (b *Browser) View() string {
 		}
 	}
 
-	// Pad the content area so the status sits on the last line.
+	// Pad the content area so the footer sits on the last line.
 	for len(lines) < 2+rows {
 		lines = append(lines, "")
 	}
 
-	// Status line: red for errors, green for a completed action.
-	if b.status != "" {
-		txt := truncateText(stripControl(b.status), b.w)
-		if b.statusErr {
-			lines = append(lines, redStyle.Render(txt))
-		} else {
-			lines = append(lines, greenStyle.Render(txt))
-		}
-	} else {
-		lines = append(lines, "")
-	}
+	lines = append(lines, b.footerLine(b.w))
 
 	if len(lines) > b.h {
 		lines = lines[:b.h]
 	}
 	return strings.Join(lines, "\n")
 }
+
+// footerLine is the browser's last row, already styled and already fitted to w.
+//
+// Four things want that row and only one can have it, so the order is the whole content
+// of this function: an open question first, because it is the only thing the keyboard is
+// answering; then a note still inside its deadline, which is news the user just caused
+// and must not be hidden by a bar; then a running transfer; then the standing note.
+// Returning "" for "nothing to say" keeps the row present, which is what holds the pane
+// at its full height.
+func (b *Browser) footerLine(w int) string {
+	switch {
+	case b.overlay.active():
+		return b.overlay.view(w)
+	case b.note.live():
+		return redStyle.Render(truncateText(stripControl(b.note.text), w))
+	case b.xfer != nil:
+		return accentStyle.Render(b.progressLine(w))
+	case b.note.text != "":
+		txt := truncateText(stripControl(b.note.text), w)
+		if b.note.err {
+			return redStyle.Render(txt)
+		}
+		return greenStyle.Render(txt)
+	}
+	return ""
+}
+
+// tailCol is one candidate for a row's right-hand columns, carried as both the plain
+// text — which is what the width arithmetic may measure — and the styled text that is
+// actually drawn.
+type tailCol struct{ plain, styled string }
 
 // renderRow renders one entry: an accent bar and bold name for the selection,
 // directories in accent with a trailing "/", files with a right-aligned dim size.
@@ -618,19 +660,44 @@ func (b *Browser) renderRow(e sftpx.Entry, selected bool) string {
 	if !e.IsDir {
 		sizeText = humanizeBytes(e.Size)
 	}
+	// The modified time is a column of its own, kept out of the size text so a directory
+	// — which has no size — still carries one.
+	timeText := b.modTimeCol(e)
 
-	// Width left for the name after the 2-cell prefix, size and gap.
-	avail := b.w - 2
-	if sizeText != "" {
-		avail -= lipgloss.Width(sizeText) + 1
+	// The row is the name plus as much of a right-hand tail as fits: the candidates are
+	// tried widest first and the first one leaving the name a readable stub wins, so a
+	// narrowing pane drops the time column, then the size, then nothing is left to drop.
+	// Both texts are ASCII by construction — humanizeBytes and a fixed time layout — so
+	// len is their cell width.
+	const nameFloor = 12
+	room := b.w - 2
+
+	var tails []tailCol
+	if sizeText != "" && timeText != "" {
+		tails = append(tails, tailCol{sizeText + " " + timeText,
+			dimStyle.Render(sizeText) + " " + faintStyle.Render(timeText)})
 	}
-	if avail < 1 {
-		// No room for a size column; give the name the full width.
-		sizeText = ""
-		avail = b.w - 2
+	if timeText != "" && sizeText == "" {
+		tails = append(tails, tailCol{timeText, faintStyle.Render(timeText)})
+	}
+	if sizeText != "" {
+		tails = append(tails, tailCol{sizeText, dimStyle.Render(sizeText)})
+	}
+	tails = append(tails, tailCol{}) // the name on its own always fits
+
+	var tail tailCol
+	for _, c := range tails {
+		if c.plain == "" || room-len(c.plain)-1 >= nameFloor {
+			tail = c
+			break
+		}
+	}
+
+	avail := room
+	if tail.plain != "" {
+		avail -= len(tail.plain) + 1
 	}
 	nameText = truncateText(nameText, avail)
-	nameW := lipgloss.Width(nameText)
 
 	var nameStyled string
 	switch {
@@ -642,15 +709,11 @@ func (b *Browser) renderRow(e sftpx.Entry, selected bool) string {
 		nameStyled = nameText
 	}
 
-	if sizeText == "" {
+	if tail.plain == "" {
 		return prefix + nameStyled
 	}
-
-	gap := b.w - 2 - nameW - lipgloss.Width(sizeText)
-	if gap < 1 {
-		gap = 1
-	}
-	return prefix + nameStyled + strings.Repeat(" ", gap) + dimStyle.Render(sizeText)
+	gap := max(room-lipgloss.Width(nameText)-len(tail.plain), 1)
+	return prefix + nameStyled + strings.Repeat(" ", gap) + tail.styled
 }
 
 // Resize stores the new dimensions and re-clamps the scroll window.
@@ -664,7 +727,7 @@ func (b *Browser) Resize(w, h int) {
 func (b *Browser) Path() string { return b.cwd }
 
 // Status returns the last-action message.
-func (b *Browser) Status() string { return b.status }
+func (b *Browser) Status() string { return b.note.text }
 
 // Close closes the underlying SFTP client.
 func (b *Browser) Close() error { return b.client.Close() }

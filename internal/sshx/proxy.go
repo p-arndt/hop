@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"hop/internal/pathx"
 	"hop/internal/store"
 )
 
@@ -60,7 +61,7 @@ func dialProxyCommand(cmdline, host string, port int, user, alias string) (net.C
 
 	// The only shell expansion hop does here: `~/bin/tunnel` would otherwise fail to exec.
 	for i := range argv {
-		argv[i] = expandHome(argv[i])
+		argv[i] = pathx.ExpandHome(argv[i])
 	}
 
 	cmd := exec.Command(argv[0], argv[1:]...)

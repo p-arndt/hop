@@ -272,9 +272,11 @@ func (m *model) openBrowserTrusting(h store.Host, fingerprint string) tea.Cmd {
 }
 
 // openFile opens the file the browser just activated in an editor tab, focusing the
-// existing tab when the file is already open.
-func (m *model) openFile(msg filebrowser.OpenFileMsg) tea.Cmd {
-	s := m.sessions[m.active]
+// existing tab when the file is already open. The alias comes with the message rather
+// than from m.active: the browser that asked is the one that gets the tab, even if the
+// user has moved on since.
+func (m *model) openFile(alias string, msg filebrowser.OpenFileMsg) tea.Cmd {
+	s := m.sessions[alias]
 	if s == nil || s.client == nil {
 		return nil
 	}
@@ -291,7 +293,7 @@ func (m *model) openFile(msg filebrowser.OpenFileMsg) tea.Cmd {
 	// is used, never rendered.
 	name := stripControl(msg.Name)
 	m.setStatus(statusInfo, "opening %s…", name)
-	return openEditorCmd(m.active, s.client, m.nextEdID, msg.Path, name, m.cfg.Editor, ew, eh, m.notify)
+	return openEditorCmd(alias, s.client, m.nextEdID, msg.Path, name, m.cfg.Editor, ew, eh, m.notify)
 }
 
 // disconnect closes everything open on a host and drops its connection.

@@ -357,8 +357,17 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case browserOpenedMsg:
 		return m.browserLanded(msg)
 
-	case filebrowser.OpenFileMsg:
-		return m, m.openFile(msg)
+	case filebrowser.Msg:
+		// Routed by name, like every other per-session message. The browser sorts out
+		// what the body means; the model only has to know whose it is.
+		s := m.sessions[msg.Alias]
+		if s == nil || s.browser == nil {
+			return m, nil
+		}
+		if open, ok := msg.Body.(filebrowser.OpenFileMsg); ok {
+			return m, m.openFile(msg.Alias, open)
+		}
+		return m, s.browser.Update(msg)
 
 	case editorOpenedMsg:
 		return m.editorLanded(msg)
