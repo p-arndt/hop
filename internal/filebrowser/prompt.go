@@ -49,13 +49,13 @@ func (b *Browser) Prompting() bool { return b.overlay.active() }
 // its end, so a rename starts from the current name and edits it).
 func (b *Browser) ask(label, initial string, done func(*Browser, string) tea.Cmd) {
 	b.overlay = overlay{kind: overlayInput, label: label, value: initial, done: done}
-	b.status, b.statusErr = "", false
+	b.clearNote()
 }
 
 // askConfirm opens a yes/no question. done receives "y".
 func (b *Browser) askConfirm(label string, done func(*Browser, string) tea.Cmd) {
 	b.overlay = overlay{kind: overlayConfirm, label: label, done: done}
-	b.status, b.statusErr = "", false
+	b.clearNote()
 }
 
 // closeOverlay drops the open question without answering it.
@@ -63,10 +63,17 @@ func (b *Browser) closeOverlay() { b.overlay = overlay{} }
 
 // overlayKey applies a key to the open question, reporting whether it consumed it. It
 // consumes every key while one is open: that is what "owns the keyboard" means.
-func (b *Browser) overlayKey(key string) (tea.Cmd, bool) {
+//
+// It takes the message rather than its String() because the text it is collecting comes
+// from msg.Runes, as it does in every other one-line input in hop: a stringified key is a
+// name for a keystroke, and reconstructing typed text from those names means a filter
+// that has to be kept in step with bubbletea's naming. Runes also arrive several at a
+// time from a paste, which a name-by-name filter would drop.
+func (b *Browser) overlayKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	if !b.overlay.active() {
 		return nil, false
 	}
+	key := msg.String()
 
 	if b.overlay.kind == overlayConfirm {
 		done := b.overlay.done
@@ -100,14 +107,11 @@ func (b *Browser) overlayKey(key string) (tea.Cmd, bool) {
 		// The same "clear the line" every other hop input has.
 		b.overlay.value = ""
 
-	case "space":
-		b.overlay.value += " "
-
 	default:
-		// Single printable runes only. A chord or a named key is swallowed rather than
-		// typed: "ctrl+d" must never end up in a filename.
-		if r := []rune(key); len(r) == 1 && r[0] >= 0x20 && r[0] != 0x7f {
-			b.overlay.value += key
+		// Typed text only. A chord or a named key carries no runes, so it is swallowed
+		// rather than typed: "ctrl+d" must never end up in a filename.
+		if len(msg.Runes) > 0 {
+			b.overlay.value += string(msg.Runes)
 		}
 	}
 	return nil, true

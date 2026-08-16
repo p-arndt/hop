@@ -1,7 +1,8 @@
 package filebrowser
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"strings"
 	"time"
 
@@ -47,20 +48,14 @@ var now = time.Now
 // sort that shuffled a different file under it would make the next keystroke a surprise.
 func (b *Browser) cycleSort() {
 	// Remember the entry before the order changes; afterwards its index means nothing.
-	under, hadEntry := b.selected()
+	// An empty listing yields the zero Entry, whose name matches nothing — focus then
+	// leaves the cursor where it is, which is the right answer for a listing with no rows.
+	under, _ := b.selected()
 
 	b.sortBy = (b.sortBy + 1) % sortModes
 	b.entries = b.applySort(b.entries)
 
-	if hadEntry {
-		for i, e := range b.entries {
-			if e.Name == under.Name {
-				b.cursor = i
-				break
-			}
-		}
-	}
-	b.clampScroll()
+	b.focus(under.Name)
 	b.ok("sorted by " + b.sortBy.String())
 }
 
@@ -71,40 +66,55 @@ func (b *Browser) cycleSort() {
 // The caller's slice is left alone: load hands over the slice the client returned, and
 // re-sorting it in place would reorder a listing the client may still be caching.
 func (b *Browser) applySort(ents []sftpx.Entry) []sftpx.Entry {
-	out := make([]sftpx.Entry, len(ents))
-	copy(out, ents)
+	// The lowercased name is the tie-break in every mode, so it is folded once per entry
+	// rather than inside the comparator. A comparator that lowercases both operands does
+	// it O(n log n) times, and the directory size is the remote host's choice — /usr/bin
+	// or a log directory turns a few thousand entries into a hundred thousand full-string
+	// scans for a sort that should cost one pass.
+	keyed := make([]keyedEntry, len(ents))
+	for i, e := range ents {
+		keyed[i] = keyedEntry{e: e, fold: strings.ToLower(e.Name)}
+	}
 
 	mode := b.sortBy
-	sort.Slice(out, func(i, j int) bool {
-		a, c := out[i], out[j]
-		if a.IsDir != c.IsDir {
-			return a.IsDir
+	slices.SortFunc(keyed, func(a, c keyedEntry) int {
+		if a.e.IsDir != c.e.IsDir {
+			if a.e.IsDir {
+				return -1
+			}
+			return 1
 		}
 		switch mode {
 		case sortSize:
-			if a.Size != c.Size {
-				return a.Size > c.Size
+			if n := cmp.Compare(c.e.Size, a.e.Size); n != 0 { // largest first
+				return n
 			}
 		case sortMTime:
-			if a.ModTime != c.ModTime {
-				return a.ModTime > c.ModTime
+			if n := cmp.Compare(c.e.ModTime, a.e.ModTime); n != 0 { // newest first
+				return n
 			}
 		}
-		return nameLess(a.Name, c.Name)
+		// Every mode ends here, which is what makes each of them a total order — a
+		// refresh must not reshuffle rows of equal size or age. The raw name breaks a
+		// tie between names differing only in case, so even those have one fixed order.
+		if n := cmp.Compare(a.fold, c.fold); n != 0 {
+			return n
+		}
+		return cmp.Compare(a.e.Name, c.e.Name)
 	})
+
+	out := make([]sftpx.Entry, len(keyed))
+	for i, k := range keyed {
+		out[i] = k.e
+	}
 	return out
 }
 
-// nameLess orders two entry names the way a person reads a directory: case-insensitively,
-// falling back to the raw bytes so that names differing only in case still have one fixed
-// order. Every mode ends here, which is what makes each of them a total order — a refresh
-// must not reshuffle rows of equal size or age.
-func nameLess(a, b string) bool {
-	la, lb := strings.ToLower(a), strings.ToLower(b)
-	if la != lb {
-		return la < lb
-	}
-	return a < b
+// keyedEntry is an entry beside its case-folded name, so the fold is paid for once per
+// entry instead of once per comparison.
+type keyedEntry struct {
+	e    sftpx.Entry
+	fold string
 }
 
 // modTimeCol renders e's modification time for the row's right-hand column, or "" when

@@ -47,6 +47,30 @@ func (m *model) View() string {
 	return m.keycastDraw(screen)
 }
 
+// capturing reports whether something on screen has taken the input for itself, so a
+// click anywhere is not the click it appears to be.
+//
+// Most of those things render as a centred card, which is why modalCard doubles as the
+// test for them. Two do not, and they are the reason this predicate exists rather than
+// the renderer standing in for it: the context menu is anchored to a row, and the file
+// browser's question lives on its own status line, inside another package. All three are
+// the same idea — a click elsewhere would answer the open question by moving the thing it
+// was asked about.
+func (m *model) capturing() bool {
+	return m.modalCard() != "" || m.menu.open || m.browserPrompting()
+}
+
+// browserPrompting reports whether the active session's file browser is waiting on a
+// typed answer. It walks to the browser because the state lives there: the browser owns
+// its own question, and the model only needs to know that one is open.
+func (m *model) browserPrompting() bool {
+	if !m.browsing() {
+		return false
+	}
+	s := m.sessions[m.active]
+	return s != nil && s.browser != nil && s.browser.Prompting()
+}
+
 // modalCard is the popover currently up, or "". Only one can be open: each takes every
 // key while it is.
 func (m *model) modalCard() string {

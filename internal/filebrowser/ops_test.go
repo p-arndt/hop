@@ -2,6 +2,7 @@ package filebrowser
 
 import (
 	"errors"
+	"path"
 	"strings"
 	"testing"
 
@@ -21,7 +22,7 @@ func (c *liveClient) Remove(p string) error {
 	if err := c.fakeClient.Remove(p); err != nil {
 		return err
 	}
-	name := baseName(p)
+	name := path.Base(p)
 	for i, e := range c.entries {
 		if e.Name == name {
 			c.entries = append(c.entries[:i:i], c.entries[i+1:]...)
@@ -35,10 +36,10 @@ func (c *liveClient) Rename(oldp, newp string) error {
 	if err := c.fakeClient.Rename(oldp, newp); err != nil {
 		return err
 	}
-	old := baseName(oldp)
+	old := path.Base(oldp)
 	for i, e := range c.entries {
 		if e.Name == old {
-			c.entries[i].Name = baseName(newp)
+			c.entries[i].Name = path.Base(newp)
 			break
 		}
 	}
@@ -49,15 +50,8 @@ func (c *liveClient) Mkdir(p string) error {
 	if err := c.fakeClient.Mkdir(p); err != nil {
 		return err
 	}
-	c.entries = append(c.entries, sftpx.Entry{Name: baseName(p), IsDir: true})
+	c.entries = append(c.entries, sftpx.Entry{Name: path.Base(p), IsDir: true})
 	return nil
-}
-
-func baseName(p string) string {
-	if i := strings.LastIndex(p, "/"); i >= 0 {
-		return p[i+1:]
-	}
-	return p
 }
 
 // opsBrowser builds a browser over a named listing backed by a liveClient.
@@ -65,6 +59,7 @@ func opsBrowser(ents ...sftpx.Entry) (*Browser, *liveClient) {
 	c := &liveClient{fakeClient{entries: ents}}
 	return &Browser{
 		client:  c,
+		alias:   "web1",
 		cwd:     "/home/u",
 		entries: ents,
 		opts:    Options{VimKeys: true},
@@ -136,8 +131,8 @@ func TestRemoveDeletesAndKeepsTheRow(t *testing.T) {
 	if b.cursor != 1 {
 		t.Fatalf("cursor = %d, want it to stay on row 1 (now c)", b.cursor)
 	}
-	if b.statusErr || !strings.Contains(b.status, "deleted b") {
-		t.Fatalf("status = %q (err=%v), want a deleted message", b.status, b.statusErr)
+	if b.note.err || !strings.Contains(b.note.text, "deleted b") {
+		t.Fatalf("status = %q (err=%v), want a deleted message", b.note.text, b.note.err)
 	}
 }
 
@@ -167,11 +162,11 @@ func TestRemoveNonEmptyDirectoryReportsTheRefusal(t *testing.T) {
 	if len(c.removes) != 1 {
 		t.Fatalf("removes = %v, want the delete to have been attempted", c.removes)
 	}
-	if !b.statusErr {
-		t.Fatalf("status = %q (err=%v), want the refusal reported as an error", b.status, b.statusErr)
+	if !b.note.err {
+		t.Fatalf("status = %q (err=%v), want the refusal reported as an error", b.note.text, b.note.err)
 	}
-	if !strings.Contains(b.status, "empty") {
-		t.Fatalf("status = %q, want it to say the directory must be empty first", b.status)
+	if !strings.Contains(b.note.text, "empty") {
+		t.Fatalf("status = %q, want it to say the directory must be empty first", b.note.text)
 	}
 	if len(b.entries) != 1 {
 		t.Fatalf("entries = %v, want the directory still listed", b.entries)
@@ -199,8 +194,8 @@ func TestRenameRoundTrip(t *testing.T) {
 	if e, _ := b.selected(); e.Name != "zeta.txt" {
 		t.Fatalf("cursor stands on %q, want the renamed entry", e.Name)
 	}
-	if b.statusErr || !strings.Contains(b.status, "zeta.txt") {
-		t.Fatalf("status = %q (err=%v), want a renamed message", b.status, b.statusErr)
+	if b.note.err || !strings.Contains(b.note.text, "zeta.txt") {
+		t.Fatalf("status = %q (err=%v), want a renamed message", b.note.text, b.note.err)
 	}
 }
 
@@ -219,8 +214,8 @@ func TestRenameRefusesPathsAndDots(t *testing.T) {
 			if len(c.renames) != 0 {
 				t.Fatalf("rename to %q reached the server as %v, want a refusal", name, c.renames)
 			}
-			if !b.statusErr {
-				t.Fatalf("rename to %q: status = %q, want an error", name, b.status)
+			if !b.note.err {
+				t.Fatalf("rename to %q: status = %q, want an error", name, b.note.text)
 			}
 		})
 	}
@@ -237,8 +232,8 @@ func TestRenameToTheSameNameIsANoop(t *testing.T) {
 	if len(c.renames) != 0 {
 		t.Fatalf("renames = %v, want nothing sent for an unchanged name", c.renames)
 	}
-	if b.statusErr {
-		t.Fatalf("status = %q, want no error for an unchanged name", b.status)
+	if b.note.err {
+		t.Fatalf("status = %q, want no error for an unchanged name", b.note.text)
 	}
 }
 
@@ -273,8 +268,8 @@ func TestMkdirCreatesAndFocuses(t *testing.T) {
 	if e, _ := b.selected(); e.Name != "docs" {
 		t.Fatalf("cursor stands on %q, want the new directory", e.Name)
 	}
-	if b.statusErr || !strings.Contains(b.status, "docs") {
-		t.Fatalf("status = %q (err=%v), want a created message", b.status, b.statusErr)
+	if b.note.err || !strings.Contains(b.note.text, "docs") {
+		t.Fatalf("status = %q (err=%v), want a created message", b.note.text, b.note.err)
 	}
 }
 
@@ -292,8 +287,8 @@ func TestMkdirRefusesPathsAndDots(t *testing.T) {
 			if len(c.mkdirs) != 0 {
 				t.Fatalf("mkdir %q reached the server as %v, want a refusal", name, c.mkdirs)
 			}
-			if !b.statusErr {
-				t.Fatalf("mkdir %q: status = %q, want an error", name, b.status)
+			if !b.note.err {
+				t.Fatalf("mkdir %q: status = %q, want an error", name, b.note.text)
 			}
 		})
 	}
@@ -322,11 +317,11 @@ func TestServerErrorsReachTheStatusLine(t *testing.T) {
 			typeText(t, b, tc.text)
 			b.Handle(key(t, "enter"))
 
-			if !b.statusErr {
-				t.Fatalf("%s: status = %q (err=%v), want the server error shown", tc.name, b.status, b.statusErr)
+			if !b.note.err {
+				t.Fatalf("%s: status = %q (err=%v), want the server error shown", tc.name, b.note.text, b.note.err)
 			}
-			if !strings.Contains(b.status, "permission denied") {
-				t.Fatalf("%s: status = %q, want it to carry the server's reason", tc.name, b.status)
+			if !strings.Contains(b.note.text, "permission denied") {
+				t.Fatalf("%s: status = %q, want it to carry the server's reason", tc.name, b.note.text)
 			}
 		})
 	}
@@ -390,11 +385,11 @@ func TestMutationDoesNotPaintOverAListingError(t *testing.T) {
 				b.Handle(key(t, "enter"))
 			}
 
-			if !b.statusErr {
-				t.Fatalf("status = %q (err=false), want the listing error to survive", b.status)
+			if !b.note.err {
+				t.Fatalf("status = %q (err=false), want the listing error to survive", b.note.text)
 			}
-			if !strings.Contains(b.status, "connection lost") {
-				t.Fatalf("status = %q, want the listing error", b.status)
+			if !strings.Contains(b.note.text, "connection lost") {
+				t.Fatalf("status = %q, want the listing error", b.note.text)
 			}
 		})
 	}

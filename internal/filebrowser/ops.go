@@ -58,8 +58,7 @@ func (b *Browser) remove() tea.Cmd {
 		// The row the deleted entry occupied now holds its successor, which is where the
 		// eye already is. Standing back on it beats jumping to the top of a directory the
 		// user was in the middle of.
-		b.cursor = at
-		b.clampScroll()
+		b.focusRow(at)
 		b.ok("deleted " + e.Name)
 		return nil
 	})
@@ -75,25 +74,14 @@ func (b *Browser) rename() tea.Cmd {
 	}
 	dir := b.cwd
 	b.ask("rename to:", e.Name, func(b *Browser, name string) tea.Cmd {
-		if err := checkTypedName(name); err != nil {
-			b.fail(err)
-			return nil
-		}
 		// Answering with the name that is already there is what happens when the prompt
 		// is opened and confirmed without an edit. Nothing to do, and nothing wrong.
 		if name == e.Name {
 			return nil
 		}
-		if err := b.client.Rename(path.Join(dir, e.Name), path.Join(dir, name)); err != nil {
-			b.fail(fmt.Errorf("rename %s: %w", e.Name, err))
-			return nil
-		}
-		if !b.refresh() {
-			return nil
-		}
-		b.focus(name)
-		b.ok(fmt.Sprintf("renamed %s → %s", e.Name, name))
-		return nil
+		return b.commit(name, "rename",
+			func() error { return b.client.Rename(path.Join(dir, e.Name), path.Join(dir, name)) },
+			fmt.Sprintf("renamed %s → %s", e.Name, name))
 	})
 	return nil
 }
@@ -102,21 +90,33 @@ func (b *Browser) rename() tea.Cmd {
 func (b *Browser) mkdir() tea.Cmd {
 	dir := b.cwd
 	b.ask("new directory:", "", func(b *Browser, name string) tea.Cmd {
-		if err := checkTypedName(name); err != nil {
-			b.fail(err)
-			return nil
-		}
-		if err := b.client.Mkdir(path.Join(dir, name)); err != nil {
-			b.fail(fmt.Errorf("mkdir %s: %w", name, err))
-			return nil
-		}
-		if !b.refresh() {
-			return nil
-		}
-		b.focus(name)
-		b.ok("created " + name)
-		return nil
+		return b.commit(name, "mkdir",
+			func() error { return b.client.Mkdir(path.Join(dir, name)) },
+			"created "+name)
 	})
+	return nil
+}
+
+// commit is what both keys that take a typed name do with it: check the name, do the
+// thing, re-list, stand on the result and say so. verb names the operation in a failure.
+//
+// The refresh check is the part worth having in one place — a mutation that succeeded
+// against a listing that then failed must report the listing error, and it would be easy
+// for one of two near-identical callbacks to drift out of doing that.
+func (b *Browser) commit(name, verb string, do func() error, okMsg string) tea.Cmd {
+	if err := checkTypedName(name); err != nil {
+		b.fail(err)
+		return nil
+	}
+	if err := do(); err != nil {
+		b.fail(fmt.Errorf("%s %s: %w", verb, name, err))
+		return nil
+	}
+	if !b.refresh() {
+		return nil
+	}
+	b.focus(name)
+	b.ok(okMsg)
 	return nil
 }
 
@@ -125,21 +125,14 @@ func (b *Browser) mkdir() tea.Cmd {
 // A slash is refused because both keys act inside cwd: "R" is a rename and not a move,
 // so a typed path would quietly relocate the file the user meant to retitle, and "m"
 // creates parents, so a typo containing a slash would build a tree rather than a
-// directory. "." and ".." are the current directory and its parent, which cannot be
-// created and must not be renamed onto. Control characters are refused because they are
-// stripped from the listing, so the entry would afterwards read as a name it does not
-// have, both here and in any shell that later has to address it.
+// directory. The rest — the empty and dot names, and control characters — is what any
+// name has to clear, remote or local, and lives with the local check.
 func checkTypedName(name string) error {
-	if name == "" || name == "." || name == ".." {
-		return fmt.Errorf("refusing name %q", name)
+	if err := checkNameBasics(name); err != nil {
+		return err
 	}
 	if strings.Contains(name, "/") {
 		return fmt.Errorf("refusing name %q: this is a name, not a path", name)
-	}
-	for _, r := range name {
-		if r < 0x20 || r == 0x7f {
-			return fmt.Errorf("refusing name with control characters")
-		}
 	}
 	return nil
 }
@@ -161,5 +154,12 @@ func (b *Browser) focus(name string) {
 			break
 		}
 	}
+	b.clampScroll()
+}
+
+// focusRow stands the cursor on row i, clamped. It is focus's other half: after a delete
+// there is no name to look for, only the place the name used to be.
+func (b *Browser) focusRow(i int) {
+	b.cursor = i
 	b.clampScroll()
 }

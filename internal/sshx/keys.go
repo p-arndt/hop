@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/ssh"
+
+	"hop/internal/pathx"
 )
 
 // defaultKeyNames are the private keys OpenSSH tries when a host names no IdentityFile,
@@ -54,7 +56,7 @@ func keySigners(identityFile string) (signers []ssh.Signer, skipped []string) {
 // by a default key that happens to exist.
 func keyPaths(identityFile string) (paths []string, explicit bool) {
 	if f := strings.TrimSpace(identityFile); f != "" {
-		return []string{expandHome(f)}, true
+		return []string{pathx.ExpandHome(f)}, true
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -64,21 +66,4 @@ func keyPaths(identityFile string) (paths []string, explicit bool) {
 		paths = append(paths, filepath.Join(home, ".ssh", name))
 	}
 	return paths, false
-}
-
-// expandHome resolves a leading ~ in a path, as ssh_config writes it for IdentityFile and
-// ProxyCommand. Both separators, since a Windows config writes `~\.ssh\id_ed25519`. A
-// bare "~user/…" is left alone.
-func expandHome(p string) string {
-	if p != "~" && !strings.HasPrefix(p, "~/") && !strings.HasPrefix(p, `~\`) {
-		return p
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return p
-	}
-	if p == "~" {
-		return home
-	}
-	return filepath.Join(home, p[2:])
 }

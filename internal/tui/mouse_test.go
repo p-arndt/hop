@@ -11,6 +11,7 @@ import (
 
 	"hop/internal/config"
 	"hop/internal/filebrowser"
+	"hop/internal/filebrowser/fbtest"
 	"hop/internal/sftpx"
 	"hop/internal/sshx"
 	"hop/internal/store"
@@ -354,25 +355,12 @@ func TestClickShellTab(t *testing.T) {
 	}
 }
 
-// mouseSFTP is a listing to point at: enough of an SFTP connection to build a real
-// browser with entries in it, unlike fakeSFTP's empty directory.
-type mouseSFTP struct{ ents []sftpx.Entry }
-
-func (mouseSFTP) Home() (string, error)                                      { return "/srv", nil }
-func (f mouseSFTP) List(string) ([]sftpx.Entry, error)                       { return f.ents, nil }
-func (mouseSFTP) DownloadProgress(_, _ string, _ func(int64)) (int64, error) { return 0, nil }
-func (mouseSFTP) UploadProgress(_, _ string, _ func(int64)) (int64, error)   { return 0, nil }
-func (mouseSFTP) Mkdir(string) error                                         { return nil }
-func (mouseSFTP) Remove(string) error                                        { return nil }
-func (mouseSFTP) Rename(_, _ string) error                                   { return nil }
-func (mouseSFTP) Close() error                                               { return nil }
-
 // A double-click in the browser opens what it landed on. The row is mapped through the
 // pane's borders and the browser's own header and rule.
 func TestDoubleClickInBrowserOpens(t *testing.T) {
 	br, err := filebrowser.New(
-		mouseSFTP{ents: []sftpx.Entry{{Name: "logs", IsDir: true}, {Name: "app.conf", Size: 12}}},
-		"/srv", filebrowser.Options{DownloadDir: t.TempDir()}, 40, 12)
+		fbtest.Stub{Dir: "/srv", Entries: []sftpx.Entry{{Name: "logs", IsDir: true}, {Name: "app.conf", Size: 12}}},
+		"ha", "/srv", filebrowser.Options{DownloadDir: t.TempDir()}, 40, 12)
 	if err != nil {
 		t.Fatalf("build browser: %v", err)
 	}
@@ -397,8 +385,8 @@ func TestDoubleClickInBrowserOpens(t *testing.T) {
 // never aimed at.
 func TestPointerIsIgnoredWhileTheBrowserIsAsking(t *testing.T) {
 	br, err := filebrowser.New(
-		mouseSFTP{ents: []sftpx.Entry{{Name: "logs", IsDir: true}, {Name: "app.conf", Size: 12}}},
-		"/srv", filebrowser.Options{DownloadDir: t.TempDir()}, 40, 12)
+		fbtest.Stub{Dir: "/srv", Entries: []sftpx.Entry{{Name: "logs", IsDir: true}, {Name: "app.conf", Size: 12}}},
+		"ha", "/srv", filebrowser.Options{DownloadDir: t.TempDir()}, 40, 12)
 	if err != nil {
 		t.Fatalf("build browser: %v", err)
 	}

@@ -515,23 +515,6 @@ func TestProxyCommandSilentProxyTimesOut(t *testing.T) {
 	}
 }
 
-// One tilde expander for the package, rather than two that drift.
-func TestProxyCommandExpandsTilde(t *testing.T) {
-	home := fakeHome(t)
-	for _, in := range []string{"~/bin/tunnel", `~\bin\tunnel`} {
-		got := expandHome(in)
-		if !strings.HasPrefix(got, home) {
-			t.Errorf("expandHome(%q) = %q, want it under %q", in, got, home)
-		}
-	}
-	if got := expandHome("~"); got != home {
-		t.Errorf("expandHome(\"~\") = %q, want %q", got, home)
-	}
-	if got := expandHome("~otheruser/x"); got != "~otheruser/x" {
-		t.Errorf("expandHome(~otheruser/x) = %q, want it untouched", got)
-	}
-}
-
 // A hardened bastion (`AllowTcpForwarding no`) rejects direct-tcpip — the most common
 // reason a real ProxyJump fails. The error must carry the bastion's reason, or nothing
 // points the user at its sshd_config.

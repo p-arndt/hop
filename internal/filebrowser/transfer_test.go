@@ -12,6 +12,13 @@ import (
 	"hop/internal/sftpx"
 )
 
+// withMoved stamps a hand-built transfer with a byte count, standing in for what the copy
+// goroutine would have reported by now.
+func withMoved(t *transfer, n int64) *transfer {
+	t.moved.Store(n)
+	return t
+}
+
 // drive runs cmd the way Bubble Tea's event loop does: execute it, unpack a batch into
 // its parts, feed every message back through Update, and keep going with whatever that
 // returns. Transfers are commands now, so this is the only way a test sees one finish.
@@ -37,7 +44,13 @@ func drive(t *testing.T, b *Browser, cmd tea.Cmd) {
 			queue = append(queue, batch...)
 			continue
 		}
-		if next := b.Update(msg); next != nil {
+		// Everything a browser sends arrives wrapped and addressed; anything else on this
+		// queue is not the browser's and would be the model's business.
+		wrapped, ok := msg.(Msg)
+		if !ok {
+			t.Fatalf("drive: a browser command produced %T, want a filebrowser.Msg", msg)
+		}
+		if next := b.Update(wrapped); next != nil {
 			queue = append(queue, next)
 		}
 	}
@@ -57,6 +70,7 @@ func xferBrowser(t *testing.T) (*Browser, *fakeClient, string) {
 	fc := &fakeClient{entries: ents}
 	b := &Browser{
 		client:  fc,
+		alias:   "web1",
 		cwd:     "/home/u",
 		entries: ents,
 		opts:    Options{DownloadDir: dl},
@@ -74,9 +88,7 @@ func typePath(t *testing.T, b *Browser, s string) tea.Cmd {
 	if !b.overlay.active() {
 		t.Fatal("no prompt is open to type into")
 	}
-	for _, r := range s {
-		b.Handle(key(t, string(r)))
-	}
+	typeText(t, b, s)
 	return b.Handle(key(t, "enter"))
 }
 
@@ -110,8 +122,8 @@ func TestDownloadRunsAsync(t *testing.T) {
 	if b.xfer != nil {
 		t.Fatal("the transfer is still in flight after it completed")
 	}
-	if b.statusErr || !strings.HasPrefix(b.status, "downloaded a.txt") {
-		t.Fatalf("status = %q (err=%v), want a downloaded... message", b.status, b.statusErr)
+	if b.note.err || !strings.HasPrefix(b.note.text, "downloaded a.txt") {
+		t.Fatalf("status = %q (err=%v), want a downloaded... message", b.note.text, b.note.err)
 	}
 }
 
@@ -126,8 +138,8 @@ func TestDownloadFailureClearsTransfer(t *testing.T) {
 	if b.xfer != nil {
 		t.Fatal("a failed transfer stayed in flight")
 	}
-	if !b.statusErr {
-		t.Fatalf("status = %q, want an error", b.status)
+	if !b.note.err {
+		t.Fatalf("status = %q, want an error", b.note.text)
 	}
 }
 
@@ -201,8 +213,8 @@ func TestUploadExpandsHome(t *testing.T) {
 	if got := fc.uploads[0]; got[0] != src || got[1] != "/home/u/notes.md" {
 		t.Fatalf("upload = %v, want {%s /home/u/notes.md}", got, src)
 	}
-	if b.statusErr || !strings.HasPrefix(b.status, "uploaded notes.md") {
-		t.Fatalf("status = %q (err=%v), want an uploaded... message", b.status, b.statusErr)
+	if b.note.err || !strings.HasPrefix(b.note.text, "uploaded notes.md") {
+		t.Fatalf("status = %q (err=%v), want an uploaded... message", b.note.text, b.note.err)
 	}
 }
 
@@ -253,8 +265,8 @@ func TestUploadRejectsMissingAndDirectory(t *testing.T) {
 			if b.xfer != nil {
 				t.Fatal("a bad upload path left a transfer in flight")
 			}
-			if !b.statusErr || !strings.Contains(b.status, tc.want) {
-				t.Fatalf("status = %q (err=%v), want an error mentioning %q", b.status, b.statusErr, tc.want)
+			if !b.note.err || !strings.Contains(b.note.text, tc.want) {
+				t.Fatalf("status = %q (err=%v), want an error mentioning %q", b.note.text, b.note.err, tc.want)
 			}
 		})
 	}
@@ -294,7 +306,7 @@ func TestSecondTransferRefused(t *testing.T) {
 	for _, k := range []string{"d", "u", "o"} {
 		t.Run(k, func(t *testing.T) {
 			b, fc, _ := xferBrowser(t)
-			b.xfer = &transfer{dir: down, name: "big.iso", total: 1 << 30}
+			b.xfer = &transfer{arrow: "↓ ", name: "big.iso", total: 1 << 30}
 
 			b.cursor = 1
 			if cmd := b.Handle(key(t, k)); cmd != nil {
@@ -324,18 +336,18 @@ func TestSecondTransferRefused(t *testing.T) {
 // comes back — it must not sit on top of the transfer for the rest of its life.
 func TestRefusalYieldsBackToTheProgressLine(t *testing.T) {
 	b, _, _ := xferBrowser(t)
-	b.xfer = &transfer{dir: down, name: "big.iso", total: 1 << 30, done: 1 << 29}
+	b.xfer = withMoved(&transfer{arrow: "↓ ", name: "big.iso", total: 1 << 30}, 1<<29)
 
 	b.cursor = 1
 	b.Handle(key(t, "d"))
-	if got := b.refused(); got == "" {
-		t.Fatal("the refusal was not taken up at all")
+	if !b.note.live() {
+		t.Fatal("the refusal did not take the row at all")
 	}
 
 	// Age it past its welcome rather than sleeping through it.
-	b.refusedAt = b.refusedAt.Add(-refusalFor - time.Second)
-	if got := b.refused(); got != "" {
-		t.Fatalf("refused() = %q after its time, want empty", got)
+	b.note.until = time.Now().Add(-time.Second)
+	if b.note.live() {
+		t.Fatal("the refusal is still live after its deadline")
 	}
 	if view := b.View(); !strings.Contains(view, "50%") {
 		t.Fatalf("the progress line did not come back. View:\n%s", view)
@@ -351,7 +363,7 @@ func TestProgressLine(t *testing.T) {
 		t.Fatalf("progressLine with no transfer = %q, want empty", got)
 	}
 
-	b.xfer = &transfer{dir: down, name: "a.txt", total: 1024, done: 512}
+	b.xfer = withMoved(&transfer{arrow: "↓ ", name: "a.txt", total: 1024}, 512)
 	for _, w := range []int{-1, 0, 1, 4, 12, 40, 200} {
 		line := b.progressLine(w)
 		if w <= 0 {
@@ -370,7 +382,7 @@ func TestProgressLine(t *testing.T) {
 
 	// An upload's count is reported the same way a download's is, so it gets a real
 	// percentage too.
-	up1 := &transfer{dir: up, name: "a.txt", total: 1024, done: 256}
+	up1 := withMoved(&transfer{arrow: "↑ ", name: "a.txt", total: 1024}, 256)
 	b.xfer = up1
 	if line := b.progressLine(40); !strings.Contains(line, "25%") {
 		t.Fatalf("upload progressLine = %q, want the reported percentage", line)
@@ -378,36 +390,38 @@ func TestProgressLine(t *testing.T) {
 
 	// Without a known total there is no fraction to show, in either direction: the line
 	// falls back to what has moved so far and how long it has been going.
-	b.xfer = &transfer{dir: up, name: "a.txt", done: 4096}
+	b.xfer = withMoved(&transfer{arrow: "↑ ", name: "a.txt"}, 4096)
 	if line := b.progressLine(40); strings.Contains(line, "%") {
 		t.Fatalf("progressLine without a total = %q, want no percentage", line)
 	}
 }
 
-// A tick snapshots the count the copy is publishing. The copy runs on another goroutine,
-// so the tick is where that count becomes something the view may read.
-func TestTickSnapshotsTheReportedCount(t *testing.T) {
+// A tick is purely a repaint: it schedules the next one and nothing else. What the line
+// shows is read straight from the count the copy publishes, so a tick cannot invent
+// progress and cannot lag behind it either.
+func TestTickOnlyRepaints(t *testing.T) {
 	b, _, dl := xferBrowser(t)
 	local := filepath.Join(dl, "a.txt")
-	tr := &transfer{dir: down, name: "a.txt", local: local, total: 1024}
+	tr := &transfer{arrow: "↓ ", name: "a.txt", local: local, total: 1024}
 	b.xfer = tr
 
-	// Nothing reported yet: a tick must not invent progress.
-	b.Update(transferTickMsg{t: tr})
-	if tr.done != 0 {
-		t.Fatalf("done = %d before anything was reported, want 0", tr.done)
+	// Nothing reported yet.
+	if cmd := b.Update(Msg{Body: transferTickMsg{t: tr}}); cmd == nil {
+		t.Fatal("a tick for the running transfer scheduled no successor")
+	}
+	if line := b.progressLine(40); !strings.Contains(line, "0%") {
+		t.Fatalf("progressLine = %q before anything was reported, want 0%%", line)
 	}
 
 	tr.moved.Store(300)
-	b.Update(transferTickMsg{t: tr})
-	if tr.done != 300 {
-		t.Fatalf("done = %d after a tick, want the 300 bytes reported", tr.done)
+	if line := b.progressLine(40); !strings.Contains(line, "29%") {
+		t.Fatalf("progressLine = %q after 300 of 1024 bytes, want 29%%", line)
 	}
 
 	// A tick belonging to a transfer that has already ended must be ignored rather than
 	// bring the progress line back.
 	b.xfer = nil
-	if cmd := b.Update(transferTickMsg{t: tr}); cmd != nil {
+	if cmd := b.Update(Msg{Body: transferTickMsg{t: tr}}); cmd != nil {
 		t.Fatal("a stale tick scheduled another one")
 	}
 	if b.xfer != nil {
@@ -438,8 +452,8 @@ func TestOpenInAppRefusesExecutableAsync(t *testing.T) {
 			if b.xfer != nil {
 				t.Fatalf("o on %q left a transfer in flight", name)
 			}
-			if !b.statusErr {
-				t.Fatalf("o on %q: status = %q, want an error", name, b.status)
+			if !b.note.err {
+				t.Fatalf("o on %q: status = %q, want an error", name, b.note.text)
 			}
 		})
 	}
@@ -469,31 +483,11 @@ func TestOpenInAppFetchesAsync(t *testing.T) {
 	if *opened != want {
 		t.Fatalf("opened %q, want %q", *opened, want)
 	}
-	if b.statusErr || b.status != "opened a.txt" {
-		t.Fatalf("status = %q (err=%v), want %q", b.status, b.statusErr, "opened a.txt")
+	if b.note.err || b.note.text != "opened a.txt" {
+		t.Fatalf("status = %q (err=%v), want %q", b.note.text, b.note.err, "opened a.txt")
 	}
 	if entries, _ := os.ReadDir(dl); len(entries) != 0 {
 		t.Fatalf("o wrote into the download dir: %v", entries)
-	}
-}
-
-// expandHome resolves only a leading "~" element. A "~user" form is a shell's business,
-// and a file genuinely named "~notes" must stay itself.
-func TestExpandHome(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-
-	if got, want := expandHome("~"), home; got != want {
-		t.Fatalf("expandHome(%q) = %q, want %q", "~", got, want)
-	}
-	if got, want := expandHome("~/a/b.txt"), filepath.Join(home, "a", "b.txt"); got != want {
-		t.Fatalf("expandHome = %q, want %q", got, want)
-	}
-	for _, p := range []string{"~notes.txt", "/tmp/~/x", "./~", "relative/path"} {
-		if got := expandHome(p); got != p {
-			t.Fatalf("expandHome(%q) = %q, want it left alone", p, got)
-		}
 	}
 }
 
@@ -521,9 +515,7 @@ func TestReportedBytesReachTheProgressLine(t *testing.T) {
 		t.Fatalf("the transfer saw %d bytes reported, want the client's final 1024", got)
 	}
 
-	// A tick after the copy finished cannot be observed through b.xfer — it is already
-	// nil — so the snapshot is taken directly, which is what the tick would have done.
-	tr.observe()
+	// The transfer is off b.xfer by now, so put it back to render its final state.
 	b.xfer = tr
 	if line := b.progressLine(40); !strings.Contains(line, "100%") {
 		t.Fatalf("progressLine = %q, want the reported bytes as 100%%", line)
@@ -582,8 +574,8 @@ func TestUploadReportsItsRealDestination(t *testing.T) {
 	if fc.uploads[0][1] != "/home/u/new.txt" {
 		t.Fatalf("uploaded to %q, want the directory the upload was aimed at", fc.uploads[0][1])
 	}
-	if !strings.Contains(b.status, "/home/u") || strings.Contains(b.status, "/home/u/sub") {
-		t.Fatalf("status = %q, want the real destination /home/u", b.status)
+	if !strings.Contains(b.note.text, "/home/u") || strings.Contains(b.note.text, "/home/u/sub") {
+		t.Fatalf("status = %q, want the real destination /home/u", b.note.text)
 	}
 	// Re-listing here would show /home/u/sub's contents as if the file had landed there.
 	if len(b.entries) != before {

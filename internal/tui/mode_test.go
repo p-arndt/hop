@@ -143,7 +143,7 @@ func TestBrowserEditorRoundTrip(t *testing.T) {
 	wantMode(t, m, modeBrowser)
 
 	// ...and opening the file that is already open goes straight back to its tab.
-	m.openFile(filebrowser.OpenFileMsg{Path: "/etc/a.conf", Name: "a.conf"})
+	m.openFile("web", filebrowser.OpenFileMsg{Path: "/etc/a.conf", Name: "a.conf"})
 	wantMode(t, m, modeEditor)
 
 	// With the browser gone, leaving the editor has only the list to fall back to.

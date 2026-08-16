@@ -6,28 +6,14 @@ import (
 	"testing"
 
 	"hop/internal/filebrowser"
-	"hop/internal/sftpx"
+	"hop/internal/filebrowser/fbtest"
 	"hop/internal/sshx"
 	"hop/internal/store"
 )
 
-// fakeSFTP is the slice of an SFTP connection the browser uses, over a directory that is
-// not there: enough to build and close a real Browser without a server behind it.
-type fakeSFTP struct{ dir string }
-
-func (f fakeSFTP) Home() (string, error)                                    { return f.dir, nil }
-func (fakeSFTP) List(string) ([]sftpx.Entry, error)                         { return nil, nil }
-func (fakeSFTP) DownloadProgress(_, _ string, _ func(int64)) (int64, error) { return 0, nil }
-func (fakeSFTP) UploadProgress(_, _ string, _ func(int64)) (int64, error)   { return 0, nil }
-func (fakeSFTP) Mkdir(string) error                                         { return nil }
-func (fakeSFTP) Remove(string) error                                        { return nil }
-func (fakeSFTP) Rename(_, _ string) error                                   { return nil }
-func (fakeSFTP) Close() error                                               { return nil }
-
-// fakeBrowser builds a Browser standing in dir, over the fake above.
 func fakeBrowser(t *testing.T, dir string) *filebrowser.Browser {
 	t.Helper()
-	br, err := filebrowser.New(fakeSFTP{dir: dir}, dir,
+	br, err := filebrowser.New(fbtest.Stub{Dir: dir}, "ha", dir,
 		filebrowser.Options{DownloadDir: t.TempDir()}, 40, 12)
 	if err != nil {
 		t.Fatalf("build browser: %v", err)

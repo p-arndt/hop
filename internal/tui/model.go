@@ -357,8 +357,17 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case browserOpenedMsg:
 		return m.browserLanded(msg)
 
-	case filebrowser.OpenFileMsg:
-		return m, m.openFile(msg)
+	case filebrowser.Msg:
+		// Routed by name, like every other per-session message. The browser sorts out
+		// what the body means; the model only has to know whose it is.
+		s := m.sessions[msg.Alias]
+		if s == nil || s.browser == nil {
+			return m, nil
+		}
+		if open, ok := msg.Body.(filebrowser.OpenFileMsg); ok {
+			return m, m.openFile(msg.Alias, open)
+		}
+		return m, s.browser.Update(msg)
 
 	case editorOpenedMsg:
 		return m.editorLanded(msg)
@@ -402,22 +411,6 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouse(msg)
 	}
 
-	// Anything left over is a file browser's own message — a transfer reporting progress
-	// or landing. It is routed by session rather than by type: the model does not need to
-	// know the shape of a transfer, only which browser could have started one. Every open
-	// browser is offered it and each ignores what it did not start — the message carries
-	// the transfer it belongs to, which only the browser holding it can match.
-	var cmds []tea.Cmd
-	for _, s := range m.sessions {
-		if s.browser != nil {
-			if cmd := s.browser.Update(msg); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-	}
-	if len(cmds) > 0 {
-		return m, tea.Batch(cmds...)
-	}
 	return m, nil
 }
 

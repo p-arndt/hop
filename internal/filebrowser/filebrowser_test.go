@@ -157,6 +157,7 @@ func newTestBrowser(n int) (*Browser, *fakeClient) {
 	fc := &fakeClient{entries: ents}
 	return &Browser{
 		client:  fc,
+		alias:   "web1",
 		cwd:     "/home/u",
 		entries: ents,
 		opts:    Options{VimKeys: true},
@@ -320,6 +321,7 @@ func fileTestBrowser(t *testing.T) (*Browser, *fakeClient, string, string) {
 	tmp, dl := t.TempDir(), t.TempDir()
 	return &Browser{
 		client:  fc,
+		alias:   "web1",
 		cwd:     "/home/u",
 		entries: ents,
 		opts:    Options{DownloadDir: dl},
@@ -353,9 +355,17 @@ func TestEnterAsksToOpenFile(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("enter returned no tea.Cmd, want an OpenFileMsg for the model")
 	}
-	msg, ok := cmd().(OpenFileMsg)
+	// Everything the browser sends is addressed, so the model can route it by session.
+	wrapped, ok := cmd().(Msg)
 	if !ok {
-		t.Fatalf("enter produced %T, want OpenFileMsg", cmd())
+		t.Fatalf("enter produced %T, want a filebrowser.Msg", cmd())
+	}
+	if wrapped.Alias != "web1" {
+		t.Fatalf("Msg.Alias = %q, want the session the browser belongs to", wrapped.Alias)
+	}
+	msg, ok := wrapped.Body.(OpenFileMsg)
+	if !ok {
+		t.Fatalf("enter produced a %T body, want OpenFileMsg", wrapped.Body)
 	}
 	if msg.Path != "/home/u/a.txt" || msg.Name != "a.txt" {
 		t.Fatalf("OpenFileMsg = %+v, want {/home/u/a.txt a.txt}", msg)
@@ -408,8 +418,8 @@ func TestOpenInAppKey(t *testing.T) {
 	if *opened != want {
 		t.Fatalf("opened %q, want %q", *opened, want)
 	}
-	if b.statusErr || b.status != "opened a.txt" {
-		t.Fatalf("status = %q (err=%v), want %q", b.status, b.statusErr, "opened a.txt")
+	if b.note.err || b.note.text != "opened a.txt" {
+		t.Fatalf("status = %q (err=%v), want %q", b.note.text, b.note.err, "opened a.txt")
 	}
 	if entries, _ := os.ReadDir(dl); len(entries) != 0 {
 		t.Fatalf("download dir is not empty: %v", entries)
@@ -455,8 +465,8 @@ func TestDownloadKey(t *testing.T) {
 	if *opened != "" {
 		t.Fatalf("download launched the default app on %q", *opened)
 	}
-	if b.statusErr || !strings.HasPrefix(b.status, "downloaded a.txt") {
-		t.Fatalf("status = %q (err=%v), want a downloaded... message", b.status, b.statusErr)
+	if b.note.err || !strings.HasPrefix(b.note.text, "downloaded a.txt") {
+		t.Fatalf("status = %q (err=%v), want a downloaded... message", b.note.text, b.note.err)
 	}
 }
 
@@ -483,8 +493,8 @@ func TestRejectsUnsafeRemoteNames(t *testing.T) {
 				if *opened != "" {
 					t.Fatalf("%q on %q launched the default app on %q", k, name, *opened)
 				}
-				if !b.statusErr {
-					t.Fatalf("%q on %q: status = %q, want an error", k, name, b.status)
+				if !b.note.err {
+					t.Fatalf("%q on %q: status = %q, want an error", k, name, b.note.text)
 				}
 			}
 		})
@@ -572,8 +582,8 @@ func TestOpenInAppRefusesExecutable(t *testing.T) {
 		if *opened != "" {
 			t.Fatalf("o on %q launched the default app on %q", name, *opened)
 		}
-		if !b.statusErr {
-			t.Fatalf("o on %q: status = %q, want an error", name, b.status)
+		if !b.note.err {
+			t.Fatalf("o on %q: status = %q, want an error", name, b.note.text)
 		}
 	}
 }
@@ -610,8 +620,8 @@ func TestDownloadExecutableAllowed(t *testing.T) {
 	if len(fc.downloads) != 1 || fc.downloads[0][1] != want {
 		t.Fatalf("download of an executable = %v, want one to %s", fc.downloads, want)
 	}
-	if b.statusErr {
-		t.Fatalf("download of an executable failed: %q", b.status)
+	if b.note.err {
+		t.Fatalf("download of an executable failed: %q", b.note.text)
 	}
 }
 
@@ -634,8 +644,8 @@ func TestRejectsNormalizedReservedNames(t *testing.T) {
 				if *opened != "" {
 					t.Fatalf("%q on %q launched the default app on %q", k, name, *opened)
 				}
-				if !b.statusErr {
-					t.Fatalf("%q on %q: status = %q, want an error", k, name, b.status)
+				if !b.note.err {
+					t.Fatalf("%q on %q: status = %q, want an error", k, name, b.note.text)
 				}
 			}
 		})
@@ -676,7 +686,7 @@ func (p *pickyClient) List(dir string) ([]sftpx.Entry, error) {
 // A start directory that lists is where the browser opens.
 func TestNewOpensInTheStartDir(t *testing.T) {
 	c := &pickyClient{ok: map[string]bool{"/srv/app": true, "/home/u": true}}
-	b, err := New(c, "/srv/app", Options{DownloadDir: t.TempDir()}, 40, 13)
+	b, err := New(c, "web1", "/srv/app", Options{DownloadDir: t.TempDir()}, 40, 13)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -692,7 +702,7 @@ func TestNewOpensInTheStartDir(t *testing.T) {
 // directory instead, with the reason on the status line.
 func TestNewFallsBackWhenTheStartDirIsGone(t *testing.T) {
 	c := &pickyClient{ok: map[string]bool{"/home/u": true}}
-	b, err := New(c, "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13)
+	b, err := New(c, "web1", "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -708,7 +718,7 @@ func TestNewFallsBackWhenTheStartDirIsGone(t *testing.T) {
 // show, and New says so rather than handing back an empty browser.
 func TestNewFailsWhenNothingLists(t *testing.T) {
 	c := &pickyClient{ok: map[string]bool{}}
-	if _, err := New(c, "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13); err == nil {
+	if _, err := New(c, "web1", "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13); err == nil {
 		t.Fatal("New on a host that lists nothing: got nil error, want non-nil")
 	}
 }

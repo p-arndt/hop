@@ -102,8 +102,8 @@ func TestSortKeyCycles(t *testing.T) {
 		if b.sortBy != want {
 			t.Fatalf("after s: got %s, want %s", b.sortBy, want)
 		}
-		if !strings.Contains(b.status, want.String()) || b.statusErr {
-			t.Errorf("status %q does not name %s", b.status, want)
+		if !strings.Contains(b.note.text, want.String()) || b.note.err {
+			t.Errorf("status %q does not name %s", b.note.text, want)
 		}
 	}
 }

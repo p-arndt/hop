@@ -230,7 +230,7 @@ func openBrowserCmd(h store.Host, existing *sshx.Client, trustedFP string, promp
 			return browserOpenedMsg{alias: h.Alias, restore: restore, err: err}
 		}
 
-		br, err := filebrowser.New(sc, startDir, opts, pw, ph)
+		br, err := filebrowser.New(sc, h.Alias, startDir, opts, pw, ph)
 		if err != nil {
 			sc.Close()
 			if dialed != nil {
