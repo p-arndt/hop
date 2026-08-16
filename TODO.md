@@ -94,10 +94,10 @@ file tracks *what*, not *why*.
 - [x] `store` upsert/touch/delete/add/rename (`store_test.go`).
 - [x] Round-trips: `TestEmbeddedRoundTrip`, `TestSFTPRoundTrip`.
 - [x] Mode switches (`mode_test.go`), every transition against a real shell pane.
-- [ ] `store` import parsing + frecency ordering.
-- [ ] `action` package.
-- [ ] `keyToBytes` mapping table test in `terminal`.
-- [ ] `filebrowser` rendering.
+- [x] `store` import parsing + frecency ordering.
+- [x] `action` package.
+- [x] `keyToBytes` mapping table test in `terminal`.
+- [x] `filebrowser` rendering.
 
 ## 📝 Known limitations / notes
 

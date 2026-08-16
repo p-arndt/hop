@@ -16,11 +16,18 @@ import (
 // batch file, whereas an explicit cmd line would re-parse metacharacters in the
 // alias (which can come from an imported ssh config) as shell syntax.
 func OpenVSCodeRemote(alias, remotePath string) error {
+	return exec.Command("code", vscodeArgs(alias, remotePath)...).Start()
+}
+
+// vscodeArgs builds OpenVSCodeRemote's argument list: the Remote-SSH authority for the
+// alias, plus the target path when there is one. Each argument is its own argv element,
+// so nothing in an alias or path is ever re-parsed as syntax.
+func vscodeArgs(alias, remotePath string) []string {
 	args := []string{"--remote", "ssh-remote+" + alias}
 	if remotePath != "" {
 		args = append(args, remotePath)
 	}
-	return exec.Command("code", args...).Start()
+	return args
 }
 
 // NewTab opens a new Windows Terminal tab running program with args in pwsh,
