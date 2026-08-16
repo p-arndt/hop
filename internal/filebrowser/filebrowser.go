@@ -1,6 +1,7 @@
 // Package filebrowser implements a remote directory browser for hop's TUI. It mirrors
-// terminal.Pane: the TUI forwards keys via Handle and renders with View. SFTP runs
-// synchronously, so a slow directory briefly stalls the UI.
+// terminal.Pane: the TUI forwards keys via Handle, routes the browser's own messages
+// back through Update, and renders with View. Listing runs synchronously — a directory
+// is small — but transfers do not, so a large file cannot stall a keystroke.
 package filebrowser
 
 import (
@@ -56,6 +57,10 @@ type Client interface {
 	Home() (string, error)
 	List(dir string) ([]sftpx.Entry, error)
 	Download(remotePath, localPath string) (int64, error)
+	Upload(localPath, remotePath string) (int64, error)
+	Mkdir(p string) error
+	Remove(p string) error
+	Rename(oldp, newp string) error
 	Close() error
 }
 
@@ -100,6 +105,17 @@ type Browser struct {
 	// keys resolves the listing's motion keys and holds a half-typed "gg". What they do
 	// to the cursor is Browser.move.
 	keys keymap.Reader
+
+	// overlay is the open question — a name to type, a yes to give — which owns the
+	// keyboard while it is up. See prompt.go.
+	overlay overlay
+
+	// sortBy is the order the listing is held in, which the "s" key cycles. See sort.go.
+	sortBy sortMode
+
+	// xfer is the transfer in flight, if any: SFTP copies run off the UI goroutine so a
+	// large file cannot stall a keystroke. See transfer.go.
+	xfer *transfer
 }
 
 // New builds a Browser starting in startDir (or the remote home when empty), ensuring
@@ -156,22 +172,28 @@ func (b *Browser) load(dir string) {
 		return
 	}
 	b.cwd = dir
-	b.entries = ents
+	b.entries = b.applySort(ents)
 	b.cursor = 0
 	b.scroll = 0
 	b.status = ""
 	b.statusErr = false
 }
 
-// Handle applies a key message: the motions through the shared keymap, then the
-// browser's own keys — refresh, "o" (open a local copy in the desktop's default app)
-// and "d" (download). All SFTP work runs synchronously.
+// Handle applies a key message: an open question first (it owns the keyboard), then the
+// motions through the shared keymap, then the browser's own keys — refresh, transfers,
+// the file operations and the sort toggle.
 //
-// The returned tea.Cmd is non-nil only for entering a file, which yields an OpenFileMsg.
-// No key here leaves the browser: dismissal is the model's business, and Out is a strict
-// "up a directory".
+// The returned tea.Cmd carries whatever the key started: an OpenFileMsg for entering a
+// file, or a transfer's first step. No key here leaves the browser: dismissal is the
+// model's business, and Out is a strict "up a directory".
 func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 	key := msg.String()
+
+	// An open question first: while one is up every key is its answer, so "d" typed into
+	// a filename is a "d" rather than a download.
+	if cmd, handled := b.overlayKey(key); handled {
+		return cmd
+	}
 
 	if mo := b.keys.Motion(keymap.Full, key, b.opts.VimKeys); mo != keymap.None {
 		return b.move(mo)
@@ -187,13 +209,33 @@ func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
 		b.load(b.cwd)
 
 	case "o":
-		b.openInApp()
+		return b.openInApp()
 
 	case "d":
-		b.download()
+		return b.download()
+
+	case "u":
+		return b.upload()
+
+	case "x":
+		return b.remove()
+
+	case "R":
+		return b.rename()
+
+	case "m":
+		return b.mkdir()
+
+	case "s":
+		b.cycleSort()
 	}
 	return nil
 }
+
+// Update takes the messages the browser's own commands produce — transfer progress and
+// completion — which the enclosing model routes back here. Keys come through Handle;
+// this is the other half, and the reason a transfer can run without the UI waiting on it.
+func (b *Browser) Update(msg tea.Msg) tea.Cmd { return b.handleTransferMsg(msg) }
 
 // ---- mouse ----
 //
@@ -294,105 +336,12 @@ func (b *Browser) activate() tea.Cmd {
 	return func() tea.Msg { return msg }
 }
 
-// openInApp fetches the file under the cursor and hands the local copy to the desktop's
-// default application, fire-and-forget. "o" on a directory is a no-op.
-func (b *Browser) openInApp() {
-	e, ok := b.selected()
-	if !ok || e.IsDir {
-		return
-	}
-	if err := checkLocalName(e.Name); err != nil {
-		b.fail(err)
-		return
-	}
-	// The OS default handler would run an executable-extension file rather than view it,
-	// so a server that names a payload like a document could get code executed on a
-	// single "o". An explicit OpenWith passes the file to a program the user chose, so
-	// that path is left alone.
-	if b.opts.OpenWith == "" && executableName(e.Name) {
-		b.fail(fmt.Errorf("refusing to open executable file %q — use d to download instead", e.Name))
-		return
-	}
-
-	local, err := b.fetch(e)
-	if err != nil {
-		b.fail(err)
-		return
-	}
-	cmd := openCmd(b.opts.OpenWith, local)
-	if err := cmd.Start(); err != nil {
-		b.fail(fmt.Errorf("open %s: %w", e.Name, err))
-		return
-	}
-	// The launcher exits as soon as the real application is up; reap it.
-	go cmd.Wait()
-	b.ok("opened " + e.Name)
-}
-
-// download copies the file under the cursor into downloadDir, where — unlike the scratch
-// copy "o" makes — it is meant to be kept.
-func (b *Browser) download() {
-	e, ok := b.selected()
-	if !ok || e.IsDir {
-		return
-	}
-	if err := checkLocalName(e.Name); err != nil {
-		b.fail(err)
-		return
-	}
-
-	local := filepath.Join(b.opts.DownloadDir, e.Name)
-	if err := os.MkdirAll(b.opts.DownloadDir, 0o755); err != nil {
-		b.fail(err)
-		return
-	}
-	if _, err := b.client.Download(path.Join(b.cwd, e.Name), local); err != nil {
-		b.fail(err)
-		return
-	}
-	b.ok(fmt.Sprintf("downloaded %s → %s", e.Name, b.opts.DownloadDir))
-}
-
 // selected returns the entry under the cursor, or ok=false in an empty listing.
 func (b *Browser) selected() (sftpx.Entry, bool) {
 	if len(b.entries) == 0 {
 		return sftpx.Entry{}, false
 	}
 	return b.entries[b.cursor], true
-}
-
-// fetch downloads e into the scratch directory and returns the local path.
-func (b *Browser) fetch(e sftpx.Entry) (string, error) {
-	dir, err := b.scratch()
-	if err != nil {
-		return "", err
-	}
-	local := filepath.Join(dir, e.Name)
-	if _, err := b.client.Download(path.Join(b.cwd, e.Name), local); err != nil {
-		return "", err
-	}
-	// Mark the copy the way a browser download would be. On macOS that sets
-	// com.apple.quarantine, keeping Gatekeeper in the loop for types the extension guard
-	// does not know about; elsewhere it is a no-op.
-	if err := quarantine(local); err != nil {
-		return "", fmt.Errorf("quarantine %s: %w", e.Name, err)
-	}
-	return local, nil
-}
-
-// scratch returns the browser's temp directory, creating it on first use. Files handed
-// to the desktop's default app land here rather than in downloadDir. It is never
-// removed: the app may still hold a file open long after the browser closes.
-func (b *Browser) scratch() (string, error) {
-	if b.tmpDir != "" {
-		return b.tmpDir, nil
-	}
-	dir, err := os.MkdirTemp("", "hop-sftp-*")
-	if err != nil {
-		return "", err
-	}
-	b.tmpDir = dir
-	return dir, nil
 }
 
 // ok and fail set the status line and the colour View renders it in.
@@ -584,6 +533,24 @@ func (b *Browser) View() string {
 		lines = append(lines, "")
 	}
 
+	// The last line is one of three, in this order: an open question, which is the only
+	// thing the keyboard is answering; a transfer's progress, which is still moving; then
+	// the status of the last thing that finished.
+	switch {
+	case b.overlay.active():
+		lines = append(lines, b.overlay.view(b.w))
+		if len(lines) > b.h {
+			lines = lines[:b.h]
+		}
+		return strings.Join(lines, "\n")
+	case b.xfer != nil:
+		lines = append(lines, accentStyle.Render(truncateText(b.progressLine(b.w), b.w)))
+		if len(lines) > b.h {
+			lines = lines[:b.h]
+		}
+		return strings.Join(lines, "\n")
+	}
+
 	// Status line: red for errors, green for a completed action.
 	if b.status != "" {
 		txt := truncateText(stripControl(b.status), b.w)
@@ -618,15 +585,27 @@ func (b *Browser) renderRow(e sftpx.Entry, selected bool) string {
 	if !e.IsDir {
 		sizeText = humanizeBytes(e.Size)
 	}
+	// The modified time is a column of its own, kept out of the size text so a directory
+	// — which has no size — still carries one. Empty when the row is too narrow to spare
+	// the cells, which is the first thing dropped.
+	timeText := b.modTimeCol(e)
 
-	// Width left for the name after the 2-cell prefix, size and gap.
+	// Width left for the name after the 2-cell prefix, the columns and their gaps.
+	const nameFloor = 12
 	avail := b.w - 2
 	if sizeText != "" {
 		avail -= lipgloss.Width(sizeText) + 1
 	}
+	if timeText != "" {
+		if avail-lipgloss.Width(timeText)-1 < nameFloor {
+			timeText = ""
+		} else {
+			avail -= lipgloss.Width(timeText) + 1
+		}
+	}
 	if avail < 1 {
-		// No room for a size column; give the name the full width.
-		sizeText = ""
+		// No room for a size column either; give the name the full width.
+		sizeText, timeText = "", ""
 		avail = b.w - 2
 	}
 	nameText = truncateText(nameText, avail)
@@ -642,15 +621,26 @@ func (b *Browser) renderRow(e sftpx.Entry, selected bool) string {
 		nameStyled = nameText
 	}
 
-	if sizeText == "" {
+	tail := ""
+	if timeText != "" {
+		tail = faintStyle.Render(timeText)
+	}
+	if sizeText != "" {
+		if tail != "" {
+			tail = dimStyle.Render(sizeText) + " " + tail
+		} else {
+			tail = dimStyle.Render(sizeText)
+		}
+	}
+	if tail == "" {
 		return prefix + nameStyled
 	}
 
-	gap := b.w - 2 - nameW - lipgloss.Width(sizeText)
+	gap := b.w - 2 - nameW - lipgloss.Width(tail)
 	if gap < 1 {
 		gap = 1
 	}
-	return prefix + nameStyled + strings.Repeat(" ", gap) + dimStyle.Render(sizeText)
+	return prefix + nameStyled + strings.Repeat(" ", gap) + tail
 }
 
 // Resize stores the new dimensions and re-clamps the scroll window.

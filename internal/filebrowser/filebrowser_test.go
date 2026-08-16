@@ -44,11 +44,20 @@ func key(t *testing.T, name string) tea.KeyMsg {
 	}
 }
 
-// fakeClient serves a fixed listing for every directory and records the paths
-// Download was called with.
+// fakeClient serves a fixed listing for every directory and records the paths every
+// mutating call was made with, so a test can assert what reached the server rather than
+// only what the status line says.
 type fakeClient struct {
 	entries   []sftpx.Entry
 	downloads [][2]string // {remote, local}
+	uploads   [][2]string // {local, remote}
+	mkdirs    []string
+	removes   []string
+	renames   [][2]string // {old, new}
+
+	// Errors to return instead of succeeding, keyed by the operation name
+	// ("upload", "mkdir", "remove", "rename", "download").
+	errs map[string]error
 }
 
 func (f *fakeClient) Home() (string, error) { return "/home/u", nil }
@@ -57,6 +66,9 @@ func (f *fakeClient) List(string) ([]sftpx.Entry, error) { return f.entries, nil
 
 func (f *fakeClient) Download(remote, local string) (int64, error) {
 	f.downloads = append(f.downloads, [2]string{remote, local})
+	if err := f.errs["download"]; err != nil {
+		return 0, err
+	}
 	// Create the local file like the real client would: fetch quarantines the
 	// copy after downloading, and the xattr call needs a file to land on.
 	if err := os.WriteFile(local, nil, 0o644); err != nil {
@@ -64,6 +76,33 @@ func (f *fakeClient) Download(remote, local string) (int64, error) {
 	}
 	return 0, nil
 }
+func (f *fakeClient) Upload(local, remote string) (int64, error) {
+	f.uploads = append(f.uploads, [2]string{local, remote})
+	if err := f.errs["upload"]; err != nil {
+		return 0, err
+	}
+	fi, err := os.Stat(local)
+	if err != nil {
+		return 0, err
+	}
+	return fi.Size(), nil
+}
+
+func (f *fakeClient) Mkdir(p string) error {
+	f.mkdirs = append(f.mkdirs, p)
+	return f.errs["mkdir"]
+}
+
+func (f *fakeClient) Remove(p string) error {
+	f.removes = append(f.removes, p)
+	return f.errs["remove"]
+}
+
+func (f *fakeClient) Rename(oldp, newp string) error {
+	f.renames = append(f.renames, [2]string{oldp, newp})
+	return f.errs["rename"]
+}
+
 func (f *fakeClient) Close() error { return nil }
 
 // newTestBrowser builds a Browser over n synthetic entries with room for 10 content rows,
@@ -579,6 +618,11 @@ type pickyClient struct {
 	fakeClient
 	ok map[string]bool
 }
+
+func (p *pickyClient) Upload(string, string) (int64, error) { return 0, nil }
+func (p *pickyClient) Mkdir(string) error                   { return nil }
+func (p *pickyClient) Remove(string) error                  { return nil }
+func (p *pickyClient) Rename(string, string) error          { return nil }
 
 func (p *pickyClient) List(dir string) ([]sftpx.Entry, error) {
 	if !p.ok[dir] {
