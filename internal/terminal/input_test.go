@@ -164,3 +164,32 @@ func (w *flakyWriter) String() string {
 	defer w.mu.Unlock()
 	return string(w.b)
 }
+
+// The queue is bounded, so a far end that has stopped reading altogether eventually has
+// hop refusing input rather than holding it forever. What matters is that the refusal is
+// reported: the TUI puts it on the status line, because keystrokes that vanish silently
+// leave a truncated command line behind.
+func TestAFullQueueRefusesInput(t *testing.T) {
+	w := newStalledWriter()
+	p := New(&sshx.Session{Stdin: w, Stdout: strings.NewReader("")}, 80, 24, nil)
+	defer p.Close()
+
+	key := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	taken := 0
+	for i := 0; i < inQueue*2; i++ {
+		if !p.SendKey(key) {
+			break
+		}
+		taken++
+	}
+	if taken == 0 || taken >= inQueue*2 {
+		t.Fatalf("%d keys were taken by a far end reading none of them, want a bounded queue's worth", taken)
+	}
+
+	// Everything it did take is still there, in order, once the link comes back.
+	w.release()
+	p.Flush()
+	if got, want := w.String(), strings.Repeat("x", taken); got != want {
+		t.Fatalf("the far end received %d bytes, want the %d keys the queue took", len(got), len(want))
+	}
+}

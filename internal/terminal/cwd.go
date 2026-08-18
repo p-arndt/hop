@@ -571,5 +571,8 @@ func (p *Pane) waitFirstOutput(timeout time.Duration) {
 
 // writeString sends s to the remote as input, through the pane's input queue.
 func (p *Pane) writeString(s string) {
-	p.send([]byte(s))
+	// The result is not checked: this is hop's own shell integration, and a far end too
+	// stalled to take it has nothing to report to the user about a hook they never asked
+	// for. A dropped hook simply leaves Cwd empty.
+	_ = p.send([]byte(s))
 }

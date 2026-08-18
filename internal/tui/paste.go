@@ -68,7 +68,7 @@ func (m *model) handlePaste(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case m.editing() && m.active != "":
 		if s != nil && s.editor() != nil {
-			s.editor().pane.SendPaste(text)
+			m.reportInput(s.editor().pane.SendPaste(text))
 		}
 	case m.browsing() && m.active != "":
 		// The browser's keys are commands; there is no field on it to paste into.
@@ -76,11 +76,11 @@ func (m *model) handlePaste(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Pasting into history is pasting into its shell: come back to live first.
 		if s != nil && s.shell() != nil {
 			m.exitScrollback()
-			s.shell().pane.SendPaste(text)
+			m.reportInput(s.shell().pane.SendPaste(text))
 		}
 	case m.focused() && m.active != "":
 		if s != nil && s.shell() != nil {
-			s.shell().pane.SendPaste(text)
+			m.reportInput(s.shell().pane.SendPaste(text))
 		}
 
 	case m.filtering:
@@ -261,10 +261,10 @@ func (m *model) flushPaste() {
 	}
 
 	if looksPasted(keys) {
-		pane.SendPaste(pasteString(keys))
+		m.reportInput(pane.SendPaste(pasteString(keys)))
 		return
 	}
-	pane.SendKeys(keys)
+	m.reportInput(pane.SendKeys(keys))
 }
 
 // looksPasted reports whether a burst is a paste rather than typing.

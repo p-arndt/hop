@@ -61,20 +61,22 @@ func (p *Pane) BracketedPaste() bool { return p.paste.enabled() }
 
 // SendPaste writes text to the remote as a paste: bracketed if the far end asked to be
 // told, plain otherwise. Empty text writes nothing at all, brackets included.
-func (p *Pane) SendPaste(text string) {
+//
+// It reports whether the paste was taken, which is false only where a keystroke would be
+// refused too — see Pane.send.
+func (p *Pane) SendPaste(text string) bool {
 	// Read the mode once: the output pump can flip it between two reads, and a body built
 	// for a bracketed paste written without the brackets is a body of keystrokes.
 	bracketed := p.paste.enabled()
 
 	body := pasteText(text, bracketed)
 	if body == "" {
-		return
+		return true
 	}
 	if bracketed {
-		p.writeString(ansi.BracketedPasteStart + body + ansi.BracketedPasteEnd)
-		return
+		return p.send([]byte(ansi.BracketedPasteStart + body + ansi.BracketedPasteEnd))
 	}
-	p.writeString(body)
+	return p.send([]byte(body))
 }
 
 // pasteText is the payload SendPaste writes: the pasted text with the characters a

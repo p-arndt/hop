@@ -35,7 +35,8 @@ type inChunk struct {
 
 // inQueue is how many chunks may be waiting for the wire at once. Far past anything a
 // hand or a paste produces, so it is only ever reached by a far end that has stopped
-// reading altogether — at which point the input is dropped rather than kept forever.
+// reading altogether — at which point the input is dropped rather than kept forever, and
+// the send reports it so the user is told rather than left watching keystrokes vanish.
 const inQueue = 1024
 
 // Pane is a single embedded terminal: a VT emulator bound to an SSH session. The
@@ -265,36 +266,39 @@ func runeWidth(r rune) int {
 	return 1
 }
 
-// SendKey translates a Bubble Tea key event into a terminal input byte sequence
-// and queues it for the far end.
-func (p *Pane) SendKey(msg tea.KeyMsg) {
-	p.send(keyToBytes(msg))
+// SendKey translates a Bubble Tea key event into a terminal input byte sequence and
+// queues it for the far end, reporting whether it was taken. See send.
+func (p *Pane) SendKey(msg tea.KeyMsg) bool {
+	return p.send(keyToBytes(msg))
 }
 
 // SendKeys queues a run of key events as one item, which is what a burst replayed as
 // keystrokes is: the bytes are exactly what SendKey per key would have put on the wire,
 // but they occupy one slot of the queue rather than one each. See internal/tui/paste.go.
-func (p *Pane) SendKeys(msgs []tea.KeyMsg) {
+func (p *Pane) SendKeys(msgs []tea.KeyMsg) bool {
 	var b []byte
 	for _, msg := range msgs {
 		b = append(b, keyToBytes(msg)...)
 	}
-	p.send(b)
+	return p.send(b)
 }
 
 // send queues b for the far end and returns at once — the caller is usually the UI
 // goroutine, which must never wait on the wire. b is copied, so a caller may reuse it.
 //
-// A full queue means the far end has stopped reading entirely; the input is dropped
-// rather than blocking the UI or growing without bound. Anything a hand or a paste
-// produces is orders of magnitude short of that.
-func (p *Pane) send(b []byte) {
+// It reports whether the bytes were taken. A full queue means the far end has stopped
+// reading entirely and hop is holding inQueue chunks for it; the input is dropped rather
+// than blocking the UI or growing without bound, and false is how the caller gets to say
+// so. Nothing else refuses: an empty write and a closed pane have nothing to report.
+func (p *Pane) send(b []byte) bool {
 	if len(b) == 0 || p.isClosed() {
-		return
+		return true
 	}
 	select {
 	case p.in <- inChunk{b: append([]byte(nil), b...)}:
+		return true
 	default:
+		return false
 	}
 }
 

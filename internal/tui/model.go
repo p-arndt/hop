@@ -447,6 +447,17 @@ func (m *model) setStatus(kind statusKind, format string, args ...any) {
 	m.statusGen++
 }
 
+// reportInput turns a refused write into a status line. A pane takes everything until
+// the far end has stopped reading altogether and hop is holding a full queue for it;
+// past that the input is dropped, and dropped keystrokes must never be silent — a
+// truncated command line is worse than a visible warning. See terminal.Pane.send.
+func (m *model) reportInput(sent bool) {
+	if sent {
+		return
+	}
+	m.setStatus(statusWarn, "%s is not reading input: keystrokes dropped", m.active)
+}
+
 // clearStatus takes the message down now. Bumping the generation stops a timer already
 // in flight from firing against whatever comes next.
 func (m *model) clearStatus() {

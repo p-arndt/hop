@@ -476,7 +476,7 @@ func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// A first esc is still forwarded below: a lone esc belongs to the shell, and a stray
 	// extra one is harmless. The second one arrives as PaneLeave above.
 	if s != nil && s.shell() != nil {
-		s.shell().pane.SendKey(msg)
+		m.reportInput(s.shell().pane.SendKey(msg))
 	}
 	return m, nil
 }
@@ -615,7 +615,7 @@ func (m *model) handleScrollbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Any other key means you want to type: leave history and forward it.
 		m.exitScrollback()
 		if s := m.sessions[m.active]; s != nil && s.shell() != nil {
-			s.shell().pane.SendKey(msg)
+			m.reportInput(s.shell().pane.SendKey(msg))
 		}
 	}
 	return m, nil
@@ -664,7 +664,7 @@ func (m *model) handleEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// As in a shell pane, a first esc is still forwarded to the editor: the second one
 	// arrives as EditorLeave above.
-	s.editor().pane.SendKey(msg)
+	m.reportInput(s.editor().pane.SendKey(msg))
 	return m, nil
 }
 
