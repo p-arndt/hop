@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -124,6 +125,9 @@ type model struct {
 	// says whether this platform needs that at all — only Windows does. See paste.go.
 	paste         pasteBuf
 	pasteCoalesce bool
+	// clock overrides the wall clock the burst detection measures with: nil in a running
+	// hop, set by tests, which cannot type at human speed.
+	clock func() time.Time
 
 	// clipOK mirrors cfg.Clipboard for the panes: a remote clipboard write is handled on
 	// the pane's output pump, off this goroutine, so cfg cannot be read there directly.

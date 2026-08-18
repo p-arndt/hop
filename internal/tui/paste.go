@@ -11,6 +11,18 @@ package tui
 // So on Windows a paste is recognised by its shape: keys arriving in a burst are held
 // for pasteGap and sent as one paste, keys at human speed are sent as themselves.
 //
+// A burst is only ever entered from a key that follows its predecessor inside burstGap,
+// so typing is never held back at all: the first key of any burst — every key a hand
+// produces — goes out the moment it arrives, and only what follows it too fast to be
+// typed is buffered. Holding every key for pasteGap "just in case" put that delay on
+// every character typed into a remote shell, which is the one thing a terminal must not
+// do.
+//
+// The cost is that a paste's first character travels as a keystroke rather than inside
+// the brackets. It lands where the rest of the paste lands, one character ahead of it;
+// only a full-screen program reading that first character as a command sees a difference,
+// and a paste beginning with a newline submits the line it was pasted at.
+//
 // The buffer is conservative, because the risk is turning typing into a paste and a
 // held-down repeating key arrives just as fast. Only a burst with a newline or more than
 // one distinct character becomes a paste.
@@ -98,6 +110,13 @@ func pasteInline(text string) string {
 // between typed ones.
 const pasteGap = 8 * time.Millisecond
 
+// burstGap is the gap below which two keys cannot both have been typed: a synthesised
+// paste arrives microseconds apart, a hand needs tens of milliseconds even at its
+// fastest, and a held-down key repeats no quicker than every ~30ms. It sits well above
+// the microseconds so that hop's own per-key work — Update plus a full repaint, a couple
+// of milliseconds on a large window — cannot stretch a paste into what looks like typing.
+const burstGap = 10 * time.Millisecond
+
 // pasteMax bounds how many keys are held before the buffer is flushed regardless of the
 // gap: a large paste is split into several rather than held whole in memory.
 const pasteMax = 4096
@@ -112,6 +131,9 @@ type pasteBuf struct {
 	keys []tea.KeyMsg
 	pane *terminal.Pane
 	seq  int
+	// lastAt is when the previous pastable key was offered, which is how a burst is told
+	// from typing: see burstGap.
+	lastAt time.Time
 }
 
 // coalescePastes reports whether this platform needs the burst detection above. Only
@@ -132,6 +154,15 @@ func (m *model) takeKey(msg tea.KeyMsg) bool {
 	}
 	pane := m.keyPane()
 	if pane == nil {
+		return false
+	}
+	// The gate: a key that did not follow another one inside burstGap cannot be part of a
+	// paste, so it is sent as itself, now. The time is recorded either way — it is the
+	// key the next one is measured against, taken or not.
+	now := m.now()
+	gap := now.Sub(m.paste.lastAt)
+	m.paste.lastAt = now
+	if len(m.paste.keys) == 0 && gap > burstGap {
 		return false
 	}
 	// A burst belongs to one pane. Focus can only move on a key this does not take, so
@@ -272,4 +303,13 @@ func pasteString(keys []tea.KeyMsg) string {
 		}
 	}
 	return b.String()
+}
+
+// now is the clock the burst detection measures gaps with: the wall clock, unless a test
+// has put its own in.
+func (m *model) now() time.Time {
+	if m.clock != nil {
+		return m.clock()
+	}
+	return time.Now()
 }
