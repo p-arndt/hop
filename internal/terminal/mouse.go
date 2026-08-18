@@ -14,7 +14,7 @@ import (
 // The modes are watched through the emulator's mode callbacks rather than the stream,
 // since that is where the parsing already happened — and vt's isModeSet is unexported,
 // so its SendMouse cannot be asked whether a report would go anywhere. hop encodes the
-// event itself (see mouseBytes) and writes it under the mutex SendKey uses.
+// event itself (see mouseBytes) and queues it the way every other write goes out.
 type tracking int
 
 const (
@@ -118,7 +118,8 @@ func (p *Pane) MouseEnabled() bool {
 // It reports whether anything was sent. An event the far end did not ask for is dropped
 // rather than encoded — a program in DECSET 1000 would be confused by 1002's motion.
 func (p *Pane) SendMouse(msg tea.MouseMsg, x, y int) bool {
-	// A closed pane has no far end to report to. See writeString.
+	// A closed pane has no far end to report to. send drops it either way; this is so the
+	// caller is told nothing went out.
 	if p.isClosed() {
 		return false
 	}
@@ -127,9 +128,7 @@ func (p *Pane) SendMouse(msg tea.MouseMsg, x, y int) bool {
 	if len(b) == 0 {
 		return false
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	_, _ = p.sess.Stdin.Write(b)
+	p.send(b)
 	return true
 }
 

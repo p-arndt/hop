@@ -280,7 +280,11 @@ func Run(st *store.Store) error {
 	if err := st.IncludeWarning(); err != nil {
 		m.setStatus(statusWarn, "hosts saved, but ~/.ssh/config was not updated: %v", err)
 	}
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	// 120fps rather than Bubble Tea's default 60: the renderer only paints when a frame
+	// is due, so the default puts up to 16ms between a keystroke's echo arriving and the
+	// screen showing it. Painting is nowhere near that cost — a full 200x50 screen is
+	// ~1.6ms — so the higher ceiling halves the wait without the frames becoming work.
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithFPS(120))
 	_, err = p.Run()
 	return err
 }

@@ -69,6 +69,7 @@ func TestMouseEnabledFollowsTheRemote(t *testing.T) {
 	if !p.SendMouse(press(3, 4), 3, 4) {
 		t.Fatal("a click was not forwarded to a program that asked for the mouse")
 	}
+	p.Flush()
 	// SGR: button 0 (left, no modifiers) at 1-based column 4, row 5.
 	if got, want := stdin.String(), "\x1b[<0;4;5M"; got != want {
 		t.Fatalf("forwarded %q, want %q", got, want)

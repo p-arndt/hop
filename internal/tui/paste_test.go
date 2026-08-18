@@ -48,6 +48,20 @@ func newTestClock(m *model) *testClock {
 // advance moves the clock on, standing in for the gap between two keys.
 func (c *testClock) advance(d time.Duration) { c.t = c.t.Add(d) }
 
+// flushPanes waits for what the model queued to reach the panes' sessions: a pane writes
+// to the far end on its own goroutine (terminal.Pane.send), precisely so the UI never
+// waits on the wire, so a test has to.
+func flushPanes(m *model) {
+	for _, s := range m.sessions {
+		for _, sh := range s.shells {
+			sh.pane.Flush()
+		}
+		for _, ed := range s.editors {
+			ed.pane.Flush()
+		}
+	}
+}
+
 // pasted is the key event a terminal that supports bracketed paste delivers a
 // paste as: the whole clipboard in one event, marked.
 func pasted(text string) tea.KeyMsg {
@@ -65,6 +79,7 @@ func TestMarkedPasteGoesToTheShell(t *testing.T) {
 	m, stdin := pasteModel()
 	m.handleKey(pasted("echo hi\n"))
 
+	flushPanes(m)
 	if got := stdin.String(); got != "echo hi\r" {
 		t.Fatalf("the pane received %q, want the pasted text", got)
 	}
@@ -81,6 +96,7 @@ func TestMarkedPasteGoesToTheEditor(t *testing.T) {
 	}
 	m.handleKey(pasted("line one\nline two"))
 
+	flushPanes(m)
 	if got := stdin.String(); got != "line one\rline two" {
 		t.Fatalf("the editor received %q, want the pasted text", got)
 	}
@@ -96,6 +112,7 @@ func TestPasteFromScrollbackReturnsLiveFirst(t *testing.T) {
 	if m.scrolling() {
 		t.Fatal("a paste left the shell in scrollback")
 	}
+	flushPanes(m)
 	if got := stdin.String(); got != "ls" {
 		t.Fatalf("the pane received %q, want the pasted text", got)
 	}
@@ -106,6 +123,7 @@ func TestPasteFromScrollbackReturnsLiveFirst(t *testing.T) {
 // character, which is gone before there is anything to tell it from typing.
 func TestBurstWithANewlineIsAPaste(t *testing.T) {
 	m, stdin := pasteModel()
+	newTestClock(m) // frozen: every key after the first is inside burstGap, as a paste is
 
 	for i, k := range []tea.KeyMsg{typed('a'), {Type: tea.KeyEnter}, typed('b')} {
 		_, cmd := m.handleKey(k)
@@ -115,11 +133,13 @@ func TestBurstWithANewlineIsAPaste(t *testing.T) {
 	}
 	// The first key opened the burst and went out as itself: nothing had yet arrived fast
 	// enough to say it was pasted. See burstGap.
+	flushPanes(m)
 	if got := stdin.String(); got != "a" {
 		t.Fatalf("the pane received %q before the flush, want the burst's first key alone", got)
 	}
 
 	m.flushPaste()
+	flushPanes(m)
 	if got := stdin.String(); got != "a\rb" {
 		t.Fatalf("the pane received %q, want the burst as one paste", got)
 	}
@@ -130,6 +150,7 @@ func TestBurstWithANewlineIsAPaste(t *testing.T) {
 // executing — no command runs from the first Enter on (the v0.5.0 regression).
 func TestALoneEnterIsAKeystrokeNotAPaste(t *testing.T) {
 	m, stdin := pasteModel()
+	newTestClock(m) // frozen: every key after the first is inside burstGap, as a paste is
 
 	if looksPasted([]tea.KeyMsg{{Type: tea.KeyEnter}}) {
 		t.Fatal("a lone Enter was taken for a paste")
@@ -137,6 +158,7 @@ func TestALoneEnterIsAKeystrokeNotAPaste(t *testing.T) {
 
 	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	m.flushPaste()
+	flushPanes(m)
 	if got := stdin.String(); got != "\r" {
 		t.Fatalf("the pane received %q, want the bare CR a typed Enter sends", got)
 	}
@@ -146,12 +168,14 @@ func TestALoneEnterIsAKeystrokeNotAPaste(t *testing.T) {
 // replayed as keystrokes, so holding j in vim still moves down rather than inserting.
 func TestRepeatedKeyIsNotAPaste(t *testing.T) {
 	m, stdin := pasteModel()
+	newTestClock(m) // frozen: every key after the first is inside burstGap, as a paste is
 
 	for i := 0; i < 3; i++ {
 		m.handleKey(typed('j'))
 	}
 	m.flushPaste()
 
+	flushPanes(m)
 	if got := stdin.String(); got != "jjj" {
 		t.Fatalf("the pane received %q, want three keystrokes", got)
 	}
@@ -164,12 +188,14 @@ func TestRepeatedKeyIsNotAPaste(t *testing.T) {
 // typed ahead of a ctrl+o reaches the shell before the pane is left.
 func TestAnUnbufferableKeyFlushesFirst(t *testing.T) {
 	m, stdin := pasteModel()
+	newTestClock(m) // frozen: every key after the first is inside burstGap, as a paste is
 
 	m.handleKey(typed('h'))
 	m.handleKey(typed('i'))
 	m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlO})
 	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
 
+	flushPanes(m)
 	if got := stdin.String(); got != "hi" {
 		t.Fatalf("the pane received %q, want the buffered keys", got)
 	}
@@ -201,6 +227,7 @@ func TestNavigationKeysAreNeverBuffered(t *testing.T) {
 // arms another, and the stale one must not cut the burst in half.
 func TestStaleFlushIsIgnored(t *testing.T) {
 	m, stdin := pasteModel()
+	newTestClock(m) // frozen: every key after the first is inside burstGap, as a paste is
 
 	m.handleKey(typed('a')) // opens the burst, and goes straight out
 	m.handleKey(typed('b'))
@@ -208,11 +235,13 @@ func TestStaleFlushIsIgnored(t *testing.T) {
 	m.handleKey(typed('c'))
 
 	m.update(stale)
+	flushPanes(m)
 	if got := stdin.String(); got != "a" {
 		t.Fatalf("a stale flush sent %q on top of the burst's first key", got)
 	}
 
 	m.update(pasteFlushMsg{seq: m.paste.seq})
+	flushPanes(m)
 	if got := stdin.String(); got != "abc" {
 		t.Fatalf("the live flush sent %q, want the whole burst", got)
 	}
@@ -232,6 +261,7 @@ func TestKeysAreNotBufferedUnderACard(t *testing.T) {
 	if got := m.auth.answers[0]; got != "123" {
 		t.Fatalf("the card holds %q, want the typed code", got)
 	}
+	flushPanes(m)
 	if got := stdin.String(); got != "" {
 		t.Fatalf("%q reached the shell behind the card", got)
 	}
@@ -354,6 +384,7 @@ func TestTypingIsNeverHeldBack(t *testing.T) {
 		if _, cmd := m.handleKey(typed(r)); cmd != nil {
 			t.Fatalf("key %d armed a flush: typing was buffered", i)
 		}
+		flushPanes(m)
 		if got, want := stdin.String(), string([]rune{'l', 's'}[:i+1]); got != want {
 			t.Fatalf("the pane received %q after key %d, want %q at once", got, i, want)
 		}
@@ -373,12 +404,39 @@ func TestKeysFasterThanAHandAreBuffered(t *testing.T) {
 	if _, cmd := m.handleKey(typed('y')); cmd == nil {
 		t.Fatal("a key inside burstGap did not arm a flush: it was not buffered")
 	}
+	flushPanes(m)
 	if got := stdin.String(); got != "x" {
 		t.Fatalf("the pane received %q, want only the typed key so far", got)
 	}
 
 	m.flushPaste()
+	flushPanes(m)
 	if got := stdin.String(); got != "xy" {
 		t.Fatalf("the pane received %q, want the buffered key after it", got)
+	}
+}
+
+// Enter is held even when nothing preceded it, because it is the one character whose
+// early delivery costs something: a clipboard beginning with a newline would submit the
+// line it was pasted at. The delay is pasteGap, and what comes out the other end is
+// still the keystroke.
+func TestEnterIsBufferedEvenAfterAPause(t *testing.T) {
+	m, stdin := pasteModel()
+	clk := newTestClock(m)
+
+	clk.advance(time.Second) // nothing was typed for a second
+	_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("Enter did not arm a flush: it went out unbuffered")
+	}
+	flushPanes(m)
+	if got := stdin.String(); got != "" {
+		t.Fatalf("the pane received %q before the flush", got)
+	}
+
+	m.flushPaste()
+	flushPanes(m)
+	if got := stdin.String(); got != "\r" {
+		t.Fatalf("the pane received %q, want the bare CR a typed Enter sends", got)
 	}
 }

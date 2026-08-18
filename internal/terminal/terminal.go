@@ -16,26 +16,45 @@ import (
 	"hop/internal/sshx"
 )
 
-// lockedWriter serializes writes to the SSH stdin: the emulator's auto-response pump
-// and SendKey share the mutex, so they never interleave a Write.
-type lockedWriter struct {
-	mu *sync.Mutex
-	w  io.Writer
+// paneWriter is the emulator's auto-response pump on its way to the far end: it queues
+// like everything else hop sends, so a response cannot land halfway through a keystroke.
+type paneWriter struct{ p *Pane }
+
+func (w paneWriter) Write(b []byte) (int, error) {
+	w.p.send(b)
+	return len(b), nil
 }
 
-func (lw *lockedWriter) Write(p []byte) (int, error) {
-	lw.mu.Lock()
-	defer lw.mu.Unlock()
-	return lw.w.Write(p)
+// inChunk is one item of the input queue: bytes for the far end, a marker Flush waits
+// on, or both. A marker is closed once everything queued ahead of it has been written,
+// which is the only way to observe the queue from outside it.
+type inChunk struct {
+	b    []byte
+	done chan struct{}
 }
+
+// inQueue is how many chunks may be waiting for the wire at once. Far past anything a
+// hand or a paste produces, so it is only ever reached by a far end that has stopped
+// reading altogether — at which point the input is dropped rather than kept forever.
+const inQueue = 1024
 
 // Pane is a single embedded terminal: a VT emulator bound to an SSH session. The
 // SafeEmulator is concurrency-safe, so the output pump and Render() may run at once;
-// writes to the session stdin are guarded by mu.
+// everything hop sends to the far end goes through the input queue. See send.
 type Pane struct {
 	emu  *vt.SafeEmulator
 	sess *sshx.Session
-	mu   sync.Mutex // guards ALL writes to sess.Stdin
+
+	// in is the input queue, drained to sess.Stdin by one goroutine. Nothing writes to
+	// the session directly, for two reasons:
+	//
+	//   - An SSH channel Write blocks once the remote's window is full or the link
+	//     stalls, and SendKey/SendMouse run on Bubble Tea's update goroutine. A blocked
+	//     Write there holds the entire TUI: no repaint, no other key, until the far end
+	//     reads again. A big paste could freeze it outright.
+	//   - One queue keeps the order a mutex used to: a keystroke and the emulator's own
+	//     auto-response cannot interleave halfway through a sequence.
+	in chan inChunk
 
 	// paneW/paneH are the size Resize last applied, so a resize to the size the pane
 	// already has can be dropped. Touched only from the UI goroutine.
@@ -105,6 +124,7 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 	emu := vt.NewSafeEmulator(w, h)
 	p := &Pane{
 		emu: emu, sess: sess,
+		in:    make(chan inChunk, inQueue),
 		paneW: w, paneH: h, // the pty was opened at this size
 		firstOutput: make(chan struct{}),
 		closed:      make(chan struct{}),
@@ -192,9 +212,32 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 		}
 	}()
 
-	// Emulator auto-responses -> remote, guarded so they never clash with SendKey.
+	// Emulator auto-responses -> remote, through the queue so they never clash with a
+	// keystroke.
 	go func() {
-		_, _ = io.Copy(&lockedWriter{mu: &p.mu, w: sess.Stdin}, emu)
+		_, _ = io.Copy(paneWriter{p}, emu)
+	}()
+
+	// The queue -> remote. The only goroutine that writes to the session, and the only
+	// one allowed to block on it.
+	//
+	// A failed write is not the end of it: the session may still be usable, and quitting
+	// here would leave a live pane whose input goes nowhere — queued, never written, and
+	// dropped once the queue fills. Only closing the pane ends the drain.
+	go func() {
+		for {
+			select {
+			case c := <-p.in:
+				if len(c.b) > 0 {
+					_, _ = sess.Stdin.Write(c.b)
+				}
+				if c.done != nil {
+					close(c.done)
+				}
+			case <-p.closed:
+				return
+			}
+		}
 	}()
 
 	return p
@@ -223,15 +266,57 @@ func runeWidth(r rune) int {
 }
 
 // SendKey translates a Bubble Tea key event into a terminal input byte sequence
-// and writes it to the session stdin under the shared mutex.
+// and queues it for the far end.
 func (p *Pane) SendKey(msg tea.KeyMsg) {
-	b := keyToBytes(msg)
-	if len(b) == 0 {
+	p.send(keyToBytes(msg))
+}
+
+// SendKeys queues a run of key events as one item, which is what a burst replayed as
+// keystrokes is: the bytes are exactly what SendKey per key would have put on the wire,
+// but they occupy one slot of the queue rather than one each. See internal/tui/paste.go.
+func (p *Pane) SendKeys(msgs []tea.KeyMsg) {
+	var b []byte
+	for _, msg := range msgs {
+		b = append(b, keyToBytes(msg)...)
+	}
+	p.send(b)
+}
+
+// send queues b for the far end and returns at once — the caller is usually the UI
+// goroutine, which must never wait on the wire. b is copied, so a caller may reuse it.
+//
+// A full queue means the far end has stopped reading entirely; the input is dropped
+// rather than blocking the UI or growing without bound. Anything a hand or a paste
+// produces is orders of magnitude short of that.
+func (p *Pane) send(b []byte) {
+	if len(b) == 0 || p.isClosed() {
 		return
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	_, _ = p.sess.Stdin.Write(b)
+	select {
+	case p.in <- inChunk{b: append([]byte(nil), b...)}:
+	default:
+	}
+}
+
+// Flush blocks until everything queued when it was called has been handed to the
+// session, or the pane closes. hop itself never waits on the wire, so nothing in the UI
+// calls this; it is how a caller outside the pane — a test — can tell that queued input
+// has gone.
+//
+// It queues a marker rather than counting what is in flight: a counter would be raised
+// by SendKey and the emulator's response pump while this is waiting on it, which is the
+// one thing a WaitGroup may not have done to it.
+func (p *Pane) Flush() {
+	done := make(chan struct{})
+	select {
+	case p.in <- inChunk{done: done}:
+	case <-p.closed:
+		return
+	}
+	select {
+	case <-done:
+	case <-p.closed:
+	}
 }
 
 // AltScreen reports whether a full-screen program has taken the screen. Such a program

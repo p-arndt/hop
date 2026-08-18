@@ -112,10 +112,16 @@ const pasteGap = 8 * time.Millisecond
 
 // burstGap is the gap below which two keys cannot both have been typed: a synthesised
 // paste arrives microseconds apart, a hand needs tens of milliseconds even at its
-// fastest, and a held-down key repeats no quicker than every ~30ms. It sits well above
-// the microseconds so that hop's own per-key work — Update plus a full repaint, a couple
-// of milliseconds on a large window — cannot stretch a paste into what looks like typing.
-const burstGap = 10 * time.Millisecond
+// fastest, and a held-down key repeats no quicker than every ~30ms (Windows' fastest
+// repeat rate).
+//
+// The gap is measured where the key reaches Update, not where the console produced it,
+// so what sits between two keys of a paste is hop's own per-key work: an Update and a
+// repaint, a couple of milliseconds on a large window. 20ms leaves that an order of
+// magnitude of headroom while staying clear of the repeat rate above — the two walls
+// this constant sits between. Erring low splits a paste into keystrokes, which is the
+// failure the coalescer exists to prevent; erring high only costs a held key pasteGap.
+const burstGap = 20 * time.Millisecond
 
 // pasteMax bounds how many keys are held before the buffer is flushed regardless of the
 // gap: a large paste is split into several rather than held whole in memory.
@@ -159,10 +165,17 @@ func (m *model) takeKey(msg tea.KeyMsg) bool {
 	// The gate: a key that did not follow another one inside burstGap cannot be part of a
 	// paste, so it is sent as itself, now. The time is recorded either way — it is the
 	// key the next one is measured against, taken or not.
+	//
+	// Enter is the exception, and always goes through the buffer. It is the one character
+	// whose immediate delivery is not free: a clipboard that begins with a newline — a
+	// selection that wrapped, a copied blank first line — would submit whatever is
+	// already on the line before the paste arrived. Buffered, it costs pasteGap on a key
+	// whose answer is a command running anyway, and a lone Enter is still replayed as the
+	// keystroke it was (see looksPasted).
 	now := m.now()
 	gap := now.Sub(m.paste.lastAt)
 	m.paste.lastAt = now
-	if len(m.paste.keys) == 0 && gap > burstGap {
+	if len(m.paste.keys) == 0 && gap > burstGap && msg.Type != tea.KeyEnter {
 		return false
 	}
 	// A burst belongs to one pane. Focus can only move on a key this does not take, so
@@ -251,9 +264,7 @@ func (m *model) flushPaste() {
 		pane.SendPaste(pasteString(keys))
 		return
 	}
-	for _, k := range keys {
-		pane.SendKey(k)
-	}
+	pane.SendKeys(keys)
 }
 
 // looksPasted reports whether a burst is a paste rather than typing.

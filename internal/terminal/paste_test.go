@@ -21,6 +21,7 @@ func TestBracketedPasteFollowsTheRemote(t *testing.T) {
 		t.Fatal("a fresh shell claims to have asked about pastes")
 	}
 	p.SendPaste("ls\n")
+	p.Flush()
 	if got := stdin.String(); got != "ls\r" {
 		t.Fatalf("unbracketed paste wrote %q, want %q", got, "ls\r")
 	}
@@ -32,6 +33,7 @@ func TestBracketedPasteFollowsTheRemote(t *testing.T) {
 
 	stdin.reset()
 	p.SendPaste("ls\n")
+	p.Flush()
 	want := "\x1b[200~ls\r\x1b[201~"
 	if got := stdin.String(); got != want {
 		t.Fatalf("bracketed paste wrote %q, want %q", got, want)

@@ -569,12 +569,7 @@ func (p *Pane) waitFirstOutput(timeout time.Duration) {
 	}
 }
 
-// writeString sends s to the remote as input, under the session's write mutex.
+// writeString sends s to the remote as input, through the pane's input queue.
 func (p *Pane) writeString(s string) {
-	if p.isClosed() {
-		return
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	_, _ = p.sess.Stdin.Write([]byte(s))
+	p.send([]byte(s))
 }
