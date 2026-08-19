@@ -64,6 +64,7 @@ file tracks *what*, not *why*.
 - [x] **Host list keymap trimmed** to step keys via `keymap.Scope`.
 - [x] **Mouse support** routed by region (`tui/mouse.go`); a remote asking for the mouse gets it verbatim.
 - [x] **Mouse text selection** over shells, scrollback and editors → clipboard on release; `ctrl+g` hands reporting back.
+- [x] **Selection past one screenful:** the wheel scrolls under a live drag, a drag held at a pane edge autoscrolls, and a selection rides the text it was made on. On the alt screen the wheel is sent on as `↑`/`↓`.
 - [x] **Drag autoscroll** past a pane's top/bottom row, into scrollback and back.
 - [x] **Copy/paste:** paste as your terminal pastes (shape-detected on Windows); copy via OSC 52. A remote *read* is never answered.
 - [x] **Cursor is the remote's** (`terminal/cursor.go`): DECSCUSR shape, DECTCEM hiding, block restored on reset. Blinking is a setting, off by default.

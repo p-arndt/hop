@@ -262,7 +262,10 @@ Once paused, the keyboard drives the history viewport rather than the remote she
 | *anything else* | leave scrollback and type it at the prompt |
 
 The wheel enters and drives scrollback too, three lines a notch, and scrolling back down to
-the live bottom returns you to the shell.
+the live bottom returns you to the shell. It keeps working while you are dragging out a
+selection: the view scrolls under the pointer and the selection grows with it. On the alt
+screen, where there is no history to show, a notch is sent on as `↑` / `↓` instead, so
+a full-screen program scrolls itself.
 
 <details>
 <summary><b>Why arriving at the bottom exits, and what `ctrl+o` does here</b></summary>
@@ -596,13 +599,22 @@ Every gesture is an existing binding reached by pointing, so nothing is mouse-on
 | Gesture | Where | What it does |
 | --- | --- | --- |
 | wheel | the host list | moves the selection, one host a notch |
-| wheel | a shell pane | pauses into its [scrollback](#scrolling-back-through-history) |
+| wheel | a shell pane | pauses into its [scrollback](#scrolling-back-through-history), three lines a notch |
+| wheel | a full-screen program | `↑` / `↓`, three of them a notch — it keeps no scrollback here |
 | wheel | the SFTP browser | moves the cursor three entries a notch |
 | click | the host list | stands on that host — and, from a pane, hands the keyboard back |
 | click | a pane the list has the keyboard in | takes it: the pointer's `s` or `f` |
 | click | a tab strip | switches to that shell or file tab |
 | drag | a pane | selects text; it lands on the clipboard when you let go |
+| wheel *while dragging* | a pane | scrolls under the selection, which grows to follow |
+| drag to the top / bottom row | a pane | keeps scrolling by itself while you hold it there |
 | double-click | a host, or a browser entry | opens it — `enter`, by pointing |
+
+A selection is not limited to the screenful it started on: while the button is down the
+wheel scrolls the view under it and the selection grows, and a drag held against the top or
+bottom row of the pane scrolls by itself until you let go. A selection also rides the text it
+was made on, so scrolling leaves the highlight over the same words. Anything you type takes
+it down.
 
 A remote program that asks for the mouse (vim with `set mouse=a`, htop) gets the pointer
 verbatim instead. The cards are keyboard-only. `ctrl+g` hands mouse reporting back to your

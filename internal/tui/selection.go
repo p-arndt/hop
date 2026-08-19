@@ -8,11 +8,14 @@ package tui
 //   - a drag selects from where the button went down to where the pointer is, flowing
 //     over row ends rather than covering a rectangle (see terminal.Span);
 //   - releasing copies;
-//   - a drag held against the top or bottom row of the pane keeps going, scrolling the
-//     view under the pointer — the selection is not limited to what was on screen when
-//     the button went down (see dragAutoScroll);
-//   - anything else clears it — a keystroke, a scroll, a click elsewhere — since a stale
-//     highlight over a screen that has moved is worse than no highlight.
+//   - the wheel scrolls the view without ending the drag, and a drag held against the top
+//     or bottom row of the pane keeps going by itself — either way the selection is not
+//     limited to what was on screen when the button went down (see wheelShell and
+//     dragAutoScroll);
+//   - a selection rides the text it was made on while the view scrolls under it, so the
+//     highlight stays over the words it covers (see shiftSelection);
+//   - anything else clears it — a keystroke, a click elsewhere — since a stale highlight
+//     over a screen that has moved on is worse than no highlight.
 //
 // A remote program that asked for the mouse keeps it and does its own selecting, so hop
 // does not select over the top of it. See mouseShell.
@@ -73,7 +76,13 @@ func (m *model) endSelection(view string) {
 	m.sel.dragging = false
 	m.sel.edge = 0
 
-	text := terminal.PlainText(view, m.sel.span(), m.paneW)
+	span := m.sel.span()
+	// A selection grown by scrolling covers rows that are no longer on screen, and the
+	// screen is all `view` holds. A shell pane can render the rest back.
+	if rows, top, ok := m.shellSpanView(span); ok {
+		view, span = rows, shiftSpan(span, top)
+	}
+	text := terminal.PlainText(view, span, m.paneW)
 	if strings.TrimSpace(text) == "" {
 		m.sel = selection{}
 		return
@@ -83,6 +92,47 @@ func (m *model) endSelection(view string) {
 		return
 	}
 	m.setStatus(statusOK, "copied %d %s", countLines(text), plural(countLines(text), "line", "lines"))
+}
+
+// shiftSelection moves the selection dy rows down the screen, which is what a view that
+// has scrolled dy lines has done to the text under it. Nothing else about the selection
+// changes: the same words stay covered.
+//
+// The head of a live drag is left where it is — it belongs to the pointer, which did not
+// move, so the caller places it. A drag scrolled far enough carries its anchor off the
+// screen; that is a selection wider than a screenful, and the span simply covers every
+// row between, painting the ones that are visible.
+func (m *model) shiftSelection(dy int) {
+	if !m.sel.active || dy == 0 {
+		return
+	}
+	m.sel.anchor.Y += dy
+	if !m.sel.dragging {
+		m.sel.head.Y += dy
+	}
+}
+
+// shellSpanView renders exactly the rows a span covers out of the focused shell's pane,
+// reaching above the window into scrollback and below it toward the live screen, and
+// reports the row the rendering starts at. It declines for anything that is not a shell:
+// an editor pane keeps no history here, so its screen is all there is to copy.
+func (m *model) shellSpanView(s terminal.Span) (string, int, bool) {
+	if !m.focused() && !m.scrolling() {
+		return "", 0, false
+	}
+	sess := m.sessions[m.active]
+	if sess == nil || sess.shell() == nil {
+		return "", 0, false
+	}
+	return sess.shell().pane.ViewRows(s.From.Y, s.To.Y), s.From.Y, true
+}
+
+// shiftSpan renumbers a span's rows against a view that starts at row top — what turns
+// pane-view coordinates into coordinates over the rows shellSpanView handed back.
+func shiftSpan(s terminal.Span, top int) terminal.Span {
+	s.From.Y -= top
+	s.To.Y -= top
+	return s
 }
 
 // clearSelection takes the highlight down, reporting whether there was one. Every caller

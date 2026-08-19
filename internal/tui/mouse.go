@@ -341,22 +341,14 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 		}
 	}
 
-	// Paused in history, the wheel drives the history whatever the far end asked for: it
-	// is not being shown the live screen, so it is not being pointed at.
+	// The wheel belongs to whoever is drawing the text. Paused in history that is hop
+	// whatever the far end asked for — it is not being shown the live screen, so it is
+	// not being pointed at — and on a live screen it is hop until a program asks.
+	if dir := wheelDir(msg.Button); dir != 0 && (m.scrolling() || !p.MouseEnabled()) {
+		return m.wheelShell(s, dir, x, y, h)
+	}
+
 	if m.scrolling() {
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
-			m.clearSelection()
-			p.ScrollUp(wheelStep)
-			return m, nil
-		case tea.MouseButtonWheelDown:
-			m.clearSelection()
-			p.ScrollDown(wheelStep)
-			if p.AtBottom() {
-				m.exitScrollback()
-			}
-			return m, nil
-		}
 		// Anything else over the history is a drag over text that is not going anywhere.
 		return m.mouseSelect(msg, x, y, p.ViewScrollback())
 	}
@@ -367,20 +359,64 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 		p.SendMouse(msg, x, y)
 		return m, nil
 	}
+	return m.mouseSelect(msg, x, y, p.View())
+}
 
-	// Nothing asked for the mouse, so the wheel is hop's: into the shell's scrollback, on
-	// the same terms as the entry chord.
-	if msg.Button == tea.MouseButtonWheelUp {
-		m.clearSelection()
-		if m.enterScrollback(s) {
-			p.ScrollUp(wheelStep)
+// wheelDir reads a wheel notch as the direction it wants the view moved: -1 back into
+// history, +1 toward the live bottom, 0 for anything that is not a vertical wheel. A
+// pane has no columns to spare, so the horizontal wheel is left alone.
+func wheelDir(b tea.MouseButton) int {
+	switch b {
+	case tea.MouseButtonWheelUp:
+		return -1
+	case tea.MouseButtonWheelDown:
+		return 1
+	}
+	return 0
+}
+
+// wheelShell answers one wheel notch over a shell pane hop is scrolling itself.
+//
+// The notch walks the view through the shell's history and carries any selection with the
+// text it was made on. While a drag is live it also moves the head to the cell under the
+// pointer, so the wheel grows the selection: a span longer than one screenful no longer
+// means holding the pointer against an edge row and waiting for the autoscroll.
+//
+// A full-screen program keeps no scrollback here, so its notch is translated into arrow
+// keys instead — xterm's alternate-scroll, and the only way a wheel reaches a less or a
+// vim that never asked for the mouse. Not while dragging: those keys would move the far
+// end's cursor rather than hop's view, under a selection hop is still making.
+func (m *model) wheelShell(s *session, dir, x, y, h int) (tea.Model, tea.Cmd) {
+	p := s.shell().pane
+	if !m.scrolling() && p.AltScreen() {
+		if !m.sel.dragging {
+			m.reportInput(p.SendKeys(wheelKeys(dir)))
 		}
 		return m, nil
 	}
-	if msg.Button == tea.MouseButtonWheelDown {
+	if m.scrollShellBy(s, dir, wheelStep) == 0 {
 		return m, nil
 	}
-	return m.mouseSelect(msg, x, y, p.View())
+	if m.sel.dragging {
+		// The pointer did not move; the text moved under it, so the head is wherever the
+		// pointer already was.
+		m.dragSelection(terminal.Cell{X: x, Y: clamp(y, 0, max(h-1, 0))})
+	}
+	return m, nil
+}
+
+// wheelKeys is one wheel notch as the arrow keys a full-screen program understands: the
+// same three lines the wheel moves everywhere else in hop.
+func wheelKeys(dir int) []tea.KeyMsg {
+	key := tea.KeyMsg{Type: tea.KeyUp}
+	if dir > 0 {
+		key = tea.KeyMsg{Type: tea.KeyDown}
+	}
+	msgs := make([]tea.KeyMsg, wheelStep)
+	for i := range msgs {
+		msgs[i] = key
+	}
+	return msgs
 }
 
 // ---- autoscroll while dragging ----
@@ -432,11 +468,22 @@ func (m *model) dragScrollTick(gen int) tea.Cmd {
 }
 
 // dragScrollStep moves the focused shell's view one line in dir and reports whether it
-// moved. The anchor travels with the text it was put on: the view scrolled a line, so the
-// cell the button went down on is a line further down (or up) the screen than it was.
+// moved — one autoscroll step, on the same terms as a wheel notch.
 func (m *model) dragScrollStep(s *session, dir int) bool {
-	if s == nil || s.shell() == nil {
-		return false
+	return m.scrollShellBy(s, dir, 1) != 0
+}
+
+// scrollShellBy moves the focused shell's view n lines in dir — negative back into
+// history, positive toward the live bottom — and reports how many lines it moved, which
+// is 0 when there was nothing there to move into.
+//
+// Whatever is selected travels with the text it was made on: the view moved n lines, so
+// the cells the selection covers are n rows further down (or up) the screen than they
+// were. It is the one place hop's view scrolls, so both the wheel and the edge autoscroll
+// keep a selection the same way.
+func (m *model) scrollShellBy(s *session, dir, n int) int {
+	if s == nil || s.shell() == nil || dir == 0 || n <= 0 {
+		return 0
 	}
 	p := s.shell().pane
 	before := p.ScrollOffset()
@@ -444,27 +491,27 @@ func (m *model) dragScrollStep(s *session, dir int) bool {
 		// Upward past the top of the live screen is what scrollback is for; a pane with
 		// no history, or a full-screen program, has nowhere to go.
 		if !m.scrolling() && !m.enterScrollback(s) {
-			return false
+			return 0
 		}
-		p.ScrollUp(1)
+		p.ScrollUp(n)
 	} else {
 		// Downward only matters while paused in history: the live screen is the bottom.
 		if !m.scrolling() {
-			return false
+			return 0
 		}
-		p.ScrollDown(1)
+		p.ScrollDown(n)
 	}
 	moved := p.ScrollOffset() - before
-	if moved == 0 {
-		return false
-	}
-	m.sel.anchor.Y += moved
-	// Back at the live bottom is the way out of history, as it is for the wheel and the
-	// keys. After the anchor has moved, since the snap it does is already a no-op here.
+	m.shiftSelection(moved)
+	// Back at the live bottom is the way out of history, as it is for the keys. After the
+	// selection has moved, since the snap exitScrollback does is already a no-op here.
+	//
+	// Unconditional, so a step that entered scrollback and then found nothing to scroll
+	// into leaves the mode as it found it.
 	if p.AtBottom() {
 		m.exitScrollback()
 	}
-	return true
+	return moved
 }
 
 // mouseSelect is the pointer over a pane's text with nothing else claiming it: press

@@ -590,11 +590,27 @@ func (p *Pane) AtBottom() bool {
 // ViewScrollback renders the windowed view at the current scroll offset, exactly
 // emu.Height() lines tall so it drops into the layout in place of View(). It lays down
 // no cursor: this is history being read.
+func (p *Pane) ViewScrollback() string {
+	return p.ViewRows(0, p.emu.Height()-1)
+}
+
+// ViewRows renders rows [from, to] of the pane's current view, both inclusive and
+// numbered from the top of what ViewScrollback shows — so 0..Height()-1 is the window
+// itself, a negative row reaches up into scrollback, and a row past the window reaches
+// down toward the live screen.
 //
 // Scrollback and the live screen are one tall virtual buffer — sbLen lines of history,
-// then h lines of screen — and the window is a height-h slice whose top sits at virtual
-// index sbLen-offset, so offset 0 is exactly the live screen.
-func (p *Pane) ViewScrollback() string {
+// then h lines of screen — and the window's top sits at virtual index sbLen-offset, so
+// offset 0 puts row 0 on the first line of the live screen.
+//
+// It is what copying a selection taller than the pane reads out of: the rows a drag
+// covers are rendered whether or not they are still on screen. A row outside the buffer
+// renders blank rather than being dropped, so the row numbering stays aligned with the
+// span asking for it.
+func (p *Pane) ViewRows(from, to int) string {
+	if to < from {
+		return ""
+	}
 	h := p.emu.Height()
 	offset := p.clampOffset()
 	sbLen := p.emu.ScrollbackLen()
@@ -611,14 +627,14 @@ func (p *Pane) ViewScrollback() string {
 	}
 
 	top := sbLen - offset
-	lines := make([]string, 0, h)
-	for i := 0; i < h; i++ {
-		vi := top + i
+	lines := make([]string, 0, to-from+1)
+	for y := from; y <= to; y++ {
+		vi := top + y
 		var line string
 		switch {
 		case vi < 0:
-			// Above the oldest line held — only reachable if the buffer shrank under a
-			// stale offset.
+			// Above the oldest line held — a drag pulled further back than scrollback
+			// goes, or a stale offset over a buffer that shrank.
 			line = ""
 		case vi < sbLen:
 			if l := sb.Line(vi); l != nil {

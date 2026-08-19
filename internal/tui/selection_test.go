@@ -128,17 +128,62 @@ func TestAnyKeyClearsTheSelection(t *testing.T) {
 	}
 }
 
-// The wheel moves the screen under the highlight, so it takes it down with it.
-func TestScrollClearsTheSelection(t *testing.T) {
-	m, _ := selModel(t, "sudo apt update\r\n", "sudo apt update")
-	for _, e := range dragEvents(0, 0, 14, 0) {
+// The wheel moves the screen under the highlight, and the highlight goes with it: the
+// same words stay covered, three rows further down.
+func TestScrollCarriesTheSelection(t *testing.T) {
+	screen, marker := longScreen(60)
+	m, _ := selModel(t, screen, marker)
+
+	for _, e := range dragEvents(0, 4, 6, 4) {
 		m.handleMouse(e)
+	}
+	if !m.sel.active {
+		t.Fatal("the drag left no selection to carry")
 	}
 
 	m.handleMouse(wheel(40, 6, true))
 
-	if m.sel.active {
-		t.Fatal("scrolling left a stale highlight behind")
+	if !m.sel.active {
+		t.Fatal("scrolling took the highlight down with it")
+	}
+	if m.sel.anchor.Y != 4+wheelStep || m.sel.head.Y != 4+wheelStep {
+		t.Fatalf("selection rows = %d..%d, want both %d — it rides the text it was made on",
+			m.sel.anchor.Y, m.sel.head.Y, 4+wheelStep)
+	}
+}
+
+// The bug this fixes: the wheel used to clear a live drag, so growing a selection past
+// the screen it started on meant pinning the pointer to an edge row and waiting for the
+// autoscroll. Now a notch scrolls under the drag, and the selection grows by it.
+func TestWheelDuringDragExtendsTheSelection(t *testing.T) {
+	screen, marker := longScreen(60)
+	m, copied := selModel(t, screen, marker)
+	p := m.sessions["ha"].shell().pane
+
+	m.handleMouse(dragEvents(0, 5, 0, 5)[0]) // press, five rows down
+	m.handleMouse(wheel(33, 2+5, true))      // and a notch back into history
+
+	if !m.scrolling() {
+		t.Fatal("the wheel did not pause the shell into its history")
+	}
+	if p.ScrollOffset() != wheelStep {
+		t.Fatalf("scroll offset = %d, want %d", p.ScrollOffset(), wheelStep)
+	}
+	if !m.sel.dragging {
+		t.Fatal("the wheel ended the drag it should have scrolled under")
+	}
+	if m.sel.anchor.Y != 5+wheelStep {
+		t.Fatalf("anchor row = %d, want %d — the anchor moves down with the text",
+			m.sel.anchor.Y, 5+wheelStep)
+	}
+	if m.sel.head.Y != 5 {
+		t.Fatalf("head row = %d, want 5 — the pointer did not move", m.sel.head.Y)
+	}
+
+	// So the release copies the rows the wheel opened up between the two ends.
+	m.handleMouse(tea.MouseMsg{X: 33 + 6, Y: 2 + 5, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+	if got := countLines(copied()); got != wheelStep+1 {
+		t.Fatalf("copied %d lines (%q), want %d", got, copied(), wheelStep+1)
 	}
 }
 
@@ -428,5 +473,29 @@ func TestDragOverSidebarKeepsSelection(t *testing.T) {
 	}
 	if m.sel.head.Y != 2 {
 		t.Fatalf("head row = %d, want the drag clamped onto the pane row it is level with", m.sel.head.Y)
+	}
+}
+
+// A selection the wheel has grown is taller than the pane, so most of what it covers is
+// no longer on screen. The copy is read out of the pane's rows rather than its screen,
+// or letting go would silently put back only the screenful that survived the scrolling.
+func TestSelectionTallerThanThePaneCopiesEveryRow(t *testing.T) {
+	screen, marker := longScreen(60)
+	m, copied := selModel(t, screen, marker)
+
+	// Press on the pane's last row, then wheel two notches back into history: the anchor
+	// travels down with the text, six rows past the bottom of the window.
+	m.handleMouse(dragEvents(0, m.paneH-1, 0, m.paneH-1)[0])
+	m.handleMouse(wheel(33, 2+m.paneH-1, true))
+	m.handleMouse(wheel(33, 2+m.paneH-1, true))
+	// And release on the top row, so the selection runs the whole way.
+	m.handleMouse(tea.MouseMsg{X: 33, Y: 2, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+
+	want := m.paneH + 2*wheelStep
+	if got := countLines(copied()); got != want {
+		t.Fatalf("copied %d lines, want %d — the rows scrolled off the bottom were dropped", got, want)
+	}
+	if !strings.Contains(copied(), marker) {
+		t.Fatalf("copied %q, want it to hold %q — the last line printed is below the window now", copied(), marker)
 	}
 }

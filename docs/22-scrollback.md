@@ -28,7 +28,10 @@ Once paused, the keyboard drives the history viewport rather than the remote she
 | *anything else* | leave scrollback and type it at the prompt |
 
 The wheel enters and drives scrollback too, three lines a notch, and scrolling back down to
-the live bottom returns you to the shell.
+the live bottom returns you to the shell. It keeps working while you are dragging out a
+selection: the view scrolls under the pointer and the selection grows with it. On the alt
+screen, where there is no history to show, a notch is sent on as [[↑]] / [[↓]] instead, so
+a full-screen program scrolls itself.
 
 :::why not="readme" Why arriving at the bottom exits, and what [[ctrl+o]] does here
 Reaching the live bottom by scrolling down is itself a way out — the point of scrollback is

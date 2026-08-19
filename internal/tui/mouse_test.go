@@ -3,6 +3,7 @@ package tui
 import (
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -485,5 +486,64 @@ func TestApplyMouseOnlySpeaksWhenItChanges(t *testing.T) {
 	}
 	if cmd := m.applyMouse(); cmd != nil {
 		t.Fatal("applyMouse spoke twice for one change")
+	}
+}
+
+// recordingStdin is a far end that keeps what was typed at it, so a test can read back
+// the bytes a gesture put on the wire.
+type recordingStdin struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (r *recordingStdin) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.buf.Write(p)
+}
+
+func (r *recordingStdin) Close() error { return nil }
+
+func (r *recordingStdin) String() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.buf.String()
+}
+
+// A full-screen program keeps no scrollback here, so hop has nothing of its own to
+// scroll: without this the wheel over less or vim did nothing at all. It is translated
+// into the arrow keys the program already answers — xterm's alternate-scroll.
+func TestWheelOnAltScreenSendsArrowKeys(t *testing.T) {
+	m := newMouseModel(3)
+	m.active = "ha"
+	m.mode = modeShell
+
+	stdin := &recordingStdin{}
+	pr, pw := io.Pipe()
+	p := terminal.New(&sshx.Session{Stdin: stdin, Stdout: pr}, m.paneW, m.paneH, nil)
+	m.sessions["ha"] = &session{shells: []*shellTab{{id: 1, pane: p}}}
+
+	pw.Write([]byte("\x1b[?1049h"))
+	deadline := time.Now().Add(2 * time.Second)
+	for !p.AltScreen() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !p.AltScreen() {
+		t.Fatal("the pane never entered the alt screen")
+	}
+
+	m.handleMouse(wheel(40, 6, true))
+	m.handleMouse(wheel(40, 6, false))
+
+	want := strings.Repeat("\x1b[A", wheelStep) + strings.Repeat("\x1b[B", wheelStep)
+	deadline = time.Now().Add(2 * time.Second)
+	for stdin.String() != want && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := stdin.String(); got != want {
+		t.Fatalf("the wheel sent %q, want %q", got, want)
+	}
+	if m.scrolling() {
+		t.Fatal("a full-screen program's wheel notch put hop into a scrollback it does not keep")
 	}
 }

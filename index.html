@@ -1097,7 +1097,10 @@
       </tbody>
       </table></div>
       <p>The wheel enters and drives scrollback too, three lines a notch, and scrolling back down to
-      the live bottom returns you to the shell.</p>
+      the live bottom returns you to the shell. It keeps working while you are dragging out a
+      selection: the view scrolls under the pointer and the selection grows with it. On the alt
+      screen, where there is no history to show, a notch is sent on as <kbd>↑</kbd> / <kbd>↓</kbd> instead, so
+      a full-screen program scrolls itself.</p>
       <details class="why"><summary>Why arriving at the bottom exits, and what <kbd>ctrl+o</kbd> does here</summary><p>Reaching the live bottom by scrolling down is itself a way out — the point of scrollback is
       to look at what went by, so arriving at the tail means you are done. <kbd>ctrl+o</kbd> here only
       leaves scrollback; a second <kbd>ctrl+o</kbd> then opens the leader, the consistent &ldquo;back one level&rdquo;
@@ -1629,7 +1632,12 @@
       <tr>
       <td>wheel</td>
       <td>a shell pane</td>
-      <td>pauses into its <a href="#scrollback">scrollback</a></td>
+      <td>pauses into its <a href="#scrollback">scrollback</a>, three lines a notch</td>
+      </tr>
+      <tr>
+      <td>wheel</td>
+      <td>a full-screen program</td>
+      <td><kbd>↑</kbd> / <kbd>↓</kbd>, three of them a notch — it keeps no scrollback here</td>
       </tr>
       <tr>
       <td>wheel</td>
@@ -1657,12 +1665,27 @@
       <td>selects text; it lands on the clipboard when you let go</td>
       </tr>
       <tr>
+      <td>wheel <em>while dragging</em></td>
+      <td>a pane</td>
+      <td>scrolls under the selection, which grows to follow</td>
+      </tr>
+      <tr>
+      <td>drag to the top / bottom row</td>
+      <td>a pane</td>
+      <td>keeps scrolling by itself while you hold it there</td>
+      </tr>
+      <tr>
       <td>double-click</td>
       <td>a host, or a browser entry</td>
       <td>opens it — <kbd>enter</kbd>, by pointing</td>
       </tr>
       </tbody>
       </table></div>
+      <p>A selection is not limited to the screenful it started on: while the button is down the
+      wheel scrolls the view under it and the selection grows, and a drag held against the top or
+      bottom row of the pane scrolls by itself until you let go. A selection also rides the text it
+      was made on, so scrolling leaves the highlight over the same words. Anything you type takes
+      it down.</p>
       <p>A remote program that asks for the mouse (vim with <code>set mouse=a</code>, htop) gets the pointer
       verbatim instead. The cards are keyboard-only. <kbd>ctrl+g</kbd> hands mouse reporting back to your
       terminal for a moment — for a selection spanning the sidebar and a pane, or anything else
@@ -2234,7 +2257,7 @@
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"esc q enter ctrl+o ← · back to the live shell"},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"? · the key card"},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"anything else · leave scrollback and type it at the prompt"},
-{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"The wheel enters and drives scrollback too, three lines a notch, and scrolling back down to the live bottom returns you to the shell."},
+{"s":"Scrolling back through history","h":"","a":"#scrollback","t":"The wheel enters and drives scrollback too, three lines a notch, and scrolling back down to the live bottom returns you to the shell. It keeps working while you are dragging out a selection: the view scrolls under the pointer and the selection grows with it. On the alt screen, where there is no history to show, a notch is sent on as ↑ / ↓ instead, so a full-screen program scrolls itself."},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Why arriving at the bottom exits, and what ctrl+o does here"},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Reaching the live bottom by scrolling down is itself a way out — the point of scrollback is to look at what went by, so arriving at the tail means you are done. ctrl+o here only leaves scrollback; a second ctrl+o then opens the leader, the consistent “back one level” the rest of hop keeps to."},
 {"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"How double-esc works, and what it costs"},
@@ -2366,13 +2389,17 @@
 {"s":"The mouse","h":"","a":"#mouse","t":"Every gesture is an existing binding reached by pointing, so nothing is mouse-only."},
 {"s":"The mouse","h":"","a":"#mouse","t":"Gesture · Where · What it does"},
 {"s":"The mouse","h":"","a":"#mouse","t":"wheel · the host list · moves the selection, one host a notch"},
-{"s":"The mouse","h":"","a":"#mouse","t":"wheel · a shell pane · pauses into its scrollback"},
+{"s":"The mouse","h":"","a":"#mouse","t":"wheel · a shell pane · pauses into its scrollback, three lines a notch"},
+{"s":"The mouse","h":"","a":"#mouse","t":"wheel · a full-screen program · ↑ / ↓, three of them a notch — it keeps no scrollback here"},
 {"s":"The mouse","h":"","a":"#mouse","t":"wheel · the SFTP browser · moves the cursor three entries a notch"},
 {"s":"The mouse","h":"","a":"#mouse","t":"click · the host list · stands on that host — and, from a pane, hands the keyboard back"},
 {"s":"The mouse","h":"","a":"#mouse","t":"click · a pane the list has the keyboard in · takes it: the pointer’s s or f"},
 {"s":"The mouse","h":"","a":"#mouse","t":"click · a tab strip · switches to that shell or file tab"},
 {"s":"The mouse","h":"","a":"#mouse","t":"drag · a pane · selects text; it lands on the clipboard when you let go"},
+{"s":"The mouse","h":"","a":"#mouse","t":"wheel while dragging · a pane · scrolls under the selection, which grows to follow"},
+{"s":"The mouse","h":"","a":"#mouse","t":"drag to the top / bottom row · a pane · keeps scrolling by itself while you hold it there"},
 {"s":"The mouse","h":"","a":"#mouse","t":"double-click · a host, or a browser entry · opens it — enter, by pointing"},
+{"s":"The mouse","h":"","a":"#mouse","t":"A selection is not limited to the screenful it started on: while the button is down the wheel scrolls the view under it and the selection grows, and a drag held against the top or bottom row of the pane scrolls by itself until you let go. A selection also rides the text it was made on, so scrolling leaves the highlight over the same words. Anything you type takes it down."},
 {"s":"The mouse","h":"","a":"#mouse","t":"A remote program that asks for the mouse (vim with set mouse=a, htop) gets the pointer verbatim instead. The cards are keyboard-only. ctrl+g hands mouse reporting back to your terminal for a moment — for a selection spanning the sidebar and a pane, or anything else that wants your terminal’s own pointer."},
 {"s":"The rest of the keyboard","h":"","a":"#rest","t":"The rest of the keyboard"},
 {"s":"The rest of the keyboard","h":"Copy and paste","a":"#copy-and-paste","t":"Copy and paste"},
