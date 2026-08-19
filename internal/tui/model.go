@@ -422,6 +422,9 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Before anything reads the key's name: on Windows an AltGr composition arrives
+		// as an alt chord, and every mode below would read it as one. See altgr.go.
+		msg = normalizeAltGr(msg)
 		m.keycastRecord(msg.String())
 		return m.handleKey(msg)
 
