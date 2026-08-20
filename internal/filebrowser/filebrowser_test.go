@@ -443,6 +443,48 @@ func TestEnterAsksToOpenFile(t *testing.T) {
 	}
 }
 
+// ActivateBeside is enter with the split key's intent attached, and the intent rides on
+// the message rather than on anything remembered here: the model reads it off the
+// OpenFileMsg when the editor is asked for, a round trip later.
+func TestActivateBesideMarksTheFile(t *testing.T) {
+	b, _, _, _ := fileTestBrowser(t)
+
+	b.cursor = 1 // a.txt
+	cmd := b.ActivateBeside()
+	if cmd == nil {
+		t.Fatal("ActivateBeside on a file returned no tea.Cmd, want an OpenFileMsg")
+	}
+	msg, ok := cmd().(Msg).Body.(OpenFileMsg)
+	if !ok {
+		t.Fatalf("ActivateBeside produced a %T body, want OpenFileMsg", cmd().(Msg).Body)
+	}
+	if msg.Path != "/home/u/a.txt" || !msg.Beside {
+		t.Fatalf("OpenFileMsg = %+v, want /home/u/a.txt marked Beside", msg)
+	}
+
+	// Plain enter is the same path without the intent, so an ordinary open never arrives
+	// wearing a split it did not ask for.
+	b.cursor = 1
+	if msg := b.Activate()().(Msg).Body.(OpenFileMsg); msg.Beside {
+		t.Fatalf("Activate produced %+v, want Beside unset", msg)
+	}
+}
+
+// A directory answers with no message at all, beside or not. This is what keeps the
+// intent from outliving the key press: there is nothing for the model to receive, so
+// there is nothing left armed to spend on whatever is opened next.
+func TestActivateBesideOnDirNavigatesAndSaysNothing(t *testing.T) {
+	b, _, _, _ := fileTestBrowser(t)
+
+	b.cursor = 0 // sub/
+	if cmd := b.ActivateBeside(); cmd != nil {
+		t.Fatalf("ActivateBeside on a directory produced %v, want pure navigation", cmd())
+	}
+	if b.cwd != "/home/u/sub" {
+		t.Fatalf("cwd = %q, want %q", b.cwd, "/home/u/sub")
+	}
+}
+
 // Enter on a directory still navigates into it, and asks for nothing.
 func TestEnterOnDirNavigates(t *testing.T) {
 	b, fc, _, _ := fileTestBrowser(t)

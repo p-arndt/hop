@@ -421,15 +421,6 @@ func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // filebrowser.Do. The split is where the behaviour lives, not what the user sees — to
 // them it is one keyboard, which is why it is one layer.
 func (m *model) doBrowser(a keys.Action) (tea.Model, tea.Cmd) {
-	// A split armed on a directory never comes back as a file: the browser descends into
-	// it and the flag is left holding an answer to a question nobody asked. Any other key
-	// spends it, so the split can only ever apply to the file the split key was pressed on.
-	if a != keys.BrowserSplit {
-		if s := m.sessions[m.active]; s != nil {
-			s.splitPending = false
-		}
-	}
-
 	switch a {
 	case keys.BrowserLeave:
 		m.leaveBrowser()

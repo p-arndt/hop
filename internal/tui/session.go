@@ -44,12 +44,6 @@ type session struct {
 	split      bool
 	splitRight bool
 
-	// splitPending is set while a split-open is in flight. The browser's Activate goes off
-	// and the file comes back as an OpenFileMsg, and nothing on that message says it was
-	// asked for beside the current file rather than behind it. openFile is the one thing
-	// that answers it, and spends it.
-	splitPending bool
-
 	// dead is set once the connection under this session has dropped. The session is kept
 	// anyway: the panes still hold the last screen the host drew, and it is what 'r'
 	// reconnects. While it is set, no key reaches the remote and nothing is torn down.
@@ -372,12 +366,9 @@ func (m *model) openFile(alias string, msg filebrowser.OpenFileMsg) tea.Cmd {
 	if s == nil || s.client == nil {
 		return nil
 	}
-	// Whether this file was asked for beside the current one is settled here and spent
-	// here: by the time the editor lands the flag would be answering for whatever the user
-	// has done since. See splitOpen.
-	beside := s.splitPending
-	s.splitPending = false
-
+	// Whether this file was asked for beside the current one rode in on the message, so it
+	// still describes the key press that started this open rather than whatever the user
+	// has done in the round trip since. See splitOpen.
 	if i := s.findEditor(msg.Path); i >= 0 {
 		// Already open, so there is nothing for "beside" to mean: a second editor on one
 		// file is not a split, it is two views of a buffer neither end knows about. The
@@ -387,7 +378,7 @@ func (m *model) openFile(alias string, msg filebrowser.OpenFileMsg) tea.Cmd {
 		return nil
 	}
 
-	if beside && len(s.editors) > 0 && m.splitFits() {
+	if msg.Beside && len(s.editors) > 0 && m.splitFits() {
 		// The split opens now rather than when the editor lands, so the pane about to be
 		// started is told the width it will actually have. Until it arrives the right half
 		// mirrors the left, which is a frame of one file drawn twice — cheaper than an
@@ -427,10 +418,10 @@ func (m *model) disconnect(alias string) {
 // splitOpen answers keys.BrowserSplit: open whatever the browser's cursor is on beside
 // the file already showing, rather than behind it as another tab.
 //
-// It goes through the browser's own Activate — the same path enter takes — so a directory
-// still just opens in place and only a file comes back as something to split for. What
-// makes it a split is the flag left on the session, since the message that returns says
-// nothing about which key asked for it.
+// It goes through the browser's own ActivateBeside — the same path enter takes, with the
+// intent carried along — so a directory still just opens in place and only a file comes
+// back marked to split for. Nothing is remembered on the session in between: the message
+// that returns says which key asked for it.
 func (m *model) splitOpen() tea.Cmd {
 	s := m.sessions[m.active]
 	if s == nil || s.browser == nil {
@@ -442,12 +433,10 @@ func (m *model) splitOpen() tea.Cmd {
 		// pedantry about a distinction the user cannot see yet.
 	case !m.splitFits():
 		m.setStatus(statusWarn, "too narrow to split: opening as a tab")
-	case !s.browser.CursorOnFile():
-		// A directory expands and never answers with a file, so arming here would leave
-		// the flag standing for whatever is opened next — including by the pointer, which
-		// does not go through the key handler that spends it.
 	default:
-		s.splitPending = true
+		// A directory is expanded in place and answers with nothing, so the intent goes
+		// nowhere; only a file comes back wearing it.
+		return s.browser.ActivateBeside()
 	}
 	return s.browser.Activate()
 }

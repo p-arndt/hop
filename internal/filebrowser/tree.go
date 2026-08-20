@@ -269,12 +269,3 @@ func (b *Browser) resort(n *node) {
 		b.resort(k)
 	}
 }
-
-// CursorOnFile reports whether the cursor is standing on a file rather than a directory or
-// an empty tree. The tui asks before arming a split: enter on a directory expands it and
-// never produces a file to put beside anything, so a split armed there would otherwise stay
-// armed and land on whatever was opened next.
-func (b *Browser) CursorOnFile() bool {
-	n := b.cur()
-	return n != nil && !n.e.IsDir
-}

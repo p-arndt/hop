@@ -89,6 +89,12 @@ type Msg struct {
 type OpenFileMsg struct {
 	Path string // absolute remote path
 	Name string
+	// Beside says the file was asked for beside the one already open rather than behind
+	// it as another tab. It rides on the message because the key press and the editor that
+	// answers it are separated by an SSH round trip: anything remembered on the side would
+	// have to be spent by hand on every path that is not this one, and the model has two
+	// input devices to forget on. Only a file can carry it — see ActivateBeside.
+	Beside bool
 }
 
 // Options are the user settings the browser honours. The settings popover applies them
@@ -373,7 +379,15 @@ func (b *Browser) Select(i int) {
 
 // Activate opens the entry under the cursor — what enter does, exported for the
 // double-click that means the same thing.
-func (b *Browser) Activate() tea.Cmd { return b.activate() }
+func (b *Browser) Activate() tea.Cmd { return b.activate(false) }
+
+// ActivateBeside is Activate for the split key: a file it opens comes back asking to be
+// put beside the file already open (see keys.BrowserSplit). It is a second entry point
+// rather than a mode set on the browser because the intent belongs to the one key press
+// and to nothing else. A directory under the cursor is still only expanded in place and
+// answers with no message at all, so the intent cannot outlive the press and land on
+// whatever is opened next.
+func (b *Browser) ActivateBeside() tea.Cmd { return b.activate(true) }
 
 // Scroll moves the cursor n rows, negative for up. The cursor moves rather than the
 // window alone: every other key here acts on the cursor, so a wheel that slid the
@@ -415,7 +429,7 @@ func (b *Browser) move(mo keys.Action) tea.Cmd {
 		return nil
 
 	case keys.In:
-		return b.activate()
+		return b.activate(false)
 	}
 
 	b.clampScroll()
@@ -451,7 +465,10 @@ func (b *Browser) rootPath() string {
 // activate opens or shuts the directory under the cursor, or asks the model to open the
 // file in an editor pane. Nothing is downloaded: the editor runs against the real remote
 // file.
-func (b *Browser) activate() tea.Cmd {
+//
+// beside is only ever stamped on a file. The directory branch returns before the message
+// is built, which is what makes the intent impossible to leave dangling.
+func (b *Browser) activate(beside bool) tea.Cmd {
 	n := b.cur()
 	if n == nil {
 		return nil
@@ -465,7 +482,7 @@ func (b *Browser) activate() tea.Cmd {
 		return nil
 	}
 
-	return b.send(OpenFileMsg{Path: n.path, Name: n.e.Name})
+	return b.send(OpenFileMsg{Path: n.path, Name: n.e.Name, Beside: beside})
 }
 
 // selected returns the entry under the cursor, or ok=false in an empty tree.

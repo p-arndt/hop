@@ -285,9 +285,6 @@ func (m *model) mouseTree(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	// The pointer is not the split key. Any other key spends a pending split in doBrowser;
-	// this is the same rule for the other input device.
-	s.splitPending = false
 	return m.mouseBrowser(s, msg, x, y)
 }
 

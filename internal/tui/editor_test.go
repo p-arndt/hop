@@ -235,31 +235,46 @@ func splitModel(t *testing.T, names ...string) (*model, *session) {
 	return m, s
 }
 
-// The whole life of a split: the key arms it, the file that comes back lands in the new
-// half, both halves draw from the one tab list, and closing the second file collapses it.
+// activated runs the command a browser key left behind and unwraps the OpenFileMsg inside
+// it, which is how the split key's intent now reaches the model: on the message, not on
+// the session. ok is false when the key produced nothing — a directory, for one.
+func activated(t *testing.T, cmd tea.Cmd) (filebrowser.OpenFileMsg, bool) {
+	t.Helper()
+	if cmd == nil {
+		return filebrowser.OpenFileMsg{}, false
+	}
+	wrapped, ok := cmd().(filebrowser.Msg)
+	if !ok {
+		return filebrowser.OpenFileMsg{}, false
+	}
+	open, ok := wrapped.Body.(filebrowser.OpenFileMsg)
+	return open, ok
+}
+
+// The whole life of a split: the key marks the file it opens, the file that comes back
+// lands in the new half, both halves draw from the one tab list, and closing the second
+// file collapses it.
 func TestSplitOpenAndClose(t *testing.T) {
 	m, s := splitModel(t, "a.conf")
 	m.mode = modeBrowser
 
-	// The key goes through the browser's own Activate, so what it leaves behind on the
-	// session is the whole of what makes the file that returns a split.
-	m.handleKey(key(t, "\\"))
-	if !s.splitPending {
-		t.Fatal("the split key did not mark the open in flight")
+	// The key goes through the browser's own ActivateBeside, so the message the browser
+	// answers with is the whole of what makes the file that returns a split.
+	_, cmd := m.handleKey(key(t, "\\"))
+	open, ok := activated(t, cmd)
+	if !ok || !open.Beside {
+		t.Fatalf("the split key produced %+v (ok=%v), want a file marked to open beside", open, ok)
 	}
 
 	// The file the browser activated comes back.
-	m.openFile("web", filebrowser.OpenFileMsg{Path: "/etc/b.conf", Name: "b.conf"})
+	m.openFile("web", open)
 	if !s.split || !s.splitRight {
 		t.Fatalf("split = %v, splitRight = %v; want the content halved with the keyboard in the new half",
 			s.split, s.splitRight)
 	}
-	if s.splitPending {
-		t.Fatal("the flag survived the file it was set for")
-	}
 
 	m.Update(editorOpenedMsg{alias: "web", tab: &editorTab{
-		id: 2, name: "b.conf", path: "/etc/b.conf", pane: fakePane(),
+		id: 2, name: "b.conf", path: open.Path, pane: fakePane(),
 	}})
 
 	if got := s.editorAt(false); got == nil || got.name != "a.conf" {
@@ -335,8 +350,7 @@ func TestSplitOnAnOpenFileFocusesItInstead(t *testing.T) {
 	s.splitRight = false // reading the left half
 	m.mode = modeBrowser
 
-	s.splitPending = true
-	m.openFile("web", filebrowser.OpenFileMsg{Path: "/etc/b.conf", Name: "b.conf"})
+	m.openFile("web", filebrowser.OpenFileMsg{Path: "/etc/b.conf", Name: "b.conf", Beside: true})
 
 	if len(s.editors) != 2 {
 		t.Fatalf("editors = %d, want no second editor on one file", len(s.editors))
@@ -353,15 +367,16 @@ func TestSplitDeclinesOnANarrowContentArea(t *testing.T) {
 	m.paneW = 2*minSplitHalf - 3
 	m.mode = modeBrowser
 
-	m.handleKey(key(t, "\\"))
-	if s.splitPending {
-		t.Fatal("a content area too narrow to halve still armed a split")
+	_, cmd := m.handleKey(key(t, "\\"))
+	open, ok := activated(t, cmd)
+	if !ok || open.Beside {
+		t.Fatalf("a content area too narrow to halve still asked for %+v (ok=%v)", open, ok)
 	}
 	if m.status == "" {
 		t.Fatal("the refusal was silent")
 	}
 
-	m.openFile("web", filebrowser.OpenFileMsg{Path: "/etc/b.conf", Name: "b.conf"})
+	m.openFile("web", open)
 	if s.split {
 		t.Fatal("the file opened beside on a content area that cannot hold two halves")
 	}
@@ -371,8 +386,7 @@ func TestSplitDeclinesOnANarrowContentArea(t *testing.T) {
 // before the SSH session is, so the failure has to put the content area back.
 func TestSplitCollapsesWhenTheEditorFails(t *testing.T) {
 	m, s := splitModel(t, "a.conf")
-	s.splitPending = true
-	m.openFile("web", filebrowser.OpenFileMsg{Path: "/etc/b.conf", Name: "b.conf"})
+	m.openFile("web", filebrowser.OpenFileMsg{Path: "/etc/b.conf", Name: "b.conf", Beside: true})
 	if !s.split {
 		t.Fatal("the split did not open, so this test proves nothing")
 	}
@@ -384,35 +398,41 @@ func TestSplitCollapsesWhenTheEditorFails(t *testing.T) {
 	}
 }
 
-// A split never arms on a directory. The browser only expands it, so the flag would be
-// left standing for whichever file was opened next — including by a double-click, which
-// does not go through the key handler that spends it.
-func TestSplitDoesNotArmOnADirectory(t *testing.T) {
+// The split key on a directory expands it in place and answers with nothing at all. This
+// is the case the old pending flag existed to unpick: with the intent carried on the
+// message and no message produced, nothing is left over to land on whatever is opened
+// next — including by a double-click, which never went through the key handler at all.
+func TestSplitOnADirectoryOpensNothing(t *testing.T) {
 	m, s := splitModel(t, "a.conf")
 	m.mode = modeBrowser
 	s.browser.Select(0) // the directory: dirs sort first
 
-	m.handleKey(key(t, "\\"))
+	_, cmd := m.handleKey(key(t, "\\"))
 
-	if s.splitPending {
-		t.Fatal("the split armed on a directory")
+	if open, ok := activated(t, cmd); ok {
+		t.Fatalf("the split key on a directory produced %+v, want no file to open", open)
+	}
+	if s.split {
+		t.Fatal("descending into a directory halved the content area")
 	}
 }
 
-// On a file it does arm, and any other browser key spends it — the split can only ever
-// apply to the file the split key was pressed on.
-func TestSplitArmedOnAFileIsSpentByTheNextKey(t *testing.T) {
+// The intent lives no longer than the press, so an unrelated key in between changes
+// nothing: the next split key still splits, on the file it was pressed on.
+func TestSplitStillSplitsAfterAnotherKey(t *testing.T) {
 	m, s := splitModel(t, "a.conf")
 	m.mode = modeBrowser
 
-	m.handleKey(key(t, "\\"))
-	if !s.splitPending {
-		t.Fatal("the split key did not arm, so this test proves nothing")
-	}
-
 	m.handleKey(key(t, "r")) // refresh: any other browser key
+	_, cmd := m.handleKey(key(t, "\\"))
 
-	if s.splitPending {
-		t.Fatal("the split survived a key that was not the split key")
+	open, ok := activated(t, cmd)
+	if !ok || !open.Beside {
+		t.Fatalf("the second split key produced %+v (ok=%v), want a file marked to open beside", open, ok)
+	}
+	m.openFile("web", open)
+	if !s.split || !s.splitRight {
+		t.Fatalf("split = %v, splitRight = %v; want the content halved with the keyboard in the new half",
+			s.split, s.splitRight)
 	}
 }
