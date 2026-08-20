@@ -96,6 +96,15 @@ file tracks *what*, not *why*.
 - [ ] Put `hop` on PATH; ship a build/install script.
 - [ ] Cross-platform follow-ups: `action.NewTab` is Windows-only and unused; `filebrowser`'s executable-open guard is Windows-shaped; `ci.yml` skips `fmt-check`.
 
+## 🏗️ Architecture / debt
+
+- [x] **The split intent rides on the message** (`OpenFileMsg.Beside`), not a `splitPending` flag on the session. A directory cannot produce a marked message, so the two "clear the stale flag" sites are gone.
+- [x] **`footerHints` is a table** (`footerCardArms`/`footerModeArms`), not a 242-line switch. First-match-wins; the two order dependencies are written down.
+- [ ] **One source for geometry** (`frame`/`rect`): the same border arithmetic is derived independently in `layout.go`, `view.go` and four places in `mouse.go` (`zoneAt`, `treeLocal`, `contentLocal`, `clampToPane`), with offsets that are only correct relative to their own starting point. `selection.go`'s `selectionW` now mirrors the render switch too — a fourth copy. One `frame` of `rect`s, computed once per frame in `recomputeLayout`, would collapse all of it.
+- [ ] **The frame overruns terminals narrower than 28 columns.** `listWidth`'s floor of 16 and `recomputeLayout`'s floor of 10 for `paneW` are independent of each other and of `m.width`. Pinned as-is by `TestFrameOverrunsVeryNarrowWindows`; fix it with the `frame` work and flip the test.
+- [ ] **`model` has 59 fields and ~300 methods across 33 files**, which is why every feature cuts across the package. The pattern to extend already exists (`settingsUI`, `hostFormUI`, `confirmUI`, `guidanceUI`): pull out `layout` (sizes, the collapse flags, the frame) and `focus` (`active`, `mode`, `sel`, `chords`).
+- [ ] No key collapses a split — `collapseSplit` is only reached by closing files. Decide whether that is intended before binding anything.
+
 ## 🧪 Testing
 
 - [x] `tui` host management (`hostmgmt_test.go`) and navigation keys (`keys_test.go`).
@@ -108,6 +117,8 @@ file tracks *what*, not *why*.
 - [x] `action` package.
 - [x] `keyToBytes` mapping table test in `terminal`.
 - [x] `filebrowser` rendering.
+- [x] **Layout characterization** (`tui/layout_test.go`): 23 window/column/split cases, each asserting that every rendered line is *exactly* the window width and that `zoneAt`/`treeLocal`/`contentLocal` agree cell-for-cell with the boxes `View` actually drew.
+- [x] **Footer legend** (`tui/footer_test.go`): 37 states pinned as goldens, `core`/`extra`/`help` kept apart so a hint moving between them fails instead of cancelling out.
 
 ## 📝 Known limitations / notes
 

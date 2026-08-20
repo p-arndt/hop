@@ -409,6 +409,348 @@ func (m *model) renderFooter() string {
 	return m.footerLine(core, extra, help)
 }
 
+// footerArm is one row of the legend's table: the state it speaks for, and the hints that
+// state offers.
+//
+// This is the same shape as the spec tables in actions.go, and it is here for the same
+// reason. Those say which actions a mode is worth offering; these say which keys it is
+// worth naming — the same kind of data about the same states, and a feature that wants a
+// slot in the row should be adding a row rather than another case to a function.
+//
+// The one thing the table cannot be read without: the arms are ordered and the first match
+// wins. Several predicates are true at once by design — a card is open *and* the keyboard
+// is in a pane, a shell is focused *and* scrolling — so the order below is not a listing
+// but the rule itself. Moving a row moves which legend the user is shown.
+type footerArm struct {
+	// when is the state this arm speaks for. It takes the whole model because the
+	// conditions are more than the mode: the editor's arm wants a session under it as well
+	// as modeEditor, and the dead-pane arm wants a connection that has dropped.
+	when func(m *model) bool
+	// hints is the legend: the keys the state cannot be worked without, then the ones a
+	// wide window has room for, in the order the room should be spent on them.
+	//
+	// A function rather than two literals because nearly every hint is read out of the
+	// keyboard rather than written down — a rebound key moves here with it, and an unbound
+	// one leaves no hint behind rather than a dead one. Where an arm really is a literal
+	// (the cards), fixedHints says so.
+	hints func(m *model) (core, extra []string)
+}
+
+// fixedHints is hints for an arm whose keys are spelled out rather than looked up. Only
+// the cards qualify: a card handles its own keys instead of going through the registry, so
+// there is no binding to read and nothing for a rebind to move.
+func fixedHints(hints ...string) func(*model) (core, extra []string) {
+	return func(*model) ([]string, []string) { return hints, nil }
+}
+
+// footerCardArms are the arms that are the whole legend: they answer with a core and
+// nothing else, no extras and no way to the help card.
+//
+// Cards come first, and on their own terms: a card's keys are the card, not a reminder of
+// it, and none of them leaves room for a "?" that the card would swallow anyway. The
+// leader is last of them and above every pane mode — while it is open the footer is the
+// menu, because the leader waits indefinitely, and this is the one legend that is the
+// whole keyboard rather than a slice of it.
+var footerCardArms = []footerArm{
+	{
+		when:  func(m *model) bool { return m.auth.open },
+		hints: fixedHints(keyHint("enter", "submit"), keyHint("esc", "cancel"), keyHint("ctrl+u", "clear")),
+	},
+	{
+		when:  func(m *model) bool { return m.guidance.open },
+		hints: fixedHints(keyHint("↑↓", "pick"), keyHint("enter", "start hopping")),
+	},
+	{
+		when:  func(m *model) bool { return m.help },
+		hints: fixedHints(keyHint("esc", "close")),
+	},
+	{
+		when:  func(m *model) bool { return m.hostKey.open },
+		hints: fixedHints(keyHint("y", "trust"), keyHint("n", "cancel")),
+	},
+	{
+		when:  func(m *model) bool { return m.confirm.open },
+		hints: fixedHints(keyHint("y", "delete"), keyHint("n", "cancel")),
+	},
+	{
+		when:  func(m *model) bool { return m.palette.open },
+		hints: fixedHints(keyHint("type", "search"), keyHint("enter", "run"), keyHint("esc", "close")),
+	},
+	{
+		when:  func(m *model) bool { return m.menu.open },
+		hints: fixedHints(keyHint("↑↓", "move"), keyHint("enter", "run"), keyHint("esc", "close")),
+	},
+	{
+		when: func(m *model) bool { return m.hostForm.open },
+		hints: fixedHints(keyHint("tab", "next"), keyHint("enter", "save"),
+			keyHint("esc", "cancel"), keyHint("ctrl+u", "clear")),
+	},
+	{
+		// The one card with a word that depends on how it was opened: hop opens the
+		// importer by itself on a first run, and there esc is skipping a step rather than
+		// abandoning one the user asked for.
+		when: func(m *model) bool { return m.importer.open },
+		hints: func(m *model) ([]string, []string) {
+			exit := keyHint("esc", "cancel")
+			if m.importer.first {
+				exit = keyHint("esc", "skip")
+			}
+			return []string{keyHint("enter", "import"), exit, keyHint("ctrl+u", "clear")}, nil
+		},
+	},
+	{
+		// Editing a forward is a card inside a card, so esc goes back to the list rather
+		// than closing the manager. Above the manager's own arm, which it would match too.
+		when: func(m *model) bool { return m.tunnels.open && m.tunnels.editing },
+		hints: fixedHints(keyHint("tab", "next"), keyHint("enter", "save"),
+			keyHint("esc", "back"), keyHint("ctrl+u", "clear")),
+	},
+	{
+		when: func(m *model) bool { return m.tunnels.open },
+		hints: fixedHints(keyHint("enter", "start / stop"), keyHint("a", "add"),
+			keyHint("e", "edit"), keyHint("esc", "close")),
+	},
+	{
+		// The same nesting as the tunnels pair, and the same ordering for the same reason.
+		when:  func(m *model) bool { return m.settings.open && m.settings.editing },
+		hints: fixedHints(keyHint("enter", "save"), keyHint("esc", "cancel"), keyHint("ctrl+u", "clear")),
+	},
+	{
+		when:  func(m *model) bool { return m.settings.open },
+		hints: fixedHints(keyHint("enter", "edit"), keyHint("r", "reset"), keyHint("esc", "close")),
+	},
+	{
+		when: (*model).leaderArmed,
+		hints: func(m *model) ([]string, []string) {
+			// The leader is open, so its keys are named on their own — the leader key
+			// itself is already spent.
+			menu := []string{
+				accentText.Render("leader"),
+				m.hint(keys.Leader, keys.LeaderOut, "out"),
+				keyHint("1-9", "tab"),
+				m.hint(keys.Leader, keys.LeaderShell, "new shell"),
+			}
+			// Named only where it would do what it says. Without a directory to hand the
+			// chord still opens VS Code, but on the host's default one — and this menu is
+			// now the only place the chord is written down, so the condition lives here.
+			if m.shellCwd(m.chords.leaderAlias) != "" {
+				menu = append(menu, m.hint(keys.Leader, keys.LeaderVSCode, "vs code here"))
+			}
+			menu = append(menu,
+				m.hint(keys.Leader, keys.LeaderPalette, "actions"),
+				m.hint(keys.Leader, keys.LeaderHelp, "keys"),
+				dimStyle.Render("any other key cancels"))
+			return compact(menu), nil
+		},
+	},
+}
+
+// footerModeArms are the modes hop's own keyboard is in. Each keeps the way out, what the
+// mode is for, and nothing you could find on the card instead. Unlike the cards these are
+// not the whole legend: whatever they answer still gets the collapsed sidebar's hint in
+// front of it, the help key behind it, and the guidance profile's trim over it.
+//
+// The last row matches everything, so the walk always has an answer — it is the host list,
+// which is where hop is when it is nowhere else.
+var footerModeArms = []footerArm{
+	{
+		// A dead pane has its own small keyboard; a legend offering shift+←→ would name
+		// keys that do nothing. Above the mode arms it would otherwise fall into, since a
+		// dropped connection outranks whatever its pane was showing when it went.
+		when: func(m *model) bool { return m.active != "" && m.inPane() && m.activeDead() },
+		hints: func(m *model) ([]string, []string) {
+			return []string{
+				m.hint(keys.DeadPane, keys.DeadReconnect, "reconnect"),
+				m.hint(keys.DeadPane, keys.DeadDrop, "drop session"),
+				m.hint(keys.DeadPane, keys.DeadLeave, "back"),
+			}, nil
+		},
+	},
+	{
+		when: func(m *model) bool { return m.editing() && m.active != "" },
+		hints: func(m *model) ([]string, []string) {
+			return []string{
+				m.chordHint(keys.LeaderOut, "browser"),
+				keyHint(":q", "close"), // the remote editor's key, not hop's
+				m.hint(keys.Editor, keys.EditorNextTab, "tab"),
+			}, []string{
+				// The way back to the tree leads the extras: the column is on screen
+				// beside this file, and the one thing the legend has to say about it is
+				// how to reach it.
+				m.hint(keys.Editor, keys.EditorFocusTree, "tree"),
+				m.leaderRange("jump"),
+				m.sidebarHint(),
+			}
+		},
+	},
+	{
+		when: func(m *model) bool { return m.browsing() && m.active != "" },
+		hints: func(m *model) ([]string, []string) {
+			return []string{
+				m.hint(keys.Browser, keys.BrowserLeave, "back"),
+				m.hint(keys.Browser, keys.In, "edit"),
+				m.hint(keys.Browser, keys.BrowserDownload, "download"),
+			}, []string{
+				// Crossing to the file beside the tree, and opening one there, come
+				// first: they are the two keys the column is for.
+				m.hint(keys.Browser, keys.BrowserFocusPane, "focus file"),
+				m.hint(keys.Browser, keys.BrowserSplit, "open beside"),
+				// The selection and the target next: a copy is three keys nobody
+				// guesses, and a key that is never shown is a key that does not exist.
+				m.hint(keys.Browser, keys.BrowserMark, "mark"),
+				m.hint(keys.Browser, keys.BrowserTarget, "target"),
+				m.hint(keys.Browser, keys.BrowserCopy, "copy there"),
+				m.hint(keys.Browser, keys.BrowserMoveTo, "move there"),
+				m.hint(keys.Browser, keys.BrowserPalette, "actions"),
+				m.hint(keys.Browser, keys.Out, "up"),
+				m.hint(keys.Browser, keys.BrowserMarkAll, "mark all"),
+				m.hint(keys.Browser, keys.BrowserUpload, "upload"),
+				m.hint(keys.Browser, keys.BrowserOpen, "open local"),
+				m.hint(keys.Browser, keys.BrowserDelete, "delete"),
+				m.hint(keys.Browser, keys.BrowserRename, "rename"),
+				m.hint(keys.Browser, keys.BrowserMkdir, "mkdir"),
+				m.hint(keys.Browser, keys.BrowserSort, "sort"),
+				m.hint(keys.Browser, keys.BrowserRefresh, "refresh"),
+				m.hint(keys.Browser, keys.BrowserTree, "tree"),
+				m.sidebarHint(),
+			}
+		},
+	},
+	{
+		// Above the shell's arm: scrolling is focused too, and the keys it answers to are
+		// not the shell's.
+		when: func(m *model) bool { return m.scrolling() && m.focused() && m.active != "" },
+		hints: func(m *model) ([]string, []string) {
+			// Top and bottom share a hint: they are one gesture with two ends, and the row
+			// has three slots.
+			return []string{
+				m.hint(keys.Scrollback, keys.ScrollLeave, "back to live"),
+				keyHint("↑↓", "scroll"),
+				keyHint(m.binds.Keycap(keys.ScrollTop)+"/"+m.binds.Keycap(keys.ScrollBottom), "top/live"),
+			}, []string{keyHint("pgup/pgdn", "page")}
+		},
+	},
+	{
+		when:  func(m *model) bool { return m.focused() && m.active != "" },
+		hints: (*model).shellHints,
+	},
+	{
+		// Filtering is a mode of the list rather than a card, so it keeps the extras — but
+		// not the help key, which footerHelp drops: "?" here is filter text.
+		when: func(m *model) bool { return m.filtering },
+		hints: func(*model) ([]string, []string) {
+			return []string{keyHint("type", "filter"), keyHint("enter", "apply"), keyHint("esc", "clear")},
+				[]string{keyHint("↑↓", "move")}
+		},
+	},
+	{
+		// Everything else, which is the host list. Written as an arm that always matches
+		// rather than a fallback outside the table, so the walk has one shape and the last
+		// row is as readable as the rest.
+		when:  func(*model) bool { return true },
+		hints: (*model).listHints,
+	},
+}
+
+// shellHints is a live shell's legend. It is a function rather than two literals because
+// three of its keys are offered only where they would do something, and naming a key that
+// declines is worse than not naming it.
+func (m *model) shellHints() (core, extra []string) {
+	// The leader earns its slot in every shell: it is the door to the rest, including the
+	// card, and the one chord nothing else on screen implies.
+	core = []string{
+		m.chordHint(keys.LeaderOut, "back"),
+		m.hint(keys.Pane, keys.LeaderKey, "leader"),
+	}
+	s := m.sessions[m.active]
+	if s != nil && len(s.shells) > 1 {
+		core = append(core, m.hint(keys.Pane, keys.PaneNextTab, "shell"))
+		extra = append(extra, m.leaderRange("jump"))
+	}
+	// The same conditions the chords check, so a wide window never names a key that would
+	// decline: VS Code wants a directory, scrollback wants history behind a shell that is
+	// not on its alternate screen.
+	if m.shellCwd(m.active) != "" {
+		extra = append(extra, m.chordHint(keys.LeaderVSCode, "vs code here"))
+	}
+	if s != nil && s.shell() != nil && !s.shell().pane.AltScreen() && s.shell().pane.ScrollbackLen() > 0 {
+		extra = append(extra, m.hint(keys.Pane, keys.PaneScroll, "scrollback"))
+	}
+	return core, append(extra, m.hint(keys.Pane, keys.PaneLeave, "back"), m.sidebarHint())
+}
+
+// listHints is the host list's legend, and the only one that changes with what is under
+// the cursor rather than with a mode. The list is the one place hop has something selected,
+// so the keys worth naming are the ones that would act on it — which is why this is a
+// function and not a table row's worth of literals.
+//
+// Its per-host keys are spelled out in the details card beside this line, and all of them
+// are on the help card, so the footer keeps to moving, connecting and the two that make the
+// list itself. The menu key sits in the core beside connect: it is the one hint that stands
+// in for every per-host key below it, so a narrow window that keeps three hints still shows
+// the way to all of them.
+func (m *model) listHints() (core, extra []string) {
+	core = []string{
+		m.hint(keys.List, keys.In, "connect"),
+		m.hint(keys.List, keys.Menu, "actions"),
+		m.hint(keys.List, keys.Filter, "filter"),
+	}
+	extra = []string{
+		m.hint(keys.List, keys.Palette, "search actions"),
+		keyHint("↑↓", "move"),
+		m.hint(keys.List, keys.HostBrowser, "sftp"),
+		m.hint(keys.List, keys.HostAdd, "add"),
+		m.hint(keys.List, keys.HostEdit, "edit"),
+		m.hint(keys.List, keys.HostDelete, "delete"),
+		m.hint(keys.List, keys.HostPin, "pin"),
+		m.hint(keys.List, keys.HostTunnels, "tunnels"),
+		m.hint(keys.List, keys.HostImport, "import"),
+		m.hint(keys.List, keys.Settings, "settings"),
+		m.hint(keys.List, keys.Quit, "quit"),
+	}
+	// Only when the host under the cursor is one you can reconnect — otherwise the slot
+	// goes to adding a host, which on an empty list is the only thing to do.
+	if h, ok := m.selectedHost(); ok {
+		if h.Pinned {
+			extra = append(extra, keyHint(
+				m.binds.Keycap(keys.HostPinUp)+m.binds.Keycap(keys.HostPinDown), "reorder"))
+		}
+		if s := m.sessions[h.Alias]; s != nil && s.dead {
+			core = []string{
+				m.hint(keys.List, keys.HostReconnec, "reconnect"),
+				m.hint(keys.List, keys.In, "connect"),
+				m.hint(keys.List, keys.HostBrowser, "sftp"),
+			}
+			extra = append([]string{m.hint(keys.List, keys.HostDrop, "drop session")}, extra...)
+		}
+		return core, extra
+	}
+	return []string{
+		m.hint(keys.List, keys.HostAdd, "add host"),
+		m.hint(keys.List, keys.HostImport, "import"),
+	}, []string{
+		m.hint(keys.List, keys.Palette, "search actions"),
+		m.hint(keys.List, keys.Settings, "settings"),
+		m.hint(keys.List, keys.Quit, "quit"),
+	}
+}
+
+// footerHelp is how this mode reaches the help card. Where the keys are forwarded — a live
+// shell, an editor — a bare "?" is text the remote is owed, so there it is the leader chord
+// (see handleLeader). Scrollback and a dead pane forward nothing, so they take the plain
+// key, and while filtering the key is part of the filter and there is none.
+func (m *model) footerHelp() string {
+	switch {
+	case m.filtering:
+		return ""
+	case m.activeDead():
+		return m.hint(keys.DeadPane, keys.DeadHelp, "keys")
+	case m.editing() || m.mode == modeShell:
+		return m.chordHint(keys.LeaderHelp, "keys")
+	}
+	return m.hint(keys.List, keys.Help, "keys")
+}
+
 // footerHints is the legend as three lists: the keys this mode cannot be worked without,
 // the ones worth showing when the window is wide enough to hold them, and the one that
 // reaches the help card — which footerLine holds back so truncation cannot eat it.
@@ -420,235 +762,23 @@ func (m *model) renderFooter() string {
 //
 // Split out from the rendering because the rule worth testing is "how many keys, and
 // which", and that rule is invisible once the row is a styled string.
+//
+// The body is a walk over the two tables above, in their order and stopping at the first
+// arm that matches. See footerArm for why the order is the rule rather than a listing.
 func (m *model) footerHints() (core, extra []string, help string) {
-	// How this mode reaches the card. Where the keys are forwarded — a live shell, an
-	// editor — a bare "?" is text the remote is owed, so there it is the leader chord
-	// (see handleLeader). Scrollback and a dead pane forward nothing, so they take the
-	// plain key, and while filtering the key is part of the filter and there is none.
-	help = m.hint(keys.List, keys.Help, "keys")
-	switch {
-	case m.filtering:
-		help = ""
-	case m.activeDead():
-		help = m.hint(keys.DeadPane, keys.DeadHelp, "keys")
-	case m.editing() || m.mode == modeShell:
-		help = m.chordHint(keys.LeaderHelp, "keys")
-	}
-	// Cards first, and on their own terms: a card's keys are the card, not a reminder of
-	// it, and none of them leaves room for a "?" that the card would swallow anyway.
-	switch {
-	case m.auth.open:
-		return []string{keyHint("enter", "submit"), keyHint("esc", "cancel"), keyHint("ctrl+u", "clear")}, nil, ""
+	help = m.footerHelp()
 
-	case m.guidance.open:
-		return []string{keyHint("↑↓", "pick"), keyHint("enter", "start hopping")}, nil, ""
-
-	case m.help:
-		return []string{keyHint("esc", "close")}, nil, ""
-
-	case m.hostKey.open:
-		return []string{keyHint("y", "trust"), keyHint("n", "cancel")}, nil, ""
-
-	case m.confirm.open:
-		return []string{keyHint("y", "delete"), keyHint("n", "cancel")}, nil, ""
-
-	case m.palette.open:
-		return []string{keyHint("type", "search"), keyHint("enter", "run"), keyHint("esc", "close")}, nil, ""
-
-	case m.menu.open:
-		return []string{keyHint("↑↓", "move"), keyHint("enter", "run"), keyHint("esc", "close")}, nil, ""
-
-	case m.hostForm.open:
-		return []string{keyHint("tab", "next"), keyHint("enter", "save"), keyHint("esc", "cancel"), keyHint("ctrl+u", "clear")}, nil, ""
-
-	case m.importer.open:
-		exit := keyHint("esc", "cancel")
-		if m.importer.first {
-			exit = keyHint("esc", "skip")
+	for _, arm := range footerCardArms {
+		if arm.when(m) {
+			core, _ = arm.hints(m)
+			return core, nil, ""
 		}
-		return []string{keyHint("enter", "import"), exit, keyHint("ctrl+u", "clear")}, nil, ""
-
-	case m.tunnels.open && m.tunnels.editing:
-		return []string{keyHint("tab", "next"), keyHint("enter", "save"), keyHint("esc", "back"), keyHint("ctrl+u", "clear")}, nil, ""
-
-	case m.tunnels.open:
-		return []string{keyHint("enter", "start / stop"), keyHint("a", "add"), keyHint("e", "edit"), keyHint("esc", "close")}, nil, ""
-
-	case m.settings.open && m.settings.editing:
-		return []string{keyHint("enter", "save"), keyHint("esc", "cancel"), keyHint("ctrl+u", "clear")}, nil, ""
-
-	case m.settings.open:
-		return []string{keyHint("enter", "edit"), keyHint("r", "reset"), keyHint("esc", "close")}, nil, ""
-
-	// Above every pane mode: while the leader is open the footer is the menu. It has to
-	// be, since the leader waits indefinitely — this is the one legend that is the whole
-	// keyboard rather than a slice of it.
-	case m.leaderArmed():
-		// The leader is open, so its keys are named on their own — the leader key itself
-		// is already spent.
-		menu := []string{
-			accentText.Render("leader"),
-			m.hint(keys.Leader, keys.LeaderOut, "out"),
-			keyHint("1-9", "tab"),
-			m.hint(keys.Leader, keys.LeaderShell, "new shell"),
-		}
-		// Named only where it would do what it says. Without a directory to hand the
-		// chord still opens VS Code, but on the host's default one — and this menu is now
-		// the only place the chord is written down, so the condition lives here.
-		if m.shellCwd(m.chords.leaderAlias) != "" {
-			menu = append(menu, m.hint(keys.Leader, keys.LeaderVSCode, "vs code here"))
-		}
-		menu = append(menu,
-			m.hint(keys.Leader, keys.LeaderPalette, "actions"),
-			m.hint(keys.Leader, keys.LeaderHelp, "keys"),
-			dimStyle.Render("any other key cancels"))
-		return compact(menu), nil, ""
 	}
 
-	// The modes. Each keeps the way out, what it is for, and nothing you could find on
-	// the card instead.
-	switch {
-	// A dead pane has its own small keyboard; a legend offering shift+←→ would name keys
-	// that do nothing.
-	case m.active != "" && m.inPane() && m.activeDead():
-		core = []string{
-			m.hint(keys.DeadPane, keys.DeadReconnect, "reconnect"),
-			m.hint(keys.DeadPane, keys.DeadDrop, "drop session"),
-			m.hint(keys.DeadPane, keys.DeadLeave, "back"),
-		}
-
-	case m.editing() && m.active != "":
-		core = []string{
-			m.chordHint(keys.LeaderOut, "browser"),
-			keyHint(":q", "close"), // the remote editor's key, not hop's
-			m.hint(keys.Editor, keys.EditorNextTab, "tab"),
-		}
-		// The way back to the tree leads the extras: the column is on screen beside this
-		// file, and the one thing the legend has to say about it is how to reach it.
-		extra = []string{
-			m.hint(keys.Editor, keys.EditorFocusTree, "tree"),
-			m.leaderRange("jump"),
-			m.sidebarHint(),
-		}
-
-	case m.browsing() && m.active != "":
-		core = []string{
-			m.hint(keys.Browser, keys.BrowserLeave, "back"),
-			m.hint(keys.Browser, keys.In, "edit"),
-			m.hint(keys.Browser, keys.BrowserDownload, "download"),
-		}
-		extra = []string{
-			// Crossing to the file beside the tree, and opening one there, come first:
-			// they are the two keys the column is for.
-			m.hint(keys.Browser, keys.BrowserFocusPane, "focus file"),
-			m.hint(keys.Browser, keys.BrowserSplit, "open beside"),
-			// The selection and the target next: a copy is three keys nobody guesses, and
-			// a key that is never shown is a key that does not exist.
-			m.hint(keys.Browser, keys.BrowserMark, "mark"),
-			m.hint(keys.Browser, keys.BrowserTarget, "target"),
-			m.hint(keys.Browser, keys.BrowserCopy, "copy there"),
-			m.hint(keys.Browser, keys.BrowserMoveTo, "move there"),
-			m.hint(keys.Browser, keys.BrowserPalette, "actions"),
-			m.hint(keys.Browser, keys.Out, "up"),
-			m.hint(keys.Browser, keys.BrowserMarkAll, "mark all"),
-			m.hint(keys.Browser, keys.BrowserUpload, "upload"),
-			m.hint(keys.Browser, keys.BrowserOpen, "open local"),
-			m.hint(keys.Browser, keys.BrowserDelete, "delete"),
-			m.hint(keys.Browser, keys.BrowserRename, "rename"),
-			m.hint(keys.Browser, keys.BrowserMkdir, "mkdir"),
-			m.hint(keys.Browser, keys.BrowserSort, "sort"),
-			m.hint(keys.Browser, keys.BrowserRefresh, "refresh"),
-			m.hint(keys.Browser, keys.BrowserTree, "tree"),
-			m.sidebarHint(),
-		}
-
-	case m.scrolling() && m.focused() && m.active != "":
-		// Top and bottom share a hint: they are one gesture with two ends, and the row
-		// has three slots.
-		core = []string{
-			m.hint(keys.Scrollback, keys.ScrollLeave, "back to live"),
-			keyHint("↑↓", "scroll"),
-			keyHint(m.binds.Keycap(keys.ScrollTop)+"/"+m.binds.Keycap(keys.ScrollBottom), "top/live"),
-		}
-		extra = []string{keyHint("pgup/pgdn", "page")}
-
-	case m.focused() && m.active != "":
-		// The leader earns its slot in every shell: it is the door to the rest, including
-		// the card, and the one chord nothing else on screen implies.
-		core = []string{
-			m.chordHint(keys.LeaderOut, "back"),
-			m.hint(keys.Pane, keys.LeaderKey, "leader"),
-		}
-		s := m.sessions[m.active]
-		if s != nil && len(s.shells) > 1 {
-			core = append(core, m.hint(keys.Pane, keys.PaneNextTab, "shell"))
-			extra = append(extra, m.leaderRange("jump"))
-		}
-		// The same conditions the chords check, so a wide window never names a key that
-		// would decline: VS Code wants a directory, scrollback wants history behind a
-		// shell that is not on its alternate screen.
-		if m.shellCwd(m.active) != "" {
-			extra = append(extra, m.chordHint(keys.LeaderVSCode, "vs code here"))
-		}
-		if s != nil && s.shell() != nil && !s.shell().pane.AltScreen() && s.shell().pane.ScrollbackLen() > 0 {
-			extra = append(extra, m.hint(keys.Pane, keys.PaneScroll, "scrollback"))
-		}
-		extra = append(extra, m.hint(keys.Pane, keys.PaneLeave, "back"), m.sidebarHint())
-
-	case m.filtering:
-		core = []string{keyHint("type", "filter"), keyHint("enter", "apply"), keyHint("esc", "clear")}
-		extra = []string{keyHint("↑↓", "move")}
-
-	default:
-		// The list. Its per-host keys are spelled out in the details card beside this
-		// line, and all of them are on the help card, so the footer keeps to moving,
-		// connecting and the two that make the list itself.
-		// The menu key sits in the core beside connect: it is the one hint that stands in
-		// for every per-host key below it, so a narrow window that keeps three hints still
-		// shows the way to all of them.
-		core = []string{
-			m.hint(keys.List, keys.In, "connect"),
-			m.hint(keys.List, keys.Menu, "actions"),
-			m.hint(keys.List, keys.Filter, "filter"),
-		}
-		extra = []string{
-			m.hint(keys.List, keys.Palette, "search actions"),
-			keyHint("↑↓", "move"),
-			m.hint(keys.List, keys.HostBrowser, "sftp"),
-			m.hint(keys.List, keys.HostAdd, "add"),
-			m.hint(keys.List, keys.HostEdit, "edit"),
-			m.hint(keys.List, keys.HostDelete, "delete"),
-			m.hint(keys.List, keys.HostPin, "pin"),
-			m.hint(keys.List, keys.HostTunnels, "tunnels"),
-			m.hint(keys.List, keys.HostImport, "import"),
-			m.hint(keys.List, keys.Settings, "settings"),
-			m.hint(keys.List, keys.Quit, "quit"),
-		}
-		// Only when the host under the cursor is one you can reconnect — otherwise the
-		// slot goes to adding a host, which on an empty list is the only thing to do.
-		if h, ok := m.selectedHost(); ok {
-			if h.Pinned {
-				extra = append(extra, keyHint(
-					m.binds.Keycap(keys.HostPinUp)+m.binds.Keycap(keys.HostPinDown), "reorder"))
-			}
-			if s := m.sessions[h.Alias]; s != nil && s.dead {
-				core = []string{
-					m.hint(keys.List, keys.HostReconnec, "reconnect"),
-					m.hint(keys.List, keys.In, "connect"),
-					m.hint(keys.List, keys.HostBrowser, "sftp"),
-				}
-				extra = append([]string{m.hint(keys.List, keys.HostDrop, "drop session")}, extra...)
-			}
-		} else {
-			core = []string{
-				m.hint(keys.List, keys.HostAdd, "add host"),
-				m.hint(keys.List, keys.HostImport, "import"),
-			}
-			extra = []string{
-				m.hint(keys.List, keys.Palette, "search actions"),
-				m.hint(keys.List, keys.Settings, "settings"),
-				m.hint(keys.List, keys.Quit, "quit"),
-			}
+	for _, arm := range footerModeArms {
+		if arm.when(m) {
+			core, extra = arm.hints(m)
+			break
 		}
 	}
 
