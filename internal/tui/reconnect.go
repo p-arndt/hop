@@ -25,6 +25,12 @@ import (
 //
 // Whichever arrives first wins; markDead is idempotent.
 
+// reconnectBrowserCmd is openBrowserCmd, behind a variable so a test can watch the size a
+// reconnect hands a browser without dialing anything: the command itself only opens SFTP
+// on a live connection, so the arguments are the only thing there is to assert on. It is
+// never reassigned outside tests.
+var reconnectBrowserCmd = openBrowserCmd
+
 // reconnectPlan is what a session was holding when its connection dropped, kept so the
 // reconnect can put it back. Captured when 'r' is pressed rather than when the link
 // died: nothing has changed since, and it needs no bookkeeping while the pane sits dead.
@@ -166,7 +172,13 @@ func (m *model) reconnect(h store.Host) tea.Cmd {
 	if plan.browser && (plan.browsingFirst || plan.shells == 0) {
 		// A tunnel-only session falls through to the tunnel primary below rather than
 		// manufacturing a shell to carry a connection.
-		return m.withSpinner(openBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), plan.browserDir, m.paneW, m.paneH, false))
+		//
+		// The browser is built at the size of the tree column it will live in, not at the
+		// content area's: browserLanded relayouts and would resize it a frame later, but
+		// the size handed over here is the one the listing is laid out — and its columns
+		// elided — against before that happens.
+		bw, bh := m.browserSize()
+		return m.withSpinner(reconnectBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), plan.browserDir, bw, bh, false))
 	}
 	if plan.shells == 0 && len(plan.tunnels) > 0 {
 		defs := forwardDefinitions(h, plan.tunnels)
@@ -203,7 +215,9 @@ func (m *model) applyPlan(alias string) tea.Cmd {
 		cmds = append(cmds, shellCmd(alias, h.DefaultDir, s.client, m.nextShID, cols, rows, m.notify, true))
 	}
 	if plan.browser && s.browser == nil {
-		cmds = append(cmds, openBrowserCmd(h, s.client, "", nil, m.browserOptions(), plan.browserDir, m.paneW, m.paneH, true))
+		// As above: the tree column's interior, since that is where it is going.
+		bw, bh := m.browserSize()
+		cmds = append(cmds, reconnectBrowserCmd(h, s.client, "", nil, m.browserOptions(), plan.browserDir, bw, bh, true))
 	}
 	var missing []int64
 	for _, id := range plan.tunnels {

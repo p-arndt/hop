@@ -338,12 +338,18 @@ func (m *model) openBrowser(h store.Host) tea.Cmd {
 		existing = s.client
 	}
 	m.setStatus(statusInfo, "opening sftp %s…", h.Alias)
+	// The column this listing is about to stand in, not the content area. browserSize
+	// tests the window rather than asking treeWidth, which is what makes it answerable
+	// here at all: the session has no browser yet, so there is no column on screen to
+	// measure. browserLanded lays the frame out again once it arrives; this is the size
+	// the listing is first built against.
+	bw, bh := m.browserSize()
 	if existing == nil {
 		// A dial is about to happen, so the host earns a spinner.
 		m.connecting[h.Alias] = true
-		return m.withSpinner(openBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), h.DefaultDir, m.paneW, m.paneH, false))
+		return m.withSpinner(openBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), h.DefaultDir, bw, bh, false))
 	}
-	return openBrowserCmd(h, existing, "", nil, m.browserOptions(), h.DefaultDir, m.paneW, m.paneH, false)
+	return openBrowserCmd(h, existing, "", nil, m.browserOptions(), h.DefaultDir, bw, bh, false)
 }
 
 // openBrowserTrusting retries a first-contact SFTP dial after the user approved the host
@@ -354,7 +360,8 @@ func (m *model) openBrowserTrusting(h store.Host, fingerprint string) tea.Cmd {
 	}
 	m.setStatus(statusInfo, "opening sftp %s…", h.Alias)
 	m.connecting[h.Alias] = true
-	return m.withSpinner(openBrowserCmd(h, nil, fingerprint, m.prompter(h.Alias), m.browserOptions(), m.browserStartDir(h), m.paneW, m.paneH, false))
+	bw, bh := m.browserSize()
+	return m.withSpinner(openBrowserCmd(h, nil, fingerprint, m.prompter(h.Alias), m.browserOptions(), m.browserStartDir(h), bw, bh, false))
 }
 
 // openFile opens the file the browser just activated in an editor tab, focusing the

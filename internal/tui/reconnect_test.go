@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"hop/internal/filebrowser"
 	"hop/internal/filebrowser/fbtest"
 	"hop/internal/sftpx"
@@ -364,5 +366,79 @@ func TestOpeningAnythingOnADeadSessionReconnects(t *testing.T) {
 				t.Fatalf("%q on a dropped session started no reconnect", k)
 			}
 		})
+	}
+}
+
+// ---- the size a reconnected browser is built at ----
+
+// watchBrowserSize swaps the browser command out for the length of the test and hands
+// back a reader for the size a reconnect asked for. Nothing is dialed: the arguments are
+// the only part of the command a test can see, and the size among them is the one the
+// listing is first laid out against.
+func watchBrowserSize(t *testing.T) func() (int, int) {
+	t.Helper()
+	var w, h int
+	restore := reconnectBrowserCmd
+	reconnectBrowserCmd = func(_ store.Host, _ *sshx.Client, _ string, _ sshx.Prompter,
+		_ filebrowser.Options, _ string, pw, ph int, _ bool) tea.Cmd {
+		w, h = pw, ph
+		// A command that does nothing rather than no command: tea.Batch drops nils, and
+		// the caller checks it was handed something to run.
+		return func() tea.Msg { return nil }
+	}
+	t.Cleanup(func() { reconnectBrowserCmd = restore })
+	return func() (int, int) { return w, h }
+}
+
+// wideDeadModel is deadModel on a window with room for all three columns, which is the
+// only window on which the tree column and the content area are different sizes — and so
+// the only one that can tell which of them the browser was built for.
+func wideDeadModel(t *testing.T, shells int, browser bool) (*model, *session, *sshx.Client) {
+	t.Helper()
+	m, s, cli := deadModel(t, shells, browser)
+	m.width, m.height = 200, 40
+	m.relayout()
+	if bw, _ := m.browserSize(); bw == m.paneW {
+		t.Fatalf("the tree column is not on screen (browser width %d = pane width %d), so nothing here is being tested", bw, m.paneW)
+	}
+	return m, s, cli
+}
+
+// The bug this fixes: a reconnect built the browser at the size of the content area,
+// which is where it used to live. It lives in the tree column now, which is narrower, and
+// the size handed over here is the one the listing is laid out — and its filenames
+// elided — against for the frame before browserLanded's relayout resizes it.
+func TestReconnectBuildsTheBrowserAtTheColumnWidth(t *testing.T) {
+	m, _, _ := wideDeadModel(t, 0, true)
+	size := watchBrowserSize(t)
+	wantW, wantH := m.browserSize()
+
+	m.markDead("web", "")
+	if cmd := m.reconnect(m.hosts[0]); cmd == nil {
+		t.Fatal("the reconnect of a browser-only session issued nothing")
+	}
+
+	if gotW, gotH := size(); gotW != wantW || gotH != wantH {
+		t.Fatalf("browser built at %dx%d, want the tree column's %dx%d — the content area is %d wide",
+			gotW, gotH, wantW, wantH, m.paneW)
+	}
+}
+
+// And the same for the browser put back once the new connection has landed, which is the
+// other half of a reconnect: a session with a shell in front of its browser opens the
+// shell first and reattaches the browser here.
+func TestReconnectLandingBuildsTheBrowserAtTheColumnWidth(t *testing.T) {
+	m, _, _ := wideDeadModel(t, 1, false)
+	size := watchBrowserSize(t)
+	wantW, wantH := m.browserSize()
+
+	m.pending["web"] = reconnectPlan{browser: true, browserDir: "/srv/www"}
+	if cmd := m.applyPlan("web"); cmd == nil {
+		t.Fatal("the landing put nothing back, so no browser was opened")
+	}
+
+	if gotW, gotH := size(); gotW != wantW || gotH != wantH {
+		t.Fatalf("restored browser built at %dx%d, want the tree column's %dx%d — the content area is %d wide",
+			gotW, gotH, wantW, wantH, m.paneW)
 	}
 }

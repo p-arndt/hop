@@ -82,7 +82,7 @@ func (m *model) endSelection(view string) {
 	if rows, top, ok := m.shellSpanView(span); ok {
 		view, span = rows, shiftSpan(span, top)
 	}
-	text := terminal.PlainText(view, span, m.paneW)
+	text := terminal.PlainText(view, span, m.selectionW())
 	if strings.TrimSpace(text) == "" {
 		m.sel = selection{}
 		return
@@ -145,10 +145,44 @@ func (m *model) clearSelection() bool {
 	return true
 }
 
+// selectionW is how wide a row of the content the selection was made over is — the inner
+// width of the box that content was rendered in, not of the content area as a whole.
+// Both operations need it: it is where a fully covered row stops, and where the last
+// row's end column is clamped to.
+//
+// It was m.paneW until the content area learned to hold two editors side by side, at
+// which point one number stopped answering for every pane on screen. The cases here are
+// renderContent's, in the same order, because the selection is painted onto exactly what
+// that switch decided to draw:
+//
+//   - a shell pane is never one of two boxes — the split belongs to the files the tree
+//     column opens — so it is always the whole content area, even while the session it
+//     belongs to has a split of editors sitting behind it. That is why this cannot simply
+//     ask contentW: contentW answers for the session, and a session with s.split set
+//     still draws its shell full width.
+//   - an editor is contentW's question exactly: one box, or half of one.
+//
+// Anything else — the details pane, a dead session's last screen, the browser in the
+// narrow-window fallback — is drawn at m.paneW and never has a highlight painted on it
+// anyway, so the fallback is the whole content area.
+func (m *model) selectionW() int {
+	s := m.sessions[m.active]
+	if s == nil {
+		return m.paneW
+	}
+	if m.focused() && s.shell() != nil {
+		return m.paneW
+	}
+	if s.editor() != nil {
+		return m.contentW(s)
+	}
+	return m.paneW
+}
+
 // selectedView is a pane's rendered content with the selection painted onto it, a no-op
 // when nothing is selected.
 func (m *model) selectedView(content string) string {
-	return terminal.Highlight(content, m.sel.span(), m.paneW)
+	return terminal.Highlight(content, m.sel.span(), m.selectionW())
 }
 
 // countLines is how many lines a copied string spans, for the status line.

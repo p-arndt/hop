@@ -499,3 +499,113 @@ func TestSelectionTallerThanThePaneCopiesEveryRow(t *testing.T) {
 		t.Fatalf("copied %q, want it to hold %q — the last line printed is below the window now", copied(), marker)
 	}
 }
+
+// ---- the width a selection is measured at ----
+
+// splitSelModel builds a wide window with the content area split between two editor
+// tabs, the keyboard in the right half, and a clipboard writer that records rather than
+// writing. The panes are deliberately built wider than a half: the width under test is
+// the width of the box the content was drawn in, and a pane already cut to the half would
+// not tell m.paneW and m.splitHalf() apart — Highlight and PlainText both stop at a row's
+// own end, so an over-wide width only shows up on rows with something past the half.
+func splitSelModel(t *testing.T, screen, marker string) (*model, *session, func() string) {
+	t.Helper()
+
+	var mu sync.Mutex
+	var got string
+
+	m := newMouseModel(3)
+	m.width, m.height = 200, 20
+	m.recomputeLayout()
+	m.active = "ha"
+	m.mode = modeEditor
+	m.clipWrite = func(text string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		got = text
+		return nil
+	}
+
+	s := &session{}
+	for i := 0; i < 2; i++ {
+		s.editors = append(s.editors, &editorTab{
+			id: i + 1, name: "f.conf", path: "/etc/f.conf",
+			pane: fakePaneWith(t, m.paneW-40, 6, screen, marker),
+		})
+	}
+	t.Cleanup(s.closeEditors)
+	m.sessions["ha"] = s
+	s.openSplit()
+
+	if !m.splitOn(s) {
+		t.Fatal("the content area is not split, so nothing here is being tested")
+	}
+	return m, s, func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return got
+	}
+}
+
+// wideLine is a row longer than one half of the content area, and a second row under it
+// for the selection to end on: the width only decides where a fully covered row stops, so
+// a one-row selection is measured by its own end cell and says nothing.
+func wideLine() (string, string, string) {
+	line := strings.Repeat("0123456789", 12)
+	return line + "\r\nhello\r\n", "hello", line
+}
+
+// The bug this fixes: a selection dragged inside a split half was measured against
+// m.paneW — the whole content area — so a row covered end to end was read out to a column
+// well past the half it was drawn in, and the clipboard came back with text that was
+// never on screen there.
+func TestSelectionInASplitHalfIsMeasuredAtTheHalfWidth(t *testing.T) {
+	screen, marker, line := wideLine()
+	m, s, copied := splitSelModel(t, screen, marker)
+
+	if m.selectionW() != m.splitHalf() {
+		t.Fatalf("selectionW = %d, want the half's %d and not the content area's %d",
+			m.selectionW(), m.splitHalf(), m.paneW)
+	}
+
+	// The first row is covered to the edge of the box, the second ends the selection.
+	m.startSelection(terminal.Cell{X: 0, Y: 0})
+	m.dragSelection(terminal.Cell{X: 4, Y: 1})
+	m.endSelection(s.editor().pane.View())
+
+	want := line[:m.splitHalf()] + "\nhello"
+	if copied() != want {
+		t.Fatalf("clipboard = %q, want %q — the row was read out past the half it was drawn in",
+			copied(), want)
+	}
+}
+
+// The other half of the same question. A shell is never one of two boxes, so its
+// selection is the whole content area even while the session behind it is holding a split
+// of editors — the naive reading, "the session is split, so the width is a half", cuts a
+// shell copy off at half the row.
+func TestSelectionInAShellIsMeasuredAtTheFullWidth(t *testing.T) {
+	screen, marker, line := wideLine()
+	m, s, copied := splitSelModel(t, screen, marker)
+
+	// The keyboard moves to a shell on the same session; the editors, and the split, stay
+	// open behind it.
+	s.shells = []*shellTab{{id: 1, pane: fakePaneWith(t, m.paneW, 6, screen, marker)}}
+	t.Cleanup(func() { s.shells[0].pane.Close() })
+	m.mode = modeShell
+
+	if m.selectionW() != m.paneW {
+		t.Fatalf("selectionW = %d, want the content area's %d: a shell is never split",
+			m.selectionW(), m.paneW)
+	}
+
+	m.startSelection(terminal.Cell{X: 0, Y: 0})
+	m.dragSelection(terminal.Cell{X: 4, Y: 1})
+	m.endSelection(s.shell().pane.View())
+
+	want := line + "\nhello"
+	if copied() != want {
+		t.Fatalf("clipboard = %q, want %q — the shell's row was cut off at half the content area",
+			copied(), want)
+	}
+}
