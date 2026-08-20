@@ -208,27 +208,52 @@ func (m *model) renderHelp() string {
 		)
 	}
 
+	shown, more := m.fitHelp(body)
+
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("KEYS"))
 	b.WriteString(faint.Render("  everything hop binds"))
 	b.WriteString("\n\n")
-	b.WriteString(m.fitHelp(body))
+	b.WriteString(shown)
 	b.WriteString("\n")
 	b.WriteString(keyHint("esc", "close"))
+	// Only while the window is actually hiding something: on a screen tall enough for
+	// the whole card these keys do nothing, and naming them would be one more thing to
+	// read on the card that is already the longest one hop draws.
+	if more {
+		b.WriteString("   ")
+		b.WriteString(keyHint("↑ ↓", "scroll"))
+	}
 
 	return cardBox.Width(w + 2*cardPadX).Render(b.String())
 }
 
-// fitHelp cuts the card's body to what the window can hold, so a short terminal gets a
-// card with a bottom edge rather than one running off the screen.
-func (m *model) fitHelp(body string) string {
-	// The card's chrome: border, padding, title, blank, and the hint line.
-	const chrome = 2 + 2 + 2 + 2
+// helpChrome is what the card costs before a line of its body fits: border, padding, the
+// title and the blank under it, and the hint line with its own blank.
+const helpChrome = 2 + 2 + 2 + 2
+
+// helpPage is how many body lines the window has room for, and how far one page key
+// moves. It is 0 on a window with room for none.
+func (m *model) helpPage() int { return max(m.height-helpChrome, 0) }
+
+// fitHelp cuts the card's body to what the window can hold, starting from wherever the
+// card is scrolled to: a short terminal gets a card with a bottom edge and a way to reach
+// the rest, rather than one running off the screen. It reports whether anything is
+// hidden, which is what puts the scroll hint under it.
+//
+// The clamp lives here rather than with the keys because this is where the two numbers it
+// needs meet: the body is only as long as the bindings the user has left bound, and the
+// window is only as tall as it is at the moment of drawing.
+func (m *model) fitHelp(body string) (string, bool) {
 	lines := strings.Split(body, "\n")
-	if room := m.height - chrome; room > 0 && len(lines) > room {
-		lines = append(lines[:room-1], faint.Render("…"))
+	room := m.helpPage()
+	if room <= 0 || len(lines) <= room {
+		m.helpScroll = 0
+		return body, false
 	}
-	return strings.Join(lines, "\n")
+
+	m.helpScroll = min(max(m.helpScroll, 0), len(lines)-room)
+	return strings.Join(lines[m.helpScroll:m.helpScroll+room], "\n"), true
 }
 
 // helpColumn renders sections as one column: a capped title with a rule out to the

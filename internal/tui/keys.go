@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"math"
 	"strings"
 	"time"
 
@@ -782,15 +783,32 @@ func (m *model) focusTree() bool {
 // one place (see renderHelp, which reads m.mode).
 func (m *model) openHelp() {
 	m.help = true
+	m.helpScroll = 0
 	m.clearStatus()
 }
 
-// handleHelpKey keeps the help card modal: it swallows every key, and the usual ways
-// out close it.
+// handleHelpKey keeps the help card modal: it swallows every key, the usual ways out
+// close it, and the movement keys scroll the part of it a short window is hiding. The
+// scroll is clamped where the card is drawn, so a key here only ever nudges the number
+// (see fitHelp).
 func (m *model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q", "?", "ctrl+o", "enter":
 		m.help = false
+	case "up", "k":
+		m.helpScroll--
+	case "down", "j":
+		m.helpScroll++
+	case "pgup":
+		m.helpScroll -= m.helpPage()
+	case "pgdown", " ":
+		m.helpScroll += m.helpPage()
+	case "home", "g":
+		m.helpScroll = 0
+	case "end", "G":
+		// Past the end on purpose: fitHelp pulls it back to the last page, which is
+		// where "end" means, without this needing the body's length.
+		m.helpScroll = math.MaxInt32
 	}
 	return m, nil
 }

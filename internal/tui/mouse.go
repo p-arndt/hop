@@ -79,6 +79,17 @@ func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 // routeMouse hands the event to whichever region it landed in.
 func (m *model) routeMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// The one card the wheel reaches: it is the only one long enough to be cut off by a
+	// short window, and the wheel is what a pointer reaches for when it is.
+	if m.help {
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.helpScroll--
+		case tea.MouseButtonWheelDown:
+			m.helpScroll++
+		}
+		return m, nil
+	}
 	if m.capturing() {
 		return m, nil
 	}

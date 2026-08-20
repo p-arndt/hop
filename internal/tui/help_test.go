@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -117,4 +119,113 @@ func titles(secs []helpSection) []string {
 		out[i] = s.title
 	}
 	return out
+}
+
+// A window too short for the whole card gets a card that ends inside it: the box has a
+// bottom edge on screen, which is what makes the hint under it readable at all.
+func TestHelpFitsAShortWindow(t *testing.T) {
+	for _, h := range []int{10, 18, 24, 40} {
+		m, _ := statusModel(t, 120, h)
+		m.mode = modeBrowser
+		m.help = true
+
+		if got := strings.Count(m.renderHelp(), "\n") + 1; got > h {
+			t.Fatalf("height %d: card is %d lines tall", h, got)
+		}
+	}
+}
+
+// And what the short window cut off is reachable rather than gone: this is the whole
+// point of the card, so the lines it could not show must be a scroll away.
+func TestHelpScrollsToWhatDoesNotFit(t *testing.T) {
+	m, _ := statusModel(t, 120, 20)
+	m.mode = modeBrowser
+	m.help = true
+
+	top := m.renderHelp()
+	if !strings.Contains(top, "scroll") {
+		t.Fatalf("a card that does not fit says nothing about scrolling:\n%s", top)
+	}
+
+	m.handleHelpKey(key(t, "end"))
+	bottom := m.renderHelp()
+	if m.helpScroll == 0 {
+		t.Fatalf("the card did not scroll:\n%s", bottom)
+	}
+
+	seen := map[string]bool{}
+	for _, line := range strings.Split(top, "\n") {
+		seen[line] = true
+	}
+	fresh := 0
+	for _, line := range strings.Split(bottom, "\n") {
+		if !seen[line] {
+			fresh++
+		}
+	}
+	if fresh == 0 {
+		t.Fatalf("scrolling to the end shows nothing the top did not:\n%s", bottom)
+	}
+}
+
+// fitHelp windows the body rather than cutting it: every line is on some page, in order,
+// and the last page ends on the last line.
+func TestHelpBodyWindows(t *testing.T) {
+	body := make([]string, 60)
+	for i := range body {
+		body[i] = "line " + strconv.Itoa(i)
+	}
+
+	m := helpModel()
+	m.height = 10 + helpChrome // ten lines of body to a page
+
+	if shown, more := m.fitHelp(strings.Join(body, "\n")); !more || shown != strings.Join(body[:10], "\n") {
+		t.Fatalf("first page is %q (more=%v)", shown, more)
+	}
+
+	m.helpScroll = 7
+	if shown, _ := m.fitHelp(strings.Join(body, "\n")); shown != strings.Join(body[7:17], "\n") {
+		t.Fatalf("page from line 7 is %q", shown)
+	}
+
+	m.helpScroll = math.MaxInt32
+	shown, _ := m.fitHelp(strings.Join(body, "\n"))
+	if want := strings.Join(body[50:], "\n"); shown != want {
+		t.Fatalf("last page is %q, want %q", shown, want)
+	}
+
+	// A window with room for all of it scrolls nowhere and says so.
+	m.height = 100 + helpChrome
+	if shown, more := m.fitHelp(strings.Join(body, "\n")); more || shown != strings.Join(body, "\n") {
+		t.Fatalf("a body that fits was cut (more=%v)", more)
+	}
+}
+
+// The scroll is clamped to what is actually hidden: it cannot run off either end, and a
+// window that grew back to holding the whole card is not left scrolled past it.
+func TestHelpScrollStaysOnTheCard(t *testing.T) {
+	m, _ := statusModel(t, 120, 20)
+	m.mode = modeShell
+	m.help = true
+
+	for range 5 {
+		m.handleHelpKey(key(t, "up"))
+	}
+	m.renderHelp()
+	if m.helpScroll != 0 {
+		t.Fatalf("scrolled up past the top: %d", m.helpScroll)
+	}
+
+	m.handleHelpKey(key(t, "end"))
+	m.renderHelp()
+	end := m.helpScroll
+	m.handleHelpKey(key(t, "pgdown"))
+	if m.renderHelp(); m.helpScroll != end {
+		t.Fatalf("scrolled down past the bottom: %d, want %d", m.helpScroll, end)
+	}
+
+	m.height = 200
+	if card := m.renderHelp(); m.helpScroll != 0 || !strings.Contains(card, "KEYS") {
+		t.Fatalf("a window that holds the whole card is still scrolled: %d\n%s", m.helpScroll, card)
+	}
 }

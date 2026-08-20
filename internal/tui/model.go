@@ -172,6 +172,10 @@ type model struct {
 
 	// help is true while the keybinding card is up.
 	help bool
+	// helpScroll is how far the card's body is scrolled, in lines. It only leaves 0 on a
+	// window too short to hold the whole card; renderHelp clamps it to what is actually
+	// off the bottom, since only the drawing knows how long the body came out.
+	helpScroll int
 
 	// updateLatest is the newer release the startup check found, or "". The check runs
 	// once off the UI thread and is cached on disk for a day (see internal/update).
