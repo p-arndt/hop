@@ -402,3 +402,338 @@ func TestTransferProgressReports(t *testing.T) {
 		t.Fatalf("Remove %s: %v", dir, err)
 	}
 }
+
+// newTestClient dials the in-process SFTP server and returns a connected sftpx client
+// together with a scratch directory of its own beneath the server's start directory. The
+// directory is removed while the client is still open, because a t.Cleanup running after
+// the deferred Close could not reach the server any more.
+func newTestClient(t *testing.T, name string) (*Client, string) {
+	t.Helper()
+
+	addr := startSFTPServer(t, newSigner(t))
+	sshClient, err := ssh.Dial("tcp", addr, &ssh.ClientConfig{
+		User:            "tester",
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(newSigner(t))},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("ssh.Dial: %v", err)
+	}
+	t.Cleanup(func() { sshClient.Close() })
+
+	c, err := Open(sshClient)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	base, err := c.Home()
+	if err != nil {
+		t.Fatalf("Home: %v", err)
+	}
+	dir := path.Join(base, name)
+	if err := c.Mkdir(dir); err != nil {
+		t.Fatalf("Mkdir %s: %v", dir, err)
+	}
+	t.Cleanup(func() {
+		c.sc.RemoveAll(dir)
+		c.Close()
+	})
+
+	return c, dir
+}
+
+// writeRemote puts content at a remote path, creating its parent directories.
+func writeRemote(t *testing.T, c *Client, p, content string) {
+	t.Helper()
+	if err := c.sc.MkdirAll(path.Dir(p)); err != nil {
+		t.Fatalf("MkdirAll %s: %v", path.Dir(p), err)
+	}
+	f, err := c.sc.Create(p)
+	if err != nil {
+		t.Fatalf("create %s: %v", p, err)
+	}
+	if _, err := io.WriteString(f, content); err != nil {
+		t.Fatalf("write %s: %v", p, err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close %s: %v", p, err)
+	}
+}
+
+// readRemote returns the content of a remote file, failing the test if it is missing.
+func readRemote(t *testing.T, c *Client, p string) string {
+	t.Helper()
+	f, err := c.sc.Open(p)
+	if err != nil {
+		t.Fatalf("open %s: %v", p, err)
+	}
+	defer f.Close()
+	b, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatalf("read %s: %v", p, err)
+	}
+	return string(b)
+}
+
+// existsRemote reports whether a remote path is there at all.
+func existsRemote(c *Client, p string) bool {
+	_, err := c.sc.Stat(p)
+	return err == nil
+}
+
+// A single file copy lands the bytes at dstDir/<base>, returns the size, and drives the
+// progress callback with growing totals ending on that size. The payload is deliberately
+// larger than io.Copy's 32 KiB block so more than one report has to happen.
+func TestCopyFileWithProgress(t *testing.T) {
+	c, base := newTestClient(t, "hop_sftp_copy_file")
+
+	const size = 200 * 1024
+	src := path.Join(base, "src", "big.bin")
+	writeRemote(t, c, src, strings.Repeat("x", size))
+	dstDir := path.Join(base, "dst")
+	if err := c.Mkdir(dstDir); err != nil {
+		t.Fatalf("Mkdir %s: %v", dstDir, err)
+	}
+
+	var seen []int64
+	n, err := c.Copy(src, dstDir, func(n int64) { seen = append(seen, n) })
+	if err != nil {
+		t.Fatalf("Copy: %v", err)
+	}
+	if n != size {
+		t.Fatalf("Copy returned %d, want %d", n, size)
+	}
+	if got := readRemote(t, c, path.Join(dstDir, "big.bin")); len(got) != size {
+		t.Fatalf("copied file is %d bytes, want %d", len(got), size)
+	}
+	if !existsRemote(c, src) {
+		t.Fatal("Copy removed the source")
+	}
+
+	if len(seen) < 2 {
+		t.Fatalf("progress reported %d times (%v), want several - a bar cannot move on one", len(seen), seen)
+	}
+	if !slices.IsSorted(seen) {
+		t.Fatalf("progress reported %v, want totals that only grow", seen)
+	}
+	if got := seen[len(seen)-1]; got != size {
+		t.Fatalf("progress finished on %d, want the full %d", got, size)
+	}
+}
+
+// A directory copy reproduces the whole subtree under dstDir/<base>, and the progress
+// totals stay cumulative across files instead of restarting at zero for each one.
+func TestCopyDirectoryRecursive(t *testing.T) {
+	c, base := newTestClient(t, "hop_sftp_copy_dir")
+
+	src := path.Join(base, "tree")
+	files := map[string]string{
+		"a.txt":          "alpha",
+		"sub/b.txt":      "bravo!!",
+		"sub/deep/c.txt": "charlie",
+		"sub/deep/d.txt": "delta",
+		"other/e.txt":    "echo",
+	}
+	var want int64
+	for rel, content := range files {
+		writeRemote(t, c, path.Join(src, rel), content)
+		want += int64(len(content))
+	}
+	// An empty directory has to come across too, and no file copy would create it.
+	if err := c.sc.MkdirAll(path.Join(src, "empty")); err != nil {
+		t.Fatalf("MkdirAll empty: %v", err)
+	}
+
+	dstDir := path.Join(base, "dst")
+	if err := c.Mkdir(dstDir); err != nil {
+		t.Fatalf("Mkdir %s: %v", dstDir, err)
+	}
+
+	var seen []int64
+	n, err := c.Copy(src, dstDir, func(n int64) { seen = append(seen, n) })
+	if err != nil {
+		t.Fatalf("Copy: %v", err)
+	}
+	if n != want {
+		t.Fatalf("Copy returned %d bytes, want %d", n, want)
+	}
+
+	root := path.Join(dstDir, "tree")
+	for rel, content := range files {
+		if got := readRemote(t, c, path.Join(root, rel)); got != content {
+			t.Fatalf("%s = %q, want %q", rel, got, content)
+		}
+	}
+	if fi, err := c.sc.Stat(path.Join(root, "empty")); err != nil || !fi.IsDir() {
+		t.Fatalf("empty subdirectory not copied: %v", err)
+	}
+
+	if !slices.IsSorted(seen) {
+		t.Fatalf("progress reported %v, want one cumulative sequence that only grows", seen)
+	}
+	if got := seen[len(seen)-1]; got != want {
+		t.Fatalf("progress finished on %d, want the whole tree's %d", got, want)
+	}
+}
+
+// The cheap path: a move within one filesystem is a rename, so the destination appears and
+// the source is gone.
+func TestMoveViaRename(t *testing.T) {
+	c, base := newTestClient(t, "hop_sftp_move_rename")
+
+	src := path.Join(base, "src", "a.txt")
+	writeRemote(t, c, src, "hop-move")
+	dstDir := path.Join(base, "dst")
+	if err := c.Mkdir(dstDir); err != nil {
+		t.Fatalf("Mkdir %s: %v", dstDir, err)
+	}
+
+	if err := c.Move(src, dstDir, nil); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	if got := readRemote(t, c, path.Join(dstDir, "a.txt")); got != "hop-move" {
+		t.Fatalf("moved file = %q, want %q", got, "hop-move")
+	}
+	if existsRemote(c, src) {
+		t.Fatal("source still present after Move")
+	}
+}
+
+// The fallback: moving a directory onto an existing, non-empty directory of the same name
+// cannot be a rename, so Move has to copy and then delete. The pre-existing file surviving
+// alongside the moved one is what proves the copy path ran rather than a rename.
+func TestMoveFallsBackToCopyAndDelete(t *testing.T) {
+	c, base := newTestClient(t, "hop_sftp_move_fallback")
+
+	src := path.Join(base, "src", "d")
+	writeRemote(t, c, path.Join(src, "a.txt"), "alpha")
+	writeRemote(t, c, path.Join(src, "nested", "b.txt"), "bravo")
+
+	dstDir := path.Join(base, "dst")
+	writeRemote(t, c, path.Join(dstDir, "d", "keep.txt"), "kept")
+
+	// moveByCopy directly: Move itself refuses a destination that already exists, and a
+	// mount boundary — the one thing that legitimately fails a rename — cannot be staged
+	// in-process.
+	if err := c.moveByCopy(src, dstDir, nil); err != nil {
+		t.Fatalf("moveByCopy: %v", err)
+	}
+
+	if got := readRemote(t, c, path.Join(dstDir, "d", "a.txt")); got != "alpha" {
+		t.Fatalf("a.txt = %q, want %q", got, "alpha")
+	}
+	if got := readRemote(t, c, path.Join(dstDir, "d", "nested", "b.txt")); got != "bravo" {
+		t.Fatalf("nested/b.txt = %q, want %q", got, "bravo")
+	}
+	if got := readRemote(t, c, path.Join(dstDir, "d", "keep.txt")); got != "kept" {
+		t.Fatalf("keep.txt = %q, want %q - a rename would have replaced the directory", got, "kept")
+	}
+	if existsRemote(c, src) {
+		t.Fatal("source directory still present after the copy-and-delete fallback")
+	}
+}
+
+// Copying a directory into its own subtree would recurse into what it is writing, and
+// copying anything onto itself would destroy it. Both are refused before a byte moves,
+// and Move refuses them on the same terms.
+func TestCopyAndMoveRefuseSelfDestructiveCases(t *testing.T) {
+	c, base := newTestClient(t, "hop_sftp_copy_self")
+
+	src := path.Join(base, "tree")
+	writeRemote(t, c, path.Join(src, "sub", "a.txt"), "alpha")
+
+	cases := []struct {
+		name    string
+		srcPath string
+		dstDir  string
+		want    string
+	}{
+		{"into own child", src, path.Join(src, "sub"), "inside the source"},
+		{"into own deep descendant", src, path.Join(src, "sub", "deeper"), "inside the source"},
+		{"onto itself", src, base, "same path"},
+		{"file onto itself", path.Join(src, "sub", "a.txt"), path.Join(src, "sub"), "same path"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n, err := c.Copy(tc.srcPath, tc.dstDir, nil)
+			if err == nil {
+				t.Fatalf("Copy(%s -> %s) succeeded, want a refusal", tc.srcPath, tc.dstDir)
+			}
+			if n != 0 {
+				t.Fatalf("Copy reported %d bytes written on a refusal, want 0", n)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Copy error = %q, want it to mention %q", err, tc.want)
+			}
+
+			if err := c.Move(tc.srcPath, tc.dstDir, nil); err == nil {
+				t.Fatalf("Move(%s -> %s) succeeded, want a refusal", tc.srcPath, tc.dstDir)
+			} else if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Move error = %q, want it to mention %q", err, tc.want)
+			}
+		})
+	}
+
+	// And nothing was touched.
+	if got := readRemote(t, c, path.Join(src, "sub", "a.txt")); got != "alpha" {
+		t.Fatalf("source changed after refusals: %q", got)
+	}
+}
+
+// A move onto a name that is already taken is refused rather than silently overwriting it,
+// and refused before anything moves — the copy fallback would otherwise truncate what is
+// there and charge a whole copy to do it.
+func TestMoveRefusesAnExistingDestination(t *testing.T) {
+	c, base := newTestClient(t, "hop_sftp_move_exists")
+
+	src := path.Join(base, "src", "a.txt")
+	writeRemote(t, c, src, "alpha")
+	dstDir := path.Join(base, "dst")
+	writeRemote(t, c, path.Join(dstDir, "a.txt"), "occupied")
+
+	err := c.Move(src, dstDir, nil)
+	if err == nil {
+		t.Fatal("Move onto an existing name succeeded, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("error = %v, want it to name the collision", err)
+	}
+	if got := readRemote(t, c, path.Join(dstDir, "a.txt")); got != "occupied" {
+		t.Fatalf("destination = %q, want it untouched", got)
+	}
+	if !existsRemote(c, src) {
+		t.Fatal("source gone after a refused move")
+	}
+}
+
+// A symlink is recreated, not followed. Following one aborts the whole copy the moment it
+// points at a directory, because Open refuses that — so a tree with an ordinary "current"
+// link in it used to be uncopyable.
+func TestCopyRecreatesSymlinks(t *testing.T) {
+	c, base := newTestClient(t, "hop_sftp_copy_links")
+
+	src := path.Join(base, "src")
+	writeRemote(t, c, path.Join(src, "real", "a.txt"), "alpha")
+	if err := c.sc.Symlink("real", path.Join(src, "current")); err != nil {
+		t.Skipf("server cannot create symlinks: %v", err)
+	}
+
+	dstDir := path.Join(base, "dst")
+	if _, err := c.Copy(src, dstDir, nil); err != nil {
+		t.Fatalf("Copy: %v", err)
+	}
+
+	link := path.Join(dstDir, "src", "current")
+	target, err := c.sc.ReadLink(link)
+	if err != nil {
+		t.Fatalf("ReadLink(%s): %v, want the link recreated", link, err)
+	}
+	if target != "real" {
+		t.Fatalf("link target = %q, want %q", target, "real")
+	}
+	if got := readRemote(t, c, path.Join(dstDir, "src", "real", "a.txt")); got != "alpha" {
+		t.Fatalf("a.txt = %q, want the rest of the tree copied too", got)
+	}
+}

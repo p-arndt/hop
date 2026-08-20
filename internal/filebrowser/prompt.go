@@ -127,10 +127,14 @@ func (o *overlay) view(w int) string {
 	if o.kind == overlayInput {
 		text += "█"
 	}
-	label := o.label + " "
+	// The label is stripped on the same terms as the text: it carries remote filenames —
+	// "delete %s?", "overwrite %s?", the copy collision — and a name full of escape
+	// sequences would otherwise be written to the terminal verbatim, one keystroke away
+	// from being answered.
+	label := stripControl(o.label) + " "
 	avail := w - lipgloss.Width(label)
 	if avail < 1 {
-		return accentStyle.Render(truncateText(o.label, w))
+		return accentStyle.Render(truncateText(stripControl(o.label), w))
 	}
 	return accentStyle.Render(label) + truncateText(stripControl(text), avail)
 }

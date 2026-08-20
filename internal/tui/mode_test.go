@@ -97,7 +97,7 @@ func TestModeTransitionsAreExclusive(t *testing.T) {
 		{"enterScrollback", func(m *model, s *session) { m.enterScrollback(s) }, modeScrollback},
 		{"exitScrollback", func(m *model, _ *session) { m.exitScrollback() }, modeShell},
 		{"leavePane", func(m *model, _ *session) { m.leavePane() }, modeList},
-		{"clickIntoPane", func(m *model, s *session) { m.clickIntoPane(s) }, modeShell},
+		{"clickIntoPane", func(m *model, s *session) { m.clickIntoPane(s, false) }, modeShell},
 		{"backToList", func(m *model, _ *session) { m.backToList() }, modeList},
 	}
 	m, s := scrolledShell(t)
@@ -161,4 +161,71 @@ func TestConnectionLossLeavesScrollback(t *testing.T) {
 	}
 	m.markDead("web", "kex timeout")
 	wantMode(t, m, modeShell)
+}
+
+// The point of the column: a tree and a file are on screen together, and the mode says
+// only which of them the keys reach. Before this, entering the editor took the browser off
+// the screen, so there was no "unfocused column" for either key to mean anything to.
+func TestFocusCrossesTheColumns(t *testing.T) {
+	m, s := columnModel(t, 200, 34)
+	s.editors = []*editorTab{{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()}}
+	t.Cleanup(s.closeEditors)
+	wantMode(t, m, modeBrowser)
+
+	// tab, from the registry: across to the file.
+	m.handleKey(key(t, "tab"))
+	wantMode(t, m, modeEditor)
+	if m.treeWidth() == 0 {
+		t.Fatal("focusing the file collapsed the tree column, want it left on screen")
+	}
+
+	// alt+t: back to the tree, with the file still open behind it.
+	m.handleKey(altKey("t"))
+	wantMode(t, m, modeBrowser)
+	if len(s.editors) != 1 {
+		t.Fatalf("editors = %d after crossing back to the tree, want the file left open", len(s.editors))
+	}
+}
+
+// Both columns are drawn whichever one holds the keyboard. The screen is the test: the
+// listing and the file's tab have to be on it at the same time.
+func TestBothColumnsAreDrawn(t *testing.T) {
+	m, s := columnModel(t, 200, 34)
+	s.editors = []*editorTab{{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()}}
+	t.Cleanup(s.closeEditors)
+
+	for _, mode := range []paneMode{modeBrowser, modeEditor} {
+		m.mode = mode
+		screen := m.View()
+		if !strings.Contains(screen, "/srv") {
+			t.Fatalf("in %s the tree column is not on screen:\n%s", modeName(mode), screen)
+		}
+		if !strings.Contains(screen, "a.conf") {
+			t.Fatalf("in %s the open file is not on screen:\n%s", modeName(mode), screen)
+		}
+	}
+}
+
+// A key that would hand the keyboard nowhere is spent doing nothing rather than leaving it
+// pointed at an empty column.
+func TestFocusKeysDeclineWithNowhereToGo(t *testing.T) {
+	t.Run("no content to focus", func(t *testing.T) {
+		// A browser opened on a host with no shell of its own: the content area is the
+		// details card, which is not somewhere keys can go.
+		m, s := columnModel(t, 200, 34)
+		s.closeShells()
+		m.handleKey(key(t, "tab"))
+		wantMode(t, m, modeBrowser)
+	})
+
+	t.Run("no tree to go back to", func(t *testing.T) {
+		m, s := editorModel(t, "a.conf")
+		if m.focusTree() {
+			t.Fatal("focusTree found a tree on a session with no browser")
+		}
+		wantMode(t, m, modeEditor)
+		if s.browser != nil {
+			t.Fatal("the session grew a browser")
+		}
+	})
 }

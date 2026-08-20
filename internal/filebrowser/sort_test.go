@@ -25,14 +25,23 @@ func sortFixture() []sftpx.Entry {
 // sortBrowser is a browser over the fixture, sized like newTestBrowser's.
 func sortBrowser() *Browser {
 	ents := sortFixture()
-	return &Browser{
-		client:  &fakeClient{entries: ents},
-		cwd:     "/home/u",
-		entries: ents,
-		opts:    Options{VimKeys: true},
-		w:       40,
-		h:       13,
+	b := &Browser{
+		client: &fakeClient{entries: ents},
+		opts:   Options{VimKeys: true},
+		w:      40,
+		h:      13,
 	}
+	return plant(b, "/home/u", ents)
+}
+
+// rowEntries is the visible tree as the entries it was built from, which is what the sort
+// tests assert an order over.
+func rowEntries(b *Browser) []sftpx.Entry {
+	out := make([]sftpx.Entry, len(b.rows))
+	for i, n := range b.rows {
+		out[i] = n.e
+	}
+	return out
 }
 
 func names(ents []sftpx.Entry) []string {
@@ -56,7 +65,7 @@ func TestApplySortOrders(t *testing.T) {
 	} {
 		b := sortBrowser()
 		b.sortBy = tc.mode
-		got := names(b.applySort(b.entries))
+		got := names(b.applySort(rowEntries(b)))
 		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
 			t.Errorf("sort by %s: got %v, want %v", tc.mode, got, tc.want)
 		}
@@ -111,20 +120,19 @@ func TestSortKeyCycles(t *testing.T) {
 // The cursor follows its entry through a re-sort. "d" and "o" act on whatever it stands
 // on, so this is a safety property rather than a nicety.
 func TestSortKeepsCursorOnSameEntry(t *testing.T) {
-	b := sortBrowser()
-	b.entries = b.applySort(b.entries) // name order, as load leaves it
-	for i, e := range b.entries {
-		if e.Name == "zeta.log" {
+	b := sortBrowser() // planted in name order, as load leaves it
+	for i, n := range b.rows {
+		if n.e.Name == "zeta.log" {
 			b.cursor = i
 		}
 	}
 
 	b.Handle(key(t, "s")) // size
-	if got := b.entries[b.cursor].Name; got != "zeta.log" {
+	if got := b.rows[b.cursor].e.Name; got != "zeta.log" {
 		t.Fatalf("cursor moved to %q after sorting by size", got)
 	}
 	b.Handle(key(t, "s")) // mtime
-	if got := b.entries[b.cursor].Name; got != "zeta.log" {
+	if got := b.rows[b.cursor].e.Name; got != "zeta.log" {
 		t.Fatalf("cursor moved to %q after sorting by mtime", got)
 	}
 }
@@ -132,7 +140,7 @@ func TestSortKeepsCursorOnSameEntry(t *testing.T) {
 // An empty listing has nothing to keep the cursor on; cycling must still work.
 func TestSortEmptyListing(t *testing.T) {
 	b := sortBrowser()
-	b.entries = nil
+	plant(b, "/home/u", nil)
 	b.Handle(key(t, "s"))
 	if b.sortBy != sortSize || b.cursor != 0 {
 		t.Errorf("empty listing: sortBy=%s cursor=%d", b.sortBy, b.cursor)

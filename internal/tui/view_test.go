@@ -35,6 +35,7 @@ func viewModel(w, h int) *model {
 // way corrupts the terminal rather than merely looking wrong.
 func TestViewFitsTheWindow(t *testing.T) {
 	sizes := []struct{ w, h int }{
+		{200, 40}, // wide enough for all three columns, and for a split beside them
 		{120, 34}, // a comfortable terminal
 		{80, 24},  // the classic one
 		{60, 16},  // narrow: the sidebar is at its floor
@@ -65,6 +66,27 @@ func TestViewFitsTheWindow(t *testing.T) {
 		},
 		"no hosts":          func(m *model) { m.hosts = nil; m.applyFilter() },
 		"sidebar collapsed": func(m *model) { m.toggleSidebar() },
+		// The tree column, which is on screen on a wide window and folded back into the
+		// content area on a narrow one. Both have to add up to the window.
+		"sftp column": func(m *model) {
+			m.sessions["web1"] = &session{browser: fakeBrowser(t, "/srv")}
+			m.active, m.mode = "web1", modeBrowser
+			m.relayout()
+		},
+		// Two editors side by side beside the tree: three boxes across the body, and the
+		// odd column an odd-width content area leaves over.
+		"split editors": func(m *model) {
+			s := &session{browser: fakeBrowser(t, "/srv"), editors: []*editorTab{
+				{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()},
+				{id: 2, name: "b.conf", path: "/etc/b.conf", pane: fakePane()},
+			}}
+			t.Cleanup(s.closeEditors)
+			s.openSplit()
+			s.splitEd = 1
+			m.sessions["web1"] = s
+			m.active, m.mode = "web1", modeEditor
+			m.relayout()
+		},
 	}
 
 	for name, setup := range modes {
@@ -128,6 +150,20 @@ func TestPanesFillTheWidth(t *testing.T) {
 
 	if got := lipgloss.Width(body); got != 120 {
 		t.Fatalf("the two panes are %d cells wide, want the full window (120)", got)
+	}
+}
+
+// And with the tree column between them, which is the arithmetic most likely to come out a
+// column short: three boxes, six border columns, and the rest of the row to the content.
+func TestThreeColumnsFillTheWidth(t *testing.T) {
+	m, _ := columnModel(t, 200, 34)
+
+	body := strings.Split(m.renderList(m.listWidth(), m.bodyHeight()), "\n")[0] +
+		strings.Split(m.renderTree(m.treeWidth(), m.bodyHeight()), "\n")[0] +
+		strings.Split(m.renderRight(m.bodyHeight()), "\n")[0]
+
+	if got := lipgloss.Width(body); got != 200 {
+		t.Fatalf("the three columns are %d cells wide, want the full window (200)", got)
 	}
 }
 

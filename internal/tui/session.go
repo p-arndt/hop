@@ -28,10 +28,27 @@ type session struct {
 
 	browser *filebrowser.Browser
 
-	// editors are the files opened from the browser, each a remote editor running
-	// on its own SSH session, shown as tabs. activeEd indexes into it.
+	// editors are the files opened from the browser, each a remote editor running on its
+	// own SSH session, shown as tabs. Which of them is on screen is asked per half of the
+	// content area: activeEd is the left half's tab — the only one while the content is
+	// not split — and splitEd the right half's.
 	editors  []*editorTab
 	activeEd int
+	splitEd  int
+
+	// split is true while the content area is halved so two files can be read side by
+	// side (see keys.BrowserSplit); splitRight says which half the keyboard is in. Both
+	// halves index the one editors slice, so a split is a second cursor into one tab strip
+	// rather than a second set of tabs — which is why closing a file only has to clamp two
+	// indices rather than reconcile two lists.
+	split      bool
+	splitRight bool
+
+	// splitPending is set while a split-open is in flight. The browser's Activate goes off
+	// and the file comes back as an OpenFileMsg, and nothing on that message says it was
+	// asked for beside the current file rather than behind it. openFile is the one thing
+	// that answers it, and spends it.
+	splitPending bool
 
 	// dead is set once the connection under this session has dropped. The session is kept
 	// anyway: the panes still hold the last screen the host drew, and it is what 'r'
@@ -91,12 +108,72 @@ func (s *session) closeShells() {
 	s.activeSh = 0
 }
 
-// editor returns the tab currently shown, or nil when none is open.
-func (s *session) editor() *editorTab {
-	if s.activeEd < 0 || s.activeEd >= len(s.editors) {
+// focusedHalf is which half of the content area the keyboard is in: false for the left,
+// which is the only half there is while the content is not split.
+func (s *session) focusedHalf() bool { return s.split && s.splitRight }
+
+// editorIndex is the tab the given half of the content area is showing.
+func (s *session) editorIndex(right bool) int {
+	if right {
+		return s.splitEd
+	}
+	return s.activeEd
+}
+
+// editorAt returns the tab shown in the given half, or nil when it holds none.
+func (s *session) editorAt(right bool) *editorTab {
+	i := s.editorIndex(right)
+	if i < 0 || i >= len(s.editors) {
 		return nil
 	}
-	return s.editors[s.activeEd]
+	return s.editors[i]
+}
+
+// editor returns the tab the keyboard is in, or nil when none is open. Every caller that
+// used to mean "the tab on screen" means this one: with two halves drawn there is no
+// single tab on screen, and the one that answers to the keyboard is the one they were
+// all really asking about.
+func (s *session) editor() *editorTab { return s.editorAt(s.focusedHalf()) }
+
+// setEditor points the focused half at tab i. The tab strip, the digits and the pointer
+// all move the half you are in rather than the left one.
+func (s *session) setEditor(i int) {
+	if s.focusedHalf() {
+		s.splitEd = i
+		return
+	}
+	s.activeEd = i
+}
+
+// focusTab puts the keyboard on tab i: on the half already showing it when one is, and
+// otherwise on the half already focused, pointed at it. One file cannot be open in two
+// editors, so "go to this file" is a question about halves before it is one about tabs.
+func (s *session) focusTab(i int) {
+	switch {
+	case s.split && s.splitEd == i:
+		s.splitRight = true
+	case s.split && s.activeEd == i:
+		s.splitRight = false
+	default:
+		s.setEditor(i)
+	}
+}
+
+// openSplit halves the content area and hands the keyboard to the new right half. Until
+// the file being opened lands, the right half mirrors the left: both halves index one tab
+// list, so there is no empty half to draw and no second list to keep in step.
+func (s *session) openSplit() {
+	s.split, s.splitRight = true, true
+	s.splitEd = s.activeEd
+}
+
+// collapseSplit puts the content area back to one pane, keeping whichever file the
+// focused half was showing: closing something must not also move you somewhere else.
+func (s *session) collapseSplit() {
+	if s.focusedHalf() {
+		s.activeEd = s.splitEd
+	}
+	s.split, s.splitRight, s.splitEd = false, false, 0
 }
 
 // findEditor returns the index of the tab holding path, or -1.
@@ -119,6 +196,18 @@ func (s *session) dropEditor(id int) bool {
 		e.pane.Close()
 		s.editors = append(s.editors[:i], s.editors[i+1:]...)
 		s.activeEd = clamp(s.activeEd, 0, len(s.editors)-1)
+		s.splitEd = clamp(s.splitEd, 0, len(s.editors)-1)
+		switch {
+		case len(s.editors) < 2:
+			// A half wants a file of its own. With one left there is nothing to put
+			// beside it, so the split collapses back to the pane it came from — which is
+			// what "closing the last tab in a half" means when both halves share a list.
+			s.collapseSplit()
+		case s.splitEd == s.activeEd:
+			// The half that lost its file would otherwise show the other half's. It takes
+			// the next tab along instead.
+			s.splitEd = cycle(s.activeEd, 1, len(s.editors))
+		}
 		return true
 	}
 	return false
@@ -131,6 +220,7 @@ func (s *session) closeEditors() {
 	}
 	s.editors = nil
 	s.activeEd = 0
+	s.collapseSplit()
 }
 
 // closeTunnels releases every local and remote listener on the connection.
@@ -237,7 +327,9 @@ func (m *model) focusShell(alias string) {
 	}
 	m.active = alias
 	m.mode = modeShell
-	m.resizeShells(s)
+	// A change of active session is a change of columns: this host may have a browser
+	// where the last one had none, and the tree column comes and goes with it.
+	m.relayout()
 }
 
 // openBrowser opens the host's SFTP browser, on the connection hop already holds or on
@@ -280,14 +372,32 @@ func (m *model) openFile(alias string, msg filebrowser.OpenFileMsg) tea.Cmd {
 	if s == nil || s.client == nil {
 		return nil
 	}
+	// Whether this file was asked for beside the current one is settled here and spent
+	// here: by the time the editor lands the flag would be answering for whatever the user
+	// has done since. See splitOpen.
+	beside := s.splitPending
+	s.splitPending = false
+
 	if i := s.findEditor(msg.Path); i >= 0 {
-		s.activeEd = i
+		// Already open, so there is nothing for "beside" to mean: a second editor on one
+		// file is not a split, it is two views of a buffer neither end knows about. The
+		// keyboard goes to the half the file is already in.
+		s.focusTab(i)
 		m.mode = modeEditor
 		return nil
 	}
 
+	if beside && len(s.editors) > 0 && m.splitFits() {
+		// The split opens now rather than when the editor lands, so the pane about to be
+		// started is told the width it will actually have. Until it arrives the right half
+		// mirrors the left, which is a frame of one file drawn twice — cheaper than an
+		// empty box and shorter-lived than the SSH handshake behind it.
+		s.openSplit()
+		m.relayout()
+	}
+
 	m.nextEdID++
-	ew, eh := m.editorSize()
+	ew, eh := m.editorSize(s)
 	// The name ends up in the breadcrumb, the mode chip and the tab strip, so control
 	// characters are stripped here. The path stays untouched: it is shell-quoted where it
 	// is used, never rendered.
@@ -308,7 +418,38 @@ func (m *model) disconnect(alias string) {
 	if m.active == alias {
 		m.leaveAll()
 	}
+	// The browser that went took its column with it; the panes still open on other hosts
+	// are owed the columns it was holding.
+	m.relayout()
 	m.setStatus(statusOK, "disconnected %s", alias)
+}
+
+// splitOpen answers keys.BrowserSplit: open whatever the browser's cursor is on beside
+// the file already showing, rather than behind it as another tab.
+//
+// It goes through the browser's own Activate — the same path enter takes — so a directory
+// still just opens in place and only a file comes back as something to split for. What
+// makes it a split is the flag left on the session, since the message that returns says
+// nothing about which key asked for it.
+func (m *model) splitOpen() tea.Cmd {
+	s := m.sessions[m.active]
+	if s == nil || s.browser == nil {
+		return nil
+	}
+	switch {
+	case len(s.editors) == 0:
+		// Nothing to put it beside. This is an ordinary open, and saying so would be
+		// pedantry about a distinction the user cannot see yet.
+	case !m.splitFits():
+		m.setStatus(statusWarn, "too narrow to split: opening as a tab")
+	case !s.browser.CursorOnFile():
+		// A directory expands and never answers with a file, so arming here would leave
+		// the flag standing for whatever is opened next — including by the pointer, which
+		// does not go through the key handler that spends it.
+	default:
+		s.splitPending = true
+	}
+	return s.browser.Activate()
 }
 
 // closeAll tears down every live session, on the way out.

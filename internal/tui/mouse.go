@@ -27,20 +27,22 @@ const doubleClickWindow = 400 * time.Millisecond
 const wheelStep = 3
 
 // zone is the part of the screen a mouse event landed in — the whole of hop's
-// hit-testing, since the layout is a header, two side-by-side boxes and a footer.
+// hit-testing, since the layout is a header, three side-by-side columns and a footer.
 type zone int
 
 const (
 	zoneNone zone = iota
 	zoneHeader
 	zoneList
+	zoneTree
 	zonePane
 	zoneFooter
 )
 
-// zoneAt names the region containing screen cell (x, y), from the same layout
-// arithmetic View composes with. The sidebar's outer edge is 0 while it is collapsed,
-// so the pane then owns the whole width.
+// zoneAt names the region containing screen cell (x, y), from the same layout arithmetic
+// View composes with. A collapsed column's outer width is 0, so the columns to its right
+// simply start where it would have: the sidebar hidden gives its cells to the tree, and no
+// tree column gives them all to the content area.
 func (m *model) zoneAt(x, y int) zone {
 	if x < 0 || y < 0 || x >= m.width || y >= m.height {
 		return zoneNone
@@ -51,8 +53,12 @@ func (m *model) zoneAt(x, y int) zone {
 	case y >= 1+m.bodyHeight():
 		return zoneFooter
 	}
-	if w := m.listWidth(); w > 0 && x < w {
+	lw := m.listWidth()
+	if lw > 0 && x < lw {
 		return zoneList
+	}
+	if w := m.treeWidth(); w > 0 && x < lw+w {
+		return zoneTree
 	}
 	return zonePane
 }
@@ -85,6 +91,8 @@ func (m *model) routeMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch m.zoneAt(msg.X, msg.Y) {
 	case zoneList:
 		return m.mouseList(msg)
+	case zoneTree:
+		return m.mouseTree(msg)
 	case zonePane:
 		return m.mousePane(msg)
 	}
@@ -238,10 +246,61 @@ func (m *model) backToList() {
 	m.reader.Reset()
 }
 
-// ---- the right pane ----
+// ---- the tree column ----
 
-// mousePane is the pointer over whatever the active session is showing. A pane nothing
-// has the keyboard in takes it on a click; past that, each pane mode answers for itself.
+// mouseTree is the pointer over the SFTP column. A column that does not hold the keyboard
+// takes it on a click — the pointer's way across the columns, standing in for tab and
+// alt+t — and past that the browser answers for itself as it always has.
+func (m *model) mouseTree(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	s := m.sessions[m.active]
+	// A dropped session's column is a picture of a listing, on the same terms as its pane.
+	if s == nil || s.browser == nil || s.dead {
+		return m, nil
+	}
+
+	if !m.browsing() {
+		// A click is the way in; the wheel is not, or a notch aimed at the file you are
+		// reading would move the keyboard out of it.
+		if msg.Button != tea.MouseButtonLeft || msg.Action != tea.MouseActionPress {
+			return m, nil
+		}
+		m.clearSelection()
+		m.focusTree()
+		// And on through: the click that crossed into the column also stands on the row
+		// it landed on, which is what clicking a host in the sidebar does.
+	}
+
+	x, y, ok := m.treeLocal(msg.X, msg.Y)
+	if !ok {
+		return m, nil
+	}
+	// The pointer is not the split key. Any other key spends a pending split in doBrowser;
+	// this is the same rule for the other input device.
+	s.splitPending = false
+	return m.mouseBrowser(s, msg, x, y)
+}
+
+// treeLocal maps a screen cell to one inside the tree column's content box. The browser's
+// RowAt and Select are measured from its own top-left corner, so the column's border and
+// the screen header have to come off the coordinate before it is asked anything — which
+// is the whole of what "translate per column" means here.
+func (m *model) treeLocal(x, y int) (int, int, bool) {
+	w := m.treeWidth()
+	if w == 0 {
+		return 0, 0, false
+	}
+	lx, ly := x-m.listWidth()-1, y-2
+	if lx < 0 || ly < 0 || lx >= w-2 || ly >= m.paneH {
+		return 0, 0, false
+	}
+	return lx, ly, true
+}
+
+// ---- the content area ----
+
+// mousePane is the pointer over whatever the active session is showing in the content
+// area. A column nothing has the keyboard in takes it on a click; past that, each mode
+// answers for itself.
 func (m *model) mousePane(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	s := m.sessions[m.active]
 	// A dropped session's pane is a picture of a shell: it answers r, d and ctrl+o, and
@@ -250,58 +309,125 @@ func (m *model) mousePane(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	x, y, ok := m.paneLocal(msg.X, msg.Y)
+	right, x, y, ok := m.contentLocal(msg.X, msg.Y)
 	if !ok {
 		// Off the pane with the button down: the drag continues at the edge it left by,
 		// which is also what puts it on the edge row autoscroll watches.
 		if !m.sel.dragging {
 			return m, nil
 		}
+		right = s.focusedHalf()
 		x, y = m.clampToPane(msg.X, msg.Y)
 	}
 
-	if m.listHasFocus() {
-		// The pane is on screen but the list has the keyboard. A click is the way in.
+	// The narrow-window fallback: with no column to put it in, the browser is the content
+	// area, so the pointer over it is the pointer over the listing. Ahead of the focus
+	// handling below, which would otherwise read a click on the listing as a click across
+	// into a pane that is not there.
+	if m.treeInline() && m.browsing() && s.browser != nil {
+		return m.mouseBrowser(s, msg, x, y)
+	}
+
+	if m.listHasFocus() || m.browsing() {
+		// The content area is on screen but the keyboard is elsewhere — in the host list,
+		// or in the tree column beside it. A click is the way in, and it lands in the half
+		// it was aimed at.
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
-			m.clickIntoPane(s)
+			m.clickIntoPane(s, right)
 		}
 		return m, nil
+	}
+
+	// A click in the half that does not hold the keyboard moves the keyboard there first.
+	// The halves are two panes and the pointer picks between them, exactly as it picks
+	// between the columns.
+	if m.splitOn(s) && right != s.focusedHalf() &&
+		msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
+		m.clearSelection()
+		s.splitRight = right
 	}
 
 	switch {
 	case m.editing() && s.editor() != nil:
 		return m.mouseEditor(s, msg, x, y)
-	case m.browsing() && s.browser != nil:
-		return m.mouseBrowser(s, msg, x, y)
 	case m.focused() && s.shell() != nil:
 		return m.mouseShell(s, msg, x, y)
 	}
 	return m, nil
 }
 
-// paneLocal maps a screen cell to one inside the right pane's content box, or reports
-// false for a cell outside it. (0, 0) is the tab strip's first column when there is a
-// strip, and otherwise the emulated screen's origin.
-func (m *model) paneLocal(x, y int) (int, int, bool) {
-	// The sidebar's outer width and the pane's left border; the screen header and the
-	// pane's top border.
-	lx, ly := x-m.listWidth()-1, y-2
-	if lx < 0 || ly < 0 || lx >= m.paneW || ly >= m.paneH {
-		return 0, 0, false
+// contentLocal maps a screen cell into the content area: which half it landed in, and
+// where inside that half's content box. (0, 0) is the tab strip's first column when there
+// is a strip, and otherwise the emulated screen's origin.
+//
+// Unsplit there is one half and it is the left one, so the answer nobody has to look at is
+// always false. Split, the two boxes sit side by side inside the same columns the one box
+// had, and the divider they share belongs to neither.
+func (m *model) contentLocal(x, y int) (bool, int, int, bool) {
+	ly := y - 2 // the screen header and the box's top border
+	if ly < 0 || ly >= m.paneH {
+		return false, 0, 0, false
 	}
-	return lx, ly, true
+	// Everything the columns to the left take, and then the box's own left border.
+	base := m.listWidth() + m.treeWidth()
+
+	s := m.sessions[m.active]
+	if !m.splitOn(s) {
+		lx := x - base - 1
+		if lx < 0 || lx >= m.paneW {
+			return false, 0, 0, false
+		}
+		return false, lx, ly, true
+	}
+
+	w := m.splitHalf()
+	if lx := x - base - 1; lx >= 0 && lx < w {
+		return false, lx, ly, true
+	}
+	// The right half starts past the left box entire: its inner width plus its two border
+	// columns.
+	if lx := x - base - w - 3; lx >= 0 && lx < w {
+		return true, lx, ly, true
+	}
+	return false, 0, 0, false
 }
 
-// clampToPane maps a screen cell to the nearest cell inside the pane's content box —
-// paneLocal for a pointer that has left it, which is where a drag off the edge lands.
+// paneLocal maps a screen cell to one inside the content area's box, or reports false for
+// a cell outside it — contentLocal for the callers that only ever ask about the half the
+// keyboard is in.
+func (m *model) paneLocal(x, y int) (int, int, bool) {
+	_, lx, ly, ok := m.contentLocal(x, y)
+	return lx, ly, ok
+}
+
+// clampToPane maps a screen cell to the nearest cell inside the focused half's content
+// box — paneLocal for a pointer that has left it, which is where a drag off the edge
+// lands.
 func (m *model) clampToPane(x, y int) (int, int) {
-	return clamp(x-m.listWidth()-1, 0, max(m.paneW-1, 0)), clamp(y-2, 0, max(m.paneH-1, 0))
+	base, w := m.listWidth()+m.treeWidth(), m.paneW
+	if s := m.sessions[m.active]; m.splitOn(s) {
+		w = m.splitHalf()
+		if s.splitRight {
+			base += w + 2
+		}
+	}
+	return clamp(x-base-1, 0, max(w-1, 0)), clamp(y-2, 0, max(m.paneH-1, 0))
 }
 
-// clickIntoPane gives the keyboard to what the pane is showing: its shell, or the
-// browser on a session that has no shell of its own.
-func (m *model) clickIntoPane(s *session) {
+// clickIntoPane gives the keyboard to what the content area is showing: the editor tab in
+// the half that was clicked, the host's shell, or — on a window with no room for a
+// column — the browser that is standing in the content area itself.
+func (m *model) clickIntoPane(s *session, right bool) {
+	// A click that crossed into another column is a click on something else, so whatever
+	// double it was half of is spent. Without this, pointing at a file and then back at
+	// the tree row you came from would open that row as though the detour never happened.
+	m.chords.click = time.Time{}
 	switch {
+	case s.editorAt(right) != nil:
+		if m.splitOn(s) {
+			s.splitRight = right
+		}
+		m.mode = modeEditor
 	case s.shell() != nil:
 		m.focusShell(m.active)
 	case s.browser != nil:
@@ -319,7 +445,7 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 		// nowhere else gets to switch tabs.
 		if y == 0 && !m.sel.dragging {
 			if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
-				if i, ok := m.tabAt(shellTabNames(s), s.activeSh, x); ok {
+				if i, ok := m.tabAt(shellTabNames(s), s.activeSh, x, m.paneW); ok {
 					m.clearSelection()
 					s.activeSh = i
 				}
@@ -542,11 +668,15 @@ func (m *model) mouseSelect(msg tea.MouseMsg, x, y int, view string) (tea.Model,
 // gets the event when it has asked for the mouse. hop keeps no history for it, so one
 // that has not asked is not scrolled.
 func (m *model) mouseEditor(s *session, msg tea.MouseMsg, x, y int) (tea.Model, tea.Cmd) {
+	// The half the keyboard is in, which mousePane has already moved to the half that was
+	// clicked. Both halves draw the same names against a different open tab, so the strip
+	// has to be measured for the one being pointed at.
+	right := s.focusedHalf()
 	if y == 0 {
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
-			if i, ok := m.tabAt(editorTabNames(s), s.activeEd, x); ok {
+			if i, ok := m.tabAt(editorTabNames(s), s.editorIndex(right), x, m.contentW(s)); ok {
 				m.clearSelection()
-				s.activeEd = i
+				s.setEditor(i)
 			}
 		}
 		return m, nil
@@ -560,8 +690,19 @@ func (m *model) mouseEditor(s *session, msg tea.MouseMsg, x, y int) (tea.Model, 
 	return m.mouseSelect(msg, x, y-1, p.View())
 }
 
-// mouseBrowser is the pointer over the SFTP listing: the wheel moves the cursor, a
-// click stands on an entry, a second click opens it.
+// browserZone is the region the listing is drawn in — its own column, or the content area
+// on a window with no room for one. It is what the double-click chord is keyed to, so that
+// a click in the tree and a click in the file beside it can never pair up into a double.
+func (m *model) browserZone() zone {
+	if m.treeWidth() > 0 {
+		return zoneTree
+	}
+	return zonePane
+}
+
+// mouseBrowser is the pointer over the SFTP listing, wherever it is drawn: the wheel moves
+// the cursor, a click stands on an entry, a second click opens it. The coordinates arrive
+// already translated into the browser's own space by treeLocal or contentLocal.
 func (m *model) mouseBrowser(s *session, msg tea.MouseMsg, _, y int) (tea.Model, tea.Cmd) {
 	b := s.browser
 	switch msg.Button {
@@ -579,7 +720,7 @@ func (m *model) mouseBrowser(s *session, msg tea.MouseMsg, _, y int) (tea.Model,
 		if !ok {
 			return m, nil
 		}
-		double := m.clickChord(zonePane, i)
+		double := m.clickChord(m.browserZone(), i)
 		b.Select(i)
 		if double {
 			// A file yields an OpenFileMsg the model answers, as enter does; a directory

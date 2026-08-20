@@ -47,15 +47,19 @@ var now = time.Now
 // Every destructive key here — "d", "o" — acts on whatever the cursor stands on, so a
 // sort that shuffled a different file under it would make the next keystroke a surprise.
 func (b *Browser) cycleSort() {
-	// Remember the entry before the order changes; afterwards its index means nothing.
-	// An empty listing yields the zero Entry, whose name matches nothing — focus then
-	// leaves the cursor where it is, which is the right answer for a listing with no rows.
-	under, _ := b.selected()
+	// Remember the row before the order changes; afterwards its index means nothing. An
+	// empty tree has no path to remember — focusPath then leaves the cursor where it is,
+	// which is the right answer for a listing with no rows.
+	at := ""
+	if n := b.cur(); n != nil {
+		at = n.path
+	}
 
 	b.sortBy = (b.sortBy + 1) % sortModes
-	b.entries = b.applySort(b.entries)
+	b.resort(b.root)
+	b.rebuild()
 
-	b.focus(under.Name)
+	b.focusPath(at)
 	b.ok("sorted by " + b.sortBy.String())
 }
 

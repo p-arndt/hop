@@ -1,6 +1,7 @@
 package filebrowser
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"hop/internal/keys"
 	"hop/internal/sftpx"
 )
 
@@ -69,16 +71,14 @@ func xferBrowser(t *testing.T) (*Browser, *fakeClient, string) {
 	}
 	fc := &fakeClient{entries: ents}
 	b := &Browser{
-		client:  fc,
-		alias:   "web1",
-		cwd:     "/home/u",
-		entries: ents,
-		opts:    Options{DownloadDir: dl},
-		tmpDir:  t.TempDir(),
-		w:       40,
-		h:       13,
+		client: fc,
+		alias:  "web1",
+		opts:   Options{DownloadDir: dl},
+		tmpDir: t.TempDir(),
+		w:      40,
+		h:      13,
 	}
-	return b, fc, dl
+	return plant(b, "/home/u", ents), fc, dl
 }
 
 // typePath answers an open text prompt with s, one key at a time, and returns whatever
@@ -234,13 +234,13 @@ func TestUploadRefreshesListing(t *testing.T) {
 	drive(t, b, typePath(t, b, src))
 
 	var found bool
-	for _, e := range b.entries {
-		if e.Name == "new.txt" {
+	for _, n := range b.rows {
+		if n.e.Name == "new.txt" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("entries = %v, want the uploaded file among them", b.entries)
+		t.Fatalf("rows = %v, want the uploaded file among them", rowNames(b))
 	}
 }
 
@@ -437,7 +437,7 @@ func TestOpenInAppRefusesExecutableAsync(t *testing.T) {
 			b, fc, _ := xferBrowser(t)
 			opened, _ := stubOpen(t)
 
-			b.entries[1].Name = name
+			setName(b, 1, name)
 			b.cursor = 1
 			if cmd := b.Handle(key(t, "o")); cmd != nil {
 				t.Fatalf("o on %q started a transfer, want a refusal first", name)
@@ -564,9 +564,10 @@ func TestUploadReportsItsRealDestination(t *testing.T) {
 	b.Handle(key(t, "u"))
 	cmd := typePath(t, b, src)
 
-	// The user wanders off while the bytes are moving.
-	b.cwd = "/home/u/sub"
-	before := len(fc.entries)
+	// The user wanders off while the bytes are moving — in a tree that means re-rooting
+	// somewhere the destination is not.
+	plant(b, "/home/u/sub", fc.entries)
+	before := len(b.rows)
 	fc.entries = append(fc.entries, sftpx.Entry{Name: "elsewhere.txt"})
 
 	drive(t, b, cmd)
@@ -578,8 +579,8 @@ func TestUploadReportsItsRealDestination(t *testing.T) {
 		t.Fatalf("status = %q, want the real destination /home/u", b.note.text)
 	}
 	// Re-listing here would show /home/u/sub's contents as if the file had landed there.
-	if len(b.entries) != before {
-		t.Fatalf("entries = %d, want the %d it had — a directory the file did not land in must not be re-listed", len(b.entries), before)
+	if len(b.rows) != before {
+		t.Fatalf("rows = %d, want the %d it had — a directory the file did not land in must not be re-listed", len(b.rows), before)
 	}
 }
 
@@ -611,5 +612,399 @@ func TestDownloadDirExpandsHome(t *testing.T) {
 	}
 	if !b.overlay.active() {
 		t.Fatal("downloading over the existing file asked nothing — the check used the unexpanded path")
+	}
+}
+
+// ---- batches, and the target-based copy and move ----
+
+// Several marked files are one job, not one job each: the client is called once per file,
+// the progress line counts through them, and exactly one outcome reaches the status line.
+func TestDownloadOfAMarkedSetIsOneJob(t *testing.T) {
+	b, fc, dl := xferBrowser(t)
+	b.Select(1)
+	b.Do(keys.BrowserMark) // a.txt
+	b.Do(keys.BrowserMark) // b.txt
+
+	cmd := b.Handle(key(t, "d"))
+	if b.xfer == nil {
+		t.Fatal("d with two files marked started no transfer")
+	}
+	if len(b.xfer.items) != 2 {
+		t.Fatalf("the job has %d items, want 2", len(b.xfer.items))
+	}
+	// One line, counting through the batch — not two popups.
+	if line := plain(b.progressLine(40)); !strings.Contains(line, "1/2 · a.txt") {
+		t.Fatalf("progress line = %q, want it to count through the batch", line)
+	}
+
+	drive(t, b, cmd)
+
+	if len(fc.downloads) != 2 {
+		t.Fatalf("downloads = %v, want one per marked file", fc.downloads)
+	}
+	for i, name := range []string{"a.txt", "b.txt"} {
+		if want := filepath.Join(dl, name); fc.downloads[i][1] != want {
+			t.Fatalf("download %d went to %q, want %q", i, fc.downloads[i][1], want)
+		}
+	}
+	if b.xfer != nil {
+		t.Fatal("the job is still in flight after both files landed")
+	}
+	if b.note.err || !strings.Contains(b.note.text, "downloaded 2 files") {
+		t.Fatalf("status = %q (err=%v), want one outcome naming the count", b.note.text, b.note.err)
+	}
+}
+
+// A directory among the marks is skipped rather than refusing the whole job: marking a
+// screenful with "a" is how a selection is usually made, and it will contain directories.
+func TestDownloadSkipsDirectoriesInTheSelection(t *testing.T) {
+	b, fc, _ := xferBrowser(t)
+	b.Do(keys.BrowserMarkAll) // sub/, a.txt, b.txt
+
+	drive(t, b, b.Handle(key(t, "d")))
+
+	if len(fc.downloads) != 2 {
+		t.Fatalf("downloads = %v, want only the two files", fc.downloads)
+	}
+	if !strings.Contains(b.note.text, "1 directories skipped") {
+		t.Fatalf("status = %q, want it to say the directory was skipped", b.note.text)
+	}
+}
+
+// A batch that fails part-way says so in the same three numbers every plural operation
+// here uses, and stops rather than working through the rest.
+func TestBatchDownloadStopsAtTheFirstFailure(t *testing.T) {
+	b, fc, _ := xferBrowser(t)
+	fc.errs = map[string]error{"download": errors.New("connection reset")}
+	fc.badName = "b.txt"
+	b.Select(1)
+	b.Do(keys.BrowserMark)
+	b.Do(keys.BrowserMark)
+
+	drive(t, b, b.Handle(key(t, "d")))
+
+	if !b.note.err {
+		t.Fatalf("status = %q (err=false), want the failure reported", b.note.text)
+	}
+	for _, want := range []string{"download b.txt", "connection reset", "1 of 2 done", "0 skipped"} {
+		if !strings.Contains(b.note.text, want) {
+			t.Fatalf("status = %q, want it to say %q", b.note.text, want)
+		}
+	}
+	if b.xfer != nil {
+		t.Fatal("the failed job is still in flight")
+	}
+}
+
+// "c" with no target set refuses before anything moves, and says what to press.
+func TestCopyWithoutATargetRefuses(t *testing.T) {
+	b, fc, _ := xferBrowser(t)
+	b.Select(1)
+
+	if cmd := b.Do(keys.BrowserCopy); cmd != nil {
+		t.Fatal("copy without a target started something")
+	}
+	if len(fc.copies) != 0 {
+		t.Fatalf("copies = %v, want nothing attempted", fc.copies)
+	}
+	if !b.note.err || !strings.Contains(b.note.text, "no target") {
+		t.Fatalf("status = %q (err=%v), want a refusal naming the missing target", b.note.text, b.note.err)
+	}
+}
+
+// "t" aims at the directory under the cursor, and "c" copies the marked set into it as
+// one job.
+func TestCopyToTarget(t *testing.T) {
+	b, fc, _ := xferBrowser(t)
+	fc.steps = byteSteps{512, 1024}
+
+	b.Select(0)
+	b.Do(keys.BrowserTarget) // sub/
+	if b.target != "/home/u/sub" {
+		t.Fatalf("target = %q, want /home/u/sub", b.target)
+	}
+	if !strings.Contains(b.note.text, "/home/u/sub") {
+		t.Fatalf("status = %q, want the target named", b.note.text)
+	}
+
+	b.Select(1)
+	b.Do(keys.BrowserMark) // a.txt
+	b.Do(keys.BrowserMark) // b.txt
+
+	drive(t, b, b.Do(keys.BrowserCopy))
+
+	want := [][2]string{{"/home/u/a.txt", "/home/u/sub"}, {"/home/u/b.txt", "/home/u/sub"}}
+	if len(fc.copies) != 2 || fc.copies[0] != want[0] || fc.copies[1] != want[1] {
+		t.Fatalf("copies = %v, want %v", fc.copies, want)
+	}
+	if b.note.err || !strings.Contains(b.note.text, "copied 2 entries") {
+		t.Fatalf("status = %q (err=%v), want the plural outcome", b.note.text, b.note.err)
+	}
+	// The footer stops claiming a selection that has been consumed.
+	if len(b.marks) != 0 {
+		t.Fatalf("marks = %v, want them cleared", b.marks)
+	}
+}
+
+// A directory cannot be copied or moved into itself or into anything inside it. sftpx
+// refuses it too, but by then some of the tree has been written — the refusal has to come
+// from the keystroke.
+func TestCopyRefusesADirectoryIntoItself(t *testing.T) {
+	c := &dirClient{dirs: map[string][]sftpx.Entry{
+		"/home/u":          {dir("src"), {Name: "a.txt", Size: 1}},
+		"/home/u/src":      {dir("deep")},
+		"/home/u/src/deep": {},
+	}}
+	b := &Browser{client: c, alias: "web1", opts: Options{DownloadDir: t.TempDir()}, w: 40, h: 13}
+	if !b.load("/home/u") {
+		t.Fatalf("load: %s", b.note.text)
+	}
+
+	b.Do(keys.In) // open src, so src/deep has a row
+	b.Select(1)   // src/deep
+	b.Do(keys.BrowserTarget)
+	b.Select(0) // src itself
+	b.Do(keys.BrowserMark)
+
+	for _, a := range []keys.Action{keys.BrowserCopy, keys.BrowserMoveTo} {
+		b.clearNote()
+		b.Do(a)
+		if len(c.copies) != 0 || len(c.moves) != 0 {
+			t.Fatalf("%s into a descendant reached the client: %v %v", a, c.copies, c.moves)
+		}
+		if !b.note.err || !strings.Contains(b.note.text, "into itself") {
+			t.Fatalf("%s: status = %q (err=%v), want the refusal", a, b.note.text, b.note.err)
+		}
+	}
+}
+
+// A move goes through the transfer machinery like a copy does. A rename is instant, but
+// across a filesystem boundary sftpx falls back to a full copy, and that one must not be
+// holding the UI goroutine.
+func TestMoveToTarget(t *testing.T) {
+	b, fc, _ := xferBrowser(t)
+	b.Select(0)
+	b.Do(keys.BrowserTarget) // sub/
+	b.Select(1)
+	b.Do(keys.BrowserMark) // a.txt
+	b.Do(keys.BrowserMark) // b.txt
+
+	drive(t, b, b.Do(keys.BrowserMoveTo))
+
+	want := [][2]string{{"/home/u/a.txt", "/home/u/sub"}, {"/home/u/b.txt", "/home/u/sub"}}
+	if len(fc.moves) != 2 || fc.moves[0] != want[0] || fc.moves[1] != want[1] {
+		t.Fatalf("moves = %v, want %v", fc.moves, want)
+	}
+	if b.note.err || !strings.Contains(b.note.text, "moved 2 entries") {
+		t.Fatalf("status = %q (err=%v), want the plural outcome", b.note.text, b.note.err)
+	}
+	if len(b.marks) != 0 {
+		t.Fatalf("marks = %v, want them cleared", b.marks)
+	}
+}
+
+// The same policy for a move: stop, say the numbers, and leave the rest marked.
+func TestMoveStopsAtTheFirstFailure(t *testing.T) {
+	b, fc, _ := xferBrowser(t)
+	fc.errs = map[string]error{"move": errors.New("file exists")}
+	fc.badName = "b.txt"
+	b.Select(0)
+	b.Do(keys.BrowserTarget)
+	b.Select(1)
+	b.Do(keys.BrowserMark)
+	b.Do(keys.BrowserMark)
+
+	drive(t, b, b.Do(keys.BrowserMoveTo))
+
+	if len(fc.moves) != 2 {
+		t.Fatalf("moves = %v, want it stopped at the failure", fc.moves)
+	}
+	for _, want := range []string{"move b.txt", "file exists", "1 of 2 done", "0 skipped"} {
+		if !strings.Contains(b.note.text, want) {
+			t.Fatalf("status = %q, want it to say %q", b.note.text, want)
+		}
+	}
+	if !b.marks["/home/u/b.txt"] {
+		t.Fatalf("marks = %v, want the entry that did not move still marked", b.marks)
+	}
+}
+
+// A batch that stops halfway leaves the entries it never reached marked. The promise is in
+// batchError's wording — "2 skipped … ready for the same keystroke" — and it only holds if
+// the marks are spent per item rather than when the job is built.
+func TestAFailedBatchKeepsTheMarksItNeverReached(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		verb string
+		act  keys.Action
+	}{
+		{"copy", "copy", keys.BrowserCopy},
+		{"move", "move", keys.BrowserMoveTo},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, fc, _ := xferBrowser(t)
+			fc.errs = map[string]error{tc.verb: errors.New("disk full")}
+			fc.badName = "b.txt"
+
+			b.Select(0)
+			b.Do(keys.BrowserTarget) // sub/
+			b.Select(1)
+			b.Do(keys.BrowserMark) // a.txt
+			b.Do(keys.BrowserMark) // b.txt
+
+			drive(t, b, b.Do(tc.act))
+
+			if b.marks["/home/u/a.txt"] {
+				t.Fatal("the entry that got across is still marked")
+			}
+			if !b.marks["/home/u/b.txt"] {
+				t.Fatalf("marks = %v, want the entry that failed still marked", b.marks)
+			}
+		})
+	}
+}
+
+// A copy writes through Create, which truncates, so a name already taken in the target is
+// a confirmed overwrite — the same promise "d" and "u" make in the other two directions.
+func TestCopyConfirmsBeforeOverwriting(t *testing.T) {
+	c := &dirClient{dirs: map[string][]sftpx.Entry{
+		"/home/u":     {dir("sub"), {Name: "a.txt", Size: 1}},
+		"/home/u/sub": {{Name: "a.txt", Size: 9}},
+	}}
+	b := &Browser{client: c, alias: "web1", opts: Options{DownloadDir: t.TempDir()}, w: 40, h: 13}
+	if !b.load("/home/u") {
+		t.Fatalf("load: %s", b.note.text)
+	}
+
+	b.Select(0)
+	b.Do(keys.In) // open sub/ so the target's listing is known
+	b.Do(keys.BrowserTarget)
+	b.focusPath("/home/u/a.txt")
+	b.Do(keys.BrowserMark)
+
+	if cmd := b.Do(keys.BrowserCopy); cmd != nil {
+		t.Fatal("the copy started without asking about the name already there")
+	}
+	if !b.Prompting() || !strings.Contains(b.overlay.label, "a.txt") {
+		t.Fatalf("overlay = %q (prompting=%v), want the overwrite question", b.overlay.label, b.Prompting())
+	}
+	if len(c.copies) != 0 {
+		t.Fatalf("copies = %v, want nothing moved before the answer", c.copies)
+	}
+}
+
+// A move cannot offer the same choice — sftpx refuses a taken name and clearing the way
+// would need a recursive remote delete — so it says so from the keystroke instead of
+// failing halfway through a batch with a raw server error.
+func TestMoveRefusesACollisionUpFront(t *testing.T) {
+	c := &dirClient{dirs: map[string][]sftpx.Entry{
+		"/home/u":     {dir("sub"), {Name: "a.txt", Size: 1}},
+		"/home/u/sub": {{Name: "a.txt", Size: 9}},
+	}}
+	b := &Browser{client: c, alias: "web1", opts: Options{DownloadDir: t.TempDir()}, w: 40, h: 13}
+	if !b.load("/home/u") {
+		t.Fatalf("load: %s", b.note.text)
+	}
+
+	b.Select(0)
+	b.Do(keys.In)
+	b.Do(keys.BrowserTarget)
+	b.focusPath("/home/u/a.txt")
+	b.Do(keys.BrowserMark)
+
+	b.Do(keys.BrowserMoveTo)
+
+	if len(c.moves) != 0 {
+		t.Fatalf("moves = %v, want it refused before anything moved", c.moves)
+	}
+	if !b.note.err || !strings.Contains(b.note.text, "already in") {
+		t.Fatalf("status = %q (err=%v), want the collision named", b.note.text, b.note.err)
+	}
+}
+
+// Advancing to the next item of a batch must not start a second tick chain. b.xfer still
+// points at the same transfer, so the chain already running keeps re-arming itself across
+// the boundary — scheduling another leaves one more repaint loop alive per item, and the
+// indeterminate block, one cell per tick, visibly accelerates through a long batch.
+func TestAdvancingABatchDoesNotStartASecondTickChain(t *testing.T) {
+	b, _, _ := xferBrowser(t)
+
+	t1 := &transfer{arrow: "↓ ", verb: "download", items: []batchItem{
+		{name: "a.txt", run: func(func(int64)) (int64, error) { return 1, nil }},
+		{name: "b.txt", run: func(func(int64)) (int64, error) { return 1, nil }},
+	}}
+	b.xfer = t1
+	t1.startItem()
+
+	cmd := b.finish(t1, 1, nil)
+	if cmd == nil {
+		t.Fatal("advancing produced no command, so the next item never starts")
+	}
+	if _, batched := cmd().(tea.BatchMsg); batched {
+		t.Fatal("advancing produced a batch: the second command is a tick chain the running one already covers")
+	}
+	if t1.at != 1 {
+		t.Fatalf("at = %d, want the batch advanced to the second item", t1.at)
+	}
+}
+
+// An entry that already sits in the target is nothing to do, not a reason to refuse the
+// other six. "a" then "c" on a screenful is the workflow marking exists for, and a whole
+// batch cancelled because one file was already there would make it useless in that case.
+func TestCopySkipsWhatIsAlreadyInTheTarget(t *testing.T) {
+	c := &dirClient{dirs: map[string][]sftpx.Entry{
+		"/home/u":     {dir("sub"), {Name: "a.txt", Size: 1}},
+		"/home/u/sub": {{Name: "keep.txt", Size: 9}},
+	}}
+	b := &Browser{client: c, alias: "web1", opts: Options{DownloadDir: t.TempDir()}, w: 40, h: 13}
+	if !b.load("/home/u") {
+		t.Fatalf("load: %s", b.note.text)
+	}
+
+	b.Select(0)
+	b.Do(keys.In) // open sub/
+	b.Do(keys.BrowserTarget)
+	b.focusPath("/home/u/sub/keep.txt")
+	b.Do(keys.BrowserMark) // already in the target
+	b.focusPath("/home/u/a.txt")
+	b.Do(keys.BrowserMark)
+
+	drive(t, b, b.Do(keys.BrowserCopy))
+
+	want := [][2]string{{"/home/u/a.txt", "/home/u/sub"}}
+	if len(c.copies) != 1 || c.copies[0] != want[0] {
+		t.Fatalf("copies = %v, want only the entry that was not there yet", c.copies)
+	}
+	if b.note.err || !strings.Contains(b.note.text, "1 already there") {
+		t.Fatalf("status = %q (err=%v), want the short count explained", b.note.text, b.note.err)
+	}
+}
+
+// One "y" overwrites every colliding name at once, so the question has to name them:
+// "overwrite 3 entries?" asks for consent to something the user cannot see.
+func TestTheOverwriteQuestionNamesTheFiles(t *testing.T) {
+	c := &dirClient{dirs: map[string][]sftpx.Entry{
+		"/home/u":     {dir("sub"), {Name: "a.txt", Size: 1}, {Name: "b.txt", Size: 2}},
+		"/home/u/sub": {{Name: "a.txt", Size: 9}, {Name: "b.txt", Size: 9}},
+	}}
+	b := &Browser{client: c, alias: "web1", opts: Options{DownloadDir: t.TempDir()}, w: 80, h: 13}
+	if !b.load("/home/u") {
+		t.Fatalf("load: %s", b.note.text)
+	}
+
+	b.Select(0)
+	b.Do(keys.In)
+	b.Do(keys.BrowserTarget)
+	b.focusPath("/home/u/a.txt")
+	b.Do(keys.BrowserMark)
+	b.focusPath("/home/u/b.txt")
+	b.Do(keys.BrowserMark)
+
+	b.Do(keys.BrowserCopy)
+
+	for _, want := range []string{"a.txt", "b.txt"} {
+		if !strings.Contains(b.overlay.label, want) {
+			t.Fatalf("question = %q, want %q named in it", b.overlay.label, want)
+		}
 	}
 }

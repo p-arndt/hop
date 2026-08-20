@@ -109,7 +109,9 @@ func (m *model) statusChips() string {
 		p := s.shell().pane
 		chips = append(chips, accentText.Bold(true).Render(fmt.Sprintf("⇅ %d/%d", p.ScrollOffset(), p.ScrollbackLen())))
 	case m.editing() && s != nil && len(s.editors) > 1:
-		chips = append(chips, chipStyle.Render(fmt.Sprintf("file %d/%d", s.activeEd+1, len(s.editors))))
+		// The half the keyboard is in, since that is the file the crumbs to the left name.
+		chips = append(chips, chipStyle.Render(
+			fmt.Sprintf("file %d/%d", s.editorIndex(s.focusedHalf())+1, len(s.editors))))
 	case m.focused() && s != nil && len(s.shells) > 1:
 		chips = append(chips, chipStyle.Render(fmt.Sprintf("shell %d/%d", s.activeSh+1, len(s.shells))))
 	}

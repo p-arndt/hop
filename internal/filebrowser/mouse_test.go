@@ -3,6 +3,7 @@ package filebrowser
 import (
 	"testing"
 
+	"hop/internal/keys"
 	"hop/internal/sftpx"
 )
 
@@ -90,24 +91,33 @@ func TestScroll(t *testing.T) {
 	}
 }
 
-// Activate is enter by another name: a directory is loaded in place and yields no
-// command, a file yields the OpenFileMsg the model turns into an editor tab.
+// Activate is enter by another name: a directory opens in place and yields no command, a
+// file yields the OpenFileMsg the model turns into an editor tab.
 func TestActivate(t *testing.T) {
 	b, fc := newTestBrowser(0)
 	fc.entries = []sftpx.Entry{{Name: "sub", IsDir: true}, {Name: "notes.txt", Size: 3}}
-	b.entries = fc.entries
+	plant(b, "/home/u", fc.entries)
 
 	b.Select(0)
 	if cmd := b.Activate(); cmd != nil {
-		t.Fatal("activating a directory returned a command, want it loaded in place")
+		t.Fatal("activating a directory returned a command, want it opened in place")
 	}
+	// Opening a directory is being inside it: that is what the current directory means
+	// once the listing is a tree, and it is what "m" and "u" then act on.
 	if b.cwd != "/home/u/sub" {
 		t.Fatalf("cwd = %q, want /home/u/sub", b.cwd)
 	}
+	if !b.rows[0].expanded {
+		t.Fatal("the directory did not open")
+	}
 
-	b.cwd = "/home/u"
-	b.entries = fc.entries
-	b.Select(1)
+	// The rows below it are its contents, indented, with the parent's own siblings after.
+	want := []string{"sub", "  sub", "  notes.txt", "notes.txt"}
+	if got := rowNames(b); !equalRows(got, want) {
+		t.Fatalf("rows = %v, want %v", got, want)
+	}
+
+	b.Select(3) // the top-level notes.txt, below the open directory
 	cmd := b.Activate()
 	if cmd == nil {
 		t.Fatal("activating a file returned no command, want an OpenFileMsg")
@@ -122,5 +132,125 @@ func TestActivate(t *testing.T) {
 	}
 	if msg.Path != "/home/u/notes.txt" {
 		t.Fatalf("OpenFileMsg.Path = %q, want /home/u/notes.txt", msg.Path)
+	}
+
+	// And a file inside the open directory is the one at its own depth, not the one that
+	// shares its name at the top level — the row index is the whole of the address.
+	b.Select(2)
+	inner := b.Activate()
+	if inner == nil {
+		t.Fatal("activating the nested file returned no command")
+	}
+	if got := inner().(Msg).Body.(OpenFileMsg).Path; got != "/home/u/sub/notes.txt" {
+		t.Fatalf("nested OpenFileMsg.Path = %q, want /home/u/sub/notes.txt", got)
+	}
+}
+
+// equalRows compares two row listings.
+func equalRows(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// treeBrowser opens a browser whose first entry is a directory, and expands it, so the
+// pointer tests run against a tree rather than a flat listing. The client lists the same
+// three entries for every directory, which is all a row-index test needs.
+func treeBrowser(t *testing.T) (*Browser, *fakeClient) {
+	t.Helper()
+	b, fc := newTestBrowser(0)
+	fc.entries = []sftpx.Entry{
+		{Name: "sub", IsDir: true},
+		{Name: "a.txt", Size: 1},
+		{Name: "b.txt", Size: 2},
+	}
+	plant(b, "/home/u", fc.entries)
+	b.Select(0)
+	b.Activate() // opens sub, so the rows are sub, sub/*, a.txt, b.txt
+	if len(b.rows) != 6 {
+		t.Fatalf("setup: %d rows, want 6", len(b.rows))
+	}
+	return b, fc
+}
+
+// The flat row index is the mouse's whole vocabulary, and an open directory must not
+// change that: row 2 of the view is row 2 of the flattened tree, whichever directory that
+// row's entry happens to live in.
+func TestRowAtInAnOpenTree(t *testing.T) {
+	b, _ := treeBrowser(t)
+
+	for row, want := range map[int]string{
+		2: "/home/u/sub",
+		3: "/home/u/sub/sub",
+		5: "/home/u/sub/b.txt",
+		6: "/home/u/a.txt",
+		7: "/home/u/b.txt",
+	} {
+		i, ok := b.RowAt(row)
+		if !ok {
+			t.Fatalf("RowAt(%d) found nothing in a tree of %d rows", row, len(b.rows))
+		}
+		if got := b.rows[i].path; got != want {
+			t.Fatalf("RowAt(%d) = row %d (%s), want %s", row, i, got, want)
+		}
+	}
+	// Past the last row of the tree there is still nothing, as under a short listing.
+	if _, ok := b.RowAt(8); ok {
+		t.Fatalf("RowAt(8) found an entry in a tree of %d rows", len(b.rows))
+	}
+}
+
+// Select and Scroll address the same flattened rows, so a click and a wheel notch inside
+// an open subdirectory land on the entry that was drawn there.
+func TestSelectAndScrollInAnOpenTree(t *testing.T) {
+	b, _ := treeBrowser(t)
+
+	b.Select(2)
+	if got := b.rows[b.cursor].path; got != "/home/u/sub/a.txt" {
+		t.Fatalf("Select(2) stood on %s, want /home/u/sub/a.txt", got)
+	}
+	// The cursor is inside the open directory, so that is the current directory.
+	if b.cwd != "/home/u/sub" {
+		t.Fatalf("cwd = %q, want /home/u/sub", b.cwd)
+	}
+
+	b.Scroll(2)
+	if got := b.rows[b.cursor].path; got != "/home/u/a.txt" {
+		t.Fatalf("two notches on stood on %s, want /home/u/a.txt", got)
+	}
+	if b.cwd != "/home/u" {
+		t.Fatalf("cwd = %q after leaving the open directory, want /home/u", b.cwd)
+	}
+
+	b.Scroll(999)
+	if b.cursor != len(b.rows)-1 {
+		t.Fatalf("cursor = %d after scrolling past the end, want %d", b.cursor, len(b.rows)-1)
+	}
+}
+
+// Closing a directory takes its rows away, and the cursor comes back to the directory
+// itself rather than being clamped onto whatever slid into its index.
+func TestCollapseBringsTheCursorBack(t *testing.T) {
+	b, _ := treeBrowser(t)
+	b.Select(2) // sub/a.txt
+
+	// Left is one key with three meanings, taken in order: from inside an open directory
+	// it steps out to the directory itself, and from there it closes it.
+	b.Do(keys.Out)
+	if got := b.rows[b.cursor].path; got != "/home/u/sub" {
+		t.Fatalf("cursor stands on %s after stepping out, want the directory /home/u/sub", got)
+	}
+	b.Do(keys.Out)
+	if b.rows[0].expanded {
+		t.Fatal("the directory is still open")
+	}
+	if len(b.rows) != 3 {
+		t.Fatalf("%d rows after the close, want the three top-level ones", len(b.rows))
 	}
 }

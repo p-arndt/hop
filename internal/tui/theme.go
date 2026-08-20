@@ -54,6 +54,17 @@ var (
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(accent)
 
+	// A column standing beside another one without the keyboard in it. The border alone
+	// carried that before, and it was enough while only one box held content; with a tree
+	// and a file on screen at once it is a two-cell difference across a whole screen of
+	// text, so the body goes with it. Only the unstyled runs dim — the browser's own
+	// accent keeps its color — which is what makes the focused column read as the one in
+	// front rather than the only one lit.
+	paneBorderIdle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colFaint).
+			Foreground(colFaint)
+
 	// Text.
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	accentText = lipgloss.NewStyle().Foreground(accent)

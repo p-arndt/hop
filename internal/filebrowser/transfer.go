@@ -13,7 +13,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/pathx"
-	"hop/internal/sftpx"
 )
 
 // Transfers are the one thing the browser does that is not instant. A directory listing
@@ -22,10 +21,15 @@ import (
 // blocking sftpx call runs on the command's goroutine and reports back through Update,
 // and the UI goroutine only ever moves the progress line along.
 //
-// One at a time. A second "d" or "u" while a copy is running is refused rather than
+// One job at a time. A second "d" or "u" while a copy is running is refused rather than
 // queued or run alongside: there is a single progress line and a single b.xfer, and the
 // alternative is a scheduler and a transfer list for a case — two big files at once —
 // that a browser pane is not really for.
+//
+// A job is not a file, though. Marking eleven files and pressing "d" is one job with
+// eleven items: they are copied one after another on the same goroutine, and the one
+// progress line counts through them as "3/11 · notes.txt". Eleven popups, or eleven
+// refusals of each other, is what a batch must not turn into.
 
 // transferInterval is how often the progress line is redrawn — and, since the bar's
 // indeterminate block moves one cell per tick, also how fast that block paces.
@@ -45,21 +49,54 @@ const transferInterval = 150 * time.Millisecond
 // so where the transfer is built beats carrying a discriminator so finish can work back
 // out which of the three built it.
 type transfer struct {
-	name   string // the file's name, as shown
-	arrow  string // "↓ " or "↑ ", the direction as the progress line shows it
+	name   string // the item in flight, as shown
+	arrow  string // "↓ ", "↑ " or "⇢ ", the direction as the progress line shows it
+	verb   string // "download", "upload", "copy" — how a failure names the operation
 	remote string
 	local  string
 
 	// moved is the running byte count sftpx reports from the copying goroutine, and
-	// total the bytes expected — zero when the size is not knowable in advance.
+	// total the bytes expected — zero when the size is not knowable in advance. Both
+	// belong to the item in flight, not to the batch: a bar that measured the whole job
+	// would need every size up front, and a directory copy has none.
 	moved atomic.Int64
 	total int64
 
 	started time.Time
 
-	// landed runs on the UI goroutine once the bytes are across, with the byte count
-	// sftpx reported. It is what the transfer was for.
+	// items is the batch, and at the index of the one in flight. A single-file transfer
+	// is a batch of one, so there is one path through this file rather than two.
+	items []batchItem
+	at    int
+	// done counts the items that made it across and bytes their total, which is what a
+	// partial failure has to be able to say.
+	done  int
+	bytes int64
+
+	// landed runs on the UI goroutine once the last item is across, with the byte count
+	// sftpx reported for it. It is what the transfer was for.
 	landed func(b *Browser, t *transfer, n int64)
+}
+
+// batchItem is one file of a job: what to call it, where it is going, and the blocking
+// call that moves it. run is handed the progress callback and reports the cumulative
+// byte count for this item alone.
+type batchItem struct {
+	name   string
+	remote string
+	local  string
+	total  int64
+	run    func(progress func(int64)) (int64, error)
+}
+
+// startItem points the transfer's shown fields at items[at] and resets the byte count, so
+// the progress line describes the file actually in flight.
+func (t *transfer) startItem() {
+	if t.at < len(t.items) {
+		it := t.items[t.at]
+		t.name, t.remote, t.local, t.total = it.name, it.remote, it.local, it.total
+	}
+	t.moved.Store(0)
 }
 
 // transferTickMsg is the repaint pulse of the transfer it names. It carries the
@@ -75,24 +112,34 @@ type transferDoneMsg struct {
 	err error
 }
 
-// begin puts t in flight and returns the two commands that drive it: run, which does the
-// blocking copy off the UI goroutine, and the first tick. Both answer through Update.
-func (b *Browser) begin(t *transfer, run func() (int64, error)) tea.Cmd {
+// begin puts t in flight and returns the two commands that drive its first item: the
+// blocking copy, off the UI goroutine, and the first tick. Both answer through Update.
+func (b *Browser) begin(t *transfer) tea.Cmd {
+	if len(t.items) == 0 {
+		return nil
+	}
 	t.started = time.Now()
+	t.at = 0
+	t.startItem()
 	b.xfer = t
 	// The old note would otherwise sit under the progress line and reappear, stale, the
 	// moment the transfer ends and fails to overwrite it — including a refusal naming a
 	// file that is no longer the one in flight.
 	b.clearNote()
 
+	return tea.Batch(b.runItem(t), b.tickFor(t))
+}
+
+// runItem is the command that copies the item in flight and answers with its result. The
+// item is read out here, on the UI goroutine, so the closure the copy runs holds a value
+// nothing else will touch.
+func (b *Browser) runItem(t *transfer) tea.Cmd {
 	alias := b.alias
-	return tea.Batch(
-		func() tea.Msg {
-			n, err := run()
-			return Msg{Alias: alias, Body: transferDoneMsg{t: t, n: n, err: err}}
-		},
-		b.tickFor(t),
-	)
+	it := t.items[t.at]
+	return func() tea.Msg {
+		n, err := it.run(t.moved.Store)
+		return Msg{Alias: alias, Body: transferDoneMsg{t: t, n: n, err: err}}
+	}
 }
 
 // tickFor schedules the next repaint of t.
@@ -148,87 +195,151 @@ func (b *Browser) handleTransferMsg(msg tea.Msg) tea.Cmd {
 	if !finished {
 		return b.tickFor(b.xfer) // a tick is purely "repaint"; the count reads itself
 	}
-	t := b.xfer
-	b.xfer = nil // stops the ticks: the next one finds no match
-	return b.finish(t, done.n, done.err)
+	return b.finish(b.xfer, done.n, done.err)
 }
 
-// finish hands a completed transfer to whatever it was for. A failure is the same news
-// whichever copy it was, so it is reported here rather than in three closures.
+// finish takes the result of one item: it either starts the next one, or ends the job.
+//
+// The failure branch is where the partial-failure policy lives for transfers, and it is
+// the same one the plural server operations use — stop, and say what got through, what
+// failed and how much was left alone. See batchError.
 func (b *Browser) finish(t *transfer, n int64, err error) tea.Cmd {
 	if err != nil {
-		b.fail(err)
+		b.xfer = nil // stops the ticks: the next one finds no match
+		total := max(len(t.items), 1)
+		b.fail(batchError(t.verb, t.name, err.Error(), t.done, total, total-t.at-1))
 		return nil
 	}
-	t.landed(b, t, n)
+
+	// The mark is spent here rather than when the job was built: a batch that stops
+	// halfway has to leave the entries it never reached marked, so the same keystroke
+	// retries exactly the remainder. See batchError, which promises that.
+	delete(b.marks, t.remote)
+
+	t.done++
+	t.bytes += n
+	if t.at+1 < len(t.items) {
+		t.at++
+		t.startItem()
+		// No new tick: b.xfer still points at t, so the chain already running keeps
+		// re-arming itself across the item boundary. Starting a second one here would
+		// leave one more repaint loop alive per item, and the indeterminate block — one
+		// cell per tick — would visibly accelerate through a batch.
+		return b.runItem(t)
+	}
+
+	b.xfer = nil
+	if t.landed != nil {
+		t.landed(b, t, n)
+	}
 	return nil
 }
 
 // ---- the keys ----
 
-// download copies the file under the cursor into downloadDir, where — unlike the scratch
-// copy "o" makes — it is meant to be kept. An existing file of that name is confirmed
-// first: the download directory is the user's, and a remote name that happens to collide
-// should not silently eat what is already there.
+// download copies what is marked — or the file under the cursor when nothing is — into
+// downloadDir, where, unlike the scratch copy "o" makes, it is meant to be kept. An
+// existing file of the same name is confirmed first: the download directory is the user's,
+// and a remote name that happens to collide should not silently eat what is already there.
+//
+// Directories in the selection are skipped rather than refused. A recursive download is a
+// different operation with its own failure modes, and a mixed selection is what marking a
+// screenful with "a" produces — refusing the whole job over one directory in it would
+// make "a" then "d" useless.
 func (b *Browser) download() tea.Cmd {
-	e, ok := b.selected()
-	if !ok || e.IsDir {
+	var files []*node
+	dirs := 0
+	for _, n := range b.targets() {
+		if n.e.IsDir {
+			dirs++
+			continue
+		}
+		files = append(files, n)
+	}
+	if len(files) == 0 {
 		return nil
 	}
-	// Ahead of any path join: the name comes from the remote host and must not be able
-	// to steer the write out of the download directory.
-	if err := checkLocalName(e.Name); err != nil {
-		b.fail(err)
-		return nil
+	// Ahead of any path join: the names come from the remote host and must not be able
+	// to steer a write out of the download directory. Every one of them is checked before
+	// the first byte moves, so a bad name in the middle of a batch is a refusal rather
+	// than a job that stops halfway.
+	for _, n := range files {
+		if err := checkLocalName(n.e.Name); err != nil {
+			b.fail(err)
+			return nil
+		}
 	}
 	if b.busy() {
 		return nil
 	}
 
-	if _, err := os.Stat(filepath.Join(b.opts.DownloadDir, e.Name)); err == nil {
-		b.askConfirm(fmt.Sprintf("overwrite local %s? (y/n)", e.Name), func(b *Browser, _ string) tea.Cmd {
-			return b.startDownload(e)
+	clashes := 0
+	for _, n := range files {
+		if _, err := os.Stat(filepath.Join(b.opts.DownloadDir, n.e.Name)); err == nil {
+			clashes++
+		}
+	}
+	if clashes > 0 {
+		q := fmt.Sprintf("overwrite local %s? (y/n)", files[0].e.Name)
+		if len(files) > 1 {
+			q = fmt.Sprintf("overwrite %d local files? (y/n)", clashes)
+		}
+		b.askConfirm(q, func(b *Browser, _ string) tea.Cmd {
+			return b.startDownload(files, dirs)
 		})
 		return nil
 	}
-	return b.startDownload(e)
+	return b.startDownload(files, dirs)
 }
 
-// startFetch begins a copy of e from the current directory into localDir, and runs landed
-// when it is across. Both keys that pull a file — "d" into the download directory, "o"
-// into the scratch one — are this call with a different destination and a different
-// ending; after is the work the copy goroutine does before reporting success, which is
-// nil for a plain download.
-func (b *Browser) startFetch(e sftpx.Entry, localDir string, after func(local string) error,
+// startFetch begins a job that pulls every node in srcs into localDir, and runs landed
+// when the last one is across. Both keys that pull a file — "d" into the download
+// directory, "o" into the scratch one — are this call with a different destination and a
+// different ending; after is the work the copy goroutine does on each landed file before
+// reporting success, which is nil for a plain download.
+func (b *Browser) startFetch(srcs []*node, localDir string, after func(local string) error,
 	landed func(*Browser, *transfer, int64)) tea.Cmd {
 
-	t := &transfer{
-		name:   e.Name,
-		arrow:  "↓ ",
-		remote: path.Join(b.cwd, e.Name),
-		local:  filepath.Join(localDir, e.Name),
-		total:  e.Size, // the listing already knows how big it is
-		landed: landed,
-	}
 	client := b.client
-	return b.begin(t, func() (int64, error) {
-		n, err := client.DownloadProgress(t.remote, t.local, t.moved.Store)
-		if err != nil || after == nil {
-			return n, err
+	t := &transfer{arrow: "↓ ", verb: "download", landed: landed}
+	for _, n := range srcs {
+		it := batchItem{
+			name:   n.e.Name,
+			remote: n.path,
+			local:  filepath.Join(localDir, n.e.Name),
+			total:  n.e.Size, // the listing already knows how big it is
 		}
-		return n, after(t.local)
-	})
+		it.run = func(progress func(int64)) (int64, error) {
+			moved, err := client.DownloadProgress(it.remote, it.local, progress)
+			if err != nil || after == nil {
+				return moved, err
+			}
+			return moved, after(it.local)
+		}
+		t.items = append(t.items, it)
+	}
+	return b.begin(t)
 }
 
-// startDownload begins the copy of e into downloadDir. The directory is created here
-// rather than at construction because the setting can change under a live browser.
-func (b *Browser) startDownload(e sftpx.Entry) tea.Cmd {
+// startDownload begins the job that copies files into downloadDir. The directory is
+// created here rather than at construction because the setting can change under a live
+// browser. skipped is how many directories the selection held, which the outcome names so
+// a user who marked a screenful knows why the count is short.
+func (b *Browser) startDownload(files []*node, skipped int) tea.Cmd {
 	if err := os.MkdirAll(b.opts.DownloadDir, 0o755); err != nil {
 		b.fail(err)
 		return nil
 	}
-	return b.startFetch(e, b.opts.DownloadDir, nil, func(b *Browser, t *transfer, _ int64) {
-		b.ok(fmt.Sprintf("downloaded %s → %s", t.name, filepath.Dir(t.local)))
+	return b.startFetch(files, b.opts.DownloadDir, nil, func(b *Browser, t *transfer, _ int64) {
+		into := filepath.Dir(t.local)
+		msg := fmt.Sprintf("downloaded %s → %s", t.name, into)
+		if t.done > 1 {
+			msg = fmt.Sprintf("downloaded %d files → %s (%s)", t.done, into, humanizeBytes(t.bytes))
+		}
+		if skipped > 0 {
+			msg += fmt.Sprintf(" — %d directories skipped", skipped)
+		}
+		b.ok(msg)
 	})
 }
 
@@ -265,48 +376,48 @@ func (b *Browser) askedUpload(dir, local string) tea.Cmd {
 		return nil
 	}
 
+	// The clash is looked for in the destination's own node rather than in the visible
+	// rows: the upload aims at a directory, and the tree may be showing three of them.
 	name := filepath.Base(local)
-	for _, e := range b.entries {
-		if e.Name == name {
-			b.askConfirm(fmt.Sprintf("overwrite remote %s? (y/n)", name), func(b *Browser, _ string) tea.Cmd {
-				return b.startUpload(dir, local, name, fi.Size())
-			})
-			return nil
-		}
+	if n := b.nodeAt(dir); n != nil && childNamed(n, name) != nil {
+		b.askConfirm(fmt.Sprintf("overwrite remote %s? (y/n)", name), func(b *Browser, _ string) tea.Cmd {
+			return b.startUpload(dir, local, name, fi.Size())
+		})
+		return nil
 	}
 	return b.startUpload(dir, local, name, fi.Size())
 }
 
 // startUpload begins the copy of local into dir under name.
 func (b *Browser) startUpload(dir, local, name string, size int64) tea.Cmd {
-	t := &transfer{
+	client := b.client
+	it := batchItem{
 		name:   name,
-		arrow:  "↑ ",
 		remote: path.Join(dir, name),
 		local:  local,
 		total:  size, // from the local file, since the remote side reports nothing
-		landed: uploaded,
 	}
-	client := b.client
-	return b.begin(t, func() (int64, error) {
-		return client.UploadProgress(t.local, t.remote, t.moved.Store)
-	})
+	it.run = func(progress func(int64)) (int64, error) {
+		return client.UploadProgress(it.local, it.remote, progress)
+	}
+	return b.begin(&transfer{arrow: "↑ ", verb: "upload", items: []batchItem{it}, landed: uploaded})
 }
 
 // uploaded is what an upload does once the bytes are across.
 //
 // The destination is read back off the transfer rather than from b.cwd: navigation is not
 // blocked while a copy runs, so the user may have walked elsewhere. Re-listing is only
-// right when they are still standing where the file landed, and the message names the
+// right when the destination is still somewhere in the tree, and the message names the
 // real destination either way.
 func uploaded(b *Browser, t *transfer, n int64) {
 	dest := path.Dir(t.remote)
-	if dest == b.cwd {
+	if b.nodeAt(dest) != nil {
 		// Nothing else would show the new file: the listing was read before it existed.
-		// load clears the note, so the message is set after it.
-		if !b.load(b.cwd) {
+		// refresh clears the note, so the message is set after it.
+		if !b.refresh() {
 			return
 		}
+		b.reveal(path.Join(dest, t.name))
 	}
 	b.ok(fmt.Sprintf("uploaded %s → %s (%s)", t.name, dest, humanizeBytes(n)))
 }
@@ -319,10 +430,11 @@ func uploaded(b *Browser, t *transfer, n int64) {
 // No overwrite confirm: the scratch directory is the browser's own, and a re-open of the
 // same file is meant to refresh the copy.
 func (b *Browser) openInApp() tea.Cmd {
-	e, ok := b.selected()
-	if !ok || e.IsDir {
+	cur := b.cur()
+	if cur == nil || cur.e.IsDir {
 		return nil
 	}
+	e := cur.e
 	if err := checkLocalName(e.Name); err != nil {
 		b.fail(err)
 		return nil
@@ -355,7 +467,9 @@ func (b *Browser) openInApp() tea.Cmd {
 		}
 		return nil
 	}
-	return b.startFetch(e, dir, mark, launch)
+	// "o" stays singular whatever is marked: it hands a file to the desktop, and handing
+	// it eleven at once is eleven windows nobody asked for.
+	return b.startFetch([]*node{cur}, dir, mark, launch)
 }
 
 // launch hands a finished scratch copy to the desktop's application, fire-and-forget.
@@ -411,14 +525,22 @@ func (b *Browser) progressLine(w int) string {
 		tail = fmt.Sprintf("  %s  %.0fs", humanizeBytes(moved), time.Since(t.started).Seconds())
 	}
 
-	// Both are ASCII by construction — an arrow plus a space, and digits, slashes and
-	// unit letters — so their cell width is their byte length.
+	// A batch is one job with one bar, so it counts through its items on the same line
+	// rather than opening a popup per file: "3/7 · notes.txt" is which file, out of how
+	// many, and the bar underneath it is that file's own progress.
+	label := stripControl(t.name)
+	if len(t.items) > 1 {
+		label = fmt.Sprintf("%d/%d · %s", t.at+1, len(t.items), label)
+	}
+
+	// The arrow and the tail are ASCII by construction — an arrow plus a space, and
+	// digits, slashes and unit letters — so their cell width is their byte length.
 	avail := w - len(t.arrow) - len(tail)
 	if avail < 1 {
 		// Too narrow for the numbers; the name is the more useful half.
-		return truncateText(t.arrow+stripControl(t.name), w)
+		return truncateText(t.arrow+label, w)
 	}
-	name := truncateText(stripControl(t.name), avail)
+	name := truncateText(label, avail)
 
 	// A bar only where one would be wide enough to read; below that the percentage
 	// carries the whole message.

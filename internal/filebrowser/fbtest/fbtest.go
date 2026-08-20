@@ -33,4 +33,8 @@ func (Stub) Remove(string) error { return nil }
 
 func (Stub) Rename(_, _ string) error { return nil }
 
+func (Stub) Copy(_, _ string, _ func(int64)) (int64, error) { return 0, nil }
+
+func (Stub) Move(_, _ string, _ func(int64)) error { return nil }
+
 func (Stub) Close() error { return nil }

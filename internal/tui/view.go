@@ -10,18 +10,27 @@ import (
 	"hop/internal/keys"
 )
 
-// View composes the screen: a header rule, the host list beside the right pane, and a
-// context-sensitive key legend along the bottom. The modal cards are composited over the
-// finished screen, so the hosts and the pane stay visible behind them.
+// View composes the screen: a header rule, the three columns of the body — host list,
+// SFTP tree, content — and a context-sensitive key legend along the bottom. The modal
+// cards are composited over the finished screen, so the hosts and the panes stay visible
+// behind them.
 func (m *model) View() string {
 	if !m.ready {
 		return "loading hop…"
 	}
 
+	// Derived, not stored, one more time before anything is measured. Two of the three
+	// columns come and go with what the active session is holding, and a frame drawn
+	// against the previous frame's widths is a frame that does not add up to the window.
+	m.recomputeLayout()
+
 	bodyH := m.bodyHeight()
-	// Collapsed, the sidebar is not drawn at all: a zero-width box would still cost the
-	// two columns its border takes.
+	// A collapsed column is not drawn at all: a zero-width box would still cost the two
+	// columns its border takes. That is what listWidth and treeWidth returning 0 mean.
 	body := m.renderRight(bodyH)
+	if w := m.treeWidth(); w > 0 {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderTree(w, bodyH), body)
+	}
 	if w := m.listWidth(); w > 0 {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderList(w, bodyH), body)
 	}
@@ -141,60 +150,143 @@ func (m *model) styledStatus() string {
 	return style.Render(truncate(icon+" "+m.status, max(m.width/2, 20)))
 }
 
-// ---- right pane ----
+// ---- the tree column ----
 
-// renderRight draws whatever the active session is showing — an editor, the SFTP
-// browser, a shell — and the details card when it is showing nothing.
+// renderTree draws the SFTP column: the active session's browser, in a box of its own
+// beside the content area. It is on screen whenever the session has a browser, whether or
+// not the keyboard is in it — a tree you cannot see while reading a file is a mode, and
+// the column exists so that it is not one — so the border and the dimmed body are what
+// say where the keys are going.
+func (m *model) renderTree(w, h int) string {
+	s := m.sessions[m.active]
+	if s == nil || s.browser == nil {
+		return ""
+	}
+	innerW, innerH := max(w-2, 1), max(h-2, 1)
+	return columnStyle(m.browsing()).
+		Width(innerW).Height(innerH).
+		Render(clampLines(fitLines(s.browser.View(), innerH), innerW))
+}
+
+// columnStyle is the box a column of the body is drawn in: accented while it holds the
+// keyboard, and sunk to the faint end of the ramp while it does not. Two columns of
+// remote text side by side is more than a border's worth of difference to tell apart.
+func columnStyle(active bool) lipgloss.Style {
+	if active {
+		return paneBorderActive
+	}
+	return paneBorderIdle
+}
+
+// ---- the content area ----
+
+// renderRight draws whatever the active session is showing in the content area — the
+// files open in it, a shell, the browser on a window too narrow for a column — and the
+// details card when it is showing nothing.
 func (m *model) renderRight(h int) string {
 	innerH := max(h-2, 1)
 	s := m.sessions[m.active]
-
-	// The content is cut to the pane in both directions. Width is the one that bites:
-	// lipgloss wraps a line wider than the box instead of clipping it, so one over-wide
-	// row makes the screen a row taller than the window and the terminal scrolls hop's
-	// frame off its own top.
-	pane := func(active bool, content string) string {
-		style := paneBorder
-		if active {
-			style = paneBorderActive
-		}
-		return style.Width(m.paneW).Height(innerH).Render(clampLines(fitLines(content, innerH), m.paneW))
-	}
 
 	// A dropped session keeps its pane: the last screen the host drew, under a banner.
 	// The border is drawn inactive even while the pane holds the keyboard, since the
 	// accent would promise a live shell.
 	if s != nil && s.dead && m.active != "" {
-		return pane(false, m.deadBanner(s)+"\n"+m.deadContent(s))
+		return m.contentBox(false, m.paneW, innerH, m.deadBanner(s)+"\n"+m.deadContent(s))
 	}
 
 	switch {
-	// A tab strip over the open editor's screen.
-	case m.editing() && s != nil && s.editor() != nil:
-		return pane(true, m.renderEditorTabs(s)+"\n"+m.selectedView(s.editor().pane.View()))
+	// The narrow-window fallback: with no column to put it in, the browser takes the
+	// content area while it holds the keyboard, which is the screen hop drew before the
+	// column existed. See treeWidth.
+	case m.treeInline() && m.browsing() && s != nil && s.browser != nil:
+		return m.contentBox(true, m.paneW, innerH, s.browser.View())
 
-	// The session's file browser.
-	case m.browsing() && s != nil && s.browser != nil:
-		return pane(true, s.browser.View())
+	// Which of the two things a session can hold the content area shows is the keyboard's
+	// answer while the keyboard is in it — modeShell means the shell — and otherwise the
+	// files, since a file is what the tree beside it was used to open.
+	case m.focused() && s != nil && s.shell() != nil:
+		return m.renderShellPane(s, innerH)
 
-	// A live shell, with its strip of tabs once there is a second one to switch to.
+	case s != nil && s.editor() != nil:
+		return m.renderEditorPanes(s, innerH)
+
 	case m.active != "" && s != nil && s.shell() != nil:
-		// Scrollback shows a window onto history rather than the live screen, but the
-		// same number of lines, so the strip and border are unaffected.
-		content := s.shell().pane.View()
-		if m.focused() && m.scrolling() {
-			content = s.shell().pane.ViewScrollback()
-		}
-		// The highlight goes on before the tab strip, so the selection's rows are the
-		// coordinates the drag was measured in.
-		content = m.selectedView(content)
-		if len(s.shells) > 1 {
-			content = m.renderShellTabs(s) + "\n" + content
-		}
-		return pane(m.focused(), content)
+		return m.renderShellPane(s, innerH)
 	}
 
-	return pane(false, m.renderDetails(m.paneW))
+	return m.contentBox(false, m.paneW, innerH, m.renderDetails(m.paneW))
+}
+
+// contentBox draws one box of the content area. The content is cut to it in both
+// directions. Width is the one that bites: lipgloss wraps a line wider than the box
+// instead of clipping it, so one over-wide row makes the screen a row taller than the
+// window and the terminal scrolls hop's frame off its own top.
+//
+// Without a tree column beside it the box keeps the plain border every pane has always
+// had: there is nothing on screen to confuse it with, and dimming the only thing being
+// read would be a signal about nothing.
+func (m *model) contentBox(active bool, w, innerH int, content string) string {
+	style := paneBorder
+	switch {
+	case active:
+		style = paneBorderActive
+	case m.treeWidth() > 0:
+		style = paneBorderIdle
+	}
+	return style.Width(w).Height(innerH).Render(clampLines(fitLines(content, innerH), w))
+}
+
+// renderShellPane draws a live shell in the content area, with its strip of tabs once
+// there is a second one to switch to.
+func (m *model) renderShellPane(s *session, innerH int) string {
+	// Scrollback shows a window onto history rather than the live screen, but the same
+	// number of lines, so the strip and border are unaffected.
+	content := s.shell().pane.View()
+	if m.focused() && m.scrolling() {
+		content = s.shell().pane.ViewScrollback()
+	}
+	// The highlight goes on before the tab strip, so the selection's rows are the
+	// coordinates the drag was measured in.
+	content = m.selectedView(content)
+	if len(s.shells) > 1 {
+		content = m.renderShellTabs(s) + "\n" + content
+	}
+	return m.contentBox(m.focused(), m.paneW, innerH, content)
+}
+
+// renderEditorPanes draws the files open in the content area: one box, or two side by side
+// while it is split. Each half is its own tab strip over its own editor, both drawn from
+// the one tab list, and only the half the keyboard is in wears the accent.
+func (m *model) renderEditorPanes(s *session, innerH int) string {
+	if !m.splitOn(s) {
+		// Unsplit, or split on a window that has since become too narrow to hold two
+		// halves: either way there is one box, showing the half the keyboard is in.
+		half := s.focusedHalf()
+		ed := s.editorAt(half)
+		return m.contentBox(m.editing(), m.paneW, innerH,
+			m.renderEditorTabs(s, half)+"\n"+m.selectedView(ed.pane.View()))
+	}
+
+	w := m.splitHalf()
+	half := func(right bool) string {
+		focused := m.editing() && s.splitRight == right
+		ed := s.editorAt(right)
+		if ed == nil {
+			// Only reachable in the frame between the last tab closing and dropEditor
+			// collapsing the split; an empty box beats a nil dereference.
+			return m.contentBox(focused, w, innerH, "")
+		}
+		view := ed.pane.View()
+		if focused {
+			// A selection was made with the pointer in one half, and is meaningful only
+			// against the rows it was measured in.
+			view = m.selectedView(view)
+		}
+		return m.contentBox(focused, w, innerH, m.renderEditorTabs(s, right)+"\n"+view)
+	}
+	// The odd column an odd-width content area leaves over stays blank at the right-hand
+	// edge; JoinVertical pads the short row out when the screen is assembled.
+	return lipgloss.JoinHorizontal(lipgloss.Top, half(false), half(true))
 }
 
 // deadBanner is the line across the top of a dropped session's pane: that the connection
@@ -218,8 +310,10 @@ func (m *model) deadBanner(s *session) string {
 func (m *model) deadContent(s *session) string {
 	switch {
 	case m.editing() && s.editor() != nil:
-		return m.renderEditorTabs(s) + "\n" + s.editor().pane.View()
-	case m.browsing() && s.browser != nil:
+		return m.renderEditorTabs(s, s.focusedHalf()) + "\n" + s.editor().pane.View()
+	// Only in the narrow fallback: with a column of its own the browser is already drawn
+	// beside this pane rather than inside it.
+	case m.treeInline() && m.browsing() && s.browser != nil:
 		return s.browser.View()
 	case s.shell() != nil:
 		content := s.shell().pane.View()
@@ -227,7 +321,9 @@ func (m *model) deadContent(s *session) string {
 			content = m.renderShellTabs(s) + "\n" + content
 		}
 		return content
-	case s.browser != nil:
+	case s.editor() != nil:
+		return m.renderEditorTabs(s, s.focusedHalf()) + "\n" + s.editor().pane.View()
+	case m.treeInline() && s.browser != nil:
 		return s.browser.View()
 	}
 	return "\n" + dimStyle.Render("  Nothing is left open on this connection.")
@@ -427,7 +523,13 @@ func (m *model) footerHints() (core, extra []string, help string) {
 			keyHint(":q", "close"), // the remote editor's key, not hop's
 			m.hint(keys.Editor, keys.EditorNextTab, "tab"),
 		}
-		extra = []string{m.leaderRange("jump"), m.sidebarHint()}
+		// The way back to the tree leads the extras: the column is on screen beside this
+		// file, and the one thing the legend has to say about it is how to reach it.
+		extra = []string{
+			m.hint(keys.Editor, keys.EditorFocusTree, "tree"),
+			m.leaderRange("jump"),
+			m.sidebarHint(),
+		}
 
 	case m.browsing() && m.active != "":
 		core = []string{
@@ -436,8 +538,19 @@ func (m *model) footerHints() (core, extra []string, help string) {
 			m.hint(keys.Browser, keys.BrowserDownload, "download"),
 		}
 		extra = []string{
+			// Crossing to the file beside the tree, and opening one there, come first:
+			// they are the two keys the column is for.
+			m.hint(keys.Browser, keys.BrowserFocusPane, "focus file"),
+			m.hint(keys.Browser, keys.BrowserSplit, "open beside"),
+			// The selection and the target next: a copy is three keys nobody guesses, and
+			// a key that is never shown is a key that does not exist.
+			m.hint(keys.Browser, keys.BrowserMark, "mark"),
+			m.hint(keys.Browser, keys.BrowserTarget, "target"),
+			m.hint(keys.Browser, keys.BrowserCopy, "copy there"),
+			m.hint(keys.Browser, keys.BrowserMoveTo, "move there"),
 			m.hint(keys.Browser, keys.BrowserPalette, "actions"),
 			m.hint(keys.Browser, keys.Out, "up"),
+			m.hint(keys.Browser, keys.BrowserMarkAll, "mark all"),
 			m.hint(keys.Browser, keys.BrowserUpload, "upload"),
 			m.hint(keys.Browser, keys.BrowserOpen, "open local"),
 			m.hint(keys.Browser, keys.BrowserDelete, "delete"),
@@ -445,6 +558,7 @@ func (m *model) footerHints() (core, extra []string, help string) {
 			m.hint(keys.Browser, keys.BrowserMkdir, "mkdir"),
 			m.hint(keys.Browser, keys.BrowserSort, "sort"),
 			m.hint(keys.Browser, keys.BrowserRefresh, "refresh"),
+			m.hint(keys.Browser, keys.BrowserTree, "tree"),
 			m.sidebarHint(),
 		}
 

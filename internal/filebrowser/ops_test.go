@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"hop/internal/keys"
 	"hop/internal/sftpx"
 )
 
@@ -57,15 +58,14 @@ func (c *liveClient) Mkdir(p string) error {
 // opsBrowser builds a browser over a named listing backed by a liveClient.
 func opsBrowser(ents ...sftpx.Entry) (*Browser, *liveClient) {
 	c := &liveClient{fakeClient{entries: ents}}
-	return &Browser{
-		client:  c,
-		alias:   "web1",
-		cwd:     "/home/u",
-		entries: ents,
-		opts:    Options{VimKeys: true},
-		w:       40,
-		h:       13, // contentRows() == 10
-	}, c
+	b := &Browser{
+		client: c,
+		alias:  "web1",
+		opts:   Options{VimKeys: true},
+		w:      40,
+		h:      13, // contentRows() == 10
+	}
+	return plant(b, "/home/u", ents), c
 }
 
 func files(names ...string) []sftpx.Entry {
@@ -125,8 +125,8 @@ func TestRemoveDeletesAndKeepsTheRow(t *testing.T) {
 	if len(c.removes) != 1 || c.removes[0] != "/home/u/b" {
 		t.Fatalf("removes = %v, want one /home/u/b", c.removes)
 	}
-	if len(b.entries) != 3 {
-		t.Fatalf("entries = %v, want the listing re-read without b", b.entries)
+	if len(b.rows) != 3 {
+		t.Fatalf("rows = %v, want the listing re-read without b", rowNames(b))
 	}
 	if b.cursor != 1 {
 		t.Fatalf("cursor = %d, want it to stay on row 1 (now c)", b.cursor)
@@ -168,8 +168,8 @@ func TestRemoveNonEmptyDirectoryReportsTheRefusal(t *testing.T) {
 	if !strings.Contains(b.note.text, "empty") {
 		t.Fatalf("status = %q, want it to say the directory must be empty first", b.note.text)
 	}
-	if len(b.entries) != 1 {
-		t.Fatalf("entries = %v, want the directory still listed", b.entries)
+	if len(b.rows) != 1 {
+		t.Fatalf("rows = %v, want the directory still listed", rowNames(b))
 	}
 }
 
@@ -400,7 +400,7 @@ func TestMutationDoesNotPaintOverAListingError(t *testing.T) {
 func TestOpsActInTheDirectoryTheyWereAimedAt(t *testing.T) {
 	b, c := opsBrowser(files("a.txt", "b.txt")...)
 	b.cursor = 1
-	name := b.entries[1].Name
+	name := b.rows[1].e.Name
 
 	b.Handle(key(t, "x"))
 	// Nothing in the keyboard or the pointer can do this now, but the callbacks must not
@@ -413,5 +413,91 @@ func TestOpsActInTheDirectoryTheyWereAimedAt(t *testing.T) {
 	}
 	if want := "/home/u/" + name; c.removes[0] != want {
 		t.Fatalf("removed %q, want %q — the answer followed the browser instead of the question", c.removes[0], want)
+	}
+}
+
+// ---- the plural operations ----
+
+// A delete of several entries names the count, not one of the names: "delete a.txt?" with
+// eleven rows ticked describes a tenth of what the key is about to do.
+func TestDeleteConfirmNamesTheCount(t *testing.T) {
+	b, c := opsBrowser(files("a", "b", "c")...)
+	b.Do(keys.BrowserMark)
+	b.Do(keys.BrowserMark) // a and b
+
+	b.Handle(key(t, "x"))
+
+	if !strings.Contains(b.overlay.label, "2 files") {
+		t.Fatalf("confirm reads %q, want it to name the count", b.overlay.label)
+	}
+	if strings.Contains(b.overlay.label, "a?") {
+		t.Fatalf("confirm reads %q, want no single file standing in for the selection", b.overlay.label)
+	}
+
+	b.Handle(key(t, "y"))
+	if len(c.removes) != 2 || c.removes[0] != "/home/u/a" || c.removes[1] != "/home/u/b" {
+		t.Fatalf("removes = %v, want both marked entries", c.removes)
+	}
+	if len(b.marks) != 0 {
+		t.Fatalf("marks = %v, want them cleared once the delete went through", b.marks)
+	}
+	if b.note.err || !strings.Contains(b.note.text, "deleted 2 entries") {
+		t.Fatalf("status = %q (err=%v), want the plural outcome", b.note.text, b.note.err)
+	}
+}
+
+// A directory in the selection is worth spelling out separately: it is the expensive
+// mistake, and the count alone does not say one is in there.
+func TestDeleteConfirmCountsDirectories(t *testing.T) {
+	b, _ := opsBrowser(sftpx.Entry{Name: "sub", IsDir: true}, sftpx.Entry{Name: "a", Size: 1})
+	b.Do(keys.BrowserMarkAll)
+
+	b.Handle(key(t, "x"))
+
+	for _, want := range []string{"2 entries", "1 files", "1 directories"} {
+		if !strings.Contains(b.overlay.label, want) {
+			t.Fatalf("confirm reads %q, want it to mention %q", b.overlay.label, want)
+		}
+	}
+}
+
+// The partial-failure policy, stated as a test: the batch stops at the first error, and
+// the message carries all three numbers — what got through, what failed and why, and how
+// much was deliberately left alone.
+func TestDeleteStopsAtTheFirstFailure(t *testing.T) {
+	b, c := opsBrowser(files("a", "b", "c", "d")...)
+	c.errs = map[string]error{"remove": errors.New("permission denied")}
+	c.badName = "b"
+	b.Do(keys.BrowserMarkAll)
+
+	b.Handle(key(t, "x"))
+	b.Handle(key(t, "y"))
+
+	if len(c.removes) != 2 {
+		t.Fatalf("removes = %v, want the batch to have stopped at the failure", c.removes)
+	}
+	if !b.note.err {
+		t.Fatalf("status = %q (err=false), want the failure reported", b.note.text)
+	}
+	for _, want := range []string{"delete b", "permission denied", "1 of 4 done", "2 skipped"} {
+		if !strings.Contains(b.note.text, want) {
+			t.Fatalf("status = %q, want it to say %q", b.note.text, want)
+		}
+	}
+	// The marks stay up, so the same keystroke retries exactly what did not happen.
+	if len(b.marks) != 3 {
+		t.Fatalf("marks = %v, want the three entries that are still there", b.marks)
+	}
+}
+
+// One entry still reads as one entry: the plural wording would be worse for the case the
+// browser is in most of the time.
+func TestDeleteOfOneStillNamesIt(t *testing.T) {
+	b, _ := opsBrowser(files("a.txt", "b.txt")...)
+	b.cursor = 1
+
+	b.Handle(key(t, "x"))
+	if !strings.Contains(b.overlay.label, "b.txt") {
+		t.Fatalf("confirm reads %q, want the single name", b.overlay.label)
 	}
 }

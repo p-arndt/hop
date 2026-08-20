@@ -50,6 +50,8 @@ func key(t *testing.T, name string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "tab":
+		return tea.KeyMsg{Type: tea.KeyTab}
 	case "backspace":
 		return tea.KeyMsg{Type: tea.KeyBackspace}
 	case "ctrl+c":

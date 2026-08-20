@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -56,6 +57,8 @@ type fakeClient struct {
 	mkdirs    []string
 	removes   []string
 	renames   [][2]string // {old, new}
+	copies    [][2]string // {src, dstDir}
+	moves     [][2]string // {src, dstDir}
 
 	// Errors to return instead of succeeding, keyed by the operation name
 	// ("upload", "mkdir", "remove", "rename", "download").
@@ -68,11 +71,30 @@ type fakeClient struct {
 	// listErr fails every subsequent List, standing in for a connection lost partway
 	// through a sequence rather than at its start.
 	listErr error
+
+	// lists counts the listings, which is how a test tells a directory that was read once
+	// and cached from one that is re-read on every keypress.
+	lists int
+
+	// badName narrows errs to the entry of that name, so a test can fail the third file of
+	// seven and then say what happened to the other four.
+	badName string
+}
+
+// errFor is the scripted error for op, or nil — and nil for every entry but badName when
+// one is set.
+func (f *fakeClient) errFor(op, name string) error {
+	err := f.errs[op]
+	if err == nil || (f.badName != "" && f.badName != name) {
+		return nil
+	}
+	return err
 }
 
 func (f *fakeClient) Home() (string, error) { return "/home/u", nil }
 
 func (f *fakeClient) List(string) ([]sftpx.Entry, error) {
+	f.lists++
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
@@ -81,7 +103,7 @@ func (f *fakeClient) List(string) ([]sftpx.Entry, error) {
 
 func (f *fakeClient) DownloadProgress(remote, local string, progress func(int64)) (int64, error) {
 	f.downloads = append(f.downloads, [2]string{remote, local})
-	if err := f.errs["download"]; err != nil {
+	if err := f.errFor("download", path.Base(remote)); err != nil {
 		return 0, err
 	}
 	// Create the local file like the real client would: the scratch fetch behind "o"
@@ -95,7 +117,7 @@ func (f *fakeClient) DownloadProgress(remote, local string, progress func(int64)
 
 func (f *fakeClient) UploadProgress(local, remote string, progress func(int64)) (int64, error) {
 	f.uploads = append(f.uploads, [2]string{local, remote})
-	if err := f.errs["upload"]; err != nil {
+	if err := f.errFor("upload", path.Base(remote)); err != nil {
 		return 0, err
 	}
 	fi, err := os.Stat(local)
@@ -137,7 +159,7 @@ func (f *fakeClient) Mkdir(p string) error {
 
 func (f *fakeClient) Remove(p string) error {
 	f.removes = append(f.removes, p)
-	return f.errs["remove"]
+	return f.errFor("remove", path.Base(p))
 }
 
 func (f *fakeClient) Rename(oldp, newp string) error {
@@ -145,7 +167,51 @@ func (f *fakeClient) Rename(oldp, newp string) error {
 	return f.errs["rename"]
 }
 
+func (f *fakeClient) Copy(src, dstDir string, progress func(int64)) (int64, error) {
+	f.copies = append(f.copies, [2]string{src, dstDir})
+	if err := f.errFor("copy", path.Base(src)); err != nil {
+		return 0, err
+	}
+	report(progress, f.steps)
+	return f.steps.last(), nil
+}
+
+func (f *fakeClient) Move(src, dstDir string, _ func(int64)) error {
+	f.moves = append(f.moves, [2]string{src, dstDir})
+	return f.errFor("move", path.Base(src))
+}
+
 func (f *fakeClient) Close() error { return nil }
+
+// plant gives a hand-built Browser the tree it would have had from load: dir as the root,
+// ents as its rows. Every test here builds its Browser by hand — the point is usually the
+// keyboard, not the listing — so this is the one place that knows how a root is put
+// together.
+func plant(b *Browser, dir string, ents []sftpx.Entry) *Browser {
+	b.cwd = dir
+	b.root = &node{e: sftpx.Entry{Name: path.Base(dir), IsDir: true}, path: dir, depth: -1, expanded: true}
+	b.setKids(b.root, ents)
+	b.rebuild()
+	return b
+}
+
+// setName renames the entry on row i in place, which is how a test that is about what a
+// name does to a key states its case without going through the server.
+func setName(b *Browser, i int, name string) {
+	n := b.rows[i]
+	n.e.Name = name
+	n.path = path.Join(path.Dir(n.path), name)
+}
+
+// rowNames is the visible tree as a list of names, indented so a test can assert on the
+// shape of an expanded tree and not only on its contents.
+func rowNames(b *Browser) []string {
+	out := make([]string, len(b.rows))
+	for i, n := range b.rows {
+		out[i] = strings.Repeat("  ", n.depth) + n.e.Name
+	}
+	return out
+}
 
 // newTestBrowser builds a Browser over n synthetic entries with room for 10 content rows,
 // rooted at /home/u. The vim motions are switched on, being what most of these test.
@@ -155,15 +221,14 @@ func newTestBrowser(n int) (*Browser, *fakeClient) {
 		ents[i] = sftpx.Entry{Name: "f", Size: 1}
 	}
 	fc := &fakeClient{entries: ents}
-	return &Browser{
-		client:  fc,
-		alias:   "web1",
-		cwd:     "/home/u",
-		entries: ents,
-		opts:    Options{VimKeys: true},
-		w:       40,
-		h:       13, // contentRows() == 10
-	}, fc
+	b := &Browser{
+		client: fc,
+		alias:  "web1",
+		opts:   Options{VimKeys: true},
+		w:      40,
+		h:      13, // contentRows() == 10
+	}
+	return plant(b, "/home/u", ents), fc
 }
 
 // left, backspace and h are all strict "up a directory". None of them leaves the
@@ -172,14 +237,13 @@ func TestHandleUpKeys(t *testing.T) {
 	for _, k := range []string{"left", "backspace", "h"} {
 		t.Run(k, func(t *testing.T) {
 			b, _ := newTestBrowser(3)
-			b.cwd = "/home/u"
 
 			b.Handle(key(t, k))
 			if b.cwd != "/home" {
 				t.Fatalf("cwd = %q, want the parent %q", b.cwd, "/home")
 			}
 
-			b.cwd = "/" // already at the top
+			plant(b, "/", b.client.(*fakeClient).entries) // already at the top
 			b.Handle(key(t, k))
 			if b.cwd != "/" {
 				t.Fatalf("cwd = %q, want %q", b.cwd, "/")
@@ -319,16 +383,15 @@ func fileTestBrowser(t *testing.T) (*Browser, *fakeClient, string, string) {
 	}
 	fc := &fakeClient{entries: ents}
 	tmp, dl := t.TempDir(), t.TempDir()
-	return &Browser{
-		client:  fc,
-		alias:   "web1",
-		cwd:     "/home/u",
-		entries: ents,
-		opts:    Options{DownloadDir: dl},
-		tmpDir:  tmp,
-		w:       40,
-		h:       13,
-	}, fc, tmp, dl
+	b := &Browser{
+		client: fc,
+		alias:  "web1",
+		opts:   Options{DownloadDir: dl},
+		tmpDir: tmp,
+		w:      40,
+		h:      13,
+	}
+	return plant(b, "/home/u", ents), fc, tmp, dl
 }
 
 // stubOpen swaps the default-app launcher for a command that starts and exits at once,
@@ -482,7 +545,7 @@ func TestRejectsUnsafeRemoteNames(t *testing.T) {
 			for _, k := range []string{"d", "o"} {
 				b, fc, _, _ := fileTestBrowser(t)
 				opened, _ := stubOpen(t)
-				b.entries[1].Name = name
+				setName(b, 1, name)
 				b.cursor = 1
 
 				b.Handle(key(t, k))
@@ -505,7 +568,7 @@ func TestRejectsUnsafeRemoteNames(t *testing.T) {
 func TestAcceptsOrdinaryNames(t *testing.T) {
 	for _, name := range []string{"a.txt", "my report.pdf", "übersicht.md", "archive.tar.gz", "console.log"} {
 		b, fc, _, dl := fileTestBrowser(t)
-		b.entries[1].Name = name
+		setName(b, 1, name)
 		b.cursor = 1
 
 		drive(t, b, b.Handle(key(t, "d")))
@@ -521,7 +584,7 @@ func TestAcceptsOrdinaryNames(t *testing.T) {
 // name cannot smuggle an escape sequence into the user's terminal.
 func TestViewStripsControlCharacters(t *testing.T) {
 	b, _, _, _ := fileTestBrowser(t)
-	b.entries[1].Name = "evil\x1b]0;owned\x07\x9b31mname"
+	setName(b, 1, "evil\x1b]0;owned\x07\x9b31mname")
 	b.cwd = "/home/u\x1b[2J"
 
 	view := b.View()
@@ -572,7 +635,7 @@ func TestOpenInAppRefusesExecutable(t *testing.T) {
 	opened, _ := stubOpen(t)
 
 	for _, name := range []string{"invoice.pdf.hta", "invoices-2026.terminal", "report.desktop"} {
-		b.entries[1].Name = name
+		setName(b, 1, name)
 		b.cursor = 1
 		b.Handle(key(t, "o"))
 
@@ -595,7 +658,7 @@ func TestOpenInAppExecutableAllowedWithOpenWith(t *testing.T) {
 	opened, with := stubOpen(t)
 
 	b.SetOptions(Options{DownloadDir: b.opts.DownloadDir, OpenWith: "code -n"})
-	b.entries[1].Name = "script.ps1"
+	setName(b, 1, "script.ps1")
 	b.cursor = 1
 	drive(t, b, b.Handle(key(t, "o")))
 
@@ -612,7 +675,7 @@ func TestOpenInAppExecutableAllowedWithOpenWith(t *testing.T) {
 func TestDownloadExecutableAllowed(t *testing.T) {
 	b, fc, _, dl := fileTestBrowser(t)
 
-	b.entries[1].Name = "invoice.pdf.hta"
+	setName(b, 1, "invoice.pdf.hta")
 	b.cursor = 1
 	drive(t, b, b.Handle(key(t, "d")))
 
@@ -633,7 +696,7 @@ func TestRejectsNormalizedReservedNames(t *testing.T) {
 			for _, k := range []string{"d", "o"} {
 				b, fc, _, _ := fileTestBrowser(t)
 				opened, _ := stubOpen(t)
-				b.entries[1].Name = name
+				setName(b, 1, name)
 				b.cursor = 1
 
 				b.Handle(key(t, k))

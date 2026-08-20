@@ -32,8 +32,15 @@ file tracks *what*, not *why*.
 - [x] **Async transfers + progress** (`transfer.go`): real byte counts from `sftpx` callbacks, sampled per tick; `io.ReaderFrom` kept intact for fast uploads. One transfer at a time.
 - [x] **Sort toggle** (`s`): name / size / modified, dirs first, cursor rides its entry.
 - [x] **Confirm before overwriting** — both directions.
-- [ ] Recursive upload/download of a directory tree; more than one transfer at a time.
+- [x] **Tree listing** (`tree.go`): directories open in place, lazily listed and cached. `View`/`RowAt`/`Select`/`Scroll` still speak flat row indices, which is what left the mouse handling untouched.
+- [x] **Multi-selection** (`space`, `a`): marks are global across the tree, keyed by absolute path, and survive a refresh. Every op acts on `targets()` — the marked set, or the cursor entry alone.
+- [x] **Batch ops with one progress line** (`3/7 · name.txt`): stop at the first failure, name what got through, leave the rest marked for the same keystroke.
+- [x] **Copy/move to a target** (`t`, `c`, `v`) via `sftpx.Copy`/`Move`, recursive, symlinks recreated rather than followed. A move onto an existing name is refused, not silently overwritten.
+- [x] **The browser is a column** (`internal/tui/layout.go`): tree and file on screen together, `tab`/`alt+t` for the keyboard, `ctrl+t` to collapse, full-pane fallback below 96 columns.
+- [x] **Two files side by side** (`\`): the content area splits into two halves with their own tab strips.
+- [ ] Recursive upload/download of a *local* directory tree; more than one transfer at a time.
 - [ ] Cancel a transfer in flight (needs `context.Context` in `sftpx`).
+- [ ] Server-side copy: `pkg/sftp` has no `copy-data@openssh.com`, so `c` pays double the wire cost of a download. Needs the extension, or `ssh cp` as a fast path.
 
 ## 🖥️ Host management
 

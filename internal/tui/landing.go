@@ -108,8 +108,8 @@ func (m *model) shellExited(msg shellExitedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.active == msg.alias && m.focused() {
-		// The shell that held the keyboard is gone; the browser is all there is to hand it
-		// to.
+		// The shell that held the keyboard is gone. The tree column is where it goes if
+		// there is one, and the files open beside it stay drawn either way.
 		m.mode = modeList
 		if s.browser != nil {
 			m.mode = modeBrowser
@@ -168,7 +168,10 @@ func (m *model) browserLanded(msg browserOpenedMsg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 	}
-	msg.browser.Resize(m.paneW, m.paneH)
+	// The browser arriving is what puts the tree column on screen, so the columns are
+	// re-derived before anything is told its size — including the browser itself, which
+	// resizeAll reaches through the session it has just been attached to.
+	m.relayout()
 	return m, tea.Batch(cmds...)
 }
 
@@ -176,6 +179,7 @@ func (m *model) browserLanded(msg browserOpenedMsg) (tea.Model, tea.Cmd) {
 func (m *model) editorLanded(msg editorOpenedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.setStatus(statusErr, "edit %s failed: %v", msg.alias, msg.err)
+		m.abandonSplit(msg.alias)
 		return m, nil
 	}
 	s := m.sessions[msg.alias]
@@ -185,12 +189,29 @@ func (m *model) editorLanded(msg editorOpenedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	s.editors = append(s.editors, msg.tab)
-	s.activeEd = len(s.editors) - 1
+	// The focused half, which openFile has already moved to the right one when this file
+	// was opened beside another. Every other path leaves it where it was, so a plain open
+	// still lands in the half you were reading in.
+	s.setEditor(len(s.editors) - 1)
 	m.armClipboard(msg.tab.pane)
 	m.active = msg.alias
 	m.mode = modeEditor
 	m.clearStatus()
-	ew, eh := m.editorSize()
+	m.relayout()
+	ew, eh := m.editorSize(s)
 	msg.tab.pane.Resize(ew, eh)
 	return m, waitEditorCmd(msg.alias, msg.tab.id, msg.tab.sess)
+}
+
+// abandonSplit puts the content area back after a split-open that never arrived. The
+// split is opened when the file is asked for rather than when it lands (see openFile), so
+// a failed editor would otherwise leave the same file drawn in both halves — which reads
+// as a bug in the split rather than as the failure it is.
+func (m *model) abandonSplit(alias string) {
+	s := m.sessions[alias]
+	if s == nil || !s.split || s.splitEd != s.activeEd {
+		return
+	}
+	s.collapseSplit()
+	m.relayout()
 }

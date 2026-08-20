@@ -25,8 +25,13 @@ const (
 	statusErr
 )
 
-// paneMode says which thing on screen the keyboard belongs to: the host list, or one of
-// the four things a session's pane can be. The modes are exclusive by construction.
+// paneMode says where the keystrokes go, and only that. It used to say what filled the
+// right pane as well, which is why modeBrowser and modeEditor were exclusive — the
+// browser was the pane, so a tree and a file could never be read at once. Now the tree
+// has a column of its own and the two coexist on screen with only the focus differing:
+// the mode picks the column, and each column draws whatever it is holding regardless.
+//
+// The modes are still exclusive by construction — one keyboard, one place for it to go.
 //
 // Scrollback is its own mode rather than a flag on the shell, because a pane paused in
 // its history forwards nothing to the far end. The predicates below still count it as
@@ -34,20 +39,24 @@ const (
 type paneMode int
 
 const (
-	// modeList is the host list (with the details card): no pane has the keyboard.
+	// modeList is the host list (with the details card): no column has the keyboard.
 	modeList paneMode = iota
 	// modeShell forwards keys to the active session's visible shell pane.
 	modeShell
 	// modeScrollback drives the focused shell's history viewport. See handleScrollbackKey.
 	modeScrollback
-	// modeBrowser forwards keys to the active session's SFTP file browser.
+	// modeBrowser puts the keyboard in the SFTP column. The column is on screen whenever
+	// the session has a browser, so this says which column the keys reach, not which one
+	// is drawn.
 	modeBrowser
-	// modeEditor forwards keys to the open remote editor tab.
+	// modeEditor puts the keyboard in the content area, on the editor tab of whichever
+	// half holds it. The files stay drawn while the keyboard is in the tree.
 	modeEditor
 )
 
 // The mode predicates, so the routing and rendering switches read as questions about
-// the screen rather than comparisons against an enum.
+// the screen rather than comparisons against an enum. Each is now a question about focus
+// alone; what is drawn is asked of the session (see hasTree, session.editor).
 
 // focused reports whether a shell pane holds the keyboard, live or in scrollback.
 func (m *model) focused() bool { return m.mode == modeShell || m.mode == modeScrollback }
@@ -55,13 +64,16 @@ func (m *model) focused() bool { return m.mode == modeShell || m.mode == modeScr
 // scrolling reports whether the focused shell is paused in its history.
 func (m *model) scrolling() bool { return m.mode == modeScrollback }
 
-// browsing reports whether the SFTP browser holds the keyboard.
+// browsing reports whether the SFTP column holds the keyboard. It no longer implies the
+// browser is what is on screen — it always is, when the session has one — only that the
+// keys are going to it.
 func (m *model) browsing() bool { return m.mode == modeBrowser }
 
-// editing reports whether an editor tab holds the keyboard.
+// editing reports whether an editor tab holds the keyboard. As with browsing, the tabs
+// are drawn whether or not this is true.
 func (m *model) editing() bool { return m.mode == modeEditor }
 
-// inPane reports whether any pane holds the keyboard, i.e. the host list does not.
+// inPane reports whether any column holds the keyboard, i.e. the host list does not.
 func (m *model) inPane() bool { return m.mode != modeList }
 
 type model struct {
@@ -152,6 +164,11 @@ type model struct {
 	// sidebarHidden is true while the host list is collapsed (ctrl+b). Session-only and
 	// not a setting: hop opens on its host list, which is where you start from.
 	sidebarHidden bool
+
+	// treeHidden is the same for the SFTP column. Also session-only, and for the stronger
+	// reason: the column only exists while a session has a browser open, so there is
+	// nothing about it worth remembering across runs. See toggleTree.
+	treeHidden bool
 
 	// help is true while the keybinding card is up.
 	help bool
@@ -317,8 +334,7 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
-		m.recomputeLayout()
-		m.resizeAll()
+		m.relayout()
 		return m, nil
 
 	case redrawMsg:
@@ -407,10 +423,13 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !s.dropEditor(msg.id) {
 			return m, nil
 		}
-		// The last tab closing drops back where the file was opened from.
+		// The last tab closing drops back where the file was opened from. A tab closing
+		// out of a split may also have collapsed it (see dropEditor), so the halves are
+		// re-measured either way.
 		if len(s.editors) == 0 && m.editing() && m.active == msg.alias {
 			m.leaveEditor()
 		}
+		m.relayout()
 		return m, nil
 
 	case pasteFlushMsg:

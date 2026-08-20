@@ -319,17 +319,17 @@ func TestTabAt(t *testing.T) {
 	pills := tabPills(names, 0)
 	col := 0
 	for i := range pills {
-		got, ok := m.tabAt(names, 0, col)
+		got, ok := m.tabAt(names, 0, col, m.paneW)
 		if !ok || got != i {
 			t.Fatalf("tabAt at column %d = %d, %v; want tab %d", col, got, ok, i)
 		}
 		col += lipgloss.Width(pills[i])
-		if _, ok := m.tabAt(names, 0, col); ok && i < len(pills)-1 {
+		if _, ok := m.tabAt(names, 0, col, m.paneW); ok && i < len(pills)-1 {
 			t.Fatalf("the gap at column %d was claimed by a tab", col)
 		}
 		col++ // the separating space
 	}
-	if _, ok := m.tabAt(names, 0, m.paneW-1); ok {
+	if _, ok := m.tabAt(names, 0, m.paneW-1, m.paneW); ok {
 		t.Fatal("the empty run past the last pill was claimed by a tab")
 	}
 }
@@ -545,5 +545,274 @@ func TestWheelOnAltScreenSendsArrowKeys(t *testing.T) {
 	}
 	if m.scrolling() {
 		t.Fatal("a full-screen program's wheel notch put hop into a scrollback it does not keep")
+	}
+}
+
+// treeMouseModel is newMouseModel on a window wide enough for all three columns, with an
+// SFTP browser open on the active host and a shell behind it in the content area.
+func treeMouseModel(t *testing.T) (*model, *session) {
+	t.Helper()
+	m := newMouseModel(3)
+	m.width, m.height = 200, 20
+	br, err := filebrowser.New(
+		fbtest.Stub{Dir: "/srv", Entries: []sftpx.Entry{{Name: "logs", IsDir: true}, {Name: "app.conf", Size: 12}}},
+		"ha", "/srv", filebrowser.Options{DownloadDir: t.TempDir()}, 40, 12)
+	if err != nil {
+		t.Fatalf("build browser: %v", err)
+	}
+	s := &session{browser: br, shells: []*shellTab{{id: 1, pane: fakePane()}}}
+	m.sessions["ha"] = s
+	m.active = "ha"
+	m.relayout()
+	if m.treeWidth() == 0 {
+		t.Fatal("the tree column is not on screen, so nothing here is being tested")
+	}
+	return m, s
+}
+
+// Three columns, so three regions across the body. Each starts where the one to its left
+// ends, which is the arithmetic View composes with.
+func TestZoneAtWithTheTreeColumn(t *testing.T) {
+	m, _ := treeMouseModel(t)
+	lw, tw := m.listWidth(), m.treeWidth()
+
+	cases := []struct {
+		name string
+		x    int
+		want zone
+	}{
+		{"the sidebar's last column", lw - 1, zoneList},
+		{"the tree column's first", lw, zoneTree},
+		{"its last", lw + tw - 1, zoneTree},
+		{"the content area's first", lw + tw, zonePane},
+		{"its last", m.width - 1, zonePane},
+	}
+	for _, c := range cases {
+		if got := m.zoneAt(c.x, 5); got != c.want {
+			t.Errorf("%s: zoneAt(%d, 5) = %v, want %v", c.name, c.x, got, c.want)
+		}
+	}
+
+	// Collapsed, the host list is not there to point at and the tree starts at column 0.
+	m.sidebarHidden = true
+	if got := m.zoneAt(0, 5); got != zoneTree {
+		t.Errorf("with the sidebar collapsed, zoneAt(0, 5) = %v, want zoneTree", got)
+	}
+}
+
+// The browser measures rows from its own top-left corner, so the column's border and the
+// screen header have to come off a click before it is asked what was under it.
+func TestTreeLocalTranslatesPerColumn(t *testing.T) {
+	m, _ := treeMouseModel(t)
+	lw, tw := m.listWidth(), m.treeWidth()
+
+	x, y, ok := m.treeLocal(lw+1, 2)
+	if !ok || x != 0 || y != 0 {
+		t.Fatalf("treeLocal at the column's content origin = %d, %d, %v; want 0, 0, true", x, y, ok)
+	}
+	if _, _, ok := m.treeLocal(lw, 2); ok {
+		t.Fatal("the column's left border was mapped into its content")
+	}
+	if _, _, ok := m.treeLocal(lw+tw-1, 2); ok {
+		t.Fatal("the column's right border was mapped into its content")
+	}
+	if _, _, ok := m.treeLocal(lw+1, 1); ok {
+		t.Fatal("the column's top border was mapped into its content")
+	}
+}
+
+// Clicking a column that does not hold the keyboard is the pointer's tab and alt+t. The
+// click that crosses also stands on the row it landed on, exactly as a click in the
+// sidebar stands on the host it landed on.
+func TestClickingAColumnFocusesIt(t *testing.T) {
+	m, s := treeMouseModel(t)
+	m.mode = modeShell
+
+	// The browser's first entry: content row 2 (the path header and its rule), so screen
+	// row 4, in the tree column rather than the content area.
+	m.handleMouse(click(m.listWidth()+2, 4))
+	if !m.browsing() {
+		t.Fatal("a click in the tree column did not give it the keyboard")
+	}
+	if i, ok := s.browser.RowAt(2); !ok || i != 0 {
+		t.Fatalf("browser row 2 = %d, %v; the listing is not where the test thinks", i, ok)
+	}
+
+	// And back the other way: a click on the content area takes the keyboard out of the
+	// column without closing it.
+	m.handleMouse(click(m.listWidth()+m.treeWidth()+4, 6))
+	if !m.focused() {
+		t.Fatal("a click on the content area did not take the keyboard out of the tree")
+	}
+	if s.browser == nil || m.treeWidth() == 0 {
+		t.Fatal("crossing back took the tree column off the screen")
+	}
+}
+
+// The wheel is not a way into a column: a notch aimed at the file being read must not move
+// the keyboard out of it.
+func TestWheelDoesNotFocusTheTreeColumn(t *testing.T) {
+	m, _ := treeMouseModel(t)
+	m.mode = modeShell
+
+	m.handleMouse(wheel(m.listWidth()+2, 5, false))
+
+	if m.browsing() {
+		t.Fatal("a wheel notch over the tree column gave it the keyboard")
+	}
+}
+
+// A double-click in the column opens what it landed on, with the row mapped through the
+// column's own border rather than the content area's.
+func TestDoubleClickInTheTreeColumnOpens(t *testing.T) {
+	m, s := treeMouseModel(t)
+	m.mode = modeBrowser
+
+	x := m.listWidth() + 2
+	m.handleMouse(click(x, 4))
+	m.handleMouse(click(x, 4))
+
+	if s.browser.Path() != "/srv/logs" {
+		t.Fatalf("browser path = %q after double-clicking a directory in the column, want /srv/logs",
+			s.browser.Path())
+	}
+}
+
+// A click in the tree and a click on the file beside it are two clicks on two things, and
+// must never pair up into a double. They are in different regions, which is what the
+// chord is keyed on.
+func TestClicksInTwoColumnsAreNotADouble(t *testing.T) {
+	m, s := treeMouseModel(t)
+	m.mode = modeBrowser
+
+	m.handleMouse(click(m.listWidth()+2, 4))
+	m.handleMouse(click(m.listWidth()+m.treeWidth()+4, 4))
+	m.handleMouse(click(m.listWidth()+2, 4))
+
+	if s.browser.Path() != "/srv" {
+		t.Fatalf("browser path = %q; clicks in two columns completed a double", s.browser.Path())
+	}
+}
+
+// A split content area is two boxes inside the columns the one box had. A click has to
+// land in the half it was aimed at, and the half it lands in takes the keyboard.
+func TestContentLocalAcrossASplit(t *testing.T) {
+	m, s := treeMouseModel(t)
+	s.editors = []*editorTab{
+		{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()},
+		{id: 2, name: "b.conf", path: "/etc/b.conf", pane: fakePane()},
+	}
+	t.Cleanup(s.closeEditors)
+	s.openSplit()
+	s.splitEd = 1
+	m.relayout()
+
+	base, w := m.listWidth()+m.treeWidth(), m.splitHalf()
+	cases := []struct {
+		name  string
+		x     int
+		right bool
+		lx    int
+		ok    bool
+	}{
+		{"the left half's first column", base + 1, false, 0, true},
+		{"its last", base + w, false, w - 1, true},
+		{"the divider between the halves", base + w + 1, false, 0, false},
+		{"the right half's first column", base + w + 3, true, 0, true},
+		{"its last", base + 2*w + 2, true, w - 1, true},
+	}
+	for _, c := range cases {
+		right, lx, _, ok := m.contentLocal(c.x, 2)
+		if ok != c.ok || (ok && (right != c.right || lx != c.lx)) {
+			t.Errorf("%s: contentLocal(%d, 2) = %v, %d, %v; want %v, %d, %v",
+				c.name, c.x, right, lx, ok, c.right, c.lx, c.ok)
+		}
+	}
+
+	// The pointer picks between the halves the way it picks between the columns.
+	m.mode = modeEditor
+	m.handleMouse(click(base+1, 6))
+	if s.splitRight {
+		t.Fatal("a click in the left half left the keyboard in the right one")
+	}
+	if got := s.editor(); got == nil || got.name != "a.conf" {
+		t.Fatalf("the keyboard is on %v, want the left half's a.conf", got)
+	}
+	m.handleMouse(click(base+w+3, 6))
+	if !s.splitRight {
+		t.Fatal("a click in the right half did not move the keyboard there")
+	}
+}
+
+// Each half draws the same tab names against a different open one, so a click on a strip
+// has to be measured for the half being pointed at.
+func TestClickOnASplitHalfsTabStrip(t *testing.T) {
+	m, s := treeMouseModel(t)
+	s.editors = []*editorTab{
+		{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()},
+		{id: 2, name: "b.conf", path: "/etc/b.conf", pane: fakePane()},
+	}
+	t.Cleanup(s.closeEditors)
+	s.openSplit()
+	s.splitEd = 1
+	m.mode = modeEditor
+	m.relayout()
+
+	base, w := m.listWidth()+m.treeWidth(), m.splitHalf()
+	// The right half's strip, on its second pill. Screen row 2 is content row 0, which is
+	// the strip.
+	pills := tabPills(editorTabNames(s), 1)
+	x := base + w + 3 + lipgloss.Width(pills[0]) + 1
+	m.handleMouse(click(x, 2))
+
+	if s.splitEd != 1 {
+		t.Fatalf("splitEd = %d after clicking the right half's second pill, want 1", s.splitEd)
+	}
+	if s.activeEd != 0 {
+		t.Fatalf("activeEd = %d; a click on one half's strip moved the other half", s.activeEd)
+	}
+}
+
+// The layout keys are hop's, not the browser's, so they are resolved in handleBrowserKey —
+// which puts them on the wrong side of the question the browser may be asking. A tab typed
+// into a filename is a tab, not a focus change, and a ctrl+t is not a collapse. This is the
+// same trap the settings "," fell into once; the gate is one early return, so one test that
+// walks every new key is what keeps it that way.
+func TestLayoutKeysDoNotEscapeAnOpenQuestion(t *testing.T) {
+	for _, k := range []tea.KeyMsg{
+		{Type: tea.KeyTab},
+		{Type: tea.KeyCtrlT},
+		{Type: tea.KeyRunes, Runes: []rune("\\")},
+	} {
+		t.Run(k.String(), func(t *testing.T) {
+			br, err := filebrowser.New(
+				fbtest.Stub{Dir: "/srv", Entries: []sftpx.Entry{{Name: "app.conf", Size: 12}}},
+				"ha", "/srv", filebrowser.Options{DownloadDir: t.TempDir()}, 40, 12)
+			if err != nil {
+				t.Fatalf("build browser: %v", err)
+			}
+
+			m := newMouseModel(3)
+			m.active = "ha"
+			m.mode = modeBrowser
+			m.sessions["ha"] = &session{browser: br}
+
+			m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+			if !br.Prompting() {
+				t.Fatal("m did not open a question, so this test proves nothing")
+			}
+
+			m.handleKey(k)
+
+			if !br.Prompting() {
+				t.Fatal("the key closed the open question")
+			}
+			if m.mode != modeBrowser {
+				t.Fatalf("mode = %v, want the keyboard still in the question", m.mode)
+			}
+			if m.treeHidden {
+				t.Fatal("the key collapsed the tree column from inside a question")
+			}
+		})
 	}
 }

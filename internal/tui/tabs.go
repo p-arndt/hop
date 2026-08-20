@@ -7,14 +7,17 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// renderEditorTabs draws the strip of open files above the editor.
-func (m *model) renderEditorTabs(s *session) string {
-	return m.renderTabStrip(editorTabNames(s), s.activeEd)
+// renderEditorTabs draws the strip of open files above one half of the content area. Both
+// halves draw the same names — there is one tab list — and mark a different one open,
+// which is what says at a glance that the two halves are two views of one set of files.
+func (m *model) renderEditorTabs(s *session, right bool) string {
+	return m.renderTabStrip(editorTabNames(s), s.editorIndex(right), m.contentW(s))
 }
 
-// renderShellTabs draws the strip of shells open on the host.
+// renderShellTabs draws the strip of shells open on the host. Shells never split, so the
+// strip is always the width of the whole content area.
 func (m *model) renderShellTabs(s *session) string {
-	return m.renderTabStrip(shellTabNames(s), s.activeSh)
+	return m.renderTabStrip(shellTabNames(s), s.activeSh, m.paneW)
 }
 
 // editorTabNames labels each open file with its name, split out of the renderer because
@@ -41,17 +44,21 @@ func shellTabNames(s *session) []string {
 // rest sunk into the surface behind it.
 //
 // It is always exactly one line — the pane below was sized on that promise — so it is
-// truncated to the pane width. With more tabs than fit, the strip scrolls to keep the
-// open one on screen.
-func (m *model) renderTabStrip(names []string, active int) string {
+// truncated to w, the inner width of the box it is drawn in. With more tabs than fit, the
+// strip scrolls to keep the open one on screen.
+//
+// The width is a parameter rather than m.paneW because a split content area draws two
+// strips, each half as wide; measuring them against the whole row would scroll the wrong
+// pills off.
+func (m *model) renderTabStrip(names []string, active, w int) string {
 	pills := tabPills(names, active)
-	start := m.tabStart(pills, active)
+	start := tabStart(pills, active, w)
 
 	strip := strings.Join(pills[start:], " ")
 	if start > 0 {
 		strip = faint.Render(tabMore) + strip
 	}
-	return truncate(strip, m.paneW)
+	return truncate(strip, w)
 }
 
 // tabMore stands in for the pills scrolled off the left. Its width is part of the strip's
@@ -74,9 +81,9 @@ func tabPills(names []string, active int) []string {
 
 // tabStart is the first pill drawn: whole pills are dropped off the left until the open
 // one fits, rather than letting truncate cut it in half.
-func (m *model) tabStart(pills []string, active int) int {
+func tabStart(pills []string, active, w int) int {
 	start := 0
-	for start < active && stripWidth(pills[start:], m.paneW) > m.paneW {
+	for start < active && stripWidth(pills[start:], w) > w {
 		start++
 	}
 	return start
@@ -85,15 +92,15 @@ func (m *model) tabStart(pills []string, active int) int {
 // tabAt maps a column on the strip to the tab drawn there, or false for the gaps between
 // pills. It walks the same pills renderTabStrip lays down, so a click lands on the tab the
 // eye is on rather than an index counted from the left.
-func (m *model) tabAt(names []string, active, x int) (int, bool) {
+func (m *model) tabAt(names []string, active, x, w int) (int, bool) {
 	pills := tabPills(names, active)
-	start := m.tabStart(pills, active)
+	start := tabStart(pills, active, w)
 
 	col := 0
 	if start > 0 {
 		col = lipgloss.Width(tabMore)
 	}
-	for i := start; i < len(pills) && col < m.paneW; i++ {
+	for i := start; i < len(pills) && col < w; i++ {
 		w := lipgloss.Width(pills[i])
 		if x >= col && x < col+w {
 			return i, true

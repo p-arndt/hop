@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"hop/internal/keys"
 	"hop/internal/store"
 )
 
@@ -340,5 +341,38 @@ func TestChordActionsRunWithoutReplay(t *testing.T) {
 	}
 	if m.leaderArmed() {
 		t.Fatal("the leader was left armed")
+	}
+}
+
+// The card, the palette and the footer are hand-written lists, not generated from the key
+// registry, so a key added to internal/keys reaches the user only if someone remembers all
+// three. Marking, the target and copy/move were bound and working while appearing in none
+// of them — a key that is never shown is a key that does not exist. This walks the Browser
+// layer and insists every action is reachable from the card or the palette.
+func TestEveryBrowserActionIsDiscoverable(t *testing.T) {
+	// The motions are left out on purpose, for the reason browserSpecs states: nobody
+	// opens a menu to move the cursor down. The card lists them as a group of their own.
+	motions := map[keys.Action]bool{
+		keys.Up: true, keys.Down: true, keys.Top: true, keys.Bottom: true,
+		keys.HalfUp: true, keys.HalfDown: true, keys.PageUp: true, keys.PageDown: true,
+		keys.ScreenTop: true, keys.ScreenMid: true, keys.ScreenBot: true,
+		keys.BrowserUp: true,
+	}
+
+	inPalette := map[keys.Action]bool{}
+	for _, sp := range browserSpecs {
+		inPalette[sp.id] = true
+	}
+
+	inCard := map[keys.Action]bool{}
+	for _, a := range browserHelpActions {
+		inCard[a] = true
+	}
+
+	for _, b := range keys.Defaults().Layer(keys.Browser, true) {
+		if motions[b.Action] || inPalette[b.Action] || inCard[b.Action] {
+			continue
+		}
+		t.Errorf("%s is bound in the browser but appears in neither the card nor the palette", b.Action)
 	}
 }

@@ -1171,7 +1171,7 @@
       </tr>
       <tr>
       <td><kbd>enter</kbd> <kbd>→</kbd></td>
-      <td>enter a directory, or open a file in an editor tab</td>
+      <td>expand a directory, or open a file in an editor tab</td>
       </tr>
       <tr>
       <td><kbd>o</kbd></td>
@@ -1202,8 +1202,36 @@
       <td>sort by name / size / modified</td>
       </tr>
       <tr>
+      <td><kbd>space</kbd></td>
+      <td>mark the entry and step down — mark a run by holding it</td>
+      </tr>
+      <tr>
+      <td><kbd>a</kbd></td>
+      <td>mark / unmark everything in this directory</td>
+      </tr>
+      <tr>
+      <td><kbd>t</kbd></td>
+      <td>make the directory under the cursor the <strong>target</strong></td>
+      </tr>
+      <tr>
+      <td><kbd>c</kbd></td>
+      <td>copy what is marked into the target</td>
+      </tr>
+      <tr>
+      <td><kbd>v</kbd></td>
+      <td>move what is marked into the target</td>
+      </tr>
+      <tr>
+      <td><kbd>tab</kbd></td>
+      <td>focus the content pane</td>
+      </tr>
+      <tr>
+      <td><kbd>\</kbd></td>
+      <td>open the file beside the current one, not as another tab</td>
+      </tr>
+      <tr>
       <td><kbd>←</kbd> <kbd>backspace</kbd></td>
-      <td>up one directory</td>
+      <td>collapse, or step out to the parent</td>
       </tr>
       <tr>
       <td><kbd>r</kbd></td>
@@ -1220,6 +1248,10 @@
       <tr>
       <td><kbd>?</kbd></td>
       <td>the key card</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+t</kbd></td>
+      <td>hide / show the tree column</td>
       </tr>
       <tr>
       <td><kbd>ctrl+b</kbd></td>
@@ -1242,21 +1274,52 @@
       an overwrite — asks on the status line, and while the question is up every key is its
       answer: a <kbd>,</kbd> typed into a filename is a comma, not the settings popover. <kbd>enter</kbd>
       answers, <kbd>esc</kbd> cancels, <kbd>ctrl+u</kbd> clears the line.</p>
+      <h3 id="marks-and-the-target">Marks and the target</h3>
+      <p>Every file operation is plural. <kbd>space</kbd> marks the entry and steps down, so a run of files
+      is marked by holding it; <kbd>a</kbd> takes the whole directory. With nothing marked, an operation
+      falls back to the entry under the cursor, which is why the single-file keys above still read
+      the way they always did. Marks are keyed by absolute path and survive a refresh, so one
+      inside a collapsed directory is still marked — the footer always names the total, so it
+      cannot quietly follow you around.</p>
+      <p>Copying and moving need somewhere to go, and that somewhere is the <strong>target</strong>: <kbd>t</kbd> pins the
+      directory under the cursor, the tree draws it in green, and <kbd>c</kbd> and <kbd>v</kbd> send the marked
+      entries there. Nothing is ever typed as a path, and both ends stay on screen — that is what
+      the tree column buys that a single listing could not.</p>
+      <p>Both ask before they destroy anything, as <kbd>d</kbd> and <kbd>u</kbd> already do: a name already taken
+      in the target is a confirmed overwrite for <kbd>c</kbd> — the question names the files, since one
+      answer covers all of them — and for <kbd>v</kbd> a refusal, because a move cannot clear the way
+      without a recursive remote delete, so it says so before it starts rather than failing
+      halfway through the batch. Anything in the selection that already <em>lives</em> in the target is
+      simply skipped, and the outcome says how many, so a count short of what you marked explains
+      itself.</p>
+      <p>A batch stops at the first failure and says where it stopped: <code>delete b: permission denied — 1 of 4 done, 2 skipped</code>. The marks stay up, so the same keystroke retries what is left.</p>
       <p>Transfers run off the UI, so a large file no longer freezes the browser — the status line
-      becomes a progress line until it lands. Deleting asks first, and so does overwriting a
-      file that is already in your download directory.</p>
-      <details class="why"><summary>Why <kbd>←</kbd> walks the tree instead of leaving</summary><p><kbd>←</kbd> is pure motion: it walks up the directory tree, and only at the top of it does it pop
-      back to hop. The directory you open in is usually your home directory — so a <kbd>←</kbd> that left
-      straight away would drop you back to hop exactly when you meant to go up to <code>/home</code>. Leaving
-      is otherwise always explicit: <kbd>ctrl+o</kbd>, or a <a href="#doubleesc">double esc</a> — though unlike in a
-      pane, a lone <kbd>esc</kbd> here is swallowed rather than forwarded.</p></details>
+      becomes a progress line until it lands, counting <code>3/7 · name.txt</code> through a batch. Deleting
+      asks first, and so does overwriting a file that is already in your download directory.</p>
+      <details class="why"><summary>Why a copy costs more than a download</summary><p>A remote-to-remote copy has no shortcut. SFTP has no server-side copy — OpenSSH added a
+      <code>copy-data</code> extension, but the Go client hop uses does not speak it — so hop reads every byte
+      down to your machine and writes it back up the same connection. Copying a file across a
+      remote disk therefore costs <em>twice</em> what downloading it costs, which is the opposite of the
+      intuition. <kbd>v</kbd> is free by comparison whenever source and target share a filesystem, because
+      that is a rename the server does by itself; only across a mount boundary does it fall back to
+      the same copy.</p></details>
+      <p>The browser is a <strong>column</strong>, not a screen it takes over: it stays drawn while you read a file
+      beside it, and <kbd>tab</kbd> and <kbd>alt+t</kbd> pass the keyboard between the two. <kbd>ctrl+t</kbd> gives the
+      column&rsquo;s width back to the file. Below 96 columns of room there is no space for both anyway,
+      and the browser goes back to filling the pane while it has the keyboard.</p>
+      <details class="why"><summary>Why <kbd>←</kbd> walks the tree instead of leaving</summary><p><kbd>←</kbd> is pure motion: it collapses the directory you are in, steps out to its parent, and
+      only at the top of the tree does it pop back to hop. The directory you open in is usually your
+      home directory — so a <kbd>←</kbd> that left straight away would drop you back to hop exactly when
+      you meant to go up to <code>/home</code>. Leaving is otherwise always explicit: <kbd>ctrl+o</kbd>, or a
+      <a href="#doubleesc">double esc</a> — though unlike in a pane, a lone <kbd>esc</kbd> here is swallowed rather
+      than forwarded.</p></details>
     </section>
 
     <section id="editor">
       <p class="sectlabel">Browsing mode</p>
       <h2>Editing — editor tabs</h2>
-      <p><kbd>enter</kbd> on a file opens it in an editor <strong>inside hop</strong>, in the same right-hand pane the
-      browser lives in, with a tab strip above it listing every open file.</p>
+      <p><kbd>enter</kbd> on a file opens it in an editor <strong>inside hop</strong>, in the content area beside the
+      browser column, with a tab strip above it listing every open file. The tree stays on screen.</p>
       <div class="tablewrap"><table class="keytable">
       <thead>
       <tr>
@@ -1282,6 +1345,14 @@
       <td>close the tab</td>
       </tr>
       <tr>
+      <td><kbd>alt+t</kbd></td>
+      <td>back to the tree, without closing anything</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+t</kbd></td>
+      <td>hide / show the tree column</td>
+      </tr>
+      <tr>
       <td><kbd>esc</kbd> <kbd>esc</kbd></td>
       <td>back to the file browser (two presses within 400 ms)</td>
       </tr>
@@ -1305,6 +1376,14 @@
       <code>vim</code>, <code>vi</code>, then <code>nano</code>, falling back to <code>vi</code> — POSIX requires it to exist.</p>
       <p>Tabs are independent editor processes, so leaving with <kbd>ctrl+o</kbd> <kbd>o</kbd> keeps them all
       running: come back and every file is where you left it, cursor included.</p>
+      <h3 id="two-files-side-by-side">Two files side by side</h3>
+      <p><kbd>\</kbd> in the browser opens the file <strong>beside</strong> the current one instead of behind it,
+      splitting the content area into two halves with their own tab strips. <kbd>tab</kbd>/<kbd>alt+t</kbd> pass
+      the keyboard between tree and content; <kbd>shift+→</kbd>/<kbd>shift+←</kbd> cycle the tabs of whichever
+      half has it. The same file is never shown in both halves — asking for one that is already
+      open just focuses the half it is in. Closing the last tab in a half folds the split back to
+      one, and a content area too narrow to give each half a readable 22 columns declines the split
+      rather than drawing two unreadable ones.</p>
       <h3 id="editing-locally-instead">Editing locally instead</h3>
       <p><kbd>o</kbd> is the escape hatch for files a terminal editor is no good for — a PDF, an image. It
       downloads the file to a scratch directory under the system temp dir and hands that copy to
@@ -2274,7 +2353,7 @@
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"Key · Action"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"↓ ↑ · move"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"pgdn pgup · a full page down / up"},
-{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"enter → · enter a directory, or open a file in an editor tab"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"enter → · expand a directory, or open a file in an editor tab"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"o · open the file in the local OS default app (GUI)"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"d · download the file to ~/Downloads"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"u · upload a local file into this directory"},
@@ -2282,27 +2361,45 @@
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"x · delete the entry"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"m · make a directory here"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"s · sort by name / size / modified"},
-{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"← backspace · up one directory"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"space · mark the entry and step down — mark a run by holding it"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"a · mark / unmark everything in this directory"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"t · make the directory under the cursor the target"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"c · copy what is marked into the target"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"v · move what is marked into the target"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"tab · focus the content pane"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"\\ · open the file beside the current one, not as another tab"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"← backspace · collapse, or step out to the parent"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"r · refresh the listing"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+k · the palette: everything the browser can do, searchable"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":", · settings"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"? · the key card"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+t · hide / show the tree column"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+b · hide / show the sidebar"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+o · back to hop"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"esc esc · back to hop (two presses within 400 ms)"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"With vim keys on the browser keeps the whole motion set (the host list only the step keys): j/k, gg, G, H/M/L, ctrl+d/ctrl+u, ctrl+f, plus l to descend and h to back out."},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"Anything that needs an answer — a name to rename to, a local path to upload, a yes before an overwrite — asks on the status line, and while the question is up every key is its answer: a , typed into a filename is a comma, not the settings popover. enter answers, esc cancels, ctrl+u clears the line."},
-{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"Transfers run off the UI, so a large file no longer freezes the browser — the status line becomes a progress line until it lands. Deleting asks first, and so does overwriting a file that is already in your download directory."},
-{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"Why ← walks the tree instead of leaving"},
-{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"← is pure motion: it walks up the directory tree, and only at the top of it does it pop back to hop. The directory you open in is usually your home directory — so a ← that left straight away would drop you back to hop exactly when you meant to go up to /home. Leaving is otherwise always explicit: ctrl+o, or a double esc — though unlike in a pane, a lone esc here is swallowed rather than forwarded."},
+{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"Marks and the target"},
+{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"Every file operation is plural. space marks the entry and steps down, so a run of files is marked by holding it; a takes the whole directory. With nothing marked, an operation falls back to the entry under the cursor, which is why the single-file keys above still read the way they always did. Marks are keyed by absolute path and survive a refresh, so one inside a collapsed directory is still marked — the footer always names the total, so it cannot quietly follow you around."},
+{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"Copying and moving need somewhere to go, and that somewhere is the target: t pins the directory under the cursor, the tree draws it in green, and c and v send the marked entries there. Nothing is ever typed as a path, and both ends stay on screen — that is what the tree column buys that a single listing could not."},
+{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"Both ask before they destroy anything, as d and u already do: a name already taken in the target is a confirmed overwrite for c — the question names the files, since one answer covers all of them — and for v a refusal, because a move cannot clear the way without a recursive remote delete, so it says so before it starts rather than failing halfway through the batch. Anything in the selection that already lives in the target is simply skipped, and the outcome says how many, so a count short of what you marked explains itself."},
+{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"A batch stops at the first failure and says where it stopped: delete b: permission denied — 1 of 4 done, 2 skipped. The marks stay up, so the same keystroke retries what is left."},
+{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"Transfers run off the UI, so a large file no longer freezes the browser — the status line becomes a progress line until it lands, counting 3/7 · name.txt through a batch. Deleting asks first, and so does overwriting a file that is already in your download directory."},
+{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"Why a copy costs more than a download"},
+{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"A remote-to-remote copy has no shortcut. SFTP has no server-side copy — OpenSSH added a copy-data extension, but the Go client hop uses does not speak it — so hop reads every byte down to your machine and writes it back up the same connection. Copying a file across a remote disk therefore costs twice what downloading it costs, which is the opposite of the intuition. v is free by comparison whenever source and target share a filesystem, because that is a rename the server does by itself; only across a mount boundary does it fall back to the same copy."},
+{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"The browser is a column, not a screen it takes over: it stays drawn while you read a file beside it, and tab and alt+t pass the keyboard between the two. ctrl+t gives the column’s width back to the file. Below 96 columns of room there is no space for both anyway, and the browser goes back to filling the pane while it has the keyboard."},
+{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"Why ← walks the tree instead of leaving"},
+{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"← is pure motion: it collapses the directory you are in, steps out to its parent, and only at the top of the tree does it pop back to hop. The directory you open in is usually your home directory — so a ← that left straight away would drop you back to hop exactly when you meant to go up to /home. Leaving is otherwise always explicit: ctrl+o, or a double esc — though unlike in a pane, a lone esc here is swallowed rather than forwarded."},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"Editing — editor tabs"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"Editor tabs"},
-{"s":"Editing — editor tabs","h":"","a":"#editor","t":"enter on a file opens it in an editor inside hop, in the same right-hand pane the browser lives in, with a tab strip above it listing every open file."},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"enter on a file opens it in an editor inside hop, in the content area beside the browser column, with a tab strip above it listing every open file. The tree stays on screen."},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"Key · Action"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"shift+→ shift+← · next / previous tab (wraps)"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+o 1 … 9 · go straight to that tab, without leaving"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+o o · back to the file browser"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":":q (i.e. quit the editor) · close the tab"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"alt+t · back to the tree, without closing anything"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+t · hide / show the tree column"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"esc esc · back to the file browser (two presses within 400 ms)"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"alt+←/alt+→, alt+h/alt+l, alt+1…alt+9 · aliases, where your terminal sends them"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"everything else · sent to the remote editor"},
@@ -2310,6 +2407,8 @@
 {"s":"Editing — editor tabs","h":"How it works","a":"#how-it-works","t":"The editor runs on the remote host, not locally: hop opens a second SSH channel on the connection it already has and runs ${EDITOR:-vi} \u003cfile\u003e on a pty, then renders that pty in a pane exactly as it renders a remote shell. There is no download and no copy — you are editing the real file, and :w writes straight back to the server."},
 {"s":"Editing — editor tabs","h":"How it works","a":"#how-it-works","t":"If the remote $EDITOR is unset (it usually is over SSH, since the rc-file that sets it is never sourced for a non-interactive command), hop probes the remote PATH for nvim, vim, vi, then nano, falling back to vi — POSIX requires it to exist."},
 {"s":"Editing — editor tabs","h":"How it works","a":"#how-it-works","t":"Tabs are independent editor processes, so leaving with ctrl+o o keeps them all running: come back and every file is where you left it, cursor included."},
+{"s":"Editing — editor tabs","h":"Two files side by side","a":"#two-files-side-by-side","t":"Two files side by side"},
+{"s":"Editing — editor tabs","h":"Two files side by side","a":"#two-files-side-by-side","t":"\\ in the browser opens the file beside the current one instead of behind it, splitting the content area into two halves with their own tab strips. tab/alt+t pass the keyboard between tree and content; shift+→/shift+← cycle the tabs of whichever half has it. The same file is never shown in both halves — asking for one that is already open just focuses the half it is in. Closing the last tab in a half folds the split back to one, and a content area too narrow to give each half a readable 22 columns declines the split rather than drawing two unreadable ones."},
 {"s":"Editing — editor tabs","h":"Editing locally instead","a":"#editing-locally-instead","t":"Editing locally instead"},
 {"s":"Editing — editor tabs","h":"Editing locally instead","a":"#editing-locally-instead","t":"o is the escape hatch for files a terminal editor is no good for — a PDF, an image. It downloads the file to a scratch directory under the system temp dir and hands that copy to the desktop (start on Windows, open on macOS, xdg-open elsewhere), returning immediately so hop stays usable. Unlike enter, this edits a local copy: nothing is written back to the remote host. d downloads without opening anything."},
 {"s":"Actions — the menu and the palette","h":"","a":"#actions","t":"Actions — the menu and the palette"},

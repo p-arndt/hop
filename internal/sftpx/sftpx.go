@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -246,6 +247,180 @@ func (c *Client) Remove(p string) error {
 func (c *Client) Rename(oldp, newp string) error {
 	if err := c.sc.Rename(oldp, newp); err != nil {
 		return fmt.Errorf("sftpx: rename %s -> %s: %w", oldp, newp, err)
+	}
+	return nil
+}
+
+// Copy copies srcPath into dstDir on the same host — the result is
+// dstDir/<base(srcPath)> — recursing into directories and returning the bytes written.
+// progress may be nil; when set it receives the running cumulative byte count across the
+// whole recursive copy.
+//
+// The bytes travel through the client, not the server: pkg/sftp v1.13.11 implements no
+// server-side copy extension (it knows fsync@, hardlink@, posix-rename@ and (f)statvfs@
+// openssh.com, and exposes no way to send an arbitrary extended packet), so there is no
+// copy-data@openssh.com path to take. Every byte is therefore read down to this process
+// and written straight back up the same connection, which is twice the wire traffic of a
+// download or an upload of the same size and roughly twice the time. A caller sizing a
+// progress bar or an ETA has to budget for that.
+//
+// Symlinks are recreated, not followed: the copy gets a link with the same target. Ownership
+// is not preserved; file and directory modes are.
+//
+// A failure part way through a directory copy leaves what has already been written in
+// place. Nothing is rolled back, and the returned count covers the bytes that did land.
+func (c *Client) Copy(srcPath, dstDir string, progress func(int64)) (int64, error) {
+	dstPath := path.Join(dstDir, path.Base(path.Clean(srcPath)))
+	if err := checkNotIntoItself("copy", srcPath, dstPath); err != nil {
+		return 0, err
+	}
+
+	fi, err := c.sc.Lstat(srcPath)
+	if err != nil {
+		return 0, fmt.Errorf("sftpx: copy stat %s: %w", srcPath, err)
+	}
+
+	var total int64
+	if err := c.copyTree(srcPath, dstPath, fi, &total, progress); err != nil {
+		return total, err
+	}
+	return total, nil
+}
+
+// copyTree copies one already-stat'ed source node to dstPath, recursing for directories.
+// total carries the running byte count across the whole recursion, so progress sees one
+// monotonically growing number rather than a per-file one restarting at zero.
+func (c *Client) copyTree(srcPath, dstPath string, fi os.FileInfo, total *int64, progress func(int64)) error {
+	// A symlink is recreated, not followed. Following one aborts the whole copy the moment
+	// it points at a directory — Open refuses that — and silently inflates the copy into a
+	// second full tree when it points at one elsewhere.
+	if fi.Mode()&fs.ModeSymlink != 0 {
+		target, err := c.sc.ReadLink(srcPath)
+		if err != nil {
+			return fmt.Errorf("sftpx: copy readlink %s: %w", srcPath, err)
+		}
+		if err := c.sc.Symlink(target, dstPath); err != nil {
+			return fmt.Errorf("sftpx: copy symlink %s: %w", dstPath, err)
+		}
+		return nil
+	}
+	if !fi.IsDir() {
+		return c.copyFile(srcPath, dstPath, fi.Mode(), total, progress)
+	}
+
+	if err := c.sc.MkdirAll(dstPath); err != nil {
+		return fmt.Errorf("sftpx: copy mkdir %s: %w", dstPath, err)
+	}
+	if err := c.sc.Chmod(dstPath, fi.Mode().Perm()); err != nil {
+		return fmt.Errorf("sftpx: copy chmod %s: %w", dstPath, err)
+	}
+
+	children, err := c.sc.ReadDir(srcPath)
+	if err != nil {
+		return fmt.Errorf("sftpx: copy read %s: %w", srcPath, err)
+	}
+	for _, child := range children {
+		err := c.copyTree(
+			path.Join(srcPath, child.Name()),
+			path.Join(dstPath, child.Name()),
+			child, total, progress,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyFile streams one remote file to another over the same connection, continuing the
+// running total and preserving the source's mode.
+func (c *Client) copyFile(srcPath, dstPath string, mode fs.FileMode, total *int64, progress func(int64)) error {
+	rf, err := c.sc.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("sftpx: copy open %s: %w", srcPath, err)
+	}
+	defer rf.Close()
+
+	wf, err := c.sc.Create(dstPath)
+	if err != nil {
+		return fmt.Errorf("sftpx: copy create %s: %w", dstPath, err)
+	}
+	defer wf.Close()
+
+	// counted reports this file's own byte count, so shift it by what earlier files
+	// already contributed to keep the number the caller sees cumulative.
+	base := *total
+	var report func(int64)
+	if progress != nil {
+		report = func(n int64) { progress(base + n) }
+	}
+
+	n, err := io.Copy(counted(wf, report), rf)
+	*total = base + n
+	if err != nil {
+		return fmt.Errorf("sftpx: copy %s -> %s: %w", srcPath, dstPath, err)
+	}
+	if err := c.sc.Chmod(dstPath, mode.Perm()); err != nil {
+		return fmt.Errorf("sftpx: copy chmod %s: %w", dstPath, err)
+	}
+	return nil
+}
+
+// Move relocates srcPath into dstDir on the same host, so the result is
+// dstDir/<base(srcPath)>.
+//
+// It tries a rename first, which is a single cheap server-side operation when source and
+// destination share a filesystem. Only if that fails — the usual reason being a mount
+// boundary — does it fall back to Copy followed by a recursive delete of the source, and
+// the source is removed only after the copy has completely succeeded. A failure during
+// the fallback therefore leaves the source intact and a partial destination behind.
+func (c *Client) Move(srcPath, dstDir string, progress func(int64)) error {
+	dstPath := path.Join(dstDir, path.Base(path.Clean(srcPath)))
+	if err := checkNotIntoItself("move", srcPath, dstPath); err != nil {
+		return err
+	}
+	// Refused rather than overwritten: the fallback below would truncate what is already
+	// there, and it would pay for a whole copy to do it. Callers that can see the
+	// destination are expected to check first and say so — the filebrowser refuses from the
+	// keystroke — so reaching this is the backstop, not the message the user should get.
+	if _, err := c.sc.Lstat(dstPath); err == nil {
+		return fmt.Errorf("sftpx: move %s: %s already exists", srcPath, dstPath)
+	}
+
+	if err := c.sc.Rename(srcPath, dstPath); err == nil {
+		return nil
+	}
+	return c.moveByCopy(srcPath, dstDir, progress)
+}
+
+// moveByCopy is Move's fallback for the case a rename cannot serve: source and destination
+// on different filesystems. The source is removed only once the copy has completely
+// succeeded, so a failure here leaves the source intact and a partial destination behind.
+//
+// It is separate from Move because it is otherwise unreachable from a test: the only thing
+// that legitimately fails a rename is a mount boundary, which an in-process test server has
+// no way to create.
+func (c *Client) moveByCopy(srcPath, dstDir string, progress func(int64)) error {
+	if _, err := c.Copy(srcPath, dstDir, progress); err != nil {
+		return fmt.Errorf("sftpx: move %s: %w", srcPath, err)
+	}
+	if err := c.sc.RemoveAll(srcPath); err != nil {
+		return fmt.Errorf("sftpx: move remove source %s: %w", srcPath, err)
+	}
+	return nil
+}
+
+// checkNotIntoItself rejects the two transfers that would destroy their own source: one
+// whose destination is the source itself, and one that would place a directory inside its
+// own subtree, which recurses into what it is writing. op names the operation so the error
+// reads in the caller's terms.
+func checkNotIntoItself(op, srcPath, dstPath string) error {
+	src, dst := path.Clean(srcPath), path.Clean(dstPath)
+	if src == dst {
+		return fmt.Errorf("sftpx: %s %s: source and destination are the same path", op, src)
+	}
+	if strings.HasPrefix(dst, src+"/") {
+		return fmt.Errorf("sftpx: %s %s: destination %s is inside the source", op, src, dst)
 	}
 	return nil
 }

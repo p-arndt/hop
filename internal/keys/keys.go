@@ -136,6 +136,18 @@ const (
 	BrowserMkdir    Action = "browser.mkdir"
 	BrowserSort     Action = "browser.sort"
 
+	// Browser, the multi-selection and the target. Marking is what makes an operation
+	// plural; the target is the directory a copy or a move lands in, so that neither has
+	// to be typed as a path. Both live in the filebrowser, not the tui.
+	BrowserMark      Action = "browser.mark"
+	BrowserMarkAll   Action = "browser.mark-all"
+	BrowserTarget    Action = "browser.set-target"
+	BrowserCopy      Action = "browser.copy-to-target"
+	BrowserMoveTo    Action = "browser.move-to-target"
+	BrowserFocusPane Action = "browser.focus-pane"
+	BrowserTree      Action = "browser.tree-column"
+	BrowserSplit     Action = "browser.split"
+
 	// Pane. LeaderKey opens the Leader layer; PaneLeave is the other way out, and the two
 	// are what the escape-hatch check (see Validate) insists on keeping.
 	LeaderKey    Action = "pane.leader"
@@ -163,6 +175,9 @@ const (
 	EditorLeave   Action = "editor.leave"
 	EditorNextTab Action = "editor.next-tab"
 	EditorPrevTab Action = "editor.previous-tab"
+	// EditorFocusTree hands the keyboard back to the tree column without closing the
+	// editor: the whole point of the column is that it stays visible while a file is open.
+	EditorFocusTree Action = "editor.focus-tree"
 
 	// Leader — hop's keyboard inside a pane.
 	LeaderOut     Action = "leader.out"
@@ -292,6 +307,14 @@ var defaults = []Binding{
 	{Action: BrowserDelete, Layer: Browser, Keys: []string{"x"}, Label: "delete"},
 	{Action: BrowserMkdir, Layer: Browser, Keys: []string{"m"}, Label: "new directory"},
 	{Action: BrowserSort, Layer: Browser, Keys: []string{"s"}, Label: "sort by name / size / modified"},
+	{Action: BrowserMark, Layer: Browser, Keys: []string{"space"}, Label: "mark / unmark the entry"},
+	{Action: BrowserMarkAll, Layer: Browser, Keys: []string{"a"}, Label: "mark / unmark everything here"},
+	{Action: BrowserTarget, Layer: Browser, Keys: []string{"t"}, Label: "make this directory the target"},
+	{Action: BrowserCopy, Layer: Browser, Keys: []string{"c"}, Label: "copy to the target"},
+	{Action: BrowserMoveTo, Layer: Browser, Keys: []string{"v"}, Label: "move to the target"},
+	{Action: BrowserFocusPane, Layer: Browser, Keys: []string{"tab"}, Label: "focus the content pane"},
+	{Action: BrowserTree, Layer: Browser, Keys: []string{"ctrl+t"}, Label: "hide / show the tree column"},
+	{Action: BrowserSplit, Layer: Browser, Keys: []string{"\\"}, Label: "open beside the current file"},
 	{Action: BrowserRefresh, Layer: Browser, Keys: []string{"r"}, Label: "refresh the listing"},
 	{Action: BrowserLeave, Layer: Browser, Keys: []string{"ctrl+o", "esc esc"}, Window: doubleEscWindow, Label: "back to the host list"},
 	{Action: BrowserPalette, Layer: Browser, Keys: []string{"ctrl+k"}, Label: "search every action"},
@@ -331,6 +354,8 @@ var defaults = []Binding{
 	{Action: EditorLeave, Layer: Editor, Keys: []string{"esc esc"}, Window: doubleEscWindow, Label: "back to the file browser"},
 	{Action: EditorNextTab, Layer: Editor, Keys: []string{"shift+right", "alt+right", "alt+l"}, Show: "shift+→", Label: "next tab"},
 	{Action: EditorPrevTab, Layer: Editor, Keys: []string{"shift+left", "alt+left", "alt+h"}, Show: "shift+←", Label: "previous tab"},
+	{Action: EditorFocusTree, Layer: Editor, Keys: []string{"alt+t"}, Label: "focus the tree"},
+	{Action: BrowserTree, Layer: Editor, Keys: []string{"ctrl+t"}, Label: "hide / show the tree column"},
 
 	// ---- leader ----
 	{Action: LeaderOut, Layer: Leader, Keys: []string{"o"}, Label: "back to hop"},

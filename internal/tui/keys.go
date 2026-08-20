@@ -342,6 +342,9 @@ func (m *model) leaveDetails() {
 	m.active = ""
 	m.mode = modeList
 	m.clearStatus()
+	// No active session means no tree column, so the columns move even though nothing
+	// was closed.
+	m.relayout()
 }
 
 // ---- filter entry ----
@@ -417,6 +420,15 @@ func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // filebrowser.Do. The split is where the behaviour lives, not what the user sees — to
 // them it is one keyboard, which is why it is one layer.
 func (m *model) doBrowser(a keys.Action) (tea.Model, tea.Cmd) {
+	// A split armed on a directory never comes back as a file: the browser descends into
+	// it and the flag is left holding an answer to a question nobody asked. Any other key
+	// spends it, so the split can only ever apply to the file the split key was pressed on.
+	if a != keys.BrowserSplit {
+		if s := m.sessions[m.active]; s != nil {
+			s.splitPending = false
+		}
+	}
+
 	switch a {
 	case keys.BrowserLeave:
 		m.leaveBrowser()
@@ -436,6 +448,22 @@ func (m *model) doBrowser(a keys.Action) (tea.Model, tea.Cmd) {
 
 	case keys.BrowserHelp:
 		m.openHelp()
+		return m, nil
+
+	case keys.BrowserFocusPane:
+		// Across to the content area. The column stays exactly where it is — only the
+		// keyboard moves — which is the whole reason the browser is a column now. With
+		// nothing in the content area the key is spent doing nothing rather than handing
+		// the keyboard somewhere there is nothing to type at.
+		m.focusContent()
+		return m, nil
+
+	case keys.BrowserSplit:
+		// Open what the cursor is on beside the current file rather than behind it.
+		return m, m.splitOpen()
+
+	case keys.BrowserTree:
+		m.toggleTree()
 		return m, nil
 	}
 
@@ -650,10 +678,11 @@ func (m *model) handleEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	key := msg.String()
 
-	// alt+1 … alt+9 jump straight to a tab, ignoring one that is not open.
+	// alt+1 … alt+9 jump straight to a tab, ignoring one that is not open. Into the half
+	// the keyboard is in, as every other way of picking a tab is.
 	if i, ok := altDigit(key); ok {
 		if i < len(s.editors) {
-			s.activeEd = i
+			s.setEditor(i)
 		}
 		return m, nil
 	}
@@ -685,14 +714,65 @@ func (m *model) doEditor(a keys.Action) (bool, tea.Model, tea.Cmd) {
 		return true, m, nil
 
 	case keys.EditorNextTab:
-		s.activeEd = cycle(s.activeEd, 1, len(s.editors))
+		// The half the keyboard is in cycles, not the left one: with two files up, "next
+		// tab" is about the one you are reading.
+		s.setEditor(cycle(s.editorIndex(s.focusedHalf()), 1, len(s.editors)))
 		return true, m, nil
 
 	case keys.EditorPrevTab:
-		s.activeEd = cycle(s.activeEd, -1, len(s.editors))
+		s.setEditor(cycle(s.editorIndex(s.focusedHalf()), -1, len(s.editors)))
+		return true, m, nil
+
+	case keys.EditorFocusTree:
+		// Back to the tree without closing the file — the return leg of
+		// keys.BrowserFocusPane. With no browser open there is no tree to go to, so the
+		// key falls through and belongs to the remote editor after all.
+		if m.focusTree() {
+			return true, m, nil
+		}
+
+	case keys.BrowserTree:
+		// Give the file the whole width. Hiding the column the keyboard is not in is safe;
+		// hiding the one it is in is what focusContent below prevents.
+		m.toggleTree()
 		return true, m, nil
 	}
 	return false, m, nil
+}
+
+// focusContent moves the keyboard from the tree column to whatever the content area is
+// showing — the editor tab in the focused half, or the host's shell — and reports whether
+// there was anywhere for it to go. A dead session has a picture of a pane rather than a
+// pane, and answers only its own small keyboard.
+func (m *model) focusContent() bool {
+	s := m.sessions[m.active]
+	if s == nil || s.dead {
+		return false
+	}
+	switch {
+	case s.editor() != nil:
+		m.mode = modeEditor
+	case s.shell() != nil:
+		m.mode = modeShell
+	default:
+		return false
+	}
+	m.clearStatus()
+	return true
+}
+
+// focusTree moves the keyboard into the SFTP column, reporting whether there is one to
+// move into. It does not touch what the content area is showing: the file stays on screen
+// beside the tree, which is the point of both keys.
+func (m *model) focusTree() bool {
+	s := m.sessions[m.active]
+	if s == nil || s.browser == nil {
+		return false
+	}
+	m.mode = modeBrowser
+	m.clearStatus()
+	m.reader.Reset()
+	return true
 }
 
 // ---- help card ----
@@ -825,7 +905,7 @@ func (m *model) selectTab(alias string, i int, editing bool) {
 	}
 	if editing {
 		if i < len(s.editors) {
-			s.activeEd = i
+			s.setEditor(i)
 		}
 		return
 	}
@@ -846,16 +926,19 @@ func (m *model) gotoShell(alias string, i int) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// leaveBrowser returns from the file browser to navigation mode.
+// leaveBrowser hands the keyboard back to the host list. The column itself stays on
+// screen — it belongs to the session, not to the keyboard — so this is a change of focus
+// and nothing else. Its key is still called "back to the host list", which is now the
+// whole of what it does.
 func (m *model) leaveBrowser() {
 	m.mode = modeList
 	m.clearStatus()
 	m.reader.Reset()
 }
 
-// leaveEditor returns from the editor tabs to the browser the file was opened from (or
-// to navigation, when that browser is gone). The editors keep running; closing one is
-// the editor's own business.
+// leaveEditor hands the keyboard back to the tree column the file was opened from (or to
+// the host list, when that browser is gone). The editors keep running and stay drawn;
+// closing one is the editor's own business.
 func (m *model) leaveEditor() {
 	m.mode = modeList
 	m.clearStatus()
@@ -869,6 +952,7 @@ func (m *model) leaveEditor() {
 func (m *model) leaveAll() {
 	m.active = ""
 	m.mode = modeList
+	m.relayout()
 }
 
 // ---- key helpers ----

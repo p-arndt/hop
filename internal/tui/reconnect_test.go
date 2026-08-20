@@ -7,13 +7,21 @@ import (
 
 	"hop/internal/filebrowser"
 	"hop/internal/filebrowser/fbtest"
+	"hop/internal/sftpx"
 	"hop/internal/sshx"
 	"hop/internal/store"
 )
 
 func fakeBrowser(t *testing.T, dir string) *filebrowser.Browser {
 	t.Helper()
-	br, err := filebrowser.New(fbtest.Stub{Dir: dir}, "ha", dir,
+	return fakeBrowserWith(t, dir)
+}
+
+// fakeBrowserWith is fakeBrowser over a listing rather than an empty directory, for the
+// tests that need the cursor to be standing on something in particular.
+func fakeBrowserWith(t *testing.T, dir string, entries ...sftpx.Entry) *filebrowser.Browser {
+	t.Helper()
+	br, err := filebrowser.New(fbtest.Stub{Dir: dir, Entries: entries}, "ha", dir,
 		filebrowser.Options{DownloadDir: t.TempDir()}, 40, 12)
 	if err != nil {
 		t.Fatalf("build browser: %v", err)

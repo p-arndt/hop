@@ -51,6 +51,7 @@ func SetAccent(color string) {
 	accentStyle = accentStyle.Foreground(accent)
 	accentBold = accentBold.Foreground(accent)
 	selBar = accentStyle.Render("▎")
+	markGlyph = accentStyle.Render("✓")
 }
 
 // Client is the slice of *sftpx.Client the browser depends on, narrowed to an interface
@@ -63,6 +64,12 @@ type Client interface {
 	Mkdir(p string) error
 	Remove(p string) error
 	Rename(oldp, newp string) error
+	// Copy duplicates srcPath into the directory dstDir, reporting the cumulative byte
+	// count as it goes, and Move relocates it there. Only Move is cheap: SFTP has no
+	// server-side copy, so Copy streams every byte down and back up, costing twice a
+	// download of the same size. Copy overwrites a name that is taken; Move refuses it.
+	Copy(srcPath, dstDir string, progress func(int64)) (int64, error)
+	Move(srcPath, dstDir string, progress func(int64)) error
 	Close() error
 }
 
@@ -109,11 +116,22 @@ type Browser struct {
 	client Client
 	// alias is the session this browser belongs to, stamped onto everything it sends so
 	// the model can route it by name.
-	alias   string
-	cwd     string
-	entries []sftpx.Entry
-	cursor  int
-	scroll  int
+	alias string
+	// cwd is the current directory, which the tree keeps pointed at whichever directory
+	// the cursor is inside. Path() hands it to the rest of hop, and "m" and "u" act in it.
+	cwd string
+	// root is the directory the tree is rooted at, and rows the flattened list of what is
+	// visible in it. Every index in this package — cursor, scroll, RowAt — is an index
+	// into rows; see tree.go.
+	root   *node
+	rows   []*node
+	cursor int
+	scroll int
+
+	// marks is the multi-selection, keyed by absolute remote path across the whole tree,
+	// and target the directory "c" and "v" aim at. See marks.go.
+	marks  map[string]bool
+	target string
 
 	// note is the last thing the browser has to say, and what footerLine draws when
 	// nothing more urgent wants the row.
@@ -207,10 +225,17 @@ func (b *Browser) load(dir string) bool {
 		b.fail(err)
 		return false
 	}
+	// A new root, so nothing of the old tree survives: re-rooting is navigation, and the
+	// directories the user had open belong to where they were, not to where they are.
+	root := &node{e: sftpx.Entry{Name: path.Base(dir), IsDir: true}, path: dir, depth: -1, expanded: true}
+	b.root = root
+	b.setKids(root, ents)
 	b.cwd = dir
-	b.entries = b.applySort(ents)
 	b.cursor = 0
 	b.scroll = 0
+	b.rebuild()
+	b.pruneMarks()
+	b.pruneTarget()
 	b.clearNote()
 	return true
 }
@@ -253,11 +278,15 @@ func (b *Browser) Do(a keys.Action) tea.Cmd {
 
 	case keys.BrowserUp:
 		// Not a motion elsewhere in hop, but a file browser that ignored backspace would
-		// be the odd one out.
-		b.load(path.Dir(b.cwd))
+		// be the odd one out. It re-roots the tree rather than following the cursor's
+		// directory: backspace is how the visible tree grows upwards, and a cursor three
+		// levels down would otherwise re-root somewhere the user never asked to go.
+		b.load(path.Dir(b.rootPath()))
 
 	case keys.BrowserRefresh:
-		b.load(b.cwd)
+		// The whole tree, not the current directory: the open directories are what the
+		// user is looking at, and re-listing one of them is not what "r" promises.
+		b.refresh()
 
 	case keys.BrowserOpen:
 		return b.openInApp()
@@ -279,6 +308,21 @@ func (b *Browser) Do(a keys.Action) tea.Cmd {
 
 	case keys.BrowserSort:
 		b.cycleSort()
+
+	case keys.BrowserMark:
+		b.toggleMark()
+
+	case keys.BrowserMarkAll:
+		b.toggleMarkAll()
+
+	case keys.BrowserTarget:
+		b.setTarget()
+
+	case keys.BrowserCopy:
+		return b.copyToTarget()
+
+	case keys.BrowserMoveTo:
+		return b.moveToTarget()
 	}
 	return nil
 }
@@ -314,7 +358,7 @@ func (b *Browser) RowAt(y int) (int, bool) {
 		return 0, false
 	}
 	i := b.scroll + row
-	if i < 0 || i >= len(b.entries) {
+	if i < 0 || i >= len(b.rows) {
 		return 0, false
 	}
 	return i, true
@@ -350,7 +394,7 @@ func (b *Browser) move(mo keys.Action) tea.Cmd {
 	case keys.Top:
 		b.cursor = 0
 	case keys.Bottom:
-		b.cursor = len(b.entries) - 1
+		b.cursor = len(b.rows) - 1
 	case keys.HalfDown:
 		b.cursor += b.halfPage()
 	case keys.HalfUp:
@@ -367,8 +411,7 @@ func (b *Browser) move(mo keys.Action) tea.Cmd {
 		b.cursor = b.scroll + b.windowRows() - 1
 
 	case keys.Out:
-		// path.Dir of "/" stays "/", so this is a no-op at the filesystem root.
-		b.load(path.Dir(b.cwd))
+		b.outward()
 		return nil
 
 	case keys.In:
@@ -379,27 +422,59 @@ func (b *Browser) move(mo keys.Action) tea.Cmd {
 	return nil
 }
 
-// activate enters the directory under the cursor, or asks the model to open the file in
-// an editor pane. Nothing is downloaded: the editor runs against the real remote file.
-func (b *Browser) activate() tea.Cmd {
-	e, ok := b.selected()
-	if !ok {
-		return nil
+// outward is left/h in a tree, which has three meanings in one key and takes them in the
+// order that keeps it a single "back out of here": shut an open directory, step up to the
+// directory the cursor is inside, and — only when the cursor is already at the top level —
+// re-root the tree one directory higher, which is what left used to do everywhere.
+func (b *Browser) outward() {
+	n := b.cur()
+	switch {
+	case n != nil && n.e.IsDir && n.expanded:
+		b.collapse(n)
+	case n != nil && n.depth > 0:
+		b.focusPath(n.parent.path)
+	default:
+		// path.Dir of "/" stays "/", so this is a no-op at the filesystem root.
+		b.load(path.Dir(b.rootPath()))
 	}
-	if e.IsDir {
-		b.load(path.Join(b.cwd, e.Name))
-		return nil
-	}
-
-	return b.send(OpenFileMsg{Path: path.Join(b.cwd, e.Name), Name: e.Name})
 }
 
-// selected returns the entry under the cursor, or ok=false in an empty listing.
+// rootPath is the directory the tree is rooted at, which is where "up a directory" starts
+// from. It is not b.cwd: the cursor may be several directories deep inside the tree.
+func (b *Browser) rootPath() string {
+	if b.root == nil {
+		return b.cwd
+	}
+	return b.root.path
+}
+
+// activate opens or shuts the directory under the cursor, or asks the model to open the
+// file in an editor pane. Nothing is downloaded: the editor runs against the real remote
+// file.
+func (b *Browser) activate() tea.Cmd {
+	n := b.cur()
+	if n == nil {
+		return nil
+	}
+	if n.e.IsDir {
+		if n.expanded {
+			b.collapse(n)
+		} else {
+			b.expand(n)
+		}
+		return nil
+	}
+
+	return b.send(OpenFileMsg{Path: n.path, Name: n.e.Name})
+}
+
+// selected returns the entry under the cursor, or ok=false in an empty tree.
 func (b *Browser) selected() (sftpx.Entry, bool) {
-	if len(b.entries) == 0 {
+	n := b.cur()
+	if n == nil {
 		return sftpx.Entry{}, false
 	}
-	return b.entries[b.cursor], true
+	return n.e, true
 }
 
 // note is something the browser has to say on its last row: the outcome of the last
@@ -536,7 +611,7 @@ var openCmd = func(with, p string) *exec.Cmd {
 // windowRows is the number of entry rows actually filled, which is the viewport height
 // except on a short final page.
 func (b *Browser) windowRows() int {
-	n := len(b.entries) - b.scroll
+	n := len(b.rows) - b.scroll
 	if rows := b.contentRows(); n > rows {
 		n = rows
 	}
@@ -554,18 +629,21 @@ func (b *Browser) halfPage() int {
 	return 1
 }
 
-// clampScroll clamps the cursor into range and slides the window to keep it visible.
+// clampScroll clamps the cursor into range and slides the window to keep it visible. It
+// re-points the current directory on the way out, since every motion in the package ends
+// here and the cursor is what decides which directory that is.
 func (b *Browser) clampScroll() {
-	if len(b.entries) == 0 {
+	if len(b.rows) == 0 {
 		b.cursor = 0
 		b.scroll = 0
+		b.syncCwd()
 		return
 	}
 	if b.cursor < 0 {
 		b.cursor = 0
 	}
-	if b.cursor > len(b.entries)-1 {
-		b.cursor = len(b.entries) - 1
+	if b.cursor > len(b.rows)-1 {
+		b.cursor = len(b.rows) - 1
 	}
 
 	rows := b.contentRows()
@@ -578,13 +656,14 @@ func (b *Browser) clampScroll() {
 	if b.scroll < 0 {
 		b.scroll = 0
 	}
-	maxScroll := len(b.entries) - rows
+	maxScroll := len(b.rows) - rows
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
 	if b.scroll > maxScroll {
 		b.scroll = maxScroll
 	}
+	b.syncCwd()
 }
 
 // contentRows is the number of entry rows shown, less a header, rule and status line.
@@ -606,18 +685,20 @@ func (b *Browser) View() string {
 	rows := b.contentRows()
 	lines := make([]string, 0, b.h)
 
+	// The header is the current directory rather than the tree's root: it is the one that
+	// answers "where would m and u put something", and it moves with the cursor.
 	lines = append(lines, dimStyle.Render(truncPath(stripControl(b.cwd), b.w)))
 	lines = append(lines, faintStyle.Render(strings.Repeat("─", b.w)))
 
-	if len(b.entries) == 0 {
+	if len(b.rows) == 0 {
 		lines = append(lines, dimStyle.Render("(empty)"))
 	} else {
 		end := b.scroll + rows
-		if end > len(b.entries) {
-			end = len(b.entries)
+		if end > len(b.rows) {
+			end = len(b.rows)
 		}
 		for i := b.scroll; i < end; i++ {
-			lines = append(lines, b.renderRow(b.entries[i], i == b.cursor))
+			lines = append(lines, b.renderRow(b.rows[i], i == b.cursor))
 		}
 	}
 
@@ -657,7 +738,30 @@ func (b *Browser) footerLine(w int) string {
 		}
 		return greenStyle.Render(txt)
 	}
-	return ""
+	return b.selectionLine(w)
+}
+
+// selectionLine is what the footer says when nothing has happened lately: how much is
+// marked and where the target is aimed.
+//
+// It is last in the order on purpose — an outcome the user just caused outranks a
+// standing count — but it has to exist, because both of those facts are otherwise carried
+// by a one-cell tick and a colour, and an operation about to act on eleven files across
+// four directories should say eleven somewhere in words.
+func (b *Browser) selectionLine(w int) string {
+	var parts []string
+	if n := len(b.marks); n == 1 {
+		parts = append(parts, "1 marked")
+	} else if n > 1 {
+		parts = append(parts, fmt.Sprintf("%d marked", n))
+	}
+	if b.target != "" {
+		parts = append(parts, "→ "+b.target)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return dimStyle.Render(truncateText(stripControl(strings.Join(parts, "  ")), w))
 }
 
 // tailCol is one candidate for a row's right-hand columns, carried as both the plain
@@ -665,13 +769,43 @@ func (b *Browser) footerLine(w int) string {
 // actually drawn.
 type tailCol struct{ plain, styled string }
 
-// renderRow renders one entry: an accent bar and bold name for the selection,
-// directories in accent with a trailing "/", files with a right-aligned dim size.
-func (b *Browser) renderRow(e sftpx.Entry, selected bool) string {
-	prefix := "  "
+// renderRow renders one row of the tree: a two-cell gutter, the indent for its depth, a
+// twisty for a directory, and the name with as much of the size and time columns as fits.
+//
+// The gutter is two cells and always both of them, so nothing below it ever shifts: the
+// first carries the cursor bar, the second the tick of a marked row. They are separate
+// cells because a row is very often both — the cursor sits on an entry while a run of
+// them is being marked — and a tick that replaced the bar would lose the cursor exactly
+// when the user is moving it fastest.
+func (b *Browser) renderRow(n *node, selected bool) string {
+	e := n.e
+
+	bar := " "
 	if selected {
-		prefix = selBar + " "
+		bar = selBar
 	}
+	mark := " "
+	if b.marked(n) {
+		mark = markGlyph
+	}
+
+	// Two cells per level, capped at half the pane: a tree opened six deep in a 30-column
+	// sidebar would otherwise indent every name off the right-hand edge, and an indent
+	// that stops growing still shows the shape of the first few levels.
+	indent := strings.Repeat("  ", n.depth)
+	if limit := b.w / 2; len(indent) > limit {
+		indent = indent[:max(limit, 0)]
+	}
+	// The twisty column is present on a file row too, as two spaces: without it a file and
+	// the directory beside it start in different columns and the depth stops reading.
+	twisty := "  "
+	if e.IsDir {
+		twisty = "▸ "
+		if n.expanded {
+			twisty = "▾ "
+		}
+	}
+	prefix := bar + mark + faintStyle.Render(indent+twisty)
 
 	nameText := stripControl(e.Name)
 	if e.IsDir {
@@ -691,7 +825,13 @@ func (b *Browser) renderRow(e sftpx.Entry, selected bool) string {
 	// Both texts are ASCII by construction — humanizeBytes and a fixed time layout — so
 	// len is their cell width.
 	const nameFloor = 12
-	room := b.w - 2
+	// The twisty is two cells wide however many bytes its rune takes.
+	room := b.w - 2 - len(indent) - 2
+	if room < 1 {
+		// Indented past the pane. The gutter still has to be drawn — the cursor bar is on
+		// it — but there is nothing left to put beside it.
+		return prefix
+	}
 
 	var tails []tailCol
 	if sizeText != "" && timeText != "" {
@@ -720,8 +860,13 @@ func (b *Browser) renderRow(e sftpx.Entry, selected bool) string {
 	}
 	nameText = truncateText(nameText, avail)
 
+	// The target directory is drawn green rather than given a column of its own: at 30
+	// columns every cell spent on a marker is a cell off the names, and there is only ever
+	// one target, so a colour is enough to find it. The footer spells it out in words.
 	var nameStyled string
 	switch {
+	case b.target != "" && n.path == b.target:
+		nameStyled = greenStyle.Render(nameText)
 	case selected:
 		nameStyled = accentBold.Render(nameText)
 	case e.IsDir:

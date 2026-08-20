@@ -30,6 +30,19 @@ const modeAny paneMode = -1
 // row is one line of the card: a key as drawn, and what it does.
 type row = [2]string
 
+// browserHelpActions is the browser section of the card, in the order it is drawn. It is a
+// list of its own rather than an argument list inline so a test can walk it: the card, the
+// palette and the footer are hand-written, and a newly bound key that nobody adds to any of
+// them is invisible. See TestEveryBrowserActionIsDiscoverable.
+var browserHelpActions = []keys.Action{
+	keys.In, keys.Out, keys.BrowserOpen, keys.BrowserDownload, keys.BrowserUpload,
+	keys.BrowserMark, keys.BrowserMarkAll, keys.BrowserTarget,
+	keys.BrowserCopy, keys.BrowserMoveTo,
+	keys.BrowserRename, keys.BrowserDelete, keys.BrowserMkdir, keys.BrowserSort,
+	keys.BrowserRefresh, keys.BrowserFocusPane, keys.BrowserSplit, keys.BrowserTree,
+	keys.BrowserPalette, keys.BrowserHelp, keys.BrowserLeave,
+}
+
 // rows renders bindings from one layer, in the order given, dropping any the user has
 // unbound. An id the layer does not bind is skipped rather than drawn blank.
 func (m *model) helpRows(l keys.Layer, ids ...keys.Action) []row {
@@ -112,13 +125,10 @@ func (m *model) helpRight() []helpSection {
 	shell = append(shell, m.helpRows(keys.Global, keys.Sidebar)...)
 	shell = append(shell, row{"…anything", "goes to the remote shell"})
 
-	browser := m.helpRows(keys.Browser,
-		keys.In, keys.Out, keys.BrowserOpen, keys.BrowserDownload, keys.BrowserUpload,
-		keys.BrowserRename, keys.BrowserDelete, keys.BrowserMkdir, keys.BrowserSort,
-		keys.BrowserRefresh, keys.BrowserPalette, keys.BrowserHelp, keys.BrowserLeave)
+	browser := m.helpRows(keys.Browser, browserHelpActions...)
 
 	editor := []row{{":q", "close the tab"}}
-	editor = append(editor, m.helpRows(keys.Editor, keys.EditorNextTab)...)
+	editor = append(editor, m.helpRows(keys.Editor, keys.EditorNextTab, keys.EditorFocusTree)...)
 	editor = append(editor, m.chordRange("straight to that tab")...)
 	editor = append(editor, m.chord(keys.LeaderPalette)...)
 	editor = append(editor, m.chord(keys.LeaderOut)...)
