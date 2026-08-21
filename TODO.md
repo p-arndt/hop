@@ -103,7 +103,7 @@ file tracks *what*, not *why*.
 - [x] **One source for geometry** (`frame`/`rect` in `layout.go`): `recomputeLayout` places every box of the body once, in outer coordinates. `rect.contains` answers the zone hit-testing, `rect.inner` the panes, `rect.clamp` a drag off the edge. `view.go`, `mouse.go` and `selection.go` name no width and no offset — every `listWidth`/`treeWidth`/`splitHalf` reference outside `layout.go` is gone. The selection now keeps the box the drag began in, so it survives a resize mid-drag.
 - [x] **The frame no longer overruns narrow terminals.** `listWidth` yields the sidebar entirely rather than honour a floor the window cannot pay for, on the same terms as the tree column, and the content area has no floor left to break. `TestVeryNarrowWindowsStillFitTheirTerminal` asserts every width from 3 to 40.
 - [ ] **`model` has 59 fields and ~300 methods across 33 files**, which is why every feature cuts across the package. The pattern to extend already exists (`settingsUI`, `hostFormUI`, `confirmUI`, `guidanceUI`): pull out `layout` (sizes, the collapse flags, the frame) and `focus` (`active`, `mode`, `sel`, `chords`).
-- [ ] No key collapses a split — `collapseSplit` is only reached by closing files. Decide whether that is intended before binding anything.
+- [x] **`ctrl+\` closes the split**, keeping whichever file the focused half was showing. With nothing split it falls through to the remote editor rather than being swallowed. Chosen as `\` plus a modifier so open-beside and close-the-split read as one gesture, and ctrl-based because `alt+…` is only ever an alias here.
 
 ## 🧪 Testing
 
@@ -117,6 +117,7 @@ file tracks *what*, not *why*.
 - [x] `action` package.
 - [x] `keyToBytes` mapping table test in `terminal`.
 - [x] `filebrowser` rendering.
+- [x] **Every bound action is discoverable** (`TestEveryActionIsDiscoverable`): each Browser and Editor action must appear in the key card and the palette, with an explicit exempt set. Guards the failure mode that once shipped marks and copy/move bound but invisible.
 - [x] **Layout characterization** (`tui/layout_test.go`): 23 window/column/split cases, each asserting that every rendered line is *exactly* the window width and that `zoneAt`/`treeLocal`/`contentLocal` agree cell-for-cell with the boxes `View` actually drew.
 - [x] **Footer legend** (`tui/footer_test.go`): 37 states pinned as goldens, `core`/`extra`/`help` kept apart so a hint moving between them fails instead of cancelling out.
 

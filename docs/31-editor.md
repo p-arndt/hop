@@ -16,6 +16,7 @@ browser column, with a tab strip above it listing every open file. The tree stay
 | [[ctrl+o]] [[o]] | back to the file browser |
 | `:q` (i.e. quit the editor) | close the tab |
 | [[alt+t]] | back to the tree, without closing anything |
+| [[ctrl+\]] | close the split, keeping the file you are reading |
 | [[ctrl+t]] | hide / show the tree column |
 | [[esc]] [[esc]] | back to the file browser (two presses within 400 ms) |
 | [[alt+←]]/[[alt+→]], [[alt+h]]/[[alt+l]], [[alt+1]]…[[alt+9]] | aliases, where your terminal sends them |
@@ -41,9 +42,13 @@ running: come back and every file is where you left it, cursor included.
 splitting the content area into two halves with their own tab strips. [[tab]]/[[alt+t]] pass
 the keyboard between tree and content; [[shift+→]]/[[shift+←]] cycle the tabs of whichever
 half has it. The same file is never shown in both halves — asking for one that is already
-open just focuses the half it is in. Closing the last tab in a half folds the split back to
-one, and a content area too narrow to give each half a readable 22 columns declines the split
-rather than drawing two unreadable ones.
+open just focuses the half it is in. A content area too narrow to give each half a readable
+22 columns declines the split rather than drawing two unreadable ones.
+
+[[ctrl+\]] folds the split back to one box, keeping whichever file the half you were in was
+showing — it is the counterpart to [[\]], and it closes the *split*, not the file: every tab
+stays open and every editor keeps running. Closing the last tab in a half folds the split
+back too, but that is the long way round.
 
 ## Editing locally instead
 

@@ -723,6 +723,28 @@ func (m *model) doEditor(a keys.Action) (bool, tea.Model, tea.Cmd) {
 			return true, m, nil
 		}
 
+	case keys.EditorUnsplit:
+		// The way out of a split, and the counterpart to the browser's split key. Nothing
+		// is closed: collapseSplit keeps whichever file the focused half was reading, so
+		// the key gives back the width without also moving you to another file.
+		//
+		// s.split rather than m.splitOn is the test, because a window too narrow to draw
+		// two halves is still a session that would spring back into a split when it grows
+		// — collapsing that is exactly what someone pressing this key means.
+		//
+		// With nothing split the key is not hop's at all: as with EditorFocusTree above it
+		// falls through, and the remote editor gets the keystroke it would have got if hop
+		// had never bound it.
+		if s.split {
+			s.collapseSplit()
+			// The halves are gone from the state but still in the layout: every size the
+			// panes were told and every box the pointer hit-tests against was derived from
+			// there being two of them. Re-deriving here is what puts the one remaining
+			// editor back at full width in the same frame the key was pressed in.
+			m.relayout()
+			return true, m, nil
+		}
+
 	case keys.BrowserTree:
 		// Give the file the whole width. Hiding the column the keyboard is not in is safe;
 		// hiding the one it is in is what focusContent below prevents.

@@ -178,6 +178,10 @@ const (
 	// EditorFocusTree hands the keyboard back to the tree column without closing the
 	// editor: the whole point of the column is that it stays visible while a file is open.
 	EditorFocusTree Action = "editor.focus-tree"
+	// EditorUnsplit is the way out of a split content area, and the counterpart to
+	// BrowserSplit: without it the only exit is closing files until one half runs out,
+	// which makes "two files side by side" a state you can enter and not leave.
+	EditorUnsplit Action = "editor.unsplit"
 
 	// Leader — hop's keyboard inside a pane.
 	LeaderOut     Action = "leader.out"
@@ -355,6 +359,11 @@ var defaults = []Binding{
 	{Action: EditorNextTab, Layer: Editor, Keys: []string{"shift+right", "alt+right", "alt+l"}, Show: "shift+→", Label: "next tab"},
 	{Action: EditorPrevTab, Layer: Editor, Keys: []string{"shift+left", "alt+left", "alt+h"}, Show: "shift+←", Label: "previous tab"},
 	{Action: EditorFocusTree, Layer: Editor, Keys: []string{"alt+t"}, Label: "focus the tree"},
+	// ctrl+\ closes the split \ opened: the same key with the modifier the rule about
+	// alt chords asks for, so the pair reads as one gesture and its way back is the one
+	// thing a user would guess. It is also a key a terminal editor almost never claims —
+	// unlike ctrl+w or ctrl+s, which this layer forwards and must keep forwarding.
+	{Action: EditorUnsplit, Layer: Editor, Keys: []string{"ctrl+\\"}, Label: "close the split, keep this file"},
 	{Action: BrowserTree, Layer: Editor, Keys: []string{"ctrl+t"}, Label: "hide / show the tree column"},
 
 	// ---- leader ----

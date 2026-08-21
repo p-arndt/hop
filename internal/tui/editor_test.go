@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"hop/internal/filebrowser"
+	"hop/internal/keys"
 	"hop/internal/sftpx"
 	"hop/internal/sshx"
 	"hop/internal/store"
@@ -434,5 +435,77 @@ func TestSplitStillSplitsAfterAnotherKey(t *testing.T) {
 	if !s.split || !s.splitRight {
 		t.Fatalf("split = %v, splitRight = %v; want the content halved with the keyboard in the new half",
 			s.split, s.splitRight)
+	}
+}
+
+// ctrl+\ is the way out of a split, and the half the keyboard was in is the one that
+// stays: closing something must not also move you to a file you were not reading.
+func TestUnsplitKeepsTheFocusedHalfsFile(t *testing.T) {
+	m, s := splitModel(t, "a.conf", "b.conf")
+	s.openSplit()
+	s.splitEd = 1 // b.conf on the right, a.conf on the left, keyboard on the right
+	m.mode = modeEditor
+
+	m.handleKey(key(t, `ctrl+\`))
+
+	if s.split || s.splitRight {
+		t.Fatalf("split = %v, splitRight = %v; want the content area back to one box",
+			s.split, s.splitRight)
+	}
+	if got := s.editor(); got == nil || got.name != "b.conf" {
+		t.Fatalf("the content area shows %v, want the file the focused half was reading", got)
+	}
+	if len(s.editors) != 2 {
+		t.Fatalf("editors = %d; unsplitting closed a file, and it must only close the split",
+			len(s.editors))
+	}
+	// The halves are gone from the layout too, not only from the state: an editor still
+	// sized for half the width would be drawn into a box twice that size, and the pointer
+	// would be hit-testing against two boxes nothing draws any more.
+	w, _ := m.editorSize(s)
+	if w != m.paneW {
+		t.Fatalf("the editor is %d columns wide in a %d-column content area; unsplit did not relayout",
+			w, m.paneW)
+	}
+	if m.splitOn(s) {
+		t.Fatal("the layout still reports two halves")
+	}
+}
+
+// Collapsing from the left half keeps the left half's file, which is what collapseSplit
+// does by leaving activeEd where it is — the same key, the other side of it.
+func TestUnsplitFromTheLeftHalf(t *testing.T) {
+	m, s := splitModel(t, "a.conf", "b.conf")
+	s.openSplit()
+	s.splitEd = 1
+	s.splitRight = false
+	m.mode = modeEditor
+
+	m.handleKey(key(t, `ctrl+\`))
+
+	if got := s.editor(); got == nil || got.name != "a.conf" {
+		t.Fatalf("the content area shows %v, want a.conf", got)
+	}
+}
+
+// With one box on screen the key is not hop's: the editor layer forwards everything it
+// does not own, so an unsplit with nothing to unsplit has to report "not handled" rather
+// than swallow a keystroke the remote editor may well have a meaning for.
+func TestUnsplitWithNoSplitFallsThroughToTheEditor(t *testing.T) {
+	m, s := splitModel(t, "a.conf", "b.conf")
+	m.mode = modeEditor
+	s.activeEd = 1
+
+	handled, _, cmd := m.doEditor(keys.EditorUnsplit)
+
+	if handled {
+		t.Fatal("the unsplit key was swallowed with nothing split; the remote editor is owed it")
+	}
+	if cmd != nil {
+		t.Fatal("a no-op returned a command")
+	}
+	if s.split || s.activeEd != 1 || m.mode != modeEditor {
+		t.Fatalf("split = %v, activeEd = %d, mode = %v; the key must change nothing visible",
+			s.split, s.activeEd, m.mode)
 	}
 }

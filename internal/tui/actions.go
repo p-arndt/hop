@@ -153,6 +153,12 @@ var editorSpecs = []spec{
 	{id: keys.EditorNextTab},
 	{id: keys.EditorPrevTab},
 	{id: keys.EditorFocusTree},
+	// Offered only where it would do something, as the pane chords are: with one box on
+	// screen "close the split" is a row that describes a state the user is not in.
+	{id: keys.EditorUnsplit, ok: func(m *model) bool {
+		s := m.sessions[m.active]
+		return s != nil && s.split
+	}},
 	{id: keys.Sidebar},
 	{id: keys.LeaderHelp, leader: true},
 }

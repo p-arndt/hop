@@ -33,7 +33,7 @@ type row = [2]string
 // browserHelpActions is the browser section of the card, in the order it is drawn. It is a
 // list of its own rather than an argument list inline so a test can walk it: the card, the
 // palette and the footer are hand-written, and a newly bound key that nobody adds to any of
-// them is invisible. See TestEveryBrowserActionIsDiscoverable.
+// them is invisible. See TestEveryActionIsDiscoverable.
 var browserHelpActions = []keys.Action{
 	keys.In, keys.Out, keys.BrowserOpen, keys.BrowserDownload, keys.BrowserUpload,
 	keys.BrowserMark, keys.BrowserMarkAll, keys.BrowserTarget,
@@ -41,6 +41,13 @@ var browserHelpActions = []keys.Action{
 	keys.BrowserRename, keys.BrowserDelete, keys.BrowserMkdir, keys.BrowserSort,
 	keys.BrowserRefresh, keys.BrowserFocusPane, keys.BrowserSplit, keys.BrowserTree,
 	keys.BrowserPalette, keys.BrowserHelp, keys.BrowserLeave,
+}
+
+// editorHelpActions is the editor section's, on the same terms and for the same reason:
+// the split key was reachable from the browser long before anything said how to undo it,
+// and a table nobody can walk is how that happens. See TestEveryActionIsDiscoverable.
+var editorHelpActions = []keys.Action{
+	keys.EditorNextTab, keys.EditorFocusTree, keys.EditorUnsplit, keys.BrowserTree,
 }
 
 // rows renders bindings from one layer, in the order given, dropping any the user has
@@ -128,7 +135,7 @@ func (m *model) helpRight() []helpSection {
 	browser := m.helpRows(keys.Browser, browserHelpActions...)
 
 	editor := []row{{":q", "close the tab"}}
-	editor = append(editor, m.helpRows(keys.Editor, keys.EditorNextTab, keys.EditorFocusTree)...)
+	editor = append(editor, m.helpRows(keys.Editor, editorHelpActions...)...)
 	editor = append(editor, m.chordRange("straight to that tab")...)
 	editor = append(editor, m.chord(keys.LeaderPalette)...)
 	editor = append(editor, m.chord(keys.LeaderOut)...)

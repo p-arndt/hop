@@ -347,9 +347,13 @@ func TestChordActionsRunWithoutReplay(t *testing.T) {
 // The card, the palette and the footer are hand-written lists, not generated from the key
 // registry, so a key added to internal/keys reaches the user only if someone remembers all
 // three. Marking, the target and copy/move were bound and working while appearing in none
-// of them — a key that is never shown is a key that does not exist. This walks the Browser
-// layer and insists every action is reachable from the card or the palette.
-func TestEveryBrowserActionIsDiscoverable(t *testing.T) {
+// of them — a key that is never shown is a key that does not exist. This walks the layers
+// that have such lists and insists every action is reachable from the card or the palette.
+//
+// The editor layer joined the walk when the split gained a way out: the split key was
+// reachable from the browser for a release before anything on screen said how to undo it,
+// which is the same failure one layer over.
+func TestEveryActionIsDiscoverable(t *testing.T) {
 	// The motions are left out on purpose, for the reason browserSpecs states: nobody
 	// opens a menu to move the cursor down. The card lists them as a group of their own.
 	motions := map[keys.Action]bool{
@@ -359,20 +363,40 @@ func TestEveryBrowserActionIsDiscoverable(t *testing.T) {
 		keys.BrowserUp: true,
 	}
 
-	inPalette := map[keys.Action]bool{}
-	for _, sp := range browserSpecs {
-		inPalette[sp.id] = true
+	// The editor's two ways out are written into the card by hand rather than resolved
+	// from the registry — they are drawn as the leader chord and as the remote editor's
+	// own ":q", which is what the hand actually does — so the tables cannot name them.
+	editorExempt := map[keys.Action]bool{
+		keys.LeaderKey: true, keys.EditorLeave: true,
 	}
 
-	inCard := map[keys.Action]bool{}
-	for _, a := range browserHelpActions {
-		inCard[a] = true
-	}
+	for _, tc := range []struct {
+		layer  keys.Layer
+		specs  []spec
+		card   []keys.Action
+		exempt map[keys.Action]bool
+	}{
+		{keys.Browser, browserSpecs, browserHelpActions, motions},
+		{keys.Editor, editorSpecs, editorHelpActions, editorExempt},
+	} {
+		t.Run(tc.layer.String(), func(t *testing.T) {
+			inPalette := map[keys.Action]bool{}
+			for _, sp := range tc.specs {
+				inPalette[sp.id] = true
+			}
 
-	for _, b := range keys.Defaults().Layer(keys.Browser, true) {
-		if motions[b.Action] || inPalette[b.Action] || inCard[b.Action] {
-			continue
-		}
-		t.Errorf("%s is bound in the browser but appears in neither the card nor the palette", b.Action)
+			inCard := map[keys.Action]bool{}
+			for _, a := range tc.card {
+				inCard[a] = true
+			}
+
+			for _, b := range keys.Defaults().Layer(tc.layer, true) {
+				if tc.exempt[b.Action] || inPalette[b.Action] || inCard[b.Action] {
+					continue
+				}
+				t.Errorf("%s is bound in the %s layer but appears in neither the card nor the palette",
+					b.Action, tc.layer)
+			}
+		})
 	}
 }

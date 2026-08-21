@@ -552,6 +552,22 @@ var footerCardArms = []footerArm{
 //
 // The last row matches everything, so the walk always has an answer — it is the host list,
 // which is where hop is when it is nowhere else.
+// editorExtras is the editor arm's extra hints. It is a function rather than a literal
+// because one of them is conditional: the way out of a split is named only while there is
+// a split to leave, since a legend offering to close one on a screen showing a single box
+// is naming a key that would decline.
+func (m *model) editorExtras() []string {
+	// The way back to the tree leads: the column is on screen beside this file, and the
+	// one thing the legend has to say about it is how to reach it. Unsplit follows it
+	// directly, ahead of the jump and the sidebar — it is the only key on this line that
+	// undoes something the user cannot otherwise undo.
+	extra := []string{m.hint(keys.Editor, keys.EditorFocusTree, "tree")}
+	if s := m.sessions[m.active]; s != nil && s.split {
+		extra = append(extra, m.hint(keys.Editor, keys.EditorUnsplit, "unsplit"))
+	}
+	return append(extra, m.leaderRange("jump"), m.sidebarHint())
+}
+
 var footerModeArms = []footerArm{
 	{
 		// A dead pane has its own small keyboard; a legend offering shift+←→ would name
@@ -573,14 +589,7 @@ var footerModeArms = []footerArm{
 				m.chordHint(keys.LeaderOut, "browser"),
 				keyHint(":q", "close"), // the remote editor's key, not hop's
 				m.hint(keys.Editor, keys.EditorNextTab, "tab"),
-			}, []string{
-				// The way back to the tree leads the extras: the column is on screen
-				// beside this file, and the one thing the legend has to say about it is
-				// how to reach it.
-				m.hint(keys.Editor, keys.EditorFocusTree, "tree"),
-				m.leaderRange("jump"),
-				m.sidebarHint(),
-			}
+			}, m.editorExtras()
 		},
 	},
 	{

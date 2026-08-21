@@ -24,7 +24,7 @@ label: Browsing mode
 | [[c]] | copy what is marked into the target |
 | [[v]] | move what is marked into the target |
 | [[tab]] | focus the content pane |
-| [[\]] | open the file beside the current one, not as another tab |
+| [[\]] | open the file beside the current one, not as another tab ([[ctrl+\]] closes the split again) |
 | [[←]] [[backspace]] | collapse, or step out to the parent |
 | [[r]] | refresh the listing |
 | [[ctrl+k]] | the [palette](#actions): everything the browser can do, searchable |
