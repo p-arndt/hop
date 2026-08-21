@@ -537,8 +537,14 @@ func splitSelModel(t *testing.T, screen, marker string) (*model, *session, func(
 	m.sessions["ha"] = s
 	s.openSplit()
 
+	// As openSplit's caller does in production: the halves are boxes of the frame, so a
+	// split that nothing has laid out again is a split the frame has not heard about.
+	m.recomputeLayout()
 	if !m.splitOn(s) {
 		t.Fatal("the content area is not split, so nothing here is being tested")
+	}
+	if m.fr.right.empty() {
+		t.Fatal("the frame has no right half, so nothing here is being tested")
 	}
 	return m, s, func() string {
 		mu.Lock()
@@ -563,13 +569,14 @@ func TestSelectionInASplitHalfIsMeasuredAtTheHalfWidth(t *testing.T) {
 	screen, marker, line := wideLine()
 	m, s, copied := splitSelModel(t, screen, marker)
 
-	if m.selectionW() != m.splitHalf() {
-		t.Fatalf("selectionW = %d, want the half's %d and not the content area's %d",
-			m.selectionW(), m.splitHalf(), m.paneW)
+	box := m.fr.half(s.focusedHalf())
+	if box.innerW() != m.splitHalf() {
+		t.Fatalf("the half is %d wide, want %d and not the content area's %d",
+			box.innerW(), m.splitHalf(), m.paneW)
 	}
 
 	// The first row is covered to the edge of the box, the second ends the selection.
-	m.startSelection(terminal.Cell{X: 0, Y: 0})
+	m.startSelection(terminal.Cell{X: 0, Y: 0}, box)
 	m.dragSelection(terminal.Cell{X: 4, Y: 1})
 	m.endSelection(s.editor().pane.View())
 
@@ -594,12 +601,15 @@ func TestSelectionInAShellIsMeasuredAtTheFullWidth(t *testing.T) {
 	t.Cleanup(func() { s.shells[0].pane.Close() })
 	m.mode = modeShell
 
-	if m.selectionW() != m.paneW {
-		t.Fatalf("selectionW = %d, want the content area's %d: a shell is never split",
-			m.selectionW(), m.paneW)
+	// A shell is drawn in the content box entire, which is the box mouseShell hands to
+	// mouseSelect however the session behind it is split.
+	box := m.fr.content
+	if box.innerW() != m.paneW {
+		t.Fatalf("the content box is %d wide, want %d: a shell is never split",
+			box.innerW(), m.paneW)
 	}
 
-	m.startSelection(terminal.Cell{X: 0, Y: 0})
+	m.startSelection(terminal.Cell{X: 0, Y: 0}, box)
 	m.dragSelection(terminal.Cell{X: 4, Y: 1})
 	m.endSelection(s.shell().pane.View())
 

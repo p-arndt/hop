@@ -24,15 +24,15 @@ func (m *model) View() string {
 	// against the previous frame's widths is a frame that does not add up to the window.
 	m.recomputeLayout()
 
-	bodyH := m.bodyHeight()
-	// A collapsed column is not drawn at all: a zero-width box would still cost the two
-	// columns its border takes. That is what listWidth and treeWidth returning 0 mean.
-	body := m.renderRight(bodyH)
-	if w := m.treeWidth(); w > 0 {
-		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderTree(w, bodyH), body)
+	// The columns are drawn right to left into the boxes the frame placed them in. A
+	// collapsed column is not drawn at all — an empty rect, rather than a zero-width box,
+	// which would still cost the two columns its border takes.
+	body := m.renderRight(m.fr.content.h)
+	if r := m.fr.tree; !r.empty() {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderTree(r), body)
 	}
-	if w := m.listWidth(); w > 0 {
-		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderList(w, bodyH), body)
+	if r := m.fr.list; !r.empty() {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderList(r.w, r.h), body)
 	}
 
 	screen := lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), body, m.renderStatus(), m.renderFooter())
@@ -157,12 +157,12 @@ func (m *model) styledStatus() string {
 // not the keyboard is in it — a tree you cannot see while reading a file is a mode, and
 // the column exists so that it is not one — so the border and the dimmed body are what
 // say where the keys are going.
-func (m *model) renderTree(w, h int) string {
+func (m *model) renderTree(r rect) string {
 	s := m.sessions[m.active]
 	if s == nil || s.browser == nil {
 		return ""
 	}
-	innerW, innerH := max(w-2, 1), max(h-2, 1)
+	innerW, innerH := max(r.innerW(), 1), max(r.innerH(), 1)
 	return columnStyle(m.browsing()).
 		Width(innerW).Height(innerH).
 		Render(clampLines(fitLines(s.browser.View(), innerH), innerW))
@@ -230,7 +230,7 @@ func (m *model) contentBox(active bool, w, innerH int, content string) string {
 	switch {
 	case active:
 		style = paneBorderActive
-	case m.treeWidth() > 0:
+	case !m.fr.tree.empty():
 		style = paneBorderIdle
 	}
 	return style.Width(w).Height(innerH).Render(clampLines(fitLines(content, innerH), w))
@@ -267,7 +267,7 @@ func (m *model) renderEditorPanes(s *session, innerH int) string {
 			m.renderEditorTabs(s, half)+"\n"+m.selectedView(ed.pane.View()))
 	}
 
-	w := m.splitHalf()
+	w := m.fr.left.innerW()
 	half := func(right bool) string {
 		focused := m.editing() && s.splitRight == right
 		ed := s.editorAt(right)

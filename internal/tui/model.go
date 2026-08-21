@@ -161,6 +161,12 @@ type model struct {
 	// were never independent and had to be cleared by hand. See paneMode.
 	mode paneMode
 
+	// fr is where every box of the body is for the frame being drawn: derived in
+	// recomputeLayout, read by the renderer and the pointer alike so the two cannot
+	// disagree. It is state only in the sense that a cache is — nothing writes to it but
+	// recomputeLayout, and View re-derives it before measuring anything. See frame.
+	fr frame
+
 	// sidebarHidden is true while the host list is collapsed (ctrl+b). Session-only and
 	// not a setting: hop opens on its host list, which is where you start from.
 	sidebarHidden bool

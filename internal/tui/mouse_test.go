@@ -82,8 +82,11 @@ func TestZoneAt(t *testing.T) {
 		}
 	}
 
-	// Collapsed, the sidebar is not there to point at: the pane owns every column.
+	// Collapsed, the sidebar is not there to point at: the pane owns every column. The
+	// relayout is what toggleSidebar does in production — the pointer hit-tests against
+	// the frame that was last laid out, not against state nothing has drawn yet.
 	m.sidebarHidden = true
+	m.recomputeLayout()
 	if got := m.zoneAt(4, 5); got != zonePane {
 		t.Errorf("with the sidebar collapsed, zoneAt(4, 5) = %v, want zonePane", got)
 	}
@@ -595,6 +598,7 @@ func TestZoneAtWithTheTreeColumn(t *testing.T) {
 
 	// Collapsed, the host list is not there to point at and the tree starts at column 0.
 	m.sidebarHidden = true
+	m.recomputeLayout()
 	if got := m.zoneAt(0, 5); got != zoneTree {
 		t.Errorf("with the sidebar collapsed, zoneAt(0, 5) = %v, want zoneTree", got)
 	}

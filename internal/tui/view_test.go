@@ -145,8 +145,8 @@ func TestPanesFillTheWidth(t *testing.T) {
 	m := viewModel(120, 34)
 	m.cursor = 0
 
-	body := strings.Split(m.renderList(m.listWidth(), m.bodyHeight()), "\n")[0] +
-		strings.Split(m.renderRight(m.bodyHeight()), "\n")[0]
+	body := strings.Split(m.renderList(m.fr.list.w, m.fr.list.h), "\n")[0] +
+		strings.Split(m.renderRight(m.fr.content.h), "\n")[0]
 
 	if got := lipgloss.Width(body); got != 120 {
 		t.Fatalf("the two panes are %d cells wide, want the full window (120)", got)
@@ -158,9 +158,9 @@ func TestPanesFillTheWidth(t *testing.T) {
 func TestThreeColumnsFillTheWidth(t *testing.T) {
 	m, _ := columnModel(t, 200, 34)
 
-	body := strings.Split(m.renderList(m.listWidth(), m.bodyHeight()), "\n")[0] +
-		strings.Split(m.renderTree(m.treeWidth(), m.bodyHeight()), "\n")[0] +
-		strings.Split(m.renderRight(m.bodyHeight()), "\n")[0]
+	body := strings.Split(m.renderList(m.fr.list.w, m.fr.list.h), "\n")[0] +
+		strings.Split(m.renderTree(m.fr.tree), "\n")[0] +
+		strings.Split(m.renderRight(m.fr.content.h), "\n")[0]
 
 	if got := lipgloss.Width(body); got != 200 {
 		t.Fatalf("the three columns are %d cells wide, want the full window (200)", got)

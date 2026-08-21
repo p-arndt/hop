@@ -282,23 +282,47 @@ func TestFrameIsExactlyTheWindow(t *testing.T) {
 // other threshold in this file. Actual: a 20-column window is drawn 28 cells wide, which
 // is the one case TestFrameIsExactlyTheWindow would fail on, so it has no case that
 // small. The fix belongs with whatever replaces the border arithmetic — a rect that
-// cannot be wider than its parent — not with a wider floor.
-func TestFrameOverrunsVeryNarrowWindows(t *testing.T) {
-	// The floors, spelled out: the sidebar's, the content area's, and the two border
-	// columns the content box costs. Anything narrower than their sum cannot be honoured.
-	const floor = 16 + 10 + 2
-
-	for _, w := range []int{20, floor - 1, floor, floor + 1} {
+// cannot be wider than its parent, and it no longer is.
+//
+// This test used to assert the defect: the sidebar's floor of 16 and the content area's
+// of 10 were independent of each other and of the window, so a 20-column terminal was
+// drawn 28 cells wide — and a frame wider than the terminal scrolls hop's own header off
+// the top of itself. listWidth now yields the sidebar entirely rather than overrun, on
+// the same terms as the tree column, and the content area has no floor left to break.
+func TestVeryNarrowWindowsStillFitTheirTerminal(t *testing.T) {
+	// Three is the real floor: a box cannot be narrower than its two borders plus a
+	// column to draw in. No terminal is that small; the arithmetic simply has an end.
+	for w := 3; w <= 40; w++ {
 		m := viewModel(w, 12)
 		withShell(t, m)
 
-		widest := 0
-		for _, ln := range strings.Split(m.View(), "\n") {
-			widest = max(widest, lipgloss.Width(ln))
+		for i, ln := range strings.Split(m.View(), "\n") {
+			if got := lipgloss.Width(ln); got != w {
+				t.Fatalf("a %d-column window renders line %d at %d cells, want %d", w, i, got, w)
+			}
 		}
-		want := max(w, floor)
-		if widest != want {
-			t.Fatalf("a %d-column window renders %d cells wide, want %d", w, widest, want)
+	}
+}
+
+// The sidebar is what gives way, and only when it has to: the window that can hold both
+// keeps both, and the one that cannot loses the list rather than the file.
+func TestTheSidebarYieldsBeforeTheFrameOverruns(t *testing.T) {
+	for _, c := range []struct {
+		w        int
+		wantList int
+	}{
+		{27, 0},  // 16 + 12 needs 28; one short, so the list goes
+		{28, 16}, // exactly enough for both floors
+		{40, 20}, // half the window, which is the ordinary clamp
+	} {
+		m := viewModel(c.w, 12)
+		withShell(t, m)
+		m.recomputeLayout()
+		if got := m.fr.list.w; got != c.wantList {
+			t.Errorf("at %d columns the list is %d wide, want %d", c.w, got, c.wantList)
+		}
+		if got := m.fr.content.x + m.fr.content.w; got != c.w {
+			t.Errorf("at %d columns the content box ends at %d, want the window edge", c.w, got)
 		}
 	}
 }

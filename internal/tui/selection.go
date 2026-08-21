@@ -40,6 +40,13 @@ type selection struct {
 	// up, +1 for down, 0 while the pointer is somewhere in the middle. It is what says
 	// a repeat is already armed, so motion does not start a second clock.
 	edge int
+
+	// box is the content box the drag was started in, kept because a selection only means
+	// anything against the rows it was measured in. Reading the width back off the layout
+	// later cannot answer it: the content area may be one box or two, and which one this
+	// selection belongs to is a fact about where the pointer went down, not about what the
+	// screen looks like now. It also survives a resize mid-drag.
+	box rect
 }
 
 // span is the selection as an ordered span, or the empty span when there is none.
@@ -51,8 +58,8 @@ func (s selection) span() terminal.Span {
 }
 
 // startSelection begins a drag at the pane cell the button went down on.
-func (m *model) startSelection(c terminal.Cell) {
-	m.sel = selection{active: true, dragging: true, anchor: c, head: c}
+func (m *model) startSelection(c terminal.Cell, box rect) {
+	m.sel = selection{active: true, dragging: true, anchor: c, head: c, box: box}
 }
 
 // dragSelection moves the head of a drag in progress. A motion event with no drag behind
@@ -82,7 +89,7 @@ func (m *model) endSelection(view string) {
 	if rows, top, ok := m.shellSpanView(span); ok {
 		view, span = rows, shiftSpan(span, top)
 	}
-	text := terminal.PlainText(view, span, m.selectionW())
+	text := terminal.PlainText(view, span, m.sel.box.innerW())
 	if strings.TrimSpace(text) == "" {
 		m.sel = selection{}
 		return
@@ -165,24 +172,13 @@ func (m *model) clearSelection() bool {
 // Anything else — the details pane, a dead session's last screen, the browser in the
 // narrow-window fallback — is drawn at m.paneW and never has a highlight painted on it
 // anyway, so the fallback is the whole content area.
-func (m *model) selectionW() int {
-	s := m.sessions[m.active]
-	if s == nil {
-		return m.paneW
-	}
-	if m.focused() && s.shell() != nil {
-		return m.paneW
-	}
-	if s.editor() != nil {
-		return m.contentW(s)
-	}
-	return m.paneW
-}
-
 // selectedView is a pane's rendered content with the selection painted onto it, a no-op
 // when nothing is selected.
 func (m *model) selectedView(content string) string {
-	return terminal.Highlight(content, m.sel.span(), m.selectionW())
+	if !m.sel.active {
+		return content
+	}
+	return terminal.Highlight(content, m.sel.span(), m.sel.box.innerW())
 }
 
 // countLines is how many lines a copied string spans, for the status line.

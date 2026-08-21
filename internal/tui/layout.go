@@ -35,6 +35,74 @@ const minSplitHalf = 24
 // chromeRows is what the header, status bar and footer cost the body.
 const chromeRows = 3
 
+// minPaneWidth is the inner width the content area is worth drawing at. It is not a
+// promise the layout can always keep — see listWidth, which yields the whole sidebar
+// rather than let the content box run off the right-hand edge to honour it.
+const minPaneWidth = 10
+
+// rect is a box on the screen in OUTER coordinates: x and y are its top-left cell, w and
+// h include its border. That is the unit listWidth and treeWidth have always spoken in,
+// so a rect can be built from them without an adjustment nobody can see.
+//
+// It exists because the same border arithmetic used to be written out at every consumer —
+// the renderer, three translations in the pointer handling, and the selection's width —
+// each correct only relative to its own starting point, and none of them checked against
+// the others. A rect answers "is this cell mine" and "where is it inside me" once.
+type rect struct{ x, y, w, h int }
+
+// empty reports whether the box is not drawn at all. A collapsed column is empty rather
+// than zero-width-but-present: a zero-width box would still cost the two columns its
+// border takes, which is why collapsing has always meant returning 0 here.
+func (r rect) empty() bool { return r.w <= 0 || r.h <= 0 }
+
+// innerW and innerH are the box less its border — the size the content drawn in it gets.
+func (r rect) innerW() int { return max(r.w-2, 0) }
+func (r rect) innerH() int { return max(r.h-2, 0) }
+
+// contains reports whether screen cell (x, y) is anywhere in the box, border included.
+// This is the question the zone hit-testing asks, which is why it counts the border: a
+// click on a column's edge belongs to that column, not to its neighbour.
+func (r rect) contains(x, y int) bool {
+	return !r.empty() && x >= r.x && x < r.x+r.w && y >= r.y && y < r.y+r.h
+}
+
+// inner maps a screen cell to one inside the box's content area, or reports false for a
+// cell on the border or outside. This is the question the panes ask: an emulated screen
+// is addressed from its own top-left corner and knows nothing of the box around it.
+func (r rect) inner(x, y int) (int, int, bool) {
+	lx, ly := x-r.x-1, y-r.y-1
+	if lx < 0 || ly < 0 || lx >= r.innerW() || ly >= r.innerH() {
+		return 0, 0, false
+	}
+	return lx, ly, true
+}
+
+// clamp maps a screen cell to the nearest cell inside the box's content area — inner for
+// a pointer that has left it, which is where a drag off the edge lands.
+func (r rect) clamp(x, y int) (int, int) {
+	return clamp(x-r.x-1, 0, max(r.innerW()-1, 0)), clamp(y-r.y-1, 0, max(r.innerH()-1, 0))
+}
+
+// frame is where every box of the body is, for one drawn screen. It is derived in
+// recomputeLayout and read by the renderer and the pointer alike, so the two cannot
+// disagree about what is on screen or how wide it is.
+//
+// left and right are the halves of the content area. Unsplit there is one half and it is
+// left, with right empty — so "is the content split" is the same question as "is there a
+// right half", asked of the layout rather than of the session.
+type frame struct {
+	list, tree, content rect
+	left, right         rect
+}
+
+// half returns the content box for one side, which is left when the content is not split.
+func (f frame) half(right bool) rect {
+	if right && !f.right.empty() {
+		return f.right
+	}
+	return f.left
+}
+
 // recomputeLayout derives the column inner sizes from the window size. It is cheap and
 // derives everything from state, so it is safe to run again whenever the columns could
 // have moved — which is not only a resize: the tree column comes and goes with the active
@@ -43,10 +111,38 @@ func (m *model) recomputeLayout() {
 	if m.width <= 0 || m.height <= 0 {
 		return
 	}
+	lw, tw := m.listWidth(), m.treeWidth()
 	// listWidth and treeWidth are outer widths, borders included; the content area gets
-	// the rest of the row, less the two columns its own border takes.
-	m.paneW = max(m.width-m.listWidth()-m.treeWidth()-2, 10)
+	// the rest of the row, less the two columns its own border takes. It has no floor of
+	// its own: a floor here could only be honoured by drawing past the right-hand edge,
+	// and listWidth has already given up the sidebar to keep this from going small.
+	m.paneW = max(m.width-lw-tw-2, 1)
 	m.paneH = max(m.bodyHeight()-2, 3)
+	m.fr = m.buildFrame(lw, tw)
+}
+
+// buildFrame places the boxes of the body along the row. The columns are laid left to
+// right from widths that are already settled, so the frame cannot disagree with them —
+// which is the whole point of deriving it in one place.
+func (m *model) buildFrame(lw, tw int) frame {
+	bodyH := m.bodyHeight()
+	f := frame{
+		list:    rect{x: 0, y: 1, w: lw, h: bodyH},
+		tree:    rect{x: lw, y: 1, w: tw, h: bodyH},
+		content: rect{x: lw + tw, y: 1, w: m.paneW + 2, h: bodyH},
+	}
+
+	if !m.splitOn(m.sessions[m.active]) {
+		f.left = f.content
+		return f
+	}
+	// Two boxes inside the columns the one box had. Both halves are the same width, so
+	// the odd column an odd-width content area leaves over stays blank at the right-hand
+	// edge — it belongs to no box, and the pointer is told so.
+	hw := m.splitHalf() + 2
+	f.left = rect{x: f.content.x, y: 1, w: hw, h: bodyH}
+	f.right = rect{x: f.content.x + hw, y: 1, w: hw, h: bodyH}
+	return f
 }
 
 // relayout re-derives the columns and tells every live pane the size it now has. It is
@@ -70,7 +166,19 @@ func (m *model) listWidth() int {
 	if m.sidebarHidden {
 		return 0
 	}
-	return clamp(sidebarWidth, 16, max(m.width/2, 16))
+	w := clamp(sidebarWidth, 16, max(m.width/2, 16))
+	// The floor of 16 is a preference, not a promise. It is independent of the window, so
+	// on a terminal narrower than that floor plus a content box the two together used to
+	// come to more cells than there were — and the frame was drawn wider than the
+	// terminal, which scrolls hop's own header off the top of itself.
+	//
+	// So the list yields entirely, on the same terms as the tree column: a column too
+	// narrow to work in is worse than no column, and of the two the content area is the
+	// one that cannot be given up.
+	if m.width-w < minPaneWidth+2 {
+		return 0
+	}
+	return w
 }
 
 // treeWidth is the outer width of the SFTP column, borders included, or 0 when there is
@@ -82,13 +190,18 @@ func (m *model) listWidth() int {
 // whole width, so collapsing the sidebar on a middling terminal is what buys the column —
 // which is the trade the user is making by collapsing it.
 func (m *model) treeWidth() int {
-	if m.treeHidden || !m.hasTree() {
-		return 0
-	}
-	if m.width-m.listWidth() < treeColWidth+minContentWidth {
+	if m.treeHidden || !m.hasTree() || !m.roomForTree() {
 		return 0
 	}
 	return treeColWidth
+}
+
+// roomForTree reports whether the window can hold the SFTP column and a content area
+// worth reading beside it. It asks about the window alone — not about what any session is
+// holding — which is what lets browserSize answer for a browser that is not on screen, or
+// does not exist yet, and still agree with treeWidth about how wide it will be.
+func (m *model) roomForTree() bool {
+	return m.width-m.listWidth() >= treeColWidth+minContentWidth
 }
 
 // hasTree reports whether the active session has a browser to put in the column. A
@@ -172,7 +285,7 @@ func (m *model) editorSize(s *session) (int, int) {
 // the threshold directly instead of asking treeWidth, which is about the session on
 // screen now.
 func (m *model) browserSize() (int, int) {
-	if m.treeHidden || m.width-m.listWidth() < treeColWidth+minContentWidth {
+	if m.treeHidden || !m.roomForTree() {
 		return m.paneW, m.paneH
 	}
 	return max(treeColWidth-2, 10), m.paneH
