@@ -8,8 +8,7 @@ import (
 	"strings"
 )
 
-// output is one generated file: a template, where it lands, and how it is
-// assembled.
+// output is one generated file.
 type output struct {
 	tmpl     string
 	dst      string
@@ -66,9 +65,7 @@ func run(root string, check bool) error {
 
 		dst := filepath.Join(root, o.dst)
 		old, _ := os.ReadFile(dst)
-		// Compared after normalising line endings: a Windows checkout has these
-		// files as CRLF while docsgen writes LF, and byte equality would call
-		// an identical file out of date.
+		// A Windows checkout has these files as CRLF while docsgen writes LF.
 		if normalizeEOL(string(old)) == got {
 			continue
 		}

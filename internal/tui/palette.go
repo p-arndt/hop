@@ -10,9 +10,8 @@ import (
 	"hop/internal/keys"
 )
 
-// paletteUI is the command palette's state: a query, the actions matching it, and which
-// one is selected. The matches are held rather than recomputed at render time, since the
-// cursor indexes them and a render must not be able to move it.
+// paletteUI is the command palette's state. The matches are held rather than recomputed
+// at render time, since the cursor indexes them.
 type paletteUI struct {
 	open   bool
 	query  string
@@ -20,9 +19,7 @@ type paletteUI struct {
 	items  []action
 }
 
-// openPalette raises the palette on everything the mode you are in can do. It opens
-// unfiltered on purpose: the first thing it teaches is what exists, and typing is the
-// second.
+// openPalette raises the palette on everything the current mode can do, unfiltered.
 func (m *model) openPalette() {
 	m.palette = paletteUI{open: true, items: m.contextActions()}
 	m.clearStatus()
@@ -30,8 +27,7 @@ func (m *model) openPalette() {
 
 func (m *model) closePalette() { m.palette = paletteUI{} }
 
-// filterPalette re-runs the query and re-clamps the cursor. Both the label and the key
-// are matched, so "sft" finds the browser and "ctrl+b" finds the sidebar.
+// filterPalette re-runs the query and re-clamps the cursor. Both label and keycap match.
 func (m *model) filterPalette() {
 	all := m.contextActions()
 	if m.palette.query == "" {
@@ -53,9 +49,7 @@ func (m *model) filterPalette() {
 	m.palette.cursor = clamp(m.palette.cursor, 0, max(len(items)-1, 0))
 }
 
-// paletteKey reports whether key is the one that opens the palette in the mode it was
-// opened from — the list's, the browser's or the leader's, all of them the same action
-// under a different layer.
+// paletteKey reports whether key is the one that opens the palette in any of its layers.
 func (m *model) paletteKey(key string) bool {
 	for _, l := range []keys.Layer{keys.List, keys.Browser, keys.Leader} {
 		switch m.binds.Action(l, key, m.cfg.VimKeys) {
@@ -66,11 +60,9 @@ func (m *model) paletteKey(key string) bool {
 	return false
 }
 
-// handlePaletteKey routes a key while the palette is up. It swallows everything: the
-// palette is a text field over a list that binds single letters, so a key falling
-// through would act on the host underneath while you were typing its name.
+// handlePaletteKey routes a key while the palette is up. It swallows everything, or a key
+// would act on the host underneath while you were typing its name.
 func (m *model) handlePaletteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// As with the menu: dialog keys, plus the one that opened it.
 	switch key := msg.String(); {
 	case key == "esc" || m.paletteKey(key):
 		m.closePalette()
@@ -80,8 +72,7 @@ func (m *model) handlePaletteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		a := m.palette.items[m.palette.cursor]
-		// Closed before the action runs, so an action that opens a card of its own is
-		// not opening it underneath this one.
+		// Closed before the action runs, so an action opening its own card is not stacked under this one.
 		m.closePalette()
 		return m.runAction(a)
 
@@ -112,9 +103,7 @@ func (m *model) handlePaletteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// Palette geometry. Wider than the confirmation card — these are sentences with a key
-// pinned to their right — and it shows a fixed number of rows so the card does not
-// jump about the screen as the query narrows.
+// Palette geometry. A fixed row count keeps the card from jumping as the query narrows.
 const (
 	paletteMaxW   = 52
 	paletteFloorW = 24
@@ -126,9 +115,6 @@ func (m *model) paletteInnerW() int {
 	return clamp(paletteMaxW, paletteFloorW, room)
 }
 
-// renderPalette draws the palette: the query with a caret, then the matches with their
-// keys along the right edge. The key is on every row on purpose — the palette's job is
-// to make itself unnecessary.
 func (m *model) renderPalette() string {
 	w := m.paletteInnerW()
 	var b strings.Builder
@@ -160,9 +146,8 @@ func (m *model) renderPalette() string {
 	return cardBox.Width(w + 2*cardPadX).Render(b.String())
 }
 
-// actionRow is one row of the palette or the menu: a lead bar and label on the left, the
-// key on the right. The two are laid out against a known width rather than padded to a
-// column, so a long label gives way to the key rather than pushing it off the card.
+// actionRow is one row of the palette or the menu: lead bar and label left, key right.
+// Laid out against a known width so a long label gives way rather than pushing the key off.
 func actionRow(a action, selected bool, w int) string {
 	lead, label := "  ", dimStyle.Render(a.label)
 	if selected {

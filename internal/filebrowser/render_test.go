@@ -15,15 +15,13 @@ import (
 
 var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-// plain strips the SGR styling so a test can assert on the text and the column layout
-// without depending on whether the environment reports a color profile.
+// plain strips the SGR styling so a test can assert on text and columns alone.
 func plain(s string) string { return ansiRE.ReplaceAllString(s, "") }
 
 // lines splits a rendered view into its rows.
 func lines(s string) []string { return strings.Split(s, "\n") }
 
-// renderBrowser builds a browser of the given size over ents, with its clock pinned so
-// the modified-time column is the same in every year the tests are run.
+// renderBrowser builds a browser of the given size over ents, with its clock pinned.
 func renderBrowser(t *testing.T, w, h int, ents ...sftpx.Entry) *Browser {
 	t.Helper()
 	fixed := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.Local)
@@ -40,8 +38,7 @@ func renderBrowser(t *testing.T, w, h int, ents ...sftpx.Entry) *Browser {
 	return plant(b, "/home/u", ents)
 }
 
-// row builds the node a renderRow test is about: one entry at the given depth, hanging
-// off the browser's root so it has a path the marks and the target can name.
+// row builds one entry at the given depth, hanging off the browser's root.
 func row(b *Browser, e sftpx.Entry, depth int) *node {
 	n := newNode(b.root, e)
 	n.depth = depth
@@ -62,9 +59,7 @@ func (fbStub) Copy(_, _ string, _ func(int64)) (int64, error)             { retu
 func (fbStub) Move(_, _ string, _ func(int64)) error                      { return nil }
 func (fbStub) Close() error                                               { return nil }
 
-// The view is a fixed frame: the path, a rule, the content rows, and the footer on the
-// last line whatever the listing holds. A pane that changed height between renders would
-// tear the layout around it.
+// A fixed frame: the path, a rule, the content rows, and the footer on the last line.
 func TestViewFillsItsBox(t *testing.T) {
 	b := renderBrowser(t, 40, 8, sftpx.Entry{Name: "a.txt", Size: 10})
 
@@ -98,7 +93,6 @@ func TestViewOfAZeroSizedPane(t *testing.T) {
 	}
 }
 
-// An empty directory says so: a blank content area would read as "still loading".
 func TestViewOfAnEmptyListing(t *testing.T) {
 	b := renderBrowser(t, 40, 8)
 	if !strings.Contains(plain(b.View()), "(empty)") {
@@ -106,8 +100,6 @@ func TestViewOfAnEmptyListing(t *testing.T) {
 	}
 }
 
-// Only the window of entries starting at the scroll offset is drawn, so a listing longer
-// than the pane cannot spill past the footer.
 func TestViewShowsOnlyTheScrolledWindow(t *testing.T) {
 	ents := make([]sftpx.Entry, 20)
 	for i := range ents {
@@ -129,16 +121,13 @@ func TestViewShowsOnlyTheScrolledWindow(t *testing.T) {
 	}
 }
 
-// A row carries the entry's name, then its size and modified time pushed to the right
-// edge. A directory gets a trailing slash, a twisty and no size — it has none to report —
-// but keeps its time column.
+// Name on the left, size and modified time at the right edge; a directory has no size.
 func TestRenderRowColumns(t *testing.T) {
 	b := renderBrowser(t, 40, 8)
 	mtime := time.Date(2026, time.March, 4, 9, 5, 0, 0, time.Local).Unix()
 
 	file := plain(b.renderRow(row(b, sftpx.Entry{Name: "notes.txt", Size: 2048, ModTime: mtime}, 0), false))
-	// Two cells of gutter and two of the twisty column, which a file leaves blank so its
-	// name starts in the same column as the directory beside it.
+	// Two cells of gutter and two of the twisty column, which a file leaves blank.
 	if !strings.HasPrefix(file, "    notes.txt") {
 		t.Fatalf("file row = %q, want the name after the gutter and the twisty column", file)
 	}
@@ -157,8 +146,7 @@ func TestRenderRowColumns(t *testing.T) {
 		t.Fatalf("dir row = %q, want no size for a directory", dir)
 	}
 
-	// An open directory says so in the same cell, so the twisty is the only thing that
-	// changes and the names stay in their column.
+	// An open directory says so in the same cell, so the names stay in their column.
 	opened := row(b, sftpx.Entry{Name: "src", IsDir: true}, 0)
 	opened.expanded = true
 	if got := plain(b.renderRow(opened, false)); !strings.HasPrefix(got, "  ▾ src/") {
@@ -171,16 +159,13 @@ func TestRenderRowColumns(t *testing.T) {
 		t.Fatalf("row at depth 2 = %q, want it indented four cells further", deep)
 	}
 
-	// An entry the server reported no mtime for gets no time column at all.
 	noTime := plain(b.renderRow(row(b, sftpx.Entry{Name: "notes.txt", Size: 2048}, 0), false))
 	if !strings.HasSuffix(noTime, "2.0K") {
 		t.Fatalf("row without an mtime = %q, want the size alone", noTime)
 	}
 }
 
-// The selected row is marked in the gutter, which is what the eye tracks while moving;
-// a marked row is ticked in the cell beside it. The two are separate cells because a row
-// is very often both, and the columns must stay aligned whichever it is.
+// Cursor and mark are separate gutter cells, because a row is very often both.
 func TestRenderRowGutterHoldsCursorAndMark(t *testing.T) {
 	b := renderBrowser(t, 40, 8)
 	n := row(b, sftpx.Entry{Name: "notes.txt", Size: 100}, 0)
@@ -210,8 +195,7 @@ func TestRenderRowGutterHoldsCursorAndMark(t *testing.T) {
 	}
 }
 
-// The target directory is told apart by colour rather than by a column: at sidebar widths
-// there is no cell to spare, and there is only ever one target to find.
+// Told apart by colour rather than by a column: at sidebar widths there is no cell to spare.
 func TestRenderRowShowsTheTarget(t *testing.T) {
 	b := renderBrowser(t, 40, 8)
 	n := row(b, sftpx.Entry{Name: "dst", IsDir: true}, 0)
@@ -224,9 +208,7 @@ func TestRenderRowShowsTheTarget(t *testing.T) {
 	}
 }
 
-// As the pane narrows the right-hand columns are dropped before the name is: a truncated
-// name is still recognisable, a truncated size column is noise. The time goes first, then
-// the size, and the name never falls below a readable stub.
+// The time goes first, then the size, and the name never falls below a readable stub.
 func TestRenderRowDropsColumnsAsThePaneNarrows(t *testing.T) {
 	mtime := time.Date(2026, time.March, 4, 9, 5, 0, 0, time.Local).Unix()
 	e := sftpx.Entry{Name: "a-fairly-long-file-name.txt", Size: 2048, ModTime: mtime}
@@ -259,10 +241,7 @@ func TestRenderRowDropsColumnsAsThePaneNarrows(t *testing.T) {
 	}
 }
 
-// The footer is one row and one message: an open prompt owns it while it is asking,
-// because the keyboard is answering it and nothing else; a fresh note comes next; a
-// running transfer only shows through once nothing more urgent is on the line. The row
-// stays present when there is nothing to say, which is what holds the pane's height.
+// One row and one message: prompt, then fresh note, then transfer — and never absent.
 func TestFooterLinePriority(t *testing.T) {
 	b := renderBrowser(t, 40, 8)
 	if got := b.footerLine(40); got != "" {
@@ -290,8 +269,6 @@ func TestFooterLinePriority(t *testing.T) {
 	}
 }
 
-// Everything the footer shows comes from the remote or from an error text, so it is
-// control-stripped and cut to the pane like every other line.
 func TestFooterLineIsFittedAndStripped(t *testing.T) {
 	b := renderBrowser(t, 20, 8)
 	b.note = note{text: "\x1b[2Jremote said something far too long to fit", err: true}
@@ -320,8 +297,7 @@ func TestHumanizeBytes(t *testing.T) {
 		{1536, "1.5K"},
 		{1024 * 1024, "1.0M"},
 		{1024 * 1024 * 1024, "1.0G"},
-		// The scale stops at G, as the doc comment says: a terabyte-sized file keeps
-		// counting in gibibytes rather than wrapping around to a smaller-looking number.
+		// The scale stops at G rather than wrapping to a smaller-looking number.
 		{5 * 1024 * 1024 * 1024 * 1024, "5120.0G"},
 	}
 	for _, c := range cases {
@@ -361,8 +337,7 @@ func TestTruncateText(t *testing.T) {
 	}
 }
 
-// A path is cut from the front: the directory you are in is the tail, and it is the part
-// that tells you where you are.
+// A path is cut from the front: the tail is the part that says where you are.
 func TestTruncPath(t *testing.T) {
 	cases := []struct {
 		name string
@@ -388,8 +363,7 @@ func TestTruncPath(t *testing.T) {
 	}
 }
 
-// A remote name can carry anything; none of it may reach the user's terminal as a
-// sequence. stripControl removes C0, DEL and C1 and leaves the printable text.
+// stripControl removes C0, DEL and C1 and leaves the printable text.
 func TestStripControl(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"plain", "plain"},
@@ -409,8 +383,7 @@ func TestStripControl(t *testing.T) {
 
 // ---- the tree, drawn ----
 
-// nestedBrowser is a browser over a tree three levels deep with every level open, sized
-// as the caller asks. It is the shape the sidebar has to survive.
+// nestedBrowser is a browser over a tree three levels deep with every level open.
 func nestedBrowser(t *testing.T, w, h int) *Browser {
 	t.Helper()
 	c := &dirClient{dirs: map[string][]sftpx.Entry{
@@ -431,15 +404,10 @@ func nestedBrowser(t *testing.T, w, h int) *Browser {
 	return b
 }
 
-// View still renders a flat list of rows whatever the tree is doing, and every one of
-// them is drawn at its own depth. The row order is the order the flattened tree is in,
-// which is the order the mouse indexes.
 func TestViewRendersTheOpenTreeFlat(t *testing.T) {
 	b := nestedBrowser(t, 60, 10)
 
 	got := lines(plain(b.View()))
-	// Each row is the twisty (open, closed or blank for a file) after two cells of indent
-	// per level, so the depth reads off the left edge.
 	want := []string{"▾ project/", "  ▾ internal/", "    filebrowser.go", "  go.mod", "  readme.md"}
 	for i, w := range want {
 		row := got[i+2] // past the path header and the rule
@@ -449,9 +417,7 @@ func TestViewRendersTheOpenTreeFlat(t *testing.T) {
 	}
 }
 
-// The pane is becoming a sidebar, so it has to stay readable at widths where the size and
-// time columns cannot fit at all: nothing wraps, nothing overruns, and every name is still
-// on screen in some form.
+// At sidebar widths nothing wraps, nothing overruns, and every name survives in some form.
 func TestTreeFitsANarrowPane(t *testing.T) {
 	for _, w := range []int{28, 34, 40} {
 		b := nestedBrowser(t, w, 10)
@@ -465,16 +431,13 @@ func TestTreeFitsANarrowPane(t *testing.T) {
 		if got := len(lines(view)); got != 10 {
 			t.Fatalf("w=%d: view has %d lines, want the full height", w, got)
 		}
-		// The deepest name is indented six cells and still has to leave a stub behind.
 		if !strings.Contains(plain(view), "filebrow") {
 			t.Fatalf("w=%d: the deepest row lost its name:\n%s", w, plain(view))
 		}
 	}
 }
 
-// Once nothing more urgent wants the footer it says what an operation would act on: the
-// size of the selection, and where the target is aimed. Both are otherwise carried by a
-// one-cell tick and a colour.
+// An idle footer says what an operation would act on: the selection and the target.
 func TestFooterShowsMarksAndTarget(t *testing.T) {
 	b := renderBrowser(t, 40, 8, sftpx.Entry{Name: "a.txt", Size: 1}, sftpx.Entry{Name: "b.txt", Size: 2})
 

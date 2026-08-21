@@ -11,15 +11,11 @@ import (
 	"hop/internal/keys"
 )
 
-// swatch is one colour on the accent picker: a name, and the code hop stores.
 type swatch struct {
 	name string
 	code string
 }
 
-// accentSwatches is the palette the accent field cycles through. A 256-colour code
-// tells you nothing on its own, so the field shows the colours themselves; typing a
-// code stays possible.
 var accentSwatches = []swatch{
 	{"pink", config.DefaultAccent}, // 212 — hop's own
 	{"magenta", "205"},
@@ -35,51 +31,35 @@ var accentSwatches = []swatch{
 	{"gray", "247"},
 }
 
-// fieldKind is how a setting is edited, and so how its row is drawn. Adding a kind
-// means teaching adjust how to walk it and renderSettingsValue how to draw it.
+// fieldKind is how a setting is edited, and so how its row is drawn.
 type fieldKind int
 
 const (
-	// fieldText is a value you type: enter opens a buffer on it.
 	fieldText fieldKind = iota
-	// fieldColor is a value you type or walk: ←/→ step through the palette, and enter
-	// still opens the buffer for a 256-code or #hex that is not on it.
 	fieldColor
-	// fieldToggle is a switch: ←/→ or enter flips it, and there is nothing to type.
 	fieldToggle
-	// fieldChoice is one of a fixed few words: ←/→ walk them, enter takes the next, and
-	// there is nothing to type — an unknown value would only be normalised away.
 	fieldChoice
 )
 
-// settingsField is one editable row of the popover, described by how to read and write
-// it — so the list below is the single place a new setting is added.
+// settingsField is one editable row of the popover.
 type settingsField struct {
-	label string
-	kind  fieldKind
-	// placeholder says what hop does when the field is left blank.
+	label       string
+	kind        fieldKind
 	placeholder string
-	// desc is the one-line explanation shown under the selected field.
-	desc string
-	// swatches is the palette a fieldColor walks. Unused by the other kinds.
-	swatches []swatch
-	// choices are the values a fieldChoice walks, in order, with what each one means.
-	// Unused by the other kinds.
-	choices []choice
+	desc        string
+	swatches    []swatch
+	choices     []choice
 	// get and set are string-valued for every kind, so typing, resetting and persisting
-	// are one code path. A non-string config field converts here and nowhere else.
+	// are one code path.
 	get func(config.Config) string
 	set func(*config.Config, string)
 }
 
-// on and off are a switch's two values in the strings get/set deal in. The config
-// stores a real bool.
 const (
 	on  = "on"
 	off = "off"
 )
 
-// onOff renders a bool as the value a switch reads and writes.
 func onOff(b bool) string {
 	if b {
 		return on
@@ -87,15 +67,13 @@ func onOff(b bool) string {
 	return off
 }
 
-// choice is one value of a fieldChoice: the word stored, and the half-line saying what
-// picking it does — which is the whole of what a profile is.
+// choice is one value of a fieldChoice: the word stored, and what picking it does.
 type choice struct {
 	value string
 	desc  string
 }
 
-// guidanceChoices are the three profiles, quietest first, so walking right is walking
-// toward more help.
+// guidanceChoices are the three profiles, quietest first, so walking right walks toward more help.
 var guidanceChoices = []choice{
 	{config.GuidanceKeys, "the short legend, nothing else"},
 	{config.GuidanceHybrid, "the legend plus what a wide window fits, and the host's actions"},
@@ -174,8 +152,7 @@ var settingsFields = []settingsField{
 	},
 }
 
-// settingsUI is the popover's own state: the cursor and the in-progress text. The
-// values it edits live in model.cfg.
+// settingsUI is the popover's own state; the values it edits live in model.cfg.
 type settingsUI struct {
 	open    bool
 	cursor  int
@@ -183,27 +160,20 @@ type settingsUI struct {
 	buf     string
 }
 
-// openSettings shows the popover, always from the top.
 func (m *model) openSettings() {
 	m.settings = settingsUI{open: true}
 	m.status = ""
 }
 
-// closeSettings hides the popover, abandoning any half-typed value.
 func (m *model) closeSettings() {
 	m.settings = settingsUI{}
 }
 
-// handleSettingsKey routes a key while the popover is up, swallowing everything: a
-// modal that let keys through would be a trap.
-//
-// The vim motions are gated here as everywhere else. Turning them off from this card
-// cannot strand you: ↑↓, ←→ and enter drive every row and are never gated.
+// handleSettingsKey routes a key while the popover is up, swallowing everything.
 func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	f := settingsFields[m.settings.cursor]
 	key := msg.String()
 
-	// Text entry: the field has the keyboard.
 	if m.settings.editing {
 		switch key {
 		case "enter":
@@ -213,7 +183,6 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.saveSettings()
 			return m, cmd
 		case "esc":
-			// Abandon the edit, keep the popover open.
 			m.settings.editing = false
 		case "backspace":
 			if m.settings.buf != "" {
@@ -230,8 +199,7 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Below text entry, not above it: while a field has the keyboard, "h" is a letter of
-	// the value being typed.
+	// Below text entry, not above it: while a field has the keyboard, "h" is a letter.
 	if !m.cfg.VimKeys && m.binds.Vim(key) {
 		return m, nil
 	}
@@ -263,15 +231,12 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settings.buf = f.get(m.cfg)
 
 	case "r":
-		// Reset this field to its default.
 		return m, m.commit(f, f.get(config.Default()))
 	}
 	return m, nil
 }
 
-// adjust walks a field's value by delta: the next colour along the palette, or the other
-// side of a switch. A type-only field has nothing to walk. It applies as it goes, with
-// nothing to confirm — the same key walks back.
+// adjust walks a field's value by delta, applying as it goes.
 func (m *model) adjust(f settingsField, delta int) tea.Cmd {
 	switch f.kind {
 	case fieldColor:
@@ -284,8 +249,7 @@ func (m *model) adjust(f settingsField, delta int) tea.Cmd {
 	return nil
 }
 
-// commit writes a value to the config, applies it to everything running and saves it.
-// Every way of changing a setting ends here, so none can forget to persist.
+// commit is the single path every setting change takes, so none can forget to persist.
 func (m *model) commit(f settingsField, v string) tea.Cmd {
 	f.set(&m.cfg, v)
 	cmd := m.applySettings()
@@ -293,8 +257,7 @@ func (m *model) commit(f settingsField, v string) tea.Cmd {
 	return cmd
 }
 
-// nextChoice is the value delta steps along a choice list from current, wrapping at both
-// ends. A value not on the list starts the walk from the beginning.
+// nextChoice is delta steps along the list from current, wrapping; an unknown value starts at 0.
 func nextChoice(choices []choice, current string, delta int) string {
 	n := len(choices)
 	if n == 0 {
@@ -313,8 +276,7 @@ func nextChoice(choices []choice, current string, delta int) string {
 	return choices[i].value
 }
 
-// nextSwatch is the colour delta steps along the palette from current, wrapping at both
-// ends. A colour not on the palette starts the walk from the beginning.
+// nextSwatch is delta steps along the palette from current, wrapping; an unknown colour starts at 0.
 func nextSwatch(palette []swatch, current string, delta int) string {
 	n := len(palette)
 	if n == 0 {
@@ -333,18 +295,13 @@ func nextSwatch(palette []swatch, current string, delta int) string {
 	return palette[i].code
 }
 
-// clampSettings wraps the cursor around the field list.
 func (m *model) clampSettings() {
 	n := len(settingsFields)
 	m.settings.cursor = ((m.settings.cursor % n) + n) % n
 }
 
-// applySettings pushes the current config into everything already running: the palette
-// is restyled and every live browser picks up the new directories.
-//
-// The mouse is the one setting hop cannot apply itself — reporting is switched on in
-// the user's terminal, which only Bubble Tea can address — so it comes back as a
-// command for the caller to return.
+// applySettings pushes the config into everything running; the mouse comes back as a command
+// because only Bubble Tea can address the user's terminal.
 func (m *model) applySettings() tea.Cmd {
 	setAccent(m.cfg.Accent)
 
@@ -358,27 +315,23 @@ func (m *model) applySettings() tea.Cmd {
 	return tea.Batch(m.applyMouse(), m.applyCursorBlink())
 }
 
-// applyMouse brings the terminal's mouse reporting in line with the setting. mouseOn is
-// what hop last asked for, so an edit that did not touch this field sends no sequence.
+// applyMouse syncs terminal mouse reporting; mouseOn is what hop last asked for, so an edit
+// elsewhere sends no sequence.
 func (m *model) applyMouse() tea.Cmd {
 	if m.cfg.Mouse == m.mouseOn {
 		return nil
 	}
-	// A pointer hop no longer reads cannot finish its drag, and the leftover highlight
-	// would misstate what is on the clipboard.
+	// A pointer hop no longer reads cannot finish its drag, leaving a lying highlight.
 	m.clearSelection()
 	m.mouseOn = m.cfg.Mouse
 	if m.mouseOn {
-		// Cell motion, not all motion: drag is reported, since a remote program's visual
-		// select needs it, while a pointer merely crossing the window is not.
+		// Cell motion, not all motion: drag is reported, a pointer merely crossing is not.
 		return tea.EnableMouseCellMotion
 	}
 	return tea.DisableMouse
 }
 
-// toggleMouse hands the pointer between hop and the terminal — the ctrl+g binding. It
-// moves the same setting the card edits but does not save it: the gesture is "let go of
-// the mouse for a moment". A later save does keep it, since the card shows this state.
+// toggleMouse (ctrl+g) moves the same setting the card edits but deliberately does not save it.
 func (m *model) toggleMouse() tea.Cmd {
 	m.cfg.Mouse = !m.cfg.Mouse
 	cmd := m.applyMouse()
@@ -390,7 +343,6 @@ func (m *model) toggleMouse() tea.Cmd {
 	return cmd
 }
 
-// browserOptions is the slice of the config the file browser cares about.
 func (m *model) browserOptions() filebrowser.Options {
 	return filebrowser.Options{
 		DownloadDir: m.cfg.DownloadDir,
@@ -399,8 +351,6 @@ func (m *model) browserOptions() filebrowser.Options {
 	}
 }
 
-// saveSettings persists the config, reporting a failure rather than silently keeping a
-// change that will not survive a restart.
 func (m *model) saveSettings() {
 	if err := m.cfg.Save(); err != nil {
 		m.setStatus(statusErr, "settings: %v", err)
@@ -411,33 +361,24 @@ func (m *model) saveSettings() {
 
 // Popover geometry.
 const (
-	settingsMaxW = 64 // content width, borders and padding excluded
-	// settingsFloorW is the narrowest the card gets before it starts truncating.
-	settingsFloorW = 20
-	// settingsDescH is the fixed height reserved for the selected field's explanation,
-	// so nothing below it jumps as the cursor moves.
-	settingsDescH = 2
+	settingsMaxW   = 64 // content width, borders and padding excluded
+	settingsFloorW = 20 // narrowest before the card truncates
+	settingsDescH  = 2  // fixed, so nothing below it jumps as the cursor moves
 )
 
-// settingsChrome is what the card costs before any field is drawn: border, padding,
-// title and its blank, then the rule, a blank and the hint line.
+// settingsChrome is what the card costs before any field is drawn: border, padding, title
+// and its blank, then the rule, a blank and the hint line.
 const settingsChrome = 2 + 2 + 2 + 1 + 1 + 1
 
-// settingsMinFields is the fewest fields the card shows: the selected one and one on
-// either side. It keeps the floor below fixed as fields are added — the card scrolls
-// rather than growing past the window (see settingsWindow).
+// settingsMinFields is the fewest fields the card shows; past that it scrolls (settingsWindow).
 const settingsMinFields = 3
 
-// settingsFullH is how tall the card stands with a blank line between its fields,
-// settingsPackedH with every field and no air, settingsMinH with settingsMinFields of
-// them — below which the overlay cuts the bottom rows off. See renderSettings.
+// Card heights: aired, packed, and at settingsMinFields — below that the overlay clips.
 func settingsFullH() int   { return settingsChrome + settingsDescH + 3*len(settingsFields) }
 func settingsPackedH() int { return settingsChrome + settingsDescH + 2*len(settingsFields) }
 func settingsMinH() int    { return settingsChrome + settingsDescH + 2*settingsMinFields }
 
-// settingsWindow is the run of fields the card has room to draw, as a first index and a
-// count, always containing the cursor. A window tall enough gets all of them; a short
-// one centres what fits on the cursor.
+// settingsWindow is the run of fields the card has room to draw, always containing the cursor.
 func (m *model) settingsWindow() (first, count int) {
 	n := len(settingsFields)
 	if m.height >= settingsPackedH() {
@@ -449,17 +390,13 @@ func (m *model) settingsWindow() (first, count int) {
 	return first, count
 }
 
-// settingsInnerW is the width available to a rendered row: the box less its border and
-// padding. Every line is held to it, since a modal that wraps spills out of its frame,
-// and the box itself is held to the window.
+// settingsInnerW is the width every row is held to, since a modal that wraps spills its frame.
 func (m *model) settingsInnerW() int {
 	room := max(m.width-2*cardPadX-2, settingsFloorW)
 	return clamp(settingsMaxW, settingsFloorW, room)
 }
 
-// renderSettings draws the popover: stacked fields, each a quiet label over its value,
-// with the selected one lit and explained at the foot. The value sits under its label
-// rather than beside it, which gives a long path the full width of the card.
+// renderSettings draws the popover: stacked fields, the selected one lit and explained.
 func (m *model) renderSettings() string {
 	w := m.settingsInnerW()
 	var b strings.Builder
@@ -467,10 +404,7 @@ func (m *model) renderSettings() string {
 	b.WriteString(titleStyle.Render("SETTINGS"))
 	b.WriteString("\n\n")
 
-	// Air between the rows is what gives way first in a short window, so the shape of
-	// the card survives. After that it is the number of fields on screen: below
-	// settingsPackedH the list scrolls inside the card (see settingsWindow), down to
-	// settingsMinH, below which the overlay drops the bottom lines.
+	// Air gives way first in a short window, then the field count (see settingsWindow).
 	gap := "\n\n"
 	if m.height < settingsFullH() {
 		gap = "\n"
@@ -494,7 +428,6 @@ func (m *model) renderSettings() string {
 	b.WriteString(rule(w))
 	b.WriteString("\n")
 
-	// The selected field explains itself, in a fixed-height block.
 	for _, line := range wrapExactly(m.settingsDesc(settingsFields[m.settings.cursor]), w, settingsDescH) {
 		b.WriteString(faint.Render(line))
 		b.WriteString("\n")
@@ -520,9 +453,6 @@ func (m *model) renderSettings() string {
 	return cardBox.Width(w + 2*cardPadX).Render(b.String())
 }
 
-// renderSettingsValue draws a field's value as a full-width row: the live text with a
-// caret while it is being edited, the stored value, or a dim placeholder. The selected
-// row is filled rather than coloured, so it reads as a field you are standing in.
 func (m *model) renderSettingsValue(f settingsField, selected bool, w int) string {
 	const indent = "    "
 	vw := w - lipgloss.Width(indent)
@@ -550,9 +480,7 @@ func (m *model) renderSettingsValue(f settingsField, selected bool, w int) strin
 	return indent + style.Render(truncate(value, vw-2))
 }
 
-// renderToggle draws an on/off field as both states with the live one bracketed, as the
-// swatch strip marks its selection. Showing the state you are not in is what says the
-// row is a switch.
+// renderToggle draws both states with the live one bracketed, which is what says the row is a switch.
 func (m *model) renderToggle(f settingsField, selected bool, w int) string {
 	live := settingsValue
 	if selected {
@@ -570,9 +498,7 @@ func (m *model) renderToggle(f settingsField, selected bool, w int) string {
 	return truncate(state(on, isOn)+"  "+state(off, !isOn), w)
 }
 
-// settingsDesc is the line under the card. A choice field says what the value it is
-// standing on does rather than what the field is: the field's name already said that,
-// and the difference between the three is the only thing worth the two lines.
+// settingsDesc is the line under the card; a choice field describes the value it stands on.
 func (m *model) settingsDesc(f settingsField) string {
 	if f.kind != fieldChoice {
 		return f.desc
@@ -586,9 +512,7 @@ func (m *model) settingsDesc(f settingsField) string {
 	return f.desc
 }
 
-// renderChoices draws a choice field as all of its values with the live one bracketed —
-// the toggle's trick with more than two states. Showing the ones you are not on is what
-// says the row is a dial rather than a word.
+// renderChoices draws every value with the live one bracketed, which says the row is a dial.
 func (m *model) renderChoices(f settingsField, selected bool, w int) string {
 	live := settingsValue
 	if selected {
@@ -607,9 +531,8 @@ func (m *model) renderChoices(f settingsField, selected bool, w int) string {
 	return truncate(strings.Join(parts, " "), w)
 }
 
-// renderSwatches draws a colour field: the palette as a row of blocks, the chosen one
-// bracketed, its name after them. A value not in the palette gets a block of its own at
-// the end, so what is in force is always on screen.
+// renderSwatches draws the palette as blocks; a value off it gets a block of its own, so what
+// is in force is always on screen.
 func (m *model) renderSwatches(f settingsField, selected bool, w int) string {
 	current := f.get(m.cfg)
 	if current == "" {
@@ -651,7 +574,6 @@ func (m *model) renderSwatches(f settingsField, selected bool, w int) string {
 	return truncate(b.String()+" "+label, w)
 }
 
-// settingsHint renders the key legend as alternating keycap/label pairs.
 func settingsHint(pairs ...string) string {
 	var parts []string
 	for i := 0; i+1 < len(pairs); i += 2 {
@@ -660,8 +582,7 @@ func settingsHint(pairs ...string) string {
 	return strings.Join(parts, "  ")
 }
 
-// wrapExactly word-wraps s to w cells and returns exactly n lines, padding or dropping
-// the overflow, so the layout around it cannot shift.
+// wrapExactly word-wraps s to w cells and returns exactly n lines, so the layout cannot shift.
 func wrapExactly(s string, w, n int) []string {
 	wrapped := lipgloss.NewStyle().Width(w).Render(s)
 	lines := strings.Split(wrapped, "\n")

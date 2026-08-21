@@ -6,34 +6,16 @@ import (
 	"strings"
 )
 
-// Multi-selection and the copy target. Every operation that used to act on the entry
-// under the cursor now asks targets() what it is acting on, and targets() answers with
-// the marked set — or, when nothing is marked, with the cursor's entry alone. That is the
-// whole of the change at the call sites: a browser nobody has pressed space in behaves
-// exactly as it did before.
-//
-// Marks are held for the whole tree, keyed by absolute remote path, not per directory.
-// The tree is the reason: several directories are open at once and their rows are
-// interleaved on screen, so "the marks of the current directory" is not a set the user
-// can see or reason about — they see a column of ticks running across directory
-// boundaries, and an operation that silently ignored half of them because the cursor had
-// moved into a different directory would be indefensible. The cost is that a mark inside
-// a directory that is later collapsed still counts; the footer shows the total at all
-// times, which is what makes that honest rather than a trap.
+// Multi-selection and the copy target. Marks are held for the whole tree, keyed by
+// absolute remote path, not per directory: open directories interleave their rows.
 
-// markGlyph is the tick drawn in the second gutter cell of a marked row. It is one cell
-// wide, and it sits beside the cursor bar rather than in place of it: the bar says where
-// the keyboard is, the tick says what an operation would touch, and a row is very often
-// both.
+// markGlyph is the one-cell tick drawn beside (not in place of) the cursor bar.
 var markGlyph = accentStyle.Render("✓")
 
 func (b *Browser) marked(n *node) bool { return b.marks[n.path] }
 
-// toggleMark flips the mark on the entry under the cursor and steps down a row.
-//
-// Advancing is what makes marking a run of files a matter of holding one key rather than
-// alternating two. It stops at the last row instead of wrapping: a wrap would put the
-// cursor back on an entry that is already marked, and the next press would unmark it.
+// toggleMark flips the mark on the entry under the cursor and steps down a row, never
+// wrapping: a wrap would land back on a marked entry and the next press would unmark it.
 func (b *Browser) toggleMark() {
 	n := b.cur()
 	if n == nil {
@@ -52,10 +34,8 @@ func (b *Browser) toggleMark() {
 	b.noteMarks()
 }
 
-// toggleMarkAll marks every entry of the current directory, or clears them when they are
-// already all marked. It works on the directory rather than on the screen: the rows of an
-// open subdirectory belong to that subdirectory, and "a" in a parent should not sweep up
-// the contents of whatever happens to be open below it.
+// toggleMarkAll marks every entry of the current directory, or clears them when all are
+// marked; it works on the directory, not the screen, so open subdirectories are untouched.
 func (b *Browser) toggleMarkAll() {
 	dir := b.cwdNode()
 	if dir == nil || len(dir.kids) == 0 {
@@ -81,9 +61,7 @@ func (b *Browser) toggleMarkAll() {
 	b.noteMarks()
 }
 
-// noteMarks reports the size of the selection after a key changed it. The standing footer
-// says the same thing, but only once nothing else wants the row, and a keystroke whose
-// entire effect is a one-cell tick needs an answer of its own.
+// noteMarks reports the size of the selection after a key changed it.
 func (b *Browser) noteMarks() {
 	switch n := len(b.marks); n {
 	case 0:
@@ -95,19 +73,10 @@ func (b *Browser) noteMarks() {
 	}
 }
 
-// clearMarks empties the selection, so a finished operation cannot be aimed a second time
-// at paths that no longer exist.
 func (b *Browser) clearMarks() { b.marks = nil }
 
-// pruneMarks drops marks whose entry is no longer anywhere in the tree, and keeps every
-// one whose entry is still there. It is called after each listing, which is the only
-// moment the answer can change — a mark is a path, and a path stops being valid when the
-// directory holding it says so.
-// pruneTarget drops the copy target once the directory it names is gone. It only acts on a
-// parent that has actually been listed: a target inside a directory nobody has opened is
-// not absent, it is unread, and forgetting it there would lose an aim the user set on
-// purpose. Without this the footer keeps pointing at a deleted directory and "c" fails with
-// a raw server error instead of saying the target is gone.
+// pruneTarget drops the copy target once its directory is gone; only a listed parent
+// counts, since a target under an unread directory is unknown rather than absent.
 func (b *Browser) pruneTarget() {
 	if b.target == "" || b.nodeAt(b.target) != nil {
 		return
@@ -119,6 +88,7 @@ func (b *Browser) pruneTarget() {
 	b.target = ""
 }
 
+// pruneMarks drops marks whose entry is no longer in the tree; called after each listing.
 func (b *Browser) pruneMarks() {
 	if len(b.marks) == 0 || b.root == nil {
 		return
@@ -129,21 +99,15 @@ func (b *Browser) pruneMarks() {
 			live[n.path] = true
 		}
 	})
-	// A mark inside a directory that has never been read is neither confirmed nor denied
-	// by this listing, so it cannot be pruned — but it also cannot exist: marks are only
-	// ever set on a node, and a node only exists once its directory has been read.
+	// Safe to drop everything unwalked: a mark is only ever set on an existing node.
 	b.marks = live
 	if len(b.marks) == 0 {
 		b.marks = nil
 	}
 }
 
-// targets is what an operation acts on: the marked entries in tree order, or the entry
-// under the cursor when nothing is marked.
-//
-// The tree is walked rather than the visible rows, so a mark inside a collapsed directory
-// still counts. Hiding a file is not unmarking it, and an operation that quietly dropped
-// entries the footer is still counting would be the worse surprise of the two.
+// targets is what an operation acts on: marked entries in tree order, or the cursor's
+// entry. The tree is walked, not the visible rows, so a collapsed mark still counts.
 func (b *Browser) targets() []*node {
 	if len(b.marks) == 0 {
 		if n := b.cur(); n != nil {
@@ -164,11 +128,8 @@ func (b *Browser) targets() []*node {
 
 // ---- the copy target ----
 
-// setTarget makes the directory under the cursor — or the current directory, when the
-// cursor is on a file — the destination for "c" and "v".
-//
-// One target at a time, deliberately: the target is an aim, and a list of them would turn
-// every copy into a question about which one was meant. Pressing "t" again re-aims it.
+// setTarget makes the directory under the cursor, or cwd when on a file, the destination
+// for "c" and "v".
 func (b *Browser) setTarget() {
 	dst := b.cwd
 	if n := b.cur(); n != nil && n.e.IsDir {
@@ -178,8 +139,7 @@ func (b *Browser) setTarget() {
 		return
 	}
 	if b.target == dst {
-		// Pressing "t" on the directory that is already the target takes the aim off,
-		// which is the only way to get back to having none.
+		// Re-pressing "t" on the target is the only way back to having none.
 		b.target = ""
 		b.ok("target cleared")
 		return
@@ -188,16 +148,9 @@ func (b *Browser) setTarget() {
 	b.ok("target: " + dst)
 }
 
-// destFor checks that a copy or a move can be attempted at all and answers with the
-// destination, the entries worth sending, and how many of the selection were already there.
-//
-// The two cases are not the same and are not treated the same. A directory copied into
-// itself would recurse into what it is writing, so it refuses the keystroke outright —
-// sftpx refuses it too, but by then the transfer has started and some of the tree is
-// written. An entry that already sits in the target is merely nothing to do, so it is
-// skipped and counted, the way download skips the directories in a selection: "a" then "c"
-// on a screenful is the workflow "a" exists for, and refusing all of it because one file
-// was already there would make marking useless in exactly that case.
+// destFor answers with the destination, the entries worth sending, and how many were
+// already there. A directory into itself is refused up front — sftpx catches it too, but
+// only after part of the tree is written.
 func (b *Browser) destFor(verb string, srcs []*node) (string, []*node, int, bool) {
 	if b.target == "" {
 		b.fail(fmt.Errorf("%s: no target — press t on a directory first", verb))

@@ -17,26 +17,25 @@ func shiftKey(name string) tea.KeyMsg {
 	panic("shiftKey: " + name)
 }
 
-// runeKey builds a plain character key, the way a digit arrives.
+// runeKey builds a plain character key.
 func runeKey(r rune) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
 }
 
-// ctrlO is hop's leader, and the key that leaves a pane.
+// ctrlO is hop's leader key.
 func ctrlO() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyCtrlO} }
 
-// shift+←/→ cycle the shells open on the host and wrap at both ends. This is the
-// binding that has to work on a stock macOS terminal, where alt never arrives.
+// Wraps at both ends; the binding that works where alt never arrives.
 func TestShellTabCyclingWithShift(t *testing.T) {
 	m, s := shellModel(t, 3)
 
-	for _, want := range []int{1, 2, 0} { // right wraps 2 -> 0
+	for _, want := range []int{1, 2, 0} {
 		m.handleKey(shiftKey("right"))
 		if s.activeSh != want {
 			t.Fatalf("after shift+right: activeSh = %d, want %d", s.activeSh, want)
 		}
 	}
-	for _, want := range []int{2, 1, 0} { // left wraps 0 -> 2
+	for _, want := range []int{2, 1, 0} {
 		m.handleKey(shiftKey("left"))
 		if s.activeSh != want {
 			t.Fatalf("after shift+left: activeSh = %d, want %d", s.activeSh, want)
@@ -47,7 +46,6 @@ func TestShellTabCyclingWithShift(t *testing.T) {
 	}
 }
 
-// shift+←/→ cycle editor tabs the same way, alongside the alt aliases.
 func TestEditorTabCyclingWithShift(t *testing.T) {
 	m, s := editorModel(t, "a.txt", "b.txt", "c.txt")
 
@@ -65,8 +63,7 @@ func TestEditorTabCyclingWithShift(t *testing.T) {
 	}
 }
 
-// The leader opens without moving anything and without starting a clock: the pane
-// stays focused, and hop waits for the second key however long it takes.
+// The leader opens without moving anything and without starting a clock.
 func TestLeaderOpensWithoutActing(t *testing.T) {
 	m, _ := shellModel(t, 3)
 
@@ -82,7 +79,6 @@ func TestLeaderOpensWithoutActing(t *testing.T) {
 	}
 }
 
-// ctrl+o o is the way out — what a bare ctrl+o used to be, now that ctrl+o leads.
 func TestLeaderOutLeavesThePane(t *testing.T) {
 	m, _ := shellModel(t, 2)
 
@@ -97,7 +93,6 @@ func TestLeaderOutLeavesThePane(t *testing.T) {
 	}
 }
 
-// ctrl+o then a digit selects that shell in place: no focus change, no leaving.
 func TestLeaderDigitSelectsShellInPlace(t *testing.T) {
 	m, s := shellModel(t, 3)
 
@@ -115,8 +110,7 @@ func TestLeaderDigitSelectsShellInPlace(t *testing.T) {
 	}
 }
 
-// A digit naming a shell that is not open changes nothing, and still closes the
-// leader rather than leaving it open for the next keystroke.
+// A digit naming a shell that is not open still closes the leader.
 func TestLeaderDigitIgnoresMissingShell(t *testing.T) {
 	m, s := shellModel(t, 3)
 
@@ -134,7 +128,6 @@ func TestLeaderDigitIgnoresMissingShell(t *testing.T) {
 	}
 }
 
-// ctrl+o 0 opens another shell on this host, without leaving the pane to do it.
 func TestLeaderZeroOpensAnotherShell(t *testing.T) {
 	m, _ := shellModel(t, 1)
 
@@ -152,8 +145,7 @@ func TestLeaderZeroOpensAnotherShell(t *testing.T) {
 	}
 }
 
-// A key that names no chord closes the leader and is swallowed: it must not reach
-// the remote, which would otherwise act on the tail of an abandoned chord.
+// An unbound key closes the leader and is swallowed rather than reaching the remote.
 func TestLeaderCancelsOnAnUnboundKey(t *testing.T) {
 	m, s := shellModel(t, 3)
 
@@ -171,9 +163,6 @@ func TestLeaderCancelsOnAnUnboundKey(t *testing.T) {
 	}
 }
 
-// While the leader is open hop owns the keyboard outright — above ctrl+b, which is
-// otherwise held in every mode. Half a chord is no moment to toggle the sidebar and
-// leave the other half hanging.
 func TestLeaderOutranksTheSidebarKey(t *testing.T) {
 	m, _ := shellModel(t, 2)
 	before := m.sidebarHidden
@@ -189,7 +178,6 @@ func TestLeaderOutranksTheSidebarKey(t *testing.T) {
 	}
 }
 
-// A digit with no leader open is the shell's, not hop's.
 func TestDigitWithoutLeaderGoesToTheShell(t *testing.T) {
 	m, s := shellModel(t, 3)
 
@@ -203,8 +191,7 @@ func TestDigitWithoutLeaderGoesToTheShell(t *testing.T) {
 	}
 }
 
-// In the host list a digit is a way *in*: it focuses that shell of the host under
-// the cursor. No leader, no window — in the list a digit has nothing else to be.
+// In the host list a digit focuses that shell of the host under the cursor.
 func TestListDigitFocusesShell(t *testing.T) {
 	m, s := shellModel(t, 3)
 	m.mode = modeList
@@ -220,7 +207,6 @@ func TestListDigitFocusesShell(t *testing.T) {
 	}
 }
 
-// A digit naming a shell the host has not got leaves the list alone.
 func TestListDigitIgnoresMissingShell(t *testing.T) {
 	m, _ := shellModel(t, 1)
 	m.mode = modeList
@@ -234,10 +220,6 @@ func TestListDigitIgnoresMissingShell(t *testing.T) {
 }
 
 // The leader's second key must not be swallowed by the Windows paste coalescer.
-// Every chord key is an ordinary pastable rune, and the pane is still focused while
-// the leader is open — so without an explicit guard the burst buffer holds it and
-// the chord never lands. Windows is the only platform that coalesces, which is
-// exactly why this needs a test rather than a try.
 func TestLeaderSurvivesThePasteCoalescer(t *testing.T) {
 	m, s := shellModel(t, 3)
 	m.pasteCoalesce = true // pretend to be Windows

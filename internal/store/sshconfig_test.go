@@ -7,8 +7,7 @@ import (
 	"testing"
 )
 
-// Everything hop puts in the config file comes back out of it. This is the round-trip
-// that replaced the SQLite columns, so a field lost here is a field lost on restart.
+// Every field hop writes to the config file comes back out of it.
 func TestHostsRoundTripThroughConfigFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hop.config")
 	want := []Host{{
@@ -73,8 +72,7 @@ func TestHostsRoundTripThroughConfigFile(t *testing.T) {
 	}
 }
 
-// The file hop writes is a config OpenSSH itself would accept: real directives, and the
-// default port left out rather than spelled uselessly.
+// Real directives, with the default port left out.
 func TestWriteHostsEmitsOpenSSHSyntax(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hop.config")
 	if err := writeHosts(path, []Host{{Alias: "plain", HostName: "plain.test", Port: 22}}); err != nil {
@@ -99,8 +97,6 @@ func TestWriteHostsEmitsOpenSSHSyntax(t *testing.T) {
 	}
 }
 
-// A wildcard block sets defaults for other hosts rather than naming one to connect to,
-// so it is not a host in hop's list.
 func TestReadHostsSkipsWildcards(t *testing.T) {
 	hosts, err := decodeHosts(strings.NewReader("Host *\n  User everyone\n\nHost real\n  HostName real.test\n"))
 	if err != nil {
@@ -111,7 +107,6 @@ func TestReadHostsSkipsWildcards(t *testing.T) {
 	}
 }
 
-// A host with no HostName dials its own alias, as ssh does.
 func TestReadHostsDefaultsHostNameToAlias(t *testing.T) {
 	hosts, err := decodeHosts(strings.NewReader("Host bare\n  User me\n"))
 	if err != nil {
@@ -122,8 +117,7 @@ func TestReadHostsDefaultsHostNameToAlias(t *testing.T) {
 	}
 }
 
-// The Include goes at the top, because OpenSSH takes the first value it finds for most
-// keywords: appended at the bottom it would be shadowed by any earlier Host block.
+// The Include must go first: OpenSSH takes the first value it finds for most keywords.
 func TestEnsureIncludePrependsAndPreserves(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config")
@@ -153,7 +147,6 @@ func TestEnsureIncludePrependsAndPreserves(t *testing.T) {
 		t.Fatalf("the Include must come before the user's own blocks: %q", text)
 	}
 
-	// Running again changes nothing: the line is already there.
 	if err := ensureInclude(configPath, hostsPath); err != nil {
 		t.Fatalf("second ensureInclude: %v", err)
 	}
@@ -169,8 +162,6 @@ func TestEnsureIncludePrependsAndPreserves(t *testing.T) {
 	}
 }
 
-// A user who wired the Include up by hand, in any of the spellings that reach the file,
-// does not get a second one.
 func TestEnsureIncludeRecognisesExistingSpellings(t *testing.T) {
 	dir := t.TempDir()
 	hostsPath := filepath.Join(dir, "hop.config")
@@ -197,7 +188,6 @@ func TestEnsureIncludeRecognisesExistingSpellings(t *testing.T) {
 	}
 }
 
-// With no ~/.ssh/config at all, hop writes one containing just the Include.
 func TestEnsureIncludeCreatesMissingConfig(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config")
@@ -213,8 +203,7 @@ func TestEnsureIncludeCreatesMissingConfig(t *testing.T) {
 	}
 }
 
-// A hosts file somewhere other than beside ~/.ssh/config has to be included by its full
-// path: the bare name would only resolve relative to ~/.ssh.
+// A hosts file outside ~/.ssh needs its full path; a bare name resolves relative to ~/.ssh.
 func TestEnsureIncludeUsesFullPathWhenElsewhere(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config")
@@ -231,8 +220,6 @@ func TestEnsureIncludeUsesFullPathWhenElsewhere(t *testing.T) {
 	}
 }
 
-// Writes land atomically, so an interrupted write cannot leave a half-file where the
-// host list used to be.
 func TestWriteFileAtomicLeavesNoTemp(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hop.config")

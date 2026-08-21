@@ -1,9 +1,4 @@
-// Package config holds hop's user settings: a small JSON file in hop's config directory,
-// edited from the settings popover or by hand.
-//
-// Loading never fails hard. A missing file is the normal first-run case and a corrupt one
-// falls back to defaults, so a stray keystroke in an editor cannot lock you out of your
-// own hosts.
+// Package config holds hop's user settings: a small JSON file in hop's config directory.
 package config
 
 import (
@@ -13,67 +8,36 @@ import (
 	"path/filepath"
 )
 
-// Config is the full set of user settings. Every field has a meaningful zero value, which
-// is what makes a partial or absent file safe to load.
+// Config is the full set of user settings.
 type Config struct {
-	// Editor is the command run on the remote host to edit a file, flags and all. Empty
-	// prefers the remote $EDITOR, and probes the remote PATH when that is unset.
+	// Empty prefers the remote $EDITOR, and probes the remote PATH when that is unset.
 	Editor string `json:"editor"`
 
-	// DownloadDir is where the browser's "d" puts files. Empty means <home>/Downloads.
+	// Empty means <home>/Downloads.
 	DownloadDir string `json:"downloadDir"`
 
-	// Accent is the 256-color code for hop's highlight color. Empty means 212.
+	// 256-color code for hop's highlight color; empty means DefaultAccent.
 	Accent string `json:"accent"`
 
-	// OpenWith is the local command the browser's "o" opens a file with, flags and
-	// all ("code"). Empty means the desktop default (start / open / xdg-open).
+	// Local command a file is opened with; empty means the desktop default.
 	OpenWith string `json:"openWith"`
 
-	// VimKeys turns on the vim motions in the host list and the file browser. False, the
-	// default, leaves those letters unbound: hop asks for vim rather than assuming it.
 	VimKeys bool `json:"vimKeys"`
 
-	// Mouse turns on mouse reporting: the wheel and clicks everywhere, and the pointer
-	// forwarded to a remote program that asked for it. It defaults to on — the one field
-	// whose zero value is not its default, which is safe because Load starts from
-	// Default() and unmarshals over it.
-	//
-	// While hop reports the mouse it does the selecting itself: a drag over a pane
-	// highlights and copies (see internal/tui/selection.go). ctrl+g hands the pointer back
-	// for a selection that spans hop's own furniture; this setting hands it back for good.
+	// Defaults to on: the one field whose zero value is not its default, safe only because
+	// Load starts from Default() and unmarshals over it.
 	Mouse bool `json:"mouse"`
 
-	// Guidance is how much of hop's keyboard hop puts on screen without being asked.
-	// It changes what is *shown*, never what a key does: every binding works in every
-	// profile, so nothing learnt in one is unlearnt by switching.
-	//
-	//   keys    the short legend and nothing else — for a keyboard already in the hand
-	//   hybrid  the legend, the extras a wide window fits, and the host's actions
-	//   guided  all of that, plus every action the host has, spelled out with its key
-	//
-	// Empty or unknown means Hybrid. See internal/tui/actions.go for what reads it.
+	// One of the Guidance* constants; empty or unknown means GuidanceHybrid.
 	Guidance string `json:"guidance"`
 
-	// CursorBlink lets hop blink the cursor in a pane, when the remote program has not
-	// asked for a steady one (DECSCUSR). It is off by default: the shape and the hidden
-	// state are the remote's to decide and hop always honours them, but the blink is a
-	// clock hop has to run itself — a repaint twice a second — so it is asked for rather
-	// than assumed. See internal/terminal/cursor.go.
 	CursorBlink bool `json:"cursorBlink"`
 
-	// Clipboard lets a program on a remote host put text on your clipboard over OSC 52 —
-	// a yank in a remote vim, or tmux's set-clipboard. Like Mouse it defaults to on, and
-	// for the same reason that is safe.
-	//
-	// The channel is one-way and hop keeps it that way: a remote asking to read the
-	// clipboard is never answered (see internal/terminal/clipboard.go). But anything on
-	// the far end can write it, not only what you started.
+	// OSC 52 clipboard writes from the remote. Defaults to on, like Mouse.
 	Clipboard bool `json:"clipboard"`
 }
 
-// The guidance profiles. Stored as words rather than a number so a hand-edited config
-// says what it means.
+// The guidance profiles, stored as words so a hand-edited config says what it means.
 const (
 	GuidanceKeys   = "keys"
 	GuidanceHybrid = "hybrid"
@@ -94,8 +58,7 @@ func Default() Config {
 	}
 }
 
-// defaultDownloadDir is <home>/Downloads, falling back to the home directory when there
-// is no Downloads folder and to "." when there is no home.
+// defaultDownloadDir is <home>/Downloads, falling back to the home directory, then ".".
 func defaultDownloadDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -117,10 +80,8 @@ func Path() (string, error) {
 	return filepath.Join(dir, "hop", "config.json"), nil
 }
 
-// Exists reports whether a config file has been written yet. It is how hop tells a first
-// run from a later one: an existing file means these settings were once decided, even if
-// the key being asked about is not in it, so a new setting must not re-open a question
-// for someone who has been using hop for months.
+// Exists reports whether a config file has been written yet — how hop tells a first run from
+// a later one, so a newly added setting does not re-open a question for an existing user.
 func Exists() bool {
 	path, err := Path()
 	if err != nil {
@@ -142,8 +103,7 @@ func Load() Config {
 		return Default()
 	}
 
-	// Start from the defaults, so a file that omits a key gets a sane value for it rather
-	// than the type's zero.
+	// Start from the defaults, so a file that omits a key does not get the type's zero.
 	cfg := Default()
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Default()
@@ -159,9 +119,7 @@ func (c Config) normalized() Config {
 	if c.Accent == "" {
 		c.Accent = DefaultAccent
 	}
-	// A profile hop does not know — a typo, or a file written by a newer hop — is the
-	// middle one rather than an error: this setting decides how much is on screen, and
-	// there is no answer to it worth refusing to start over.
+	// An unknown profile (a typo, or a file written by a newer hop) falls back rather than errors.
 	switch c.Guidance {
 	case GuidanceKeys, GuidanceHybrid, GuidanceGuided:
 	default:
@@ -181,9 +139,7 @@ func (c Config) Save() error {
 		return fmt.Errorf("config: create config dir: %w", err)
 	}
 
-	// The file is shared: internal/store keeps its host metadata under its own key in it.
-	// Saving settings therefore merges into whatever is on disk rather than replacing it,
-	// so writing a new accent colour cannot drop the pin order written a moment earlier.
+	// The file is shared with internal/store, so settings merge in rather than replace it.
 	merged, err := mergeIntoFile(path, c.normalized())
 	if err != nil {
 		return err
@@ -200,14 +156,12 @@ func (c Config) Save() error {
 	return nil
 }
 
-// mergeIntoFile encodes value's keys over the JSON object already at path, keeping every
-// key it does not itself define. A missing or unreadable file merges into an empty
-// object, which is how a first save writes a whole config.
+// mergeIntoFile encodes value's keys over the JSON object already at path, keeping the rest.
 func mergeIntoFile(path string, value any) ([]byte, error) {
 	doc := map[string]json.RawMessage{}
 	if existing, err := os.ReadFile(path); err == nil {
-		// A corrupt file is overwritten rather than propagated: Load already treats it as
-		// absent, so refusing to save would leave the user unable to fix it from the UI.
+		// A corrupt file is overwritten: Load treats it as absent, so refusing to save would
+		// leave the user unable to fix it from the UI.
 		_ = json.Unmarshal(existing, &doc)
 	}
 

@@ -12,8 +12,7 @@ import (
 	"hop/internal/sshx"
 )
 
-// stalledWriter is a far end that has stopped reading: every write parks until the test
-// lets it go. An SSH channel does exactly this once the remote's window is full.
+// stalledWriter is a far end that has stopped reading: every write parks until released.
 type stalledWriter struct {
 	mu   sync.Mutex
 	b    []byte
@@ -42,9 +41,7 @@ func (w *stalledWriter) String() string {
 	return string(w.b)
 }
 
-// The reason input is queued at all: SendKey runs on Bubble Tea's update goroutine, and a
-// far end that has stopped reading must not hold it there. A blocked write used to freeze
-// the whole TUI — no repaint, no other key — for as long as the link was stalled.
+// SendKey runs on the update goroutine; regression: a blocked write used to freeze the TUI.
 func TestSendKeyDoesNotWaitForTheWire(t *testing.T) {
 	w := newStalledWriter()
 	p := New(&sshx.Session{Stdin: w, Stdout: strings.NewReader("")}, 80, 24, nil)
@@ -64,7 +61,7 @@ func TestSendKeyDoesNotWaitForTheWire(t *testing.T) {
 		t.Fatal("SendKey is still waiting for a stalled far end: the UI would be frozen with it")
 	}
 
-	// Nothing was lost by not waiting: it goes out, in order, once the link comes back.
+	// Nothing was lost: it goes out, in order, once the link comes back.
 	w.release()
 	p.Flush()
 	if got, want := w.String(), strings.Repeat("x", 50); got != want {
@@ -72,8 +69,7 @@ func TestSendKeyDoesNotWaitForTheWire(t *testing.T) {
 	}
 }
 
-// One queue is also what keeps the order a mutex used to keep: a keystroke and hop's own
-// writes cannot interleave halfway through a sequence.
+// Keystrokes and hop's own writes cannot interleave halfway through a sequence.
 func TestQueuedInputKeepsItsOrder(t *testing.T) {
 	stdin := &syncBuf{}
 	p := New(&sshx.Session{Stdin: stdin, Stdout: strings.NewReader("")}, 80, 24, nil)
@@ -90,8 +86,6 @@ func TestQueuedInputKeepsItsOrder(t *testing.T) {
 	}
 }
 
-// A closed pane sends nothing further, and Flush on one returns rather than waiting for a
-// session that will never take it.
 func TestFlushReturnsOnAClosedPane(t *testing.T) {
 	w := newStalledWriter()
 	p := New(&sshx.Session{Stdin: w, Stdout: strings.NewReader("")}, 80, 24, nil)
@@ -111,10 +105,7 @@ func TestFlushReturnsOnAClosedPane(t *testing.T) {
 	}
 }
 
-// A failed write does not end the input path. The session may well still be usable, and
-// a pane whose drain has quit is one that looks alive and swallows every key from then
-// on — the keys queue until the queue fills and are then dropped, and Flush never
-// returns.
+// A failed write must not end the drain, leaving a pane that looks alive and eats keys.
 func TestAFailedWriteDoesNotStopTheQueue(t *testing.T) {
 	w := &flakyWriter{}
 	p := New(&sshx.Session{Stdin: w, Stdout: strings.NewReader("")}, 80, 24, nil)
@@ -133,8 +124,7 @@ func TestAFailedWriteDoesNotStopTheQueue(t *testing.T) {
 	}
 }
 
-// flakyWriter records what it is given and can be told to report a failure for it, the
-// way a session does over a link that comes and goes.
+// flakyWriter records what it is given and can be told to report a failure for it.
 type flakyWriter struct {
 	mu      sync.Mutex
 	b       []byte
@@ -165,10 +155,7 @@ func (w *flakyWriter) String() string {
 	return string(w.b)
 }
 
-// The queue is bounded, so a far end that has stopped reading altogether eventually has
-// hop refusing input rather than holding it forever. What matters is that the refusal is
-// reported: the TUI puts it on the status line, because keystrokes that vanish silently
-// leave a truncated command line behind.
+// The queue is bounded and the refusal is reported, so keys never vanish silently.
 func TestAFullQueueRefusesInput(t *testing.T) {
 	w := newStalledWriter()
 	p := New(&sshx.Session{Stdin: w, Stdout: strings.NewReader("")}, 80, 24, nil)
@@ -186,7 +173,6 @@ func TestAFullQueueRefusesInput(t *testing.T) {
 		t.Fatalf("%d keys were taken by a far end reading none of them, want a bounded queue's worth", taken)
 	}
 
-	// Everything it did take is still there, in order, once the link comes back.
 	w.release()
 	p.Flush()
 	if got, want := w.String(), strings.Repeat("x", taken); got != want {

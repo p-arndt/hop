@@ -8,11 +8,7 @@ import (
 	"github.com/charmbracelet/x/vt"
 )
 
-// ansiRE-free stripping: the rendered lines carry SGR escape sequences around the
-// glyphs, but the plain text (e.g. "line-3") sits between them literally, so the
-// tests mostly search for substrings directly. stripANSI is here for the one place
-// a whole visible line is wanted without styling — it walks the same ESC[...m shape
-// the emulator emits and drops it.
+// stripANSI drops the ESC[...m sequences the emulator wraps its glyphs in.
 func stripANSI(s string) string {
 	var b strings.Builder
 	runes := []rune(s)
@@ -34,9 +30,8 @@ func stripANSI(s string) string {
 	return b.String()
 }
 
-// newFilledPane builds an in-package pane on a bare SafeEmulator (no SSH needed)
-// and writes count distinct numbered lines through the parser. With a 24-row screen
-// and count well above 24, the early lines are pushed off the top into scrollback.
+// newFilledPane builds a pane on a bare SafeEmulator and writes count numbered lines;
+// with count above the row count the early ones land in scrollback.
 func newFilledPane(t *testing.T, w, h, count int) *Pane {
 	t.Helper()
 	p := &Pane{emu: vt.NewSafeEmulator(w, h)}
@@ -88,7 +83,6 @@ func TestScrollUpDownClamp(t *testing.T) {
 		t.Fatalf("AtBottom() = false after clamping to 0, want true")
 	}
 
-	// Non-positive n is a no-op guard.
 	p.ScrollUp(4)
 	p.ScrollUp(0)
 	p.ScrollUp(-3)
@@ -126,8 +120,7 @@ func TestViewScrollbackLiveEqualsScreen(t *testing.T) {
 		t.Fatalf("ViewScrollback() has %d lines, want emu.Height() = %d", len(lines), p.emu.Height())
 	}
 
-	// At offset 0 the window is the live screen: the newest line shows, the very
-	// oldest (long since scrolled off) does not.
+	// At offset 0 the window is the live screen.
 	if !strings.Contains(view, "line-59") {
 		t.Fatalf("live view is missing the newest line 'line-59':\n%s", stripANSI(view))
 	}
@@ -135,8 +128,7 @@ func TestViewScrollbackLiveEqualsScreen(t *testing.T) {
 		t.Fatalf("live view unexpectedly contains the oldest line 'line-0':\n%s", stripANSI(view))
 	}
 
-	// It must also equal View() with the cursor overlay removed — the property the
-	// whole windowing scheme rests on at offset 0.
+	// At offset 0 it must equal the live render.
 	if got, want := stripANSI(p.ViewScrollback()), stripANSI(p.emu.Render()); got != want {
 		t.Fatalf("ViewScrollback() at offset 0 != live Render()\n got:\n%s\nwant:\n%s", got, want)
 	}
@@ -158,16 +150,12 @@ func TestViewScrollbackScrolledUpSurfacesHistory(t *testing.T) {
 		t.Fatalf("scrolled-up view has %d lines, want emu.Height() = %d", len(lines), p.emu.Height())
 	}
 
-	// An early line that was off-screen live must now be in the window — proof the
-	// window actually moved up into history.
 	if !containsExactToken(top, "line-1") {
 		t.Fatalf("scrolled-to-top view does not surface early 'line-1':\n%s", stripANSI(top))
 	}
 }
 
-// containsExactToken reports whether the plain text of view contains name as a
-// whole token — "line-1" but not the "line-1" inside "line-10". It splits on the
-// hyphen-number shape the fixtures use so a prefix match cannot masquerade.
+// containsExactToken matches name as a whole token: "line-1" but not "line-10".
 func containsExactToken(view, name string) bool {
 	for _, ln := range strings.Split(stripANSI(view), "\n") {
 		for _, f := range strings.Fields(ln) {

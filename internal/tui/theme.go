@@ -12,8 +12,7 @@ import (
 	"hop/internal/filebrowser"
 )
 
-// accent is the primary highlight color, the only one the user chooses. The rest of the
-// palette is a fixed neutral ramp that has to stay legible beside any of them.
+// accent is the primary highlight color, the only one the user chooses.
 var accent = lipgloss.Color(config.DefaultAccent)
 
 const (
@@ -23,8 +22,8 @@ const (
 	colDim    = lipgloss.Color("245")
 	colFaint  = lipgloss.Color("240")
 
-	colSurface = lipgloss.Color("236") // the fill under the row you are standing in
-	colRaised  = lipgloss.Color("238") // keycaps, chips, text inputs
+	colSurface = lipgloss.Color("236")
+	colRaised  = lipgloss.Color("238")
 
 	colGreen  = lipgloss.Color("42")
 	colYellow = lipgloss.Color("214")
@@ -33,17 +32,14 @@ const (
 
 // ---- styles ----
 //
-// The accent-derived ones are values rather than lazy lookups, so setAccent rebuilds them
-// — which is what lets a color picked in the popover apply without a restart.
+// Accent-derived styles are values, not lazy lookups, so setAccent must rebuild each one.
 
 var (
 	// Chrome.
 	headerBadge = lipgloss.NewStyle().Bold(true).Foreground(colInk).Background(accent).Padding(0, 1)
 	subtitle    = lipgloss.NewStyle().Foreground(colDim)
 	footerStyle = lipgloss.NewStyle().Foreground(colDim).Padding(0, 1)
-	// The status bar is a filled row rather than bare text: it is the seam between the
-	// panes and the key legend, and the fill is what stops the two reading as one block.
-	statusBar = lipgloss.NewStyle().Foreground(colDim).Background(colSurface).Padding(0, 1)
+	statusBar   = lipgloss.NewStyle().Foreground(colDim).Background(colSurface).Padding(0, 1)
 
 	// Panes.
 	paneBorder = lipgloss.NewStyle().
@@ -54,12 +50,7 @@ var (
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(accent)
 
-	// A column standing beside another one without the keyboard in it. The border alone
-	// carried that before, and it was enough while only one box held content; with a tree
-	// and a file on screen at once it is a two-cell difference across a whole screen of
-	// text, so the body goes with it. Only the unstyled runs dim — the browser's own
-	// accent keeps its color — which is what makes the focused column read as the one in
-	// front rather than the only one lit.
+	// An unfocused column: border and unstyled body both dim.
 	paneBorderIdle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(colFaint).
@@ -78,24 +69,21 @@ var (
 	yellowText = lipgloss.NewStyle().Foreground(colYellow)
 	redText    = lipgloss.NewStyle().Foreground(colRed)
 
-	// The host under the cursor: a bold alias behind an accent bar, not a full-width
-	// fill, which nests badly with the styles inside a row.
+	// A bar rather than a full-width fill, which nests badly with the styles inside a row.
 	selectedAliasStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	selBar             = accentText.Render("▎")
 
-	// A matched character while filtering, so a fuzzy hit shows why it matched.
 	matchStyle = lipgloss.NewStyle().Bold(true).Underline(true).Foreground(accent)
 
 	// Pills.
 	chipStyle   = lipgloss.NewStyle().Bold(true).Foreground(accent).Background(colRaised).Padding(0, 1)
 	keycapStyle = lipgloss.NewStyle().Foreground(colBright).Background(colRaised).Padding(0, 1)
 
-	// Tabs: the open one is a filled pill, the rest are quiet text.
+	// Tabs.
 	tabActive   = lipgloss.NewStyle().Bold(true).Foreground(colInk).Background(accent).Padding(0, 1)
 	tabInactive = lipgloss.NewStyle().Foreground(colDim).Background(colSurface).Padding(0, 1)
 
-	// Status dots. The dead one is filled like the connected one, in red: hop is still
-	// holding something for it, and the shape says so before the color does.
+	// Status dots.
 	connectedDot = greenText.Render("●")
 	idleDot      = faint.Render("○")
 	deadDot      = redText.Render("●")
@@ -106,20 +94,17 @@ var (
 		BorderForeground(accent).
 		Padding(1, cardPadX)
 
-	// The context menu: the card's border in the same accent, but padded only sideways —
-	// it is a short list anchored to a row, not a card in the middle of the screen.
+	// The context menu.
 	menuBox = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(accent).
 		Padding(0, 1)
 
-	// The settings card: a quiet label above each value, the selected one filled, the one
-	// being edited filled brighter still.
+	// The settings card.
 	settingsLabel    = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
 	settingsLabelSel = lipgloss.NewStyle().Bold(true).Foreground(accent)
 
-	// Same padding as the filled one, so the text does not jog sideways as the cursor
-	// moves down the card.
+	// Same padding as the filled variants, so text does not jog sideways as the cursor moves.
 	settingsValue       = lipgloss.NewStyle().Foreground(colText).Padding(0, 1)
 	settingsPlaceholder = lipgloss.NewStyle().Italic(true).Foreground(colFaint).Padding(0, 1)
 
@@ -137,8 +122,7 @@ var (
 // cardPadX is the horizontal padding inside a modal card's border.
 const cardPadX = 3
 
-// setAccent re-points the palette at a new highlight color, here and in the file browser,
-// which draws its own rows.
+// setAccent re-points the palette at a new highlight color, here and in the file browser.
 func setAccent(color string) {
 	if color == "" {
 		color = config.DefaultAccent
@@ -163,11 +147,10 @@ func setAccent(color string) {
 
 // ---- spinner ----
 
-// spinnerFrames is the braille cycle shown beside a host hop is dialing. It runs only
-// while a connect is in flight.
+// spinnerFrames is the braille cycle shown beside a host hop is dialing.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// spinner returns the frame for tick n, in the yellow a connecting host wears elsewhere.
+// spinner returns the frame for tick n.
 func spinner(n int) string {
 	return yellowText.Render(spinnerFrames[n%len(spinnerFrames)])
 }
@@ -180,8 +163,7 @@ func kc(key string) string { return keycapStyle.Render(key) }
 // keyHint is the keycap-plus-label pair the footer and help card are built out of.
 func keyHint(key, label string) string { return kc(key) + " " + dimStyle.Render(label) }
 
-// stripControl removes control characters (C0, DEL and C1) from s, so a string that came
-// from a remote host cannot carry an escape sequence into the user's terminal.
+// stripControl removes C0, DEL and C1 so remote text cannot carry an escape into the terminal.
 func stripControl(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r < 0x20 || (r >= 0x7f && r < 0xa0) {
@@ -191,9 +173,8 @@ func stripControl(s string) string {
 	}, s)
 }
 
-// truncate shortens s to at most w display cells, adding an ellipsis when it must cut.
-// Style-aware: a rune-by-rune cut can land inside an ANSI escape, which then leaks into
-// the terminal. ansi.Truncate cuts on cell boundaries and keeps the escapes balanced.
+// truncate shortens s to at most w display cells, cutting on cell boundaries so an ANSI
+// escape is never split.
 func truncate(s string, w int) string {
 	if w <= 0 {
 		return ""
@@ -204,8 +185,7 @@ func truncate(s string, w int) string {
 	return ansi.Truncate(s, w, "…")
 }
 
-// clampLines truncates every line to w cells so styled content can never wrap and
-// break out of its bordered box.
+// clampLines truncates every line to w cells so content cannot wrap out of its box.
 func clampLines(s string, w int) string {
 	lines := strings.Split(s, "\n")
 	for i, ln := range lines {
@@ -214,9 +194,7 @@ func clampLines(s string, w int) string {
 	return strings.Join(lines, "\n")
 }
 
-// fitLines cuts s to at most h lines. lipgloss's Height is a floor, not a ceiling — a box
-// whose content is taller simply grows — so anything rendered into a fixed-height pane
-// has to be cut here, or the terminal scrolls.
+// fitLines cuts s to at most h lines; lipgloss's Height is a floor, not a ceiling.
 func fitLines(s string, h int) string {
 	if h < 1 {
 		return ""
@@ -228,8 +206,7 @@ func fitLines(s string, h int) string {
 	return strings.Join(lines[:h], "\n")
 }
 
-// padTo right-pads s to exactly w display cells, truncating when it is already wider, so
-// styled cells lay out in columns without being measured again.
+// padTo right-pads s to exactly w display cells, truncating when it is already wider.
 func padTo(s string, w int) string {
 	s = truncate(s, w)
 	if gap := w - lipgloss.Width(s); gap > 0 {
@@ -254,8 +231,7 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// relTime renders a unix timestamp as an age ("3m ago"): how long ago you used a host is
-// the useful fact. A zero timestamp is a host never connected to.
+// relTime renders a unix timestamp as an age ("3m ago"); zero means never.
 func relTime(unix int64) string {
 	if unix <= 0 {
 		return "never"

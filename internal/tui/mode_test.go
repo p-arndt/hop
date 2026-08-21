@@ -12,9 +12,8 @@ import (
 	"hop/internal/terminal"
 )
 
-// scrolledShell is a model on host "web" whose shell pane has real history behind it, so
-// enterScrollback runs through its own guard. The emulator is fed on its own goroutine,
-// so the lines have to be waited for.
+// scrolledShell is a model on "web" whose shell pane has real history, so enterScrollback
+// passes its guard. The emulator is fed on its own goroutine, so the lines are waited for.
 func scrolledShell(t *testing.T) (*model, *session) {
 	t.Helper()
 	var out strings.Builder
@@ -40,8 +39,6 @@ func scrolledShell(t *testing.T) (*model, *session) {
 	return m, s
 }
 
-// modeNames is what a paneMode is called in a failure message. A test that says
-// "mode = modeBrowser, want modeShell" is worth more than one that says "3, want 1".
 var modeNames = map[paneMode]string{
 	modeList:       "modeList",
 	modeShell:      "modeShell",
@@ -57,9 +54,7 @@ func modeName(md paneMode) string {
 	return "paneMode(?)"
 }
 
-// wantMode asserts the model's mode and that the four predicates every switch is written
-// against agree with it. They derive from the one value, so a disagreement means a
-// predicate is wrong.
+// wantMode asserts the mode and that the four derived predicates agree with it.
 func wantMode(t *testing.T, m *model, want paneMode) {
 	t.Helper()
 	if m.mode != want {
@@ -84,9 +79,7 @@ func wantMode(t *testing.T, m *model, want paneMode) {
 	}
 }
 
-// Every way into a pane lands in exactly one mode, and every way out lands back in the
-// list. With four bools, "focused and browsing" was a state you could reach by forgetting
-// a line.
+// Every way into a pane lands in exactly one mode, and every way out lands in the list.
 func TestModeTransitionsAreExclusive(t *testing.T) {
 	steps := []struct {
 		name string
@@ -108,9 +101,7 @@ func TestModeTransitionsAreExclusive(t *testing.T) {
 	}
 }
 
-// Scrollback is a mode of the shell, so leaving the pane from inside it leaves the shell
-// too. With a separate `scrolling` bool, a call site that cleared `focused` and forgot it
-// left the model claiming both.
+// Scrollback is a mode of the shell, so leaving from inside it leaves the shell too.
 func TestLeavingFromScrollbackClearsBoth(t *testing.T) {
 	for _, out := range []struct {
 		name string
@@ -131,29 +122,25 @@ func TestLeavingFromScrollbackClearsBoth(t *testing.T) {
 	}
 }
 
-// The browser and the editor are one step apart in both directions, and neither
-// step leaves the other mode standing.
+// The browser and the editor are one step apart in both directions.
 func TestBrowserEditorRoundTrip(t *testing.T) {
 	m, s := editorModel(t, "a.conf")
 	s.browser = &filebrowser.Browser{}
 	wantMode(t, m, modeEditor)
 
-	// Out of the editor is back to the browser the file was opened from...
 	m.leaveEditor()
 	wantMode(t, m, modeBrowser)
 
-	// ...and opening the file that is already open goes straight back to its tab.
+	// Opening the file that is already open goes straight back to its tab.
 	m.openFile("web", filebrowser.OpenFileMsg{Path: "/etc/a.conf", Name: "a.conf"})
 	wantMode(t, m, modeEditor)
 
-	// With the browser gone, leaving the editor has only the list to fall back to.
 	s.browser = nil
 	m.leaveEditor()
 	wantMode(t, m, modeList)
 }
 
-// A dropped connection takes the keyboard out of scrollback: the history is still on
-// screen, but the keys now belong to the dead pane's small keyboard.
+// A dropped connection takes the keyboard out of scrollback.
 func TestConnectionLossLeavesScrollback(t *testing.T) {
 	m, s := scrolledShell(t)
 	if !m.enterScrollback(s) {
@@ -163,23 +150,19 @@ func TestConnectionLossLeavesScrollback(t *testing.T) {
 	wantMode(t, m, modeShell)
 }
 
-// The point of the column: a tree and a file are on screen together, and the mode says
-// only which of them the keys reach. Before this, entering the editor took the browser off
-// the screen, so there was no "unfocused column" for either key to mean anything to.
+// Tree and file are on screen together; the mode says only which one the keys reach.
 func TestFocusCrossesTheColumns(t *testing.T) {
 	m, s := columnModel(t, 200, 34)
 	s.editors = []*editorTab{{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()}}
 	t.Cleanup(s.closeEditors)
 	wantMode(t, m, modeBrowser)
 
-	// tab, from the registry: across to the file.
 	m.handleKey(key(t, "tab"))
 	wantMode(t, m, modeEditor)
 	if m.treeWidth() == 0 {
 		t.Fatal("focusing the file collapsed the tree column, want it left on screen")
 	}
 
-	// alt+t: back to the tree, with the file still open behind it.
 	m.handleKey(altKey("t"))
 	wantMode(t, m, modeBrowser)
 	if len(s.editors) != 1 {
@@ -187,8 +170,7 @@ func TestFocusCrossesTheColumns(t *testing.T) {
 	}
 }
 
-// Both columns are drawn whichever one holds the keyboard. The screen is the test: the
-// listing and the file's tab have to be on it at the same time.
+// Both columns are drawn whichever one holds the keyboard.
 func TestBothColumnsAreDrawn(t *testing.T) {
 	m, s := columnModel(t, 200, 34)
 	s.editors = []*editorTab{{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()}}
@@ -206,12 +188,10 @@ func TestBothColumnsAreDrawn(t *testing.T) {
 	}
 }
 
-// A key that would hand the keyboard nowhere is spent doing nothing rather than leaving it
-// pointed at an empty column.
+// A key that would hand the keyboard nowhere does nothing.
 func TestFocusKeysDeclineWithNowhereToGo(t *testing.T) {
 	t.Run("no content to focus", func(t *testing.T) {
-		// A browser opened on a host with no shell of its own: the content area is the
-		// details card, which is not somewhere keys can go.
+		// No shell of its own: the content area is the details card, which takes no keys.
 		m, s := columnModel(t, 200, 34)
 		s.closeShells()
 		m.handleKey(key(t, "tab"))

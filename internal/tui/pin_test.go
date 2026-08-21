@@ -9,8 +9,7 @@ import (
 	"hop/internal/store"
 )
 
-// pinModel is a navigation-mode model over three hosts in a known frecency order:
-// a, b, c.
+// pinModel is a navigation-mode model over three hosts in frecency order a, b, c.
 func pinModel(t *testing.T) *model {
 	t.Helper()
 	return hostMgmtModel(t,
@@ -20,7 +19,6 @@ func pinModel(t *testing.T) *model {
 	)
 }
 
-// listOrder is the aliases in the order the sidebar would draw them.
 func listOrder(m *model) []string {
 	out := make([]string, 0, len(m.filtered))
 	for _, idx := range m.filtered {
@@ -42,8 +40,7 @@ func rowKinds(m *model) []string {
 	return out
 }
 
-// 'p' pins the host under the cursor, which lifts it above the frecency order and
-// gives the list its PINNED / HOSTS sections. A second 'p' puts it back.
+// 'p' pins the host above the frecency order and splits the list into sections; 'p' again undoes it.
 func TestPinKeyTogglesAndSections(t *testing.T) {
 	m := pinModel(t)
 	m.cursor = 2 // "c", the least-visited host
@@ -59,7 +56,6 @@ func TestPinKeyTogglesAndSections(t *testing.T) {
 	if !m.hasSections() {
 		t.Fatal("hasSections is false with a host pinned")
 	}
-	// The cursor follows the host it was on, wherever the new order put it.
 	if h, _ := m.selectedHost(); h.Alias != "c" {
 		t.Fatalf("cursor left %q after pinning c", h.Alias)
 	}
@@ -77,8 +73,6 @@ func TestPinKeyTogglesAndSections(t *testing.T) {
 	}
 }
 
-// The pin outlives the model: it is a column in the database, not a field in a
-// list that gets rebuilt on every reload.
 func TestPinSurvivesReload(t *testing.T) {
 	m := pinModel(t)
 	m.cursor = 2
@@ -122,8 +116,7 @@ func TestPinReorderKeys(t *testing.T) {
 	}
 }
 
-// Reordering only means something inside the pinned section; on a host that is not
-// pinned the keys say so rather than silently doing nothing.
+// On an unpinned host the reorder keys report why rather than doing nothing.
 func TestPinReorderOnUnpinnedHostSaysSo(t *testing.T) {
 	m := pinModel(t)
 	m.cursor = 0
@@ -138,8 +131,7 @@ func TestPinReorderOnUnpinnedHostSaysSo(t *testing.T) {
 	}
 }
 
-// A filter narrows the sections rather than dissolving them: a pinned match still sorts
-// above an unpinned one, and an empty section loses its heading.
+// A filter narrows the sections rather than dissolving them; empty ones lose their heading.
 func TestFilterKeepsSections(t *testing.T) {
 	m := hostMgmtModel(t,
 		store.Host{Alias: "alpha", HostName: "a.test", Visits: 30},
@@ -151,7 +143,7 @@ func TestFilterKeepsSections(t *testing.T) {
 	}
 	m.reloadHosts()
 
-	// "a" hits every alias; the pinned one comes first whatever the match score.
+	// "a" hits every alias; the pinned one comes first whatever the score.
 	m.filter = "a"
 	m.applyFilter()
 	if got := listOrder(m); got[0] != "gamma" {
@@ -161,14 +153,12 @@ func TestFilterKeepsSections(t *testing.T) {
 		t.Fatalf("rows = %v, want both headings", got)
 	}
 
-	// A filter only the unpinned hosts match drops the PINNED heading entirely.
 	m.filter = "bet"
 	m.applyFilter()
 	if got, want := rowKinds(m), []string{"#HOSTS", "beta"}; strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("rows = %v, want only the HOSTS section: %v", got, want)
 	}
 
-	// And one only the pinned host matches drops the HOSTS heading.
 	m.filter = "gam"
 	m.applyFilter()
 	if got, want := rowKinds(m), []string{"#PINNED", "gamma"}; strings.Join(got, ",") != strings.Join(want, ",") {
@@ -176,8 +166,7 @@ func TestFilterKeepsSections(t *testing.T) {
 	}
 }
 
-// The sections are drawn — with their counts — and they replace the sidebar's own
-// HOSTS title rather than sitting under a second copy of the word.
+// The section headings carry counts and replace the sidebar's own title.
 func TestRenderListDrawsSections(t *testing.T) {
 	m := pinModel(t)
 	m.cursor = 2
@@ -201,16 +190,14 @@ func TestRenderListDrawsSections(t *testing.T) {
 	}
 }
 
-// The mouse maps rows through the renderer's own bookkeeping, so with the sections on a
-// click still lands on the host under the pointer, and a heading selects nothing.
+// With sections on, a click lands on the host under the pointer; a heading selects nothing.
 func TestClickWithSections(t *testing.T) {
 	m := pinModel(t)
 	m.cursor = 2
 	m.handleKey(key(t, "p"))
 	m.recomputeLayout()
 
-	// Rows: the screen header (0), the sidebar border (1), then #PINNED, c,
-	// #HOSTS, a, b — the title row is gone, the sections having taken it.
+	// Rows: header (0), border (1), then #PINNED, c, #HOSTS, a, b.
 	if _, ok := m.listRowAt(2); ok {
 		t.Fatal("a click on the PINNED heading selected a host")
 	}
@@ -225,9 +212,7 @@ func TestClickWithSections(t *testing.T) {
 	}
 }
 
-// A filter must not reshuffle the PINNED section: it is drawn in the order the user
-// arranged, which is the order shift+j/k move in. By match score, the reorder keys would
-// move a host somewhere other than where it appears to be.
+// A filter keeps the PINNED section in the user's order, which is what shift+j/k move in.
 func TestFilterKeepsPinOrder(t *testing.T) {
 	m := hostMgmtModel(t,
 		store.Host{Alias: "prod", HostName: "p.test", Visits: 30},
@@ -248,8 +233,6 @@ func TestFilterKeepsPinOrder(t *testing.T) {
 		t.Fatalf("filtered pinned order = %v, want the pin order %v", got, want)
 	}
 
-	// And the reorder keys agree with what is drawn: shift+k on the second row moves it
-	// above the first.
 	m.cursor = 1
 	m.handleKey(key(t, "K"))
 	if got, want := listOrder(m), []string{"dev", "prod"}; strings.Join(got, ",") != strings.Join(want, ",") {
@@ -257,8 +240,7 @@ func TestFilterKeepsPinOrder(t *testing.T) {
 	}
 }
 
-// Paging is measured in drawn rows, headings included — the screen is. A page must
-// therefore never step over a host that was not on screen.
+// Paging is measured in drawn rows, headings included, so it never steps over a host.
 func TestPageStepsBySectionRows(t *testing.T) {
 	seed := make([]store.Host, 0, 12)
 	for i := range 12 {
@@ -281,8 +263,6 @@ func TestPageStepsBySectionRows(t *testing.T) {
 	from := m.cursorRow()
 	m.handleKey(key(t, "pgdown"))
 
-	// A page is a screen of rows: paging by a count of *hosts* would step over the
-	// headings as well and land a host or two past what the screen ever showed.
 	switch moved := m.cursorRow() - from; {
 	case moved <= 0:
 		t.Fatalf("pgdn moved the cursor %d rows", moved)

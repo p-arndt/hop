@@ -87,8 +87,7 @@ func TestNormalizeAltGrLeavesUnmodifiedAndOtherPlatforms(t *testing.T) {
 	}
 }
 
-// End to end: the character AltGr composed reaches the remote shell as itself, not
-// behind the ESC prefix an alt chord is forwarded with (issue #17).
+// The AltGr character reaches the shell as itself, not behind an alt chord's ESC (issue #17).
 func TestAltGrCharacterReachesTheShell(t *testing.T) {
 	withAltGrKeyboard(t, true)
 	m, stdin := pasteModel()
@@ -103,7 +102,6 @@ func TestAltGrCharacterReachesTheShell(t *testing.T) {
 	}
 }
 
-// And a real alt chord still is one: alt+1 jumps to the first tab rather than typing a 1.
 func TestAltDigitStillSwitchesTabs(t *testing.T) {
 	withAltGrKeyboard(t, true)
 	m, stdin := pasteModel()

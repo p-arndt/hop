@@ -17,8 +17,7 @@ import (
 	"hop/internal/sshx"
 )
 
-// newSigner generates a fresh ed25519 ssh.Signer for use as either a host key
-// or a client key in the in-process test server.
+// newSigner generates a fresh ed25519 ssh.Signer for the in-process test server.
 func newSigner(t *testing.T) ssh.Signer {
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -32,9 +31,8 @@ func newSigner(t *testing.T) ssh.Signer {
 	return signer
 }
 
-// startTestServer spins up an in-process SSH server on 127.0.0.1:0 that accepts any
-// public key, answers pty-req and shell, writes a banner and echoes what it receives. It
-// returns the listener address and runs until t.Cleanup closes it.
+// startTestServer spins up an in-process SSH server that accepts any public key, answers
+// pty-req and shell, writes a banner and echoes what it receives.
 func startTestServer(t *testing.T, hostKey ssh.Signer) string {
 	t.Helper()
 
@@ -64,7 +62,6 @@ func startTestServer(t *testing.T, hostKey ssh.Signer) string {
 	return ln.Addr().String()
 }
 
-// serveConn performs the SSH handshake and services session channels.
 func serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
 	sc, chans, reqs, err := ssh.NewServerConn(nc, cfg)
 	if err != nil {
@@ -87,8 +84,7 @@ func serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
 	}
 }
 
-// handleSession accepts pty-req plus shell and exec, writes a banner and echoes input.
-// exec echoes the command line it was given, which is how the editor path is checked.
+// handleSession accepts pty-req, shell and exec, writes a banner and echoes input.
 func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
 	for req := range reqs {
 		switch req.Type {
@@ -114,8 +110,8 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
 	}
 }
 
-// execPayload extracts the command string from an exec request: RFC 4254 encodes
-// it as a uint32 length followed by the bytes.
+// execPayload extracts the command string from an exec request (RFC 4254: uint32 length,
+// then the bytes).
 func execPayload(p []byte) string {
 	if len(p) < 4 {
 		return ""
@@ -127,7 +123,6 @@ func execPayload(p []byte) string {
 	return string(p[4 : 4+n])
 }
 
-// banneredEcho writes banner, then echoes everything it receives back.
 func banneredEcho(ch ssh.Channel, banner string) {
 	io.WriteString(ch, banner+"\r\n")
 	buf := make([]byte, 1024)
@@ -143,7 +138,6 @@ func banneredEcho(ch ssh.Channel, banner string) {
 	}
 }
 
-// waitForView polls term.View() until it contains want or the timeout elapses.
 func waitForView(term *Pane, want string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -155,8 +149,7 @@ func waitForView(term *Pane, want string, timeout time.Duration) bool {
 	return strings.Contains(term.View(), want)
 }
 
-// TestEmbeddedRoundTrip proves the embedded-terminal chain end to end without an external
-// sshd: SSH server -> sshx.Session -> terminal.Pane, keystroke round-trip included.
+// The chain end to end without an external sshd: server -> sshx.Session -> terminal.Pane.
 func TestEmbeddedRoundTrip(t *testing.T) {
 	hostKey := newSigner(t)
 	clientKey := newSigner(t)
@@ -188,7 +181,6 @@ func TestEmbeddedRoundTrip(t *testing.T) {
 		t.Fatalf("banner never appeared in emulator; view:\n%s", term.View())
 	}
 
-	// Keystroke round-trip: send 'Z', expect the server echo to surface it.
 	term.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'Z'}})
 
 	if !waitForView(term, "Z", 3*time.Second) {
@@ -196,13 +188,7 @@ func TestEmbeddedRoundTrip(t *testing.T) {
 	}
 }
 
-// Closing a pane while its pumps are running must be quiet and complete: the two
-// goroutines New starts go away, and nothing touches the emulator on the way out.
-//
-// hop closes panes constantly, so one that left its pumps behind would bleed a goroutine
-// and a live session per shell. The tear-down was also a data race (see Pane.Close): the
-// response pump sits inside emu.Read reading the flag emu.Close() writes. CI runs this
-// under -race, which is what makes that half mean anything.
+// Both goroutines New starts go away on Close, with no race on the emulator (run -race).
 func TestCloseStopsThePumps(t *testing.T) {
 	hostKey := newSigner(t)
 	clientKey := newSigner(t)
@@ -225,15 +211,13 @@ func TestCloseStopsThePumps(t *testing.T) {
 		t.Fatalf("Shell: %v", err)
 	}
 
-	// Everything the pane will start is started after this count is taken.
 	before := runtime.NumGoroutine()
 
 	term := New(sess, 80, 24, nil)
 	if !waitForView(term, "HOPTEST-READY", 3*time.Second) {
 		t.Fatalf("the shell never came up; view:\n%s", term.View())
 	}
-	// The pumps are demonstrably live: this keystroke went out through one and its
-	// echo came back through the other.
+	// A round-trip proves both pumps are live before the Close.
 	term.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'Z'}})
 	if !waitForView(term, "Z", 3*time.Second) {
 		t.Fatalf("the pane is not pumping; view:\n%s", term.View())
@@ -243,8 +227,7 @@ func TestCloseStopsThePumps(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	// The goroutines are torn down asynchronously, so this is a wait rather than a
-	// reading: what is being asserted is that they end, not when.
+	// Tear-down is asynchronous, so wait: the assertion is that they end, not when.
 	deadline := time.Now().Add(3 * time.Second)
 	for runtime.NumGoroutine() > before && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
@@ -255,9 +238,7 @@ func TestCloseStopsThePumps(t *testing.T) {
 	}
 }
 
-// TestCommandPaneRoundTrip is the editor-pane chain: sshx.Command runs a program on a
-// remote pty and terminal.Pane renders it. The TUI's editor tabs are this with "vi
-// <file>" as the command.
+// The editor-pane chain: sshx.Command runs a program on a remote pty, Pane renders it.
 func TestCommandPaneRoundTrip(t *testing.T) {
 	hostKey := newSigner(t)
 	clientKey := newSigner(t)
@@ -285,12 +266,10 @@ func TestCommandPaneRoundTrip(t *testing.T) {
 	term := New(sess, 80, 24, nil)
 	defer term.Close()
 
-	// The server echoes back the command line it was asked to exec.
 	if !waitForView(term, "HOPEXEC:vi /etc/hosts", 3*time.Second) {
 		t.Fatalf("exec'd command never surfaced in emulator; view:\n%s", term.View())
 	}
 
-	// The pane drives it like any other: keys go to the running program.
 	term.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
 	if !waitForView(term, "i", 3*time.Second) {
 		t.Fatalf("keystroke never reached the exec'd program; view:\n%s", term.View())

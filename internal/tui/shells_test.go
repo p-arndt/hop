@@ -20,9 +20,7 @@ func testStore(t *testing.T) *store.Store {
 	return st
 }
 
-// shellModel builds a model focused on host "web", already holding n shells on a
-// connection. The panes are fakes (see editor_test.go): the tab bookkeeping never
-// reads or writes them.
+// shellModel builds a model focused on host "web" with n fake shells on one connection.
 func shellModel(t *testing.T, n int) (*model, *session) {
 	t.Helper()
 	s := &session{client: &sshx.Client{}}
@@ -34,17 +32,16 @@ func shellModel(t *testing.T, n int) (*model, *session) {
 	return m, s
 }
 
-// alt+←/→ cycle the shells open on the host and wrap around at both ends.
 func TestShellTabCycling(t *testing.T) {
 	m, s := shellModel(t, 3)
 
-	for _, want := range []int{1, 2, 0} { // right wraps 2 -> 0
+	for _, want := range []int{1, 2, 0} {
 		m.handleKey(altKey("right"))
 		if s.activeSh != want {
 			t.Fatalf("after alt+right: activeSh = %d, want %d", s.activeSh, want)
 		}
 	}
-	for _, want := range []int{2, 1, 0} { // left wraps 0 -> 2
+	for _, want := range []int{2, 1, 0} {
 		m.handleKey(altKey("left"))
 		if s.activeSh != want {
 			t.Fatalf("after alt+left: activeSh = %d, want %d", s.activeSh, want)
@@ -55,7 +52,7 @@ func TestShellTabCycling(t *testing.T) {
 	}
 }
 
-// alt+1…9 jump straight to a shell; a number with no shell behind it does nothing.
+// A number with no shell behind it does nothing.
 func TestShellTabJump(t *testing.T) {
 	m, s := shellModel(t, 3)
 
@@ -69,8 +66,7 @@ func TestShellTabJump(t *testing.T) {
 	}
 }
 
-// 'S' opens another shell on a host that already has one — over the connection
-// hop is already holding, so it never dials again.
+// 'S' opens another shell on a host that already has one.
 func TestNewShellReusesTheConnection(t *testing.T) {
 	m, s := shellModel(t, 1)
 	m.mode = modeList
@@ -86,15 +82,12 @@ func TestNewShellReusesTheConnection(t *testing.T) {
 		t.Fatalf("shells = %d before the command lands, want the original one", len(s.shells))
 	}
 
-	// A second S while the first is still in flight must not dial a second
-	// connection behind the one already coming.
+	// A second S while the first is in flight must not dial again.
 	if _, cmd := m.handleKey(key(t, "S")); cmd != nil {
 		t.Fatal("S during an in-flight connect started another one")
 	}
 }
 
-// 'enter' on a host with a live shell focuses it rather than opening another —
-// only S does that.
 func TestEnterFocusesExistingShell(t *testing.T) {
 	m, s := shellModel(t, 2)
 	m.mode = modeList
@@ -110,8 +103,6 @@ func TestEnterFocusesExistingShell(t *testing.T) {
 	}
 }
 
-// The connected shell lands as a new tab beside the ones already open, and the
-// host stays on one connection.
 func TestConnectedMsgAppendsShell(t *testing.T) {
 	m, s := shellModel(t, 1)
 	m.st = testStore(t) // a landing shell bumps the host's visit count
@@ -131,7 +122,6 @@ func TestConnectedMsgAppendsShell(t *testing.T) {
 	}
 }
 
-// Exiting a shell closes its tab. The others keep running.
 func TestShellExitDropsTab(t *testing.T) {
 	m, s := shellModel(t, 3)
 	s.activeSh = 2
@@ -149,8 +139,6 @@ func TestShellExitDropsTab(t *testing.T) {
 	}
 }
 
-// The last shell exiting with nothing else open on the connection ends the
-// session: the host goes back to idle rather than lingering as a dead pane.
 func TestLastShellExitEndsSession(t *testing.T) {
 	m, _ := shellModel(t, 1)
 
@@ -165,8 +153,7 @@ func TestLastShellExitEndsSession(t *testing.T) {
 	}
 }
 
-// ...but a browser open on the same connection keeps the session alive: exiting
-// the shell drops back to it, and the SFTP view survives.
+// ...but a browser on the same connection keeps the session alive.
 func TestLastShellExitKeepsBrowser(t *testing.T) {
 	m, s := shellModel(t, 1)
 	s.browser = &filebrowser.Browser{}
@@ -181,10 +168,7 @@ func TestLastShellExitKeepsBrowser(t *testing.T) {
 	}
 }
 
-// ← is the shell's, always. It moves the readline cursor, it is what alt+b/alt+f
-// and the vim/htop arrows are built on, and hop taking it — even at what hop
-// believes is a bare prompt — breaks editing on every server you connect to.
-// Leaving a pane is ctrl+o or a double esc.
+// Left is always the shell's: hop taking it would break readline editing everywhere.
 func TestLeftAlwaysGoesToTheShell(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -212,7 +196,6 @@ func TestLeftAlwaysGoesToTheShell(t *testing.T) {
 	}
 }
 
-// The tab strip only costs a row once there is a second shell to switch to.
 func TestShellSizeMakesRoomForTheStrip(t *testing.T) {
 	m, _ := shellModel(t, 1)
 

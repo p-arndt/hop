@@ -13,8 +13,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// testKey generates an ed25519 host key and returns it as an ssh.PublicKey. A
-// fresh key per test keeps the cases independent and needs no fixtures on disk.
+// testKey generates an ed25519 host key and returns it as an ssh.PublicKey.
 func testKey(t *testing.T) ssh.PublicKey {
 	t.Helper()
 	pub, _, err := ed25519.GenerateKey(rand.Reader)
@@ -28,9 +27,7 @@ func testKey(t *testing.T) ssh.PublicKey {
 	return sk
 }
 
-// callbackFor builds the TOFU callback against a fresh temp known_hosts file and
-// returns it alongside the file path so a test can assert what (if anything) was
-// appended.
+// callbackFor builds the TOFU callback over a fresh known_hosts and returns its path.
 func callbackFor(t *testing.T, trustedFP string, recorded *string) (ssh.HostKeyCallback, string) {
 	t.Helper()
 	khPath := filepath.Join(t.TempDir(), "known_hosts")
@@ -46,8 +43,7 @@ func callbackFor(t *testing.T, trustedFP string, recorded *string) (ssh.HostKeyC
 
 var testAddr = &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 22}
 
-// fileNonEmpty reports whether the known_hosts file has any bytes, i.e. whether
-// a host line was appended.
+// fileNonEmpty reports whether a host line was appended.
 func fileNonEmpty(t *testing.T, path string) bool {
 	t.Helper()
 	info, err := os.Stat(path)
@@ -57,8 +53,6 @@ func fileNonEmpty(t *testing.T, path string) bool {
 	return info.Size() > 0
 }
 
-// An unknown host with no approved fingerprint is refused with a typed error and
-// nothing is written: the decision belongs to the user, not the callback.
 func TestUnknownHostRejectedAndNotRecorded(t *testing.T) {
 	key := testKey(t)
 	var recorded string
@@ -84,7 +78,6 @@ func TestUnknownHostRejectedAndNotRecorded(t *testing.T) {
 	}
 }
 
-// Trusting the fingerprint the user approved appends the key and accepts it.
 func TestTrustingMatchingFingerprintAppendsAndAccepts(t *testing.T) {
 	key := testKey(t)
 	fp := ssh.FingerprintSHA256(key)
@@ -102,8 +95,7 @@ func TestTrustingMatchingFingerprintAppendsAndAccepts(t *testing.T) {
 	}
 }
 
-// Trusting one fingerprint but being presented a different key is refused — the
-// swap the confirmation exists to catch — and nothing is written.
+// A key swap under an approved fingerprint is what the confirmation exists to catch.
 func TestTrustingWrongFingerprintRejected(t *testing.T) {
 	key := testKey(t)
 	var recorded string

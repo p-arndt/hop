@@ -1,18 +1,8 @@
 package store
 
-// A minimal, read-only reader for the SQLite file format, enough to lift hosts and
-// forwards out of a pre-1.0 hop.db exactly once.
-//
-// hop used to keep its hosts in SQLite, which cost 3 MB of binary for two tables that
-// never needed a query planner. The hosts now live in an OpenSSH config file, but the
-// databases on existing installs still have to be read — and importing the driver back
-// just for that would give the 3 MB straight back. The format is documented and frozen
-// (https://sqlite.org/fileformat.html), and the subset a hop.db can exercise is small:
-// table b-trees, no indexes, no WAL replay, no writing.
-//
-// Everything here is read-only and refuses rather than guesses: readSQLiteTable returns
-// an error on anything it does not fully understand, and the caller keeps the original
-// file. A wrong answer here would be silent data loss, so there is no best-effort path.
+// A dependency-free, read-only reader for the subset of the SQLite file format a legacy
+// hop.db uses (https://sqlite.org/fileformat.html): table b-trees, no indexes, no WAL
+// replay. It errors rather than guesses; a wrong answer here is silent data loss.
 
 import (
 	"encoding/binary"
@@ -23,11 +13,9 @@ import (
 	"strings"
 )
 
-// sqliteMagic opens every SQLite database file, including the ones hop wrote.
 const sqliteMagic = "SQLite format 3\x00"
 
-// isSQLiteFile reports whether path is a SQLite database, which is how Open tells a
-// legacy hop.db from an OpenSSH config file without trusting the file name.
+// isSQLiteFile tells a legacy hop.db from an OpenSSH config without trusting the name.
 func isSQLiteFile(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -41,20 +29,15 @@ func isSQLiteFile(path string) bool {
 	return string(head[:]) == sqliteMagic
 }
 
-// sqliteDB is a database file held in memory. A hop.db is a few KB; reading it whole
-// keeps page access a slice index and needs no seeking.
+// sqliteDB is a database file held in memory.
 type sqliteDB struct {
 	data     []byte
 	pageSize int
-	// usable is the page size minus the reserved tail some builds append to every page.
-	// Every payload-size threshold is computed from it rather than from pageSize.
+	// usable is pageSize minus the reserved per-page tail; every payload threshold uses it.
 	usable int
 }
 
-// openSQLite reads path into memory and validates the header fields the reader relies
-// on. It deliberately rejects a database with a hot journal or WAL frames pending: those
-// hold committed data this reader cannot replay, and migrating without them would drop
-// whatever the last session wrote.
+// openSQLite reads path into memory and validates the header fields the reader relies on.
 func openSQLite(path string) (*sqliteDB, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -64,8 +47,7 @@ func openSQLite(path string) (*sqliteDB, error) {
 		return nil, fmt.Errorf("not a SQLite database")
 	}
 
-	// Page size lives at offset 16 as a big-endian u16, where the value 1 encodes 65536
-	// because that will not fit in two bytes.
+	// Page size is a big-endian u16 at offset 16, where the value 1 encodes 65536.
 	pageSize := int(binary.BigEndian.Uint16(data[16:18]))
 	if pageSize == 1 {
 		pageSize = 65536
@@ -82,15 +64,13 @@ func openSQLite(path string) (*sqliteDB, error) {
 		return nil, fmt.Errorf("truncated database: %d bytes at page size %d", len(data), pageSize)
 	}
 
-	// Offsets 18 and 19 are the write and read format versions: 1 is the rollback
-	// journal, 2 is WAL. Anything higher postdates this reader.
+	// Offsets 18/19 are the write and read format versions: 1 rollback journal, 2 WAL.
 	if data[18] > 2 || data[19] > 2 {
 		return nil, fmt.Errorf("unsupported file format version %d/%d", data[18], data[19])
 	}
 
-	// Committed data can sit outside the main file: WAL frames not yet checkpointed, or a
-	// hot journal from an interrupted write. Neither is replayed here, and migrating
-	// without them would silently drop the last session's changes.
+	// A WAL or hot journal holds committed data this reader cannot replay; migrating
+	// without it would silently drop the last session's writes.
 	for _, sidecar := range []string{path + "-wal", path + "-journal"} {
 		if info, err := os.Stat(sidecar); err == nil && info.Size() > 0 {
 			return nil, fmt.Errorf("database has pending %s; open it once with the previous hop to flush it", filepath.Ext(sidecar)[1:])
@@ -112,9 +92,8 @@ type sqliteTable struct {
 	name     string
 	rootPage int
 	columns  []string
-	// rowidAlias is the index in columns of an INTEGER PRIMARY KEY column, or -1. Such a
-	// column is not stored in the record at all — it *is* the row's key — so its value has
-	// to be filled in from the rowid or every id comes back NULL.
+	// rowidAlias indexes an INTEGER PRIMARY KEY column (-1 if none): it is absent from the
+	// record and must be filled in from the rowid, or every id reads NULL.
 	rowidAlias int
 }
 
@@ -149,8 +128,8 @@ func (db *sqliteDB) tables() (map[string]sqliteTable, error) {
 	return out, nil
 }
 
-// readSQLiteTable returns every row of one table as a column-name-keyed map. Missing
-// tables are not an error: a hop.db written before forwards existed simply has none.
+// readSQLiteTable returns every row keyed by column name; a missing table is not an error,
+// since a hop.db written before forwards existed has none.
 func readSQLiteTable(db *sqliteDB, tables map[string]sqliteTable, name string) ([]map[string]any, error) {
 	t, ok := tables[name]
 	if !ok {
@@ -170,9 +149,8 @@ func readSQLiteTable(db *sqliteDB, tables map[string]sqliteTable, name string) (
 			case i < len(r.values):
 				m[col] = r.values[i]
 			default:
-				// A column added by ALTER TABLE after this row was written is absent
-				// from its record and reads as its default, which for every column hop
-				// ever added is the zero value.
+				// A column ALTER-added after this row was written is absent from its
+				// record; every column hop added defaults to the zero value.
 				m[col] = nil
 			}
 		}
@@ -181,14 +159,12 @@ func readSQLiteTable(db *sqliteDB, tables map[string]sqliteTable, name string) (
 	return out, nil
 }
 
-// sqliteRow is one decoded table row: its integer key plus the record's column values.
 type sqliteRow struct {
 	rowid  int64
 	values []any
 }
 
-// maxTreeDepth bounds the b-tree walk. A corrupt file can point a page at an ancestor,
-// and without a bound that is an infinite descent rather than an error.
+// maxTreeDepth bounds the walk: a corrupt file can point a page at an ancestor.
 const maxTreeDepth = 32
 
 // readTree walks the table b-tree rooted at page n and returns its rows in key order.
@@ -211,8 +187,8 @@ func (db *sqliteDB) readTree(n, depth int) ([]sqliteRow, error) {
 
 	kind := page[offset]
 	cells := int(binary.BigEndian.Uint16(page[offset+3 : offset+5]))
-	// The cell pointer array follows the header: 8 bytes for a leaf, 12 for an interior
-	// page, whose extra 4 hold the rightmost child.
+	// The header is 8 bytes for a leaf, 12 for an interior page (the extra 4 are its
+	// rightmost child), then the cell pointer array.
 	headerSize := 8
 	if kind == 0x05 || kind == 0x02 {
 		headerSize = 12
@@ -268,8 +244,7 @@ func (db *sqliteDB) readTree(n, depth int) ([]sqliteRow, error) {
 	}
 }
 
-// readLeafCell decodes one table-leaf cell: payload length, rowid, then the record,
-// following the overflow chain when the payload does not fit on the page.
+// readLeafCell decodes one table-leaf cell: payload length, rowid, then the record.
 func (db *sqliteDB) readLeafCell(page []byte, at int) (sqliteRow, error) {
 	if at < 0 || at >= len(page) {
 		return sqliteRow{}, fmt.Errorf("cell offset out of range")
@@ -295,8 +270,8 @@ func (db *sqliteDB) readLeafCell(page []byte, at int) (sqliteRow, error) {
 	return sqliteRow{rowid: rowid, values: values}, nil
 }
 
-// readPayload assembles a record that may continue on overflow pages. The split point is
-// SQLite's, computed from the usable page size rather than assumed.
+// readPayload assembles a record spanning overflow pages; the split point is SQLite's,
+// derived from the usable page size.
 func (db *sqliteDB) readPayload(page []byte, at, total int) ([]byte, error) {
 	if total < 0 {
 		return nil, fmt.Errorf("negative payload length")
@@ -322,8 +297,8 @@ func (db *sqliteDB) readPayload(page []byte, at, total int) ([]byte, error) {
 	out = append(out, page[at:at+local]...)
 
 	next := int(binary.BigEndian.Uint32(page[at+local : at+local+4]))
-	// Each overflow page is a 4-byte next pointer then data; the chain is bounded by the
-	// page count so a cycle is an error rather than a hang.
+	// Each overflow page is a 4-byte next pointer then data; bound the chain by the page
+	// count so a cycle errors rather than hangs.
 	for hops := 0; next != 0; hops++ {
 		if hops > len(db.data)/db.pageSize+1 {
 			return nil, fmt.Errorf("overflow chain does not terminate")
@@ -399,14 +374,13 @@ func decodeRecord(rec []byte) ([]any, error) {
 		case t >= 13 && t%2 == 1:
 			values = append(values, string(raw))
 		default:
-			// 10 and 11 are reserved for internal use and never appear in a table row.
+			// Serial types 10 and 11 are internal and never appear in a table row.
 			return nil, fmt.Errorf("reserved serial type %d", t)
 		}
 	}
 	return values, nil
 }
 
-// serialSize is the byte width of one serial type.
 func serialSize(t int64) (int, error) {
 	switch {
 	case t == 0, t == 8, t == 9:
@@ -439,9 +413,8 @@ func beInt(b []byte) int64 {
 	return v
 }
 
-// getVarint decodes SQLite's big-endian base-128 varint: up to eight bytes carrying seven
-// bits each, with a ninth contributing all eight. It returns the width consumed, or 0 if
-// the buffer ends mid-value.
+// getVarint decodes SQLite's base-128 varint: eight bytes of seven bits, a ninth of eight;
+// it returns the width consumed, or 0 when the buffer ends mid-value.
 func getVarint(b []byte) (int64, int) {
 	var v uint64
 	for i := 0; i < 8; i++ {
@@ -459,7 +432,6 @@ func getVarint(b []byte) (int64, int) {
 	return int64(v<<8 | uint64(b[8])), 9
 }
 
-// toInt narrows a decoded value to an integer, for the columns known to hold one.
 func toInt(v any) (int64, bool) {
 	switch n := v.(type) {
 	case int64:
@@ -471,10 +443,8 @@ func toInt(v any) (int64, bool) {
 	}
 }
 
-// parseCreateTable pulls the column names out of a CREATE TABLE statement, in declaration
-// order, and reports which one is an INTEGER PRIMARY KEY alias for the rowid (-1 for
-// none). It only has to understand the statements hop itself wrote, including the ones
-// ALTER TABLE ADD COLUMN appended.
+// parseCreateTable returns the column names in declaration order plus the index of the
+// INTEGER PRIMARY KEY rowid alias (-1 for none); it only handles statements hop wrote.
 func parseCreateTable(sql string) ([]string, int) {
 	open := strings.Index(sql, "(")
 	close := strings.LastIndex(sql, ")")
@@ -488,8 +458,7 @@ func parseCreateTable(sql string) ([]string, int) {
 		start = open + 1
 		items []string
 	)
-	// Split the column list on top-level commas: a CHECK (kind IN ('local','remote'))
-	// carries commas that are not column separators.
+	// Split on top-level commas only: a CHECK (kind IN (...)) carries its own.
 	for i := open + 1; i <= close; i++ {
 		switch {
 		case sql[i] == '(':

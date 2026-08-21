@@ -1,7 +1,4 @@
-// Package filebrowser implements a remote directory browser for hop's TUI. It mirrors
-// terminal.Pane: the TUI forwards keys via Handle, routes the browser's own messages
-// back through Update, and renders with View. Listing runs synchronously — a directory
-// is small — but transfers do not, so a large file cannot stall a keystroke.
+// Package filebrowser implements a remote directory browser for hop's TUI.
 package filebrowser
 
 import (
@@ -41,8 +38,7 @@ var (
 	selBar = accentStyle.Render("▎")
 )
 
-// SetAccent re-points the browser's highlight color when the accent changes. The
-// styles are values rather than lazy lookups, so they must be rebuilt.
+// SetAccent re-points the browser's highlight color; styles are values, so they must be rebuilt.
 func SetAccent(color string) {
 	if color == "" {
 		return
@@ -54,8 +50,7 @@ func SetAccent(color string) {
 	markGlyph = accentStyle.Render("✓")
 }
 
-// Client is the slice of *sftpx.Client the browser depends on, narrowed to an interface
-// so it is testable without a live SFTP connection.
+// Client is the slice of *sftpx.Client the browser depends on.
 type Client interface {
 	Home() (string, error)
 	List(dir string) ([]sftpx.Entry, error)
@@ -64,41 +59,27 @@ type Client interface {
 	Mkdir(p string) error
 	Remove(p string) error
 	Rename(oldp, newp string) error
-	// Copy duplicates srcPath into the directory dstDir, reporting the cumulative byte
-	// count as it goes, and Move relocates it there. Only Move is cheap: SFTP has no
-	// server-side copy, so Copy streams every byte down and back up, costing twice a
-	// download of the same size. Copy overwrites a name that is taken; Move refuses it.
+	// Copy overwrites a name that is taken; Move refuses it.
 	Copy(srcPath, dstDir string, progress func(int64)) (int64, error)
 	Move(srcPath, dstDir string, progress func(int64)) error
 	Close() error
 }
 
-// Msg wraps everything a Browser sends its enclosing model. The Alias says which session
-// it came from, so the model can route it the way it routes every other per-session
-// message rather than offering it to each browser in turn and letting them sort it out.
+// Msg wraps everything a Browser sends its enclosing model, tagged with the session alias.
 type Msg struct {
 	Alias string
-	// Body is the browser's own message. It is deliberately opaque: what a transfer tick
-	// is remains the browser's business, and Update is where it is understood.
-	Body any
+	Body  any
 }
 
-// OpenFileMsg asks the enclosing model to open a remote file in an editor pane. The
-// editor runs on the remote host over the SSH connection the TUI owns, which the
-// browser knows nothing about. It arrives inside a Msg, like everything else.
+// OpenFileMsg asks the enclosing model to open a remote file in an editor pane.
 type OpenFileMsg struct {
 	Path string // absolute remote path
 	Name string
-	// Beside says the file was asked for beside the one already open rather than behind
-	// it as another tab. It rides on the message because the key press and the editor that
-	// answers it are separated by an SSH round trip: anything remembered on the side would
-	// have to be spent by hand on every path that is not this one, and the model has two
-	// input devices to forget on. Only a file can carry it — see ActivateBeside.
+	// Beside asks for the file beside the one already open rather than as another tab.
 	Beside bool
 }
 
-// Options are the user settings the browser honours. The settings popover applies them
-// live, so they are replaced wholesale rather than baked in at construction.
+// Options are the user settings the browser honours, replaced wholesale on a settings edit.
 type Options struct {
 	// DownloadDir is where "d" puts a file.
 	DownloadDir string
@@ -106,13 +87,10 @@ type Options struct {
 	// Empty means the desktop's default application for the file type.
 	OpenWith string
 
-	// VimKeys binds the vim motions (hjkl, gg/G, H/M/L, ctrl+d/u/f/b). False leaves the
-	// arrows, backspace and enter as the whole of movement.
+	// VimKeys binds the vim motions (hjkl, gg/G, H/M/L, ctrl+d/u/f/b).
 	VimKeys bool
 
-	// Keys is the resolved keyboard, hop's defaults with the user's config applied. The
-	// browser reads its own layer out of it rather than holding key literals, so a
-	// rebound key needs no change here. The zero value is hop's defaults.
+	// Keys is the resolved keyboard; the zero value is hop's defaults.
 	Keys keys.Map
 }
 
@@ -120,27 +98,19 @@ type Options struct {
 // messages and rendering View.
 type Browser struct {
 	client Client
-	// alias is the session this browser belongs to, stamped onto everything it sends so
-	// the model can route it by name.
-	alias string
-	// cwd is the current directory, which the tree keeps pointed at whichever directory
-	// the cursor is inside. Path() hands it to the rest of hop, and "m" and "u" act in it.
+	alias  string
+	// cwd is the directory the cursor is inside, which Path() hands to the rest of hop.
 	cwd string
-	// root is the directory the tree is rooted at, and rows the flattened list of what is
-	// visible in it. Every index in this package — cursor, scroll, RowAt — is an index
-	// into rows; see tree.go.
+	// Every index in this package — cursor, scroll, RowAt — indexes rows; see tree.go.
 	root   *node
 	rows   []*node
 	cursor int
 	scroll int
 
-	// marks is the multi-selection, keyed by absolute remote path across the whole tree,
-	// and target the directory "c" and "v" aim at. See marks.go.
+	// marks is keyed by absolute remote path across the whole tree. See marks.go.
 	marks  map[string]bool
 	target string
 
-	// note is the last thing the browser has to say, and what footerLine draws when
-	// nothing more urgent wants the row.
 	note note
 
 	opts Options
@@ -149,29 +119,19 @@ type Browser struct {
 	// tmpDir is the scratch directory "o" fetches into, created on first use.
 	tmpDir string
 
-	// reader resolves keystrokes against Options.Keys and holds a half-typed "gg". It is
-	// used only by Handle — the model resolves its own keys and calls Do — so the chord
-	// has one home per keyboard rather than one per package.
+	// reader holds a half-typed "gg"; used only by Handle, since the model resolves its own keys.
 	reader keys.Reader
 
-	// overlay is the open question — a name to type, a yes to give — which owns the
-	// keyboard while it is up. See prompt.go.
+	// overlay owns the keyboard while it is up. See prompt.go.
 	overlay overlay
 
-	// sortBy is the order the listing is held in, which the "s" key cycles. See sort.go.
 	sortBy sortMode
 
-	// xfer is the transfer in flight, if any: SFTP copies run off the UI goroutine so a
-	// large file cannot stall a keystroke. See transfer.go.
+	// xfer is the transfer in flight, if any. See transfer.go.
 	xfer *transfer
 }
 
-// New builds a Browser starting in startDir (or the remote home when empty), ensuring
-// the download directory exists locally.
-//
-// A startDir that cannot be listed does not fail the open — usually a host's default
-// directory renamed on the server. The browser lands in the home directory with the
-// listing error as its status.
+// New builds a Browser starting in startDir, or the remote home when empty or unlistable.
 func New(c Client, alias, startDir string, opts Options, w, h int) (*Browser, error) {
 	opts.DownloadDir = pathx.ExpandHome(opts.DownloadDir)
 	if err := os.MkdirAll(opts.DownloadDir, 0o755); err != nil {
@@ -192,8 +152,6 @@ func New(c Client, alias, startDir string, opts Options, w, h int) (*Browser, er
 		}
 	}
 
-	// No start directory, or one that could not be listed. Failing to find the home
-	// directory too is a real failure: there is nothing left to show.
 	home, err := c.Home()
 	if err != nil {
 		return nil, err
@@ -209,30 +167,21 @@ func New(c Client, alias, startDir string, opts Options, w, h int) (*Browser, er
 	return b, nil
 }
 
-// SetOptions swaps in new user settings. A missing download directory is created on the
-// next download, so a settings edit never fails on it.
-//
-// The download directory is expanded here rather than trusted as typed: the settings
-// field offers "~/Downloads" as its placeholder, and an unexpanded "~" would have the
-// browser create a directory literally called "~" and check the wrong path for an
-// existing file — quietly skipping the overwrite confirm.
+// SetOptions swaps in new user settings; the download dir is expanded here so an
+// unexpanded "~" cannot create a literal "~" directory and skip the overwrite check.
 func (b *Browser) SetOptions(opts Options) {
 	opts.DownloadDir = pathx.ExpandHome(opts.DownloadDir)
 	b.opts = opts
 }
 
-// load lists dir and, on success, commits it as the current directory, reporting whether
-// it did. On error it sets the status and leaves cwd/entries untouched — a caller that
-// goes on to report its own success would paint over that error, so the ones that can
-// fail check the result.
+// load lists dir and commits it as the current directory, reporting whether it did; on
+// error cwd is untouched, so callers must not report their own success over the failure.
 func (b *Browser) load(dir string) bool {
 	ents, err := b.client.List(dir)
 	if err != nil {
 		b.fail(err)
 		return false
 	}
-	// A new root, so nothing of the old tree survives: re-rooting is navigation, and the
-	// directories the user had open belong to where they were, not to where they are.
 	root := &node{e: sftpx.Entry{Name: path.Base(dir), IsDir: true}, path: dir, depth: -1, expanded: true}
 	b.root = root
 	b.setKids(root, ents)
@@ -246,35 +195,22 @@ func (b *Browser) load(dir string) bool {
 	return true
 }
 
-// Handle applies a key message: an open question first (it owns the keyboard), then the
-// motions through the shared keymap, then the browser's own keys — refresh, transfers,
-// the file operations and the sort toggle.
-//
-// The returned tea.Cmd carries whatever the key started: an OpenFileMsg for entering a
-// file, or a transfer's first step. No key here leaves the browser: dismissal is the
-// model's business, and Out is a strict "up a directory".
+// Handle applies a key message.
 func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
-	// An open question first: while one is up every key is its answer, so "d" typed into
-	// a filename is a "d" rather than a download.
+	// An open question first: while one is up every key is its answer.
 	if cmd, handled := b.overlayKey(msg); handled {
 		return cmd
 	}
 
 	res := b.reader.Read(b.opts.Keys, keys.Browser, msg.String(), b.opts.VimKeys)
 	if res.Pending {
-		// The first key of a chord. Nothing downstream of the browser wants it, so it is
-		// swallowed while hop waits for the second.
+		// First key of a chord: swallowed so nothing downstream sees it.
 		return nil
 	}
 	return b.Do(res.Action)
 }
 
-// Do runs one resolved action. It is the browser's real entry point: the model resolves
-// keys against the same keyboard the browser would (one Reader, so one half-typed chord)
-// and calls this, which is why a rebound key needs no change in this package.
-//
-// An action this layer does not own is a no-op rather than an error: the Browser layer is
-// shared with the model, which owns the exits and the cards.
+// Do runs one resolved action; an action this layer does not own is a no-op.
 func (b *Browser) Do(a keys.Action) tea.Cmd {
 	switch a {
 	case keys.Up, keys.Down, keys.Top, keys.Bottom, keys.HalfUp, keys.HalfDown,
@@ -283,15 +219,10 @@ func (b *Browser) Do(a keys.Action) tea.Cmd {
 		return b.move(a)
 
 	case keys.BrowserUp:
-		// Not a motion elsewhere in hop, but a file browser that ignored backspace would
-		// be the odd one out. It re-roots the tree rather than following the cursor's
-		// directory: backspace is how the visible tree grows upwards, and a cursor three
-		// levels down would otherwise re-root somewhere the user never asked to go.
+		// Re-roots the tree rather than following the cursor's directory.
 		b.load(path.Dir(b.rootPath()))
 
 	case keys.BrowserRefresh:
-		// The whole tree, not the current directory: the open directories are what the
-		// user is looking at, and re-listing one of them is not what "r" promises.
 		b.refresh()
 
 	case keys.BrowserOpen:
@@ -333,31 +264,21 @@ func (b *Browser) Do(a keys.Action) tea.Cmd {
 	return nil
 }
 
-// Update takes the messages the browser's own commands produce — transfer progress and
-// completion — which the enclosing model routes back here by alias. Keys come through
-// Handle; this is the other half, and the reason a transfer can run without the UI
-// waiting on it.
+// Update takes the transfer messages the model routes back here by alias.
 func (b *Browser) Update(msg Msg) tea.Cmd { return b.handleTransferMsg(msg.Body) }
 
-// send wraps one of the browser's own messages as the command that delivers it, stamped
-// with the session it belongs to.
+// send wraps a browser message as the command that delivers it.
 func (b *Browser) send(body any) tea.Cmd {
 	msg := Msg{Alias: b.alias, Body: body}
 	return func() tea.Msg { return msg }
 }
 
 // ---- mouse ----
-//
-// The browser exposes what a pointer needs — which entry a row holds, how to stand on
-// one, how to open it — rather than taking mouse events. Where a click lands and what
-// counts as a double is the model's business; which row is which is the browser's.
 
-// entryRows is the view row the first entry is drawn on, below the path header and the
-// rule. It mirrors View, and is what RowAt subtracts.
+// entryRows is the view row the first entry is drawn on; mirrors View.
 const entryRows = 2
 
-// RowAt maps a view row (0 is the path header) to the entry drawn there, reporting
-// false for a row holding no entry.
+// RowAt maps a view row (0 is the path header) to the entry drawn there.
 func (b *Browser) RowAt(y int) (int, bool) {
 	row := y - entryRows
 	if row < 0 || row >= b.contentRows() {
@@ -370,35 +291,25 @@ func (b *Browser) RowAt(y int) (int, bool) {
 	return i, true
 }
 
-// Select stands the cursor on entry i, as a click on its row does. An out-of-range
-// index is clamped, as everywhere else here.
+// Select stands the cursor on entry i, clamped.
 func (b *Browser) Select(i int) {
 	b.cursor = i
 	b.clampScroll()
 }
 
-// Activate opens the entry under the cursor — what enter does, exported for the
-// double-click that means the same thing.
+// Activate opens the entry under the cursor, as enter does.
 func (b *Browser) Activate() tea.Cmd { return b.activate(false) }
 
-// ActivateBeside is Activate for the split key: a file it opens comes back asking to be
-// put beside the file already open (see keys.BrowserSplit). It is a second entry point
-// rather than a mode set on the browser because the intent belongs to the one key press
-// and to nothing else. A directory under the cursor is still only expanded in place and
-// answers with no message at all, so the intent cannot outlive the press and land on
-// whatever is opened next.
+// ActivateBeside is Activate for the split key (see keys.BrowserSplit).
 func (b *Browser) ActivateBeside() tea.Cmd { return b.activate(true) }
 
-// Scroll moves the cursor n rows, negative for up. The cursor moves rather than the
-// window alone: every other key here acts on the cursor, so a wheel that slid the
-// listing out from under it would leave "d" on a file no longer on screen.
+// Scroll moves the cursor n rows, negative for up.
 func (b *Browser) Scroll(n int) {
 	b.cursor += n
 	b.clampScroll()
 }
 
-// move applies a motion to the listing. The browser scrolls, so H/M/L land inside the
-// visible window while Top and Bottom address the whole directory.
+// move applies a motion: H/M/L address the visible window, Top/Bottom the whole listing.
 func (b *Browser) move(mo keys.Action) tea.Cmd {
 	switch mo {
 	case keys.Up:
@@ -436,10 +347,7 @@ func (b *Browser) move(mo keys.Action) tea.Cmd {
 	return nil
 }
 
-// outward is left/h in a tree, which has three meanings in one key and takes them in the
-// order that keeps it a single "back out of here": shut an open directory, step up to the
-// directory the cursor is inside, and — only when the cursor is already at the top level —
-// re-root the tree one directory higher, which is what left used to do everywhere.
+// outward is left/h: collapse, else step to the parent, else re-root one directory higher.
 func (b *Browser) outward() {
 	n := b.cur()
 	switch {
@@ -453,8 +361,7 @@ func (b *Browser) outward() {
 	}
 }
 
-// rootPath is the directory the tree is rooted at, which is where "up a directory" starts
-// from. It is not b.cwd: the cursor may be several directories deep inside the tree.
+// rootPath is the directory the tree is rooted at; not b.cwd, which follows the cursor.
 func (b *Browser) rootPath() string {
 	if b.root == nil {
 		return b.cwd
@@ -462,12 +369,7 @@ func (b *Browser) rootPath() string {
 	return b.root.path
 }
 
-// activate opens or shuts the directory under the cursor, or asks the model to open the
-// file in an editor pane. Nothing is downloaded: the editor runs against the real remote
-// file.
-//
-// beside is only ever stamped on a file. The directory branch returns before the message
-// is built, which is what makes the intent impossible to leave dangling.
+// activate toggles the directory under the cursor, or asks the model to open the file.
 func (b *Browser) activate(beside bool) tea.Cmd {
 	n := b.cur()
 	if n == nil {
@@ -494,27 +396,17 @@ func (b *Browser) selected() (sftpx.Entry, bool) {
 	return n.e, true
 }
 
-// note is something the browser has to say on its last row: the outcome of the last
-// action, or a refusal of one it would not start.
-//
-// A transient note carries a deadline, and that deadline is also its precedence: while it
-// is live it outranks a running transfer's progress line, and once it expires the bar
-// takes the row back. That is the whole reason the type has an expiry — a refusal has to
-// be seen, and the row it would otherwise go on is the one the bar is drawing.
+// note is what the browser has to say on its last row.
 type note struct {
 	text string
 	err  bool
-	// until is zero for a note that holds until something replaces it, and a deadline
-	// for one that is only borrowing the row.
+	// until is zero for a note that holds until replaced; a live deadline outranks the
+	// transfer progress bar for the same row.
 	until time.Time
 }
 
-// live reports whether a transient note is still within its time. A permanent note is
-// never "live" in this sense: it does not outrank anything, it just waits its turn.
 func (n note) live() bool { return !n.until.IsZero() && time.Now().Before(n.until) }
 
-// ok, fail and say set the note. ok and fail are the outcome of an action and hold the
-// row until the next one; say borrows it for d and then gives it back.
 func (b *Browser) ok(msg string) { b.note = note{text: msg} }
 
 func (b *Browser) fail(err error) { b.note = note{text: err.Error(), err: true} }
@@ -523,14 +415,10 @@ func (b *Browser) say(msg string, d time.Duration) {
 	b.note = note{text: msg, err: true, until: time.Now().Add(d)}
 }
 
-// clearNote takes the last message down. Starting something that will report for itself
-// does this first, so a stale outcome cannot reappear underneath it.
 func (b *Browser) clearNote() { b.note = note{} }
 
-// checkLocalName rejects a server-supplied entry name that cannot safely be used as a
-// local file name. Path separators or ".." would let a download write outside the
-// download directory, a colon addresses an NTFS stream or a drive, and the reserved
-// names open Windows devices rather than files.
+// checkLocalName rejects a server-supplied name unsafe as a local file name: separators
+// escape the download dir, a colon addresses an NTFS stream, and device names open devices.
 func checkLocalName(name string) error {
 	if err := checkNameBasics(name); err != nil {
 		return err
@@ -538,8 +426,7 @@ func checkLocalName(name string) error {
 	if strings.ContainsAny(name, `/\:`) {
 		return fmt.Errorf("refusing unsafe remote file name %q", name)
 	}
-	// Windows strips trailing dots and spaces while normalizing, so "con." resolves to
-	// the device CON. Trim before splitting off the stem.
+	// Windows strips trailing dots and spaces while normalizing, so "con." resolves to CON.
 	trimmed := strings.TrimRight(name, ". ")
 	stem := trimmed
 	if i := strings.IndexByte(stem, '.'); i >= 0 {
@@ -556,12 +443,8 @@ func checkLocalName(name string) error {
 	return nil
 }
 
-// checkNameBasics rejects what no file name may be, wherever it came from: the empty
-// name, the two directory names, and anything carrying control characters.
-//
-// The control-character rule is the one worth spelling out. Entry names are stripped of
-// them for display, so a name containing one would afterwards read on screen as a name it
-// does not have — here, and in any shell that later has to address it.
+// checkNameBasics rejects the empty and dot names, and control characters (stripped for
+// display, so such a name would read on screen as one it does not have).
 func checkNameBasics(name string) error {
 	if name == "" || name == "." || name == ".." {
 		return fmt.Errorf("refusing name %q", name)
@@ -574,11 +457,8 @@ func checkNameBasics(name string) error {
 	return nil
 }
 
-// executableExts are the final extensions the desktop's default handler runs rather
-// than opens: ShellExecute targets on Windows, and on macOS the things `open` executes
-// (.terminal runs its embedded CommandString with no execute bit needed), plus the
-// .desktop Exec= line on Linux. Checked on every platform rather than per-GOOS —
-// refusing a .desktop file on macOS costs nothing, missing one costs code execution.
+// executableExts are extensions a desktop handler runs rather than opens; checked on
+// every platform, since missing one costs code execution.
 var executableExts = map[string]bool{
 	// Windows (ShellExecute)
 	".exe": true, ".com": true, ".bat": true, ".cmd": true, ".scr": true,
@@ -597,20 +477,15 @@ var executableExts = map[string]bool{
 	".desktop": true,
 }
 
-// executableName reports whether name's final extension is one the OS default handler
-// would execute. Only the last extension decides, so "invoice.pdf.hta" is caught;
+// executableName reports whether name's final extension is one the OS handler would run;
 // trailing dots and spaces are trimmed because Windows drops them while normalizing.
 func executableName(name string) bool {
 	trimmed := strings.TrimRight(name, ". ")
 	return executableExts[strings.ToLower(filepath.Ext(trimmed))]
 }
 
-// openCmd builds the command that opens p, using an explicit "open with" setting
-// verbatim (flags and all) or the desktop's default handler. A variable so tests can
-// swap in something harmless.
-//
-// On Windows the handler is explorer.exe, not "cmd /c start": cmd re-parses its command
-// line, so metacharacters legal in a remote-chosen file name could run as commands.
+// openCmd builds the command that opens p; a variable so tests can swap it. On Windows
+// it is explorer.exe, not "cmd /c start": cmd re-parses metacharacters in the file name.
 var openCmd = func(with, p string) *exec.Cmd {
 	if fields := strings.Fields(with); len(fields) > 0 {
 		return exec.Command(fields[0], append(fields[1:], p)...)
@@ -625,8 +500,7 @@ var openCmd = func(with, p string) *exec.Cmd {
 	}
 }
 
-// windowRows is the number of entry rows actually filled, which is the viewport height
-// except on a short final page.
+// windowRows is the number of entry rows actually filled.
 func (b *Browser) windowRows() int {
 	n := len(b.rows) - b.scroll
 	if rows := b.contentRows(); n > rows {
@@ -646,9 +520,8 @@ func (b *Browser) halfPage() int {
 	return 1
 }
 
-// clampScroll clamps the cursor into range and slides the window to keep it visible. It
-// re-points the current directory on the way out, since every motion in the package ends
-// here and the cursor is what decides which directory that is.
+// clampScroll clamps the cursor, slides the window to keep it visible, and re-points cwd —
+// every motion in the package ends here.
 func (b *Browser) clampScroll() {
 	if len(b.rows) == 0 {
 		b.cursor = 0
@@ -726,9 +599,8 @@ func humanizeBytes(n int64) string {
 	return fmt.Sprintf("%.1f%s", f, units[i-1])
 }
 
-// stripControl removes control characters (C0, DEL and C1) from s. Entry names and
-// error texts come from the remote host, and an embedded escape sequence would be
-// interpreted by the user's terminal rather than displayed.
+// stripControl removes control characters from s: remote text could otherwise smuggle
+// escape sequences into the user's terminal.
 func stripControl(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r < 0x20 || (r >= 0x7f && r < 0xa0) {
@@ -738,8 +610,7 @@ func stripControl(s string) string {
 	}, s)
 }
 
-// truncateText shortens s to at most w display cells, appending an ellipsis when it
-// must cut. Unstyled text only.
+// truncateText shortens s to at most w display cells, with an ellipsis. Unstyled text only.
 func truncateText(s string, w int) string {
 	if w <= 0 {
 		return ""

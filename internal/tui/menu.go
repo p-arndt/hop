@@ -9,13 +9,8 @@ import (
 	"hop/internal/keys"
 )
 
-// menuUI is the context menu's state: the host it was opened on, what can be done to it,
-// and which of those is selected.
-//
-// The alias is captured at open time, like the delete confirmation's, so the menu keeps
-// naming the host it was opened about even if the list underneath reorders. The items are
-// captured with it: an action list that changed under the cursor would move the selection
-// without a key being pressed.
+// menuUI captures alias and items at open time, so a list reordering underneath cannot
+// rename the menu or move its selection.
 type menuUI struct {
 	open   bool
 	alias  string
@@ -25,9 +20,7 @@ type menuUI struct {
 	row int
 }
 
-// openHostMenu raises the menu on the host under the cursor. A host with nothing
-// available — which the registries make impossible today, but the predicates could —
-// opens nothing rather than an empty box.
+// openHostMenu opens nothing rather than an empty box when no action is available.
 func (m *model) openHostMenu() {
 	h, ok := m.selectedHost()
 	if !ok {
@@ -43,12 +36,9 @@ func (m *model) openHostMenu() {
 
 func (m *model) closeMenu() { m.menu = menuUI{} }
 
-// handleMenuKey routes a key while the menu is up, swallowing everything for the reason
-// the confirmation card does: the keys underneath act on a host, and this menu is the
-// question of which action to take on one.
+// handleMenuKey swallows every key: the keys underneath act on a host.
 func (m *model) handleMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// The card's own keys are dialog convention and not in the registry (see
-	// internal/keys) — except the one that opened it, which closes it again.
+	// Dialog-convention keys are not in the registry (see internal/keys).
 	switch key := msg.String(); {
 	case key == "esc" || key == "q" ||
 		m.binds.Action(keys.List, key, m.cfg.VimKeys) == keys.Menu:
@@ -72,15 +62,12 @@ func (m *model) handleMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// Menu geometry: narrow enough to sit over the list without covering the pane, and
-// bordered like the cards so it reads as hop's own chrome rather than as content.
+// Menu geometry: narrow enough to sit over the list without covering the pane.
 const (
 	menuMaxW   = 40
 	menuFloorW = 18
 )
 
-// menuInnerW is the width of a menu row: the widest label-plus-key it holds, inside the
-// bounds, so the box is as small as the list it names.
 func (m *model) menuInnerW() int {
 	want := 0
 	for _, a := range m.menu.items {
@@ -90,8 +77,6 @@ func (m *model) menuInnerW() int {
 	return clamp(want, menuFloorW, min(menuMaxW, room))
 }
 
-// renderMenu draws the menu: the host it belongs to, then the slice of its actions the
-// window has room for, with their keys.
 func (m *model) renderMenu(start, rows int) string {
 	w := m.menuInnerW()
 	var b strings.Builder
@@ -110,21 +95,14 @@ func (m *model) renderMenu(start, rows int) string {
 	b.WriteString("\n")
 	b.WriteString(truncate(keyHint("esc", "close"), w))
 
-	// Padded on the sides only: a menu is a list of rows, and blank rows above and below
-	// them would make it read as a card.
+	// Sides only: vertical padding would make it read as a card.
 	return menuBox.Width(w + 2).Render(b.String())
 }
 
-// menuChrome is what the box costs beside its items: two borders, the host, the two
-// rules and the hint line.
+// menuChrome is what the box costs beside its items: two borders, host, two rules, hint.
 const menuChrome = 6
 
-// menuPlace decides where the menu goes and how much of it is shown: under the row it
-// belongs to when there is room below, above that row when there is more room there, and
-// scrolled to the selection when neither side can hold the whole list.
-//
-// Anchoring is the point of this menu — it is the answer to "what can I do to *that*" —
-// so the row it names stays visible, and it is the list that gives way.
+// menuPlace keeps the anchored row visible: it is the list that gives way, not the anchor.
 func (m *model) menuPlace() (start, rows, y int) {
 	const top = 1 // the first body row, under the screen header
 
@@ -145,20 +123,16 @@ func (m *model) menuPlace() (start, rows, y int) {
 	return start, rows, y
 }
 
-// menuBottom is the last row the menu may reach: the window less the status bar and the
-// footer. Those two rows are the ones saying where you are and what to press, which is
-// the last thing to cover with a box that is itself a list of what to press.
+// menuBottom keeps the menu clear of the status bar and the footer.
 func (m *model) menuBottom() int { return max(m.height-2, 1) }
 
-// menuAt is the menu and the top-left cell to composite it at. The indent leaves the
-// accent bar of the row it belongs to showing to its left.
+// menuAt indents by two cells to leave the anchored row's accent bar showing.
 func (m *model) menuAt() (card string, x, y int) {
 	start, rows, y := m.menuPlace()
 	return clampLines(m.renderMenu(start, rows), m.width), 2, y
 }
 
-// cursorScreenRow is the screen row the selected host is drawn on: renderList's
-// bookkeeping, the same way listRowAt runs it backwards for the mouse.
+// cursorScreenRow mirrors renderList's scroll arithmetic (see listRowAt).
 func (m *model) cursorScreenRow() int {
 	rows := m.listRows()
 	return m.listFirstRow() + m.cursorRow() - m.listStart(rows)

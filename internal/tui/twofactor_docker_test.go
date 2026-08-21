@@ -13,13 +13,7 @@ import (
 	"hop/internal/store"
 )
 
-// The whole stack, end to end, against a real OpenSSH server running a real
-// pam_google_authenticator: press enter on a host, get the card, type a code into it, end
-// up with a live remote shell.
-//
-// internal/sshx covers the protocol side. These are for what only the TUI can answer:
-// that the card is wired to the dial, that a real dial parks on it without deadlocking
-// the event loop, and that a working session lands afterwards.
+// End-to-end 2FA against a real OpenSSH + pam_google_authenticator container:
 //
 //	HOP_DOCKER_E2E=1 go test ./internal/tui/ -run TwoFactor -v
 
@@ -37,14 +31,12 @@ func TestMain(m *testing.M) {
 	server = s
 	code := m.Run()
 	server.Stop()
-	// The shell host is started lazily, by the tests in vscode_docker_test.go that
-	// need it; this is where it goes if any of them did.
+	// The shell host is started lazily by vscode_docker_test.go.
 	stopShellHost()
 	os.Exit(code)
 }
 
-// Pressing enter on a 2FA host puts the card up and the code typed into it connects —
-// the feature, from keypress to shell.
+// Keypress to shell: the dial raises the card and a correct code connects.
 func TestTwoFactorConnectsThroughTheCard(t *testing.T) {
 	srv := twoFactorServer(t)
 	m := twoFactorModel(t, srv.CodePort, "")
@@ -80,8 +72,7 @@ func TestTwoFactorConnectsThroughTheCard(t *testing.T) {
 	s.close()
 }
 
-// The hardened setup — key, then code — through the card: the key gets a partial
-// success, so the user is asked exactly once.
+// Key then code: the key is a partial success, so the card asks exactly once.
 func TestTwoFactorAfterKeyConnectsThroughTheCard(t *testing.T) {
 	srv := twoFactorServer(t)
 	m := twoFactorModel(t, srv.KeyPort, srv.ClientKey)
@@ -106,8 +97,7 @@ func TestTwoFactorAfterKeyConnectsThroughTheCard(t *testing.T) {
 	}
 }
 
-// A PAM stack that wants the password and then the code drives the card twice,
-// each time with the server's own wording. The user answers each in turn.
+// Password then code drives the card twice, each with the server's own wording.
 func TestTwoFactorPasswordThenCodeThroughTheCard(t *testing.T) {
 	srv := twoFactorServer(t)
 	m := twoFactorModel(t, srv.PasswordPort, "")
@@ -147,8 +137,7 @@ func TestTwoFactorPasswordThenCodeThroughTheCard(t *testing.T) {
 	}
 }
 
-// esc on the card gives up: the dial ends, the spinner clears, and the failure
-// is reported as the user's own decision rather than as a broken host.
+// esc ends the dial, clears the spinner and does not report an error.
 func TestTwoFactorEscapeAbandonsTheConnect(t *testing.T) {
 	srv := twoFactorServer(t)
 	m := twoFactorModel(t, srv.CodePort, "")
@@ -176,8 +165,7 @@ func TestTwoFactorEscapeAbandonsTheConnect(t *testing.T) {
 	}
 }
 
-// A wrong code re-prompts on the same connection, and the card comes back with
-// an empty field rather than the rejected code still in it.
+// A wrong code re-prompts on the same connection with an empty field.
 func TestTwoFactorWrongCodeReopensTheCard(t *testing.T) {
 	srv := twoFactorServer(t)
 	m := twoFactorModel(t, srv.CodePort, "")
@@ -209,8 +197,7 @@ func TestTwoFactorWrongCodeReopensTheCard(t *testing.T) {
 
 // ---- harness ----
 
-// twoFactorServer skips the test unless the environment opted into Docker, and hands back
-// the running container. Every test goes through it before touching a port.
+// twoFactorServer skips unless Docker was opted into, and returns the running container.
 func twoFactorServer(t *testing.T) *dockerenv.TwoFactor {
 	t.Helper()
 	if !dockerenv.Enabled() {
@@ -219,8 +206,7 @@ func twoFactorServer(t *testing.T) *dockerenv.TwoFactor {
 	return server
 }
 
-// twoFactorModel builds a model holding one host pointing at the container, host key
-// already trusted and no agent — the state a user is in on the second run.
+// twoFactorModel points one host at the container, host key already trusted, no agent.
 func twoFactorModel(t *testing.T, port int, identityFile string) *model {
 	t.Helper()
 	trustHostKey(t, port)
@@ -246,9 +232,7 @@ func hostUnderTest(t *testing.T, m *model) store.Host {
 	return h
 }
 
-// pump runs cmd off the UI thread and returns the channel its message arrives on, as
-// Bubble Tea's event loop would. The auth challenge is delivered as it arrives, so the
-// card is up by the time pump returns — a real run's sequencing.
+// pump runs cmd off the UI thread and returns once the card is up, as the event loop would.
 func pump(t *testing.T, m *model, cmd tea.Cmd) chan tea.Msg {
 	t.Helper()
 	if cmd == nil {
@@ -261,9 +245,7 @@ func pump(t *testing.T, m *model, cmd tea.Cmd) chan tea.Msg {
 	return msgs
 }
 
-// dispatch runs cmd off the UI thread and puts its message on msgs, as Bubble Tea's event
-// loop does — including unwrapping the tea.Batch openShell returns when it starts the
-// spinner. The spinner's ticks are dropped: nothing here draws.
+// dispatch runs cmd off the UI thread onto msgs, unwrapping batches and dropping ticks.
 func dispatch(msgs chan tea.Msg, cmd tea.Cmd) {
 	if cmd == nil {
 		return
@@ -282,8 +264,6 @@ func dispatch(msgs chan tea.Msg, cmd tea.Cmd) {
 	}()
 }
 
-// waitForCard gives the dial a moment to ask something, returning as soon as the card is
-// up — or quietly if the dial finished instead, which some of these tests expect.
 func waitForCard(t *testing.T, m *model, msgs chan tea.Msg) {
 	t.Helper()
 	select {
@@ -292,13 +272,11 @@ func waitForCard(t *testing.T, m *model, msgs chan tea.Msg) {
 	case <-time.After(20 * time.Second):
 		t.Fatal("the dial neither asked for anything nor landed")
 	case msg := <-msgs:
-		// The dial finished without asking. Put it back for waitForConnect.
+		// Finished without asking: put it back for waitForConnect.
 		msgs <- msg
 	}
 }
 
-// waitForConnect collects the connectedMsg the dial eventually produces,
-// answering any further challenges the server asks along the way.
 func waitForConnect(t *testing.T, m *model, msgs chan tea.Msg) connectedMsg {
 	t.Helper()
 	deadline := time.After(30 * time.Second)
@@ -320,9 +298,7 @@ func waitForConnect(t *testing.T, m *model, msgs chan tea.Msg) connectedMsg {
 	}
 }
 
-// trustHostKey records the container's host key in a throwaway ~/.ssh, so these tests
-// exercise the authentication card rather than the host-key one. It is the TUI's own
-// first-contact flow, run once.
+// trustHostKey records the container's host key in a throwaway ~/.ssh via the real flow.
 func trustHostKey(t *testing.T, port int) {
 	t.Helper()
 	home := t.TempDir()
@@ -345,8 +321,7 @@ func trustHostKey(t *testing.T, port int) {
 	msgs := make(chan tea.Msg, 4)
 	dispatch(msgs, cmd)
 
-	// Refuse whatever it asks: the host key is recorded before authentication is
-	// even attempted, so there is no reason to spend a code here.
+	// Refuse whatever it asks: the host key is recorded before authentication.
 	go func() {
 		for p := range m.prompts {
 			p.reply <- authReply{err: errAbandonTrustDial}
@@ -367,8 +342,7 @@ func trustHostKey(t *testing.T, port int) {
 	if !m.hostKey.open {
 		t.Fatalf("first contact did not raise the host-key card (status %q)", m.status)
 	}
-	// Accepting appends the key to known_hosts on the retry; the retry itself is
-	// abandoned the same way.
+	// Accepting appends to known_hosts on the retry, which is abandoned the same way.
 	cmd = m.acceptHostKey(m.hostKey)
 	m.closeHostKey()
 	dispatch(msgs, cmd)

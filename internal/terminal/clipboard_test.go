@@ -16,9 +16,6 @@ func osc52(text string) string {
 	return "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(text)) + "\x07"
 }
 
-// A yank on the far end reaches the sink hop installs — which is the whole copy
-// half of copy-and-paste, since the text is on a machine the local clipboard
-// cannot see.
 func TestClipboardWriteReachesTheSink(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
@@ -43,25 +40,20 @@ func TestClipboardWriteReachesTheSink(t *testing.T) {
 	}
 }
 
-// With no sink installed — the setting off, or a pane that never had one — the
-// sequence is parsed and dropped. Nothing about it may reach the desktop, and
-// nothing about it may stall the pump that found it.
+// With no sink installed the sequence is parsed and dropped without stalling the pump.
 func TestClipboardWriteWithoutASinkIsDropped(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
 	defer p.Close()
 
 	go io.WriteString(w, osc52("nowhere")+"\x1b]7;file:///srv\x07")
-	// The OSC 7 behind it still lands, which is the tell that the scanner carried on.
+	// The OSC 7 behind it still lands: the tell that the scanner carried on.
 	if !waitForCwd(p, "/srv") {
 		t.Fatal("the scanner stopped at a clipboard write it had nowhere to put")
 	}
 }
 
-// A host emitting clipboard writes in a loop gets one worker, not one goroutine and
-// one clipboard helper per sequence. The far end decides how often this happens, so
-// the work is serialised behind a one-deep mailbox: the latest text wins, and the
-// writes cannot race each other into leaving the *older* one on the clipboard.
+// A burst gets one worker behind a one-deep mailbox: the latest text wins.
 func TestClipboardWritesAreSerialised(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
@@ -80,7 +72,6 @@ func TestClipboardWritesAreSerialised(t *testing.T) {
 		last = text
 		mu.Unlock()
 
-		// Long enough that a goroutine-per-sequence would overlap several of these.
 		time.Sleep(5 * time.Millisecond)
 
 		mu.Lock()
@@ -116,7 +107,6 @@ func TestClipboardWritesAreSerialised(t *testing.T) {
 	}
 }
 
-// The payload, on its own.
 func TestParseOSC52(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -201,8 +191,7 @@ func TestParseOSC52(t *testing.T) {
 	}
 }
 
-// The scanner carries a sequence across the chunks the network happens to deliver
-// it in, and a clipboard payload is long enough that it will be split.
+// A clipboard payload is long enough that the network will split it across chunks.
 func TestScannerTakesAClipboardWriteInPieces(t *testing.T) {
 	seq := osc52("split down the middle")
 	var s oscScanner
@@ -214,7 +203,6 @@ func TestScannerTakesAClipboardWriteInPieces(t *testing.T) {
 		}
 	}
 
-	// The last byte is the terminator, which is what completes the sequence.
 	s.feed([]byte(seq[len(seq)-1:]))
 	text, ok := s.tookClipboard()
 	if !ok || text != "split down the middle" {
@@ -225,8 +213,7 @@ func TestScannerTakesAClipboardWriteInPieces(t *testing.T) {
 	}
 }
 
-// A clipboard write gets room for a clipboard: the OSC 7 cap is a path's worth,
-// and a yank of a whole file is a normal thing to do.
+// Clipboard payloads get a larger cap than OSC 7's path's worth.
 func TestClipboardPayloadCapIsGenerous(t *testing.T) {
 	big := strings.Repeat("x", 64*1024)
 	var s oscScanner
@@ -239,8 +226,6 @@ func TestClipboardPayloadCapIsGenerous(t *testing.T) {
 	}
 }
 
-// The cap is still a cap: the remote is on the other side of a socket hop does not
-// control, and a payload whose terminator never arrives must not grow forever.
 func TestOversizeClipboardPayloadIsDropped(t *testing.T) {
 	var s oscScanner
 	s.feed([]byte("\x1b]52;c;" + strings.Repeat("A", maxClipPayload+16) + "\x07"))
@@ -249,8 +234,7 @@ func TestOversizeClipboardPayloadIsDropped(t *testing.T) {
 	}
 }
 
-// And an ordinary OSC still gets a path's worth and no more, so a title long
-// enough to be an attack is not buffered on the strength of the larger cap.
+// An ordinary OSC does not inherit the clipboard's larger cap.
 func TestOversizeOSC7PayloadIsStillDropped(t *testing.T) {
 	var s oscScanner
 	dir, ok := s.feed([]byte("\x1b]7;file:///" + strings.Repeat("d", maxOSCPayload+16) + "\x07"))

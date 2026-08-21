@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// The registry is the source every other part of hop reads, so the invariants that make
-// it usable are asserted on the table itself rather than on one lookup: an id names one
-// thing, and a key means one thing in the layer it is read in.
+// Table invariants: an id names one thing, and a key means one thing per layer.
 func TestDefaultsAreConsistent(t *testing.T) {
 	m := Defaults()
 
@@ -38,8 +36,6 @@ func TestDefaultsAreConsistent(t *testing.T) {
 	}
 }
 
-// A key resolves only in the layer that binds it: the same letter is a download in the
-// browser and a disconnect in the list, and neither leaks into the other.
 func TestActionIsPerLayer(t *testing.T) {
 	m := Defaults()
 	cases := []struct {
@@ -67,9 +63,7 @@ func TestActionIsPerLayer(t *testing.T) {
 	}
 }
 
-// The vim setting decides whether hop holds the plain letters. With it off they resolve
-// to nothing — not to a motion the user never asked for — while the keys that are not
-// vim's keep working, so turning it off never costs a way to move.
+// With vim off the plain letters resolve to nothing, and the non-vim keys keep working.
 func TestVimKeysAreOwnedBySetting(t *testing.T) {
 	m := Defaults()
 
@@ -88,8 +82,7 @@ func TestVimKeysAreOwnedBySetting(t *testing.T) {
 	}
 }
 
-// Layer is what the help card and the palette are built from, so it must show only keys
-// that actually work: nothing unbound, and no vim letters when the setting is off.
+// Layer lists only keys that work: nothing unbound, no vim letters when the setting is off.
 func TestLayerListsWhatWorks(t *testing.T) {
 	m := Defaults()
 
@@ -116,8 +109,6 @@ func TestLayerListsWhatWorks(t *testing.T) {
 	}
 }
 
-// An override moves an action to another key: the new key runs it, the old one stops
-// meaning anything, and everything else stays where it was.
 func TestOverrideMovesABinding(t *testing.T) {
 	m, errs := New(map[string]string{string(BrowserDownload): "y"})
 	if len(errs) != 0 {
@@ -137,9 +128,7 @@ func TestOverrideMovesABinding(t *testing.T) {
 	}
 }
 
-// A rebound key is drawn as itself. The symbols in the registry ("shift+→") were chosen
-// for the default key, and printing one over a key the user picked would be a legend that
-// lies.
+// A rebound key is drawn as itself, not with the default's symbol.
 func TestOverrideDropsTheSymbol(t *testing.T) {
 	if got := Defaults().Keycap(PaneNextTab); got != "shift+→" {
 		t.Fatalf("default keycap = %q, want the symbol", got)
@@ -150,9 +139,7 @@ func TestOverrideDropsTheSymbol(t *testing.T) {
 	}
 }
 
-// A config hop cannot honour still yields a working keyboard: the bad row keeps its
-// default and says why. Refusing to start over a typo in a JSON file is the one outcome
-// worth designing against.
+// A bad override row keeps its default and reports why, rather than failing the load.
 func TestBadOverridesAreRefusedNotFatal(t *testing.T) {
 	m, errs := New(map[string]string{
 		"list.no-such-action":   "z",
@@ -173,9 +160,7 @@ func TestBadOverridesAreRefusedNotFatal(t *testing.T) {
 	}
 }
 
-// A pane forwards nearly every key to the remote program, so a config that unbinds both
-// ways out of one would leave no way back except editing the file blind. Unbinding one is
-// allowed; unbinding both puts the whole keyboard back to its defaults.
+// Unbinding one way out of a pane is allowed; unbinding both restores the defaults.
 func TestEscapeHatchSurvives(t *testing.T) {
 	m, errs := New(map[string]string{string(LeaderKey): ""})
 	if len(errs) != 0 {
@@ -194,8 +179,7 @@ func TestEscapeHatchSurvives(t *testing.T) {
 	}
 }
 
-// Bubble Tea calls the space bar " ", which is both unprintable on a legend and
-// indistinguishable from the separator between the keys of a sequence.
+// Bubble Tea's " " for the space bar collides with the sequence separator.
 func TestSpaceIsNormalized(t *testing.T) {
 	m := Defaults()
 	if got := m.Action(List, " ", true); got != Menu {

@@ -16,12 +16,9 @@ import (
 	"hop/internal/store"
 )
 
-// lostWait is how long a test gives a connection to notice it has gone. The notice lands
-// as soon as the transport does; the second is slack for a loaded CI machine.
+// lostWait is how long a test gives a connection to notice it has gone.
 const lostWait = time.Second
 
-// A connection the far end closes is reported lost — what the UI hangs its reconnect
-// offer on, since a drop that never announced itself is a pane that stopped updating.
 func TestLostFiresWhenTheServerGoesAway(t *testing.T) {
 	h, stop := serveCloseable(t)
 
@@ -50,8 +47,7 @@ func TestLostFiresWhenTheServerGoesAway(t *testing.T) {
 	}
 }
 
-// Closing from this side fires it too, deliberately: the model tells its own closes apart
-// by which connection the loss names, and a silent close would park a goroutine forever.
+// Our own Close fires Lost too, deliberately: a silent close would park a goroutine.
 func TestLostFiresOnOurOwnClose(t *testing.T) {
 	h, _ := serveCloseable(t)
 
@@ -68,8 +64,7 @@ func TestLostFiresOnOurOwnClose(t *testing.T) {
 	}
 }
 
-// The keepalive probe is what makes a blackholed connection detectable, so it has to be
-// answered on a live one and fail on a dead one. A failure reply counts as answered.
+// The keepalive must be answered on a live connection and fail on a dead one.
 func TestKeepalivePing(t *testing.T) {
 	h, stop := serveCloseable(t)
 
@@ -90,8 +85,6 @@ func TestKeepalivePing(t *testing.T) {
 	}
 }
 
-// A zero Client is not lost, and blocking on it never fires: a nil channel is the honest
-// answer for a connection that does not exist.
 func TestZeroClientIsNotLost(t *testing.T) {
 	var c Client
 	if c.IsLost() {
@@ -107,9 +100,7 @@ func TestZeroClientIsNotLost(t *testing.T) {
 	}
 }
 
-// serveCloseable starts an SSH server on loopback that lets anything in, and hands back
-// the host reaching it plus a stop function that drops the connection server-side. $HOME
-// points at a temp dir holding the server's key, keeping the dial off the real ~/.ssh.
+// serveCloseable starts a permissive SSH server and returns the host plus a server-side drop.
 func serveCloseable(t *testing.T) (store.Host, func()) {
 	t.Helper()
 	disableAgent(t)
@@ -137,7 +128,6 @@ func serveCloseable(t *testing.T) (store.Host, func()) {
 	}
 	t.Cleanup(func() { ln.Close() })
 
-	// The accepted connections, so the test can close them out from under the client.
 	conns := make(chan *ssh.ServerConn, 4)
 	go func() {
 		for {
@@ -151,8 +141,7 @@ func serveCloseable(t *testing.T) (store.Host, func()) {
 					nc.Close()
 					return
 				}
-				// Answer global requests (the keepalive probe is one) and refuse channels:
-				// nothing here needs a shell.
+				// Answer global requests (the keepalive probe is one) and refuse channels.
 				go ssh.DiscardRequests(reqs)
 				go func() {
 					for nch := range chans {

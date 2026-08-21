@@ -25,9 +25,7 @@ type nopWriteCloser struct{ io.Writer }
 
 func (nopWriteCloser) Close() error { return nil }
 
-// fakePane builds a terminal.Pane over a Session with no SSH connection behind
-// it: its output stream is immediately at EOF and its input goes nowhere. Enough
-// for the tab bookkeeping, which never reads or writes the pane.
+// fakePane is a terminal.Pane over a Session with no SSH connection behind it.
 func fakePane() *terminal.Pane {
 	sess := &sshx.Session{
 		Stdin:  nopWriteCloser{io.Discard},
@@ -97,8 +95,7 @@ func TestEditorTabJump(t *testing.T) {
 	}
 }
 
-// ctrl+o drops back to the browser, and the editors keep running: their tabs are
-// still there, on the same file, when you return.
+// ctrl+o drops back to the browser with the editor tabs left running.
 func TestEditorCtrlOKeepsTabs(t *testing.T) {
 	m, s := editorModel(t, "a.conf", "b.conf")
 	s.browser = &filebrowser.Browser{}
@@ -119,8 +116,7 @@ func TestEditorCtrlOKeepsTabs(t *testing.T) {
 	}
 }
 
-// Quitting the editor closes its tab. The last one closing hands the pane back to
-// the browser rather than leaving an empty editing mode on screen.
+// The last tab closing hands the content area back to the browser.
 func TestEditorExitClosesTab(t *testing.T) {
 	m, s := editorModel(t, "a.conf", "b.conf")
 	s.browser = &filebrowser.Browser{}
@@ -147,8 +143,6 @@ func TestEditorExitClosesTab(t *testing.T) {
 	}
 }
 
-// A file that is already open focuses its tab instead of starting a second editor
-// on the same file.
 func TestOpenFileFocusesExistingTab(t *testing.T) {
 	m, s := editorModel(t, "a.conf", "b.conf")
 	m.mode = modeBrowser
@@ -166,8 +160,6 @@ func TestOpenFileFocusesExistingTab(t *testing.T) {
 	}
 }
 
-// The command hop asks the remote host to run must survive filenames a shell would
-// otherwise mangle — spaces, quotes and glob characters are data, not syntax.
 func TestRemoteEditorCmdQuotesPath(t *testing.T) {
 	cases := []struct {
 		path string
@@ -189,10 +181,7 @@ func TestRemoteEditorCmdQuotesPath(t *testing.T) {
 	}
 }
 
-// fakePaneWith is fakePane at a chosen size with screen already printed onto it by
-// the far end, for the tests that care about the relationship between a pane's own
-// width and the box it is drawn in. It waits for the emulator to have parsed the
-// output before handing the pane back — marker is the text to wait for.
+// fakePaneWith is fakePane at a chosen size with screen parsed onto it; marker is what to wait for.
 func fakePaneWith(t *testing.T, w, h int, screen, marker string) *terminal.Pane {
 	t.Helper()
 	p := terminal.New(&sshx.Session{
@@ -210,8 +199,7 @@ func fakePaneWith(t *testing.T, w, h int, screen, marker string) *terminal.Pane 
 	return p
 }
 
-// splitModel is editorModel on a wide window with a browser open, which is the only place
-// a split can be asked for.
+// splitModel is editorModel on a wide window with a browser open.
 func splitModel(t *testing.T, names ...string) (*model, *session) {
 	t.Helper()
 	m, s := editorModel(t, names...)
@@ -219,8 +207,7 @@ func splitModel(t *testing.T, names ...string) (*model, *session) {
 	m.filtered = []int{0}
 	m.highlights = map[int][]int{}
 	m.width, m.height, m.ready = 200, 34, true
-	// A directory and a file. The listing sorts directories first, so row 0 is "logs" and
-	// row 1 is "b.conf" — the split only arms on the latter.
+	// Dirs sort first, so row 1 is b.conf — the only row the split arms on.
 	s.browser = fakeBrowserWith(t, "/srv",
 		sftpx.Entry{Name: "b.conf", Size: 12},
 		sftpx.Entry{Name: "logs", IsDir: true})
@@ -229,9 +216,7 @@ func splitModel(t *testing.T, names ...string) (*model, *session) {
 	return m, s
 }
 
-// activated runs the command a browser key left behind and unwraps the OpenFileMsg inside
-// it, which is how the split key's intent now reaches the model: on the message, not on
-// the session. ok is false when the key produced nothing — a directory, for one.
+// activated unwraps the OpenFileMsg a browser key's command carries; ok is false when it produced none.
 func activated(t *testing.T, cmd tea.Cmd) (filebrowser.OpenFileMsg, bool) {
 	t.Helper()
 	if cmd == nil {
@@ -245,22 +230,17 @@ func activated(t *testing.T, cmd tea.Cmd) (filebrowser.OpenFileMsg, bool) {
 	return open, ok
 }
 
-// The whole life of a split: the key marks the file it opens, the file that comes back
-// lands in the new half, both halves draw from the one tab list, and closing the second
-// file collapses it.
+// The whole life of a split: open beside, both halves drawn, collapse on close.
 func TestSplitOpenAndClose(t *testing.T) {
 	m, s := splitModel(t, "a.conf")
 	m.mode = modeBrowser
 
-	// The key goes through the browser's own ActivateBeside, so the message the browser
-	// answers with is the whole of what makes the file that returns a split.
 	_, cmd := m.handleKey(key(t, "\\"))
 	open, ok := activated(t, cmd)
 	if !ok || !open.Beside {
 		t.Fatalf("the split key produced %+v (ok=%v), want a file marked to open beside", open, ok)
 	}
 
-	// The file the browser activated comes back.
 	m.openFile("web", open)
 	if !s.split || !s.splitRight {
 		t.Fatalf("split = %v, splitRight = %v; want the content halved with the keyboard in the new half",
@@ -281,13 +261,11 @@ func TestSplitOpenAndClose(t *testing.T) {
 		t.Fatalf("the keyboard is in %v, want the half just opened", got)
 	}
 
-	// Both files on screen at once is the point of the split.
 	screen := m.View()
 	if !strings.Contains(screen, "a.conf") || !strings.Contains(screen, "b.conf") {
 		t.Fatalf("the split does not show both files:\n%s", screen)
 	}
 
-	// Closing the second file leaves nothing to put beside the first, so the split goes.
 	m.Update(editorExitedMsg{alias: "web", id: 2})
 	if s.split {
 		t.Fatal("the split survived the second file closing")
@@ -297,9 +275,6 @@ func TestSplitOpenAndClose(t *testing.T) {
 	}
 }
 
-// A split is a second cursor into one tab list, not a second list: with a third file open,
-// the half that loses its tab takes the next one along rather than showing the other
-// half's file twice.
 func TestSplitHalvesNeverShowOneFileTwice(t *testing.T) {
 	m, s := splitModel(t, "a.conf", "b.conf", "c.conf")
 	s.openSplit()
@@ -315,8 +290,6 @@ func TestSplitHalvesNeverShowOneFileTwice(t *testing.T) {
 	}
 }
 
-// The tab keys move the half the keyboard is in, not the left one — with two files up,
-// "next tab" is a question about the one being read.
 func TestSplitTabKeysMoveTheFocusedHalf(t *testing.T) {
 	m, s := splitModel(t, "a.conf", "b.conf", "c.conf")
 	s.openSplit()
@@ -335,8 +308,7 @@ func TestSplitTabKeysMoveTheFocusedHalf(t *testing.T) {
 	}
 }
 
-// Opening a file that is already up cannot be a split: two editors on one file are two
-// buffers neither end knows about. The keyboard goes to the half it is already in.
+// Two editors on one file would be two buffers neither end knows about.
 func TestSplitOnAnOpenFileFocusesItInstead(t *testing.T) {
 	m, s := splitModel(t, "a.conf", "b.conf")
 	s.openSplit()
@@ -354,8 +326,7 @@ func TestSplitOnAnOpenFileFocusesItInstead(t *testing.T) {
 	}
 }
 
-// A content area with no room for two halves opens the file as a tab and says so, rather
-// than halving a pane that is already narrow.
+// A content area too narrow to halve opens the file as a tab and says so.
 func TestSplitDeclinesOnANarrowContentArea(t *testing.T) {
 	m, s := splitModel(t, "a.conf")
 	m.paneW = 2*minSplitHalf - 3
@@ -376,8 +347,7 @@ func TestSplitDeclinesOnANarrowContentArea(t *testing.T) {
 	}
 }
 
-// An editor that never started leaves the half it was opened for empty. The split is armed
-// before the SSH session is, so the failure has to put the content area back.
+// The split is armed before the SSH session, so a failed editor has to put the content area back.
 func TestSplitCollapsesWhenTheEditorFails(t *testing.T) {
 	m, s := splitModel(t, "a.conf")
 	m.openFile("web", filebrowser.OpenFileMsg{Path: "/etc/b.conf", Name: "b.conf", Beside: true})
@@ -392,10 +362,7 @@ func TestSplitCollapsesWhenTheEditorFails(t *testing.T) {
 	}
 }
 
-// The split key on a directory expands it in place and answers with nothing at all. This
-// is the case the old pending flag existed to unpick: with the intent carried on the
-// message and no message produced, nothing is left over to land on whatever is opened
-// next — including by a double-click, which never went through the key handler at all.
+// The split key on a directory expands it in place and leaves no intent to land later.
 func TestSplitOnADirectoryOpensNothing(t *testing.T) {
 	m, s := splitModel(t, "a.conf")
 	m.mode = modeBrowser
@@ -411,8 +378,6 @@ func TestSplitOnADirectoryOpensNothing(t *testing.T) {
 	}
 }
 
-// The intent lives no longer than the press, so an unrelated key in between changes
-// nothing: the next split key still splits, on the file it was pressed on.
 func TestSplitStillSplitsAfterAnotherKey(t *testing.T) {
 	m, s := splitModel(t, "a.conf")
 	m.mode = modeBrowser
@@ -431,8 +396,6 @@ func TestSplitStillSplitsAfterAnotherKey(t *testing.T) {
 	}
 }
 
-// ctrl+\ is the way out of a split, and the half the keyboard was in is the one that
-// stays: closing something must not also move you to a file you were not reading.
 func TestUnsplitKeepsTheFocusedHalfsFile(t *testing.T) {
 	m, s := splitModel(t, "a.conf", "b.conf")
 	s.openSplit()
@@ -452,9 +415,7 @@ func TestUnsplitKeepsTheFocusedHalfsFile(t *testing.T) {
 		t.Fatalf("editors = %d; unsplitting closed a file, and it must only close the split",
 			len(s.editors))
 	}
-	// The halves are gone from the layout too, not only from the state: an editor still
-	// sized for half the width would be drawn into a box twice that size, and the pointer
-	// would be hit-testing against two boxes nothing draws any more.
+	// The layout has to drop the halves too, not just the state.
 	w, _ := m.editorSize(s)
 	if w != m.paneW {
 		t.Fatalf("the editor is %d columns wide in a %d-column content area; unsplit did not relayout",
@@ -465,8 +426,6 @@ func TestUnsplitKeepsTheFocusedHalfsFile(t *testing.T) {
 	}
 }
 
-// Collapsing from the left half keeps the left half's file, which is what collapseSplit
-// does by leaving activeEd where it is — the same key, the other side of it.
 func TestUnsplitFromTheLeftHalf(t *testing.T) {
 	m, s := splitModel(t, "a.conf", "b.conf")
 	s.openSplit()
@@ -481,9 +440,7 @@ func TestUnsplitFromTheLeftHalf(t *testing.T) {
 	}
 }
 
-// With one box on screen the key is not hop's: the editor layer forwards everything it
-// does not own, so an unsplit with nothing to unsplit has to report "not handled" rather
-// than swallow a keystroke the remote editor may well have a meaning for.
+// With nothing split the key is not hop's: the remote editor is owed it.
 func TestUnsplitWithNoSplitFallsThroughToTheEditor(t *testing.T) {
 	m, s := splitModel(t, "a.conf", "b.conf")
 	m.mode = modeEditor

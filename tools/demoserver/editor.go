@@ -7,14 +7,8 @@ import (
 	"strings"
 )
 
-// runEditor is a fake vi: it takes the alt screen, draws the file with a vim-ish
-// status line, moves a cursor around, and quits on `:q`. hop opens a real editor by
-// running `${EDITOR:-vi} <file>` on a second channel with a pty and rendering that
-// pty, so anything that draws like an editor and quits like one is enough to record
-// the feature — and it keeps a real vim (and a real file) out of the recording.
-//
-// The window size is read once, when the editor opens: the recording window never
-// changes size, so a resize handler would be dead code in a demo tool.
+// runEditor is a fake vi: alt screen, a vim-ish status line, a cursor, and `:q`.
+// The size is read once — the recording window never resizes.
 func runEditor(stdin io.Reader, stdout io.Writer, file string, content string, cols, rows int) {
 	lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
 	e := &editor{
@@ -22,8 +16,7 @@ func runEditor(stdin io.Reader, stdout io.Writer, file string, content string, c
 		cols: max(cols, 20), rows: max(rows, 6),
 	}
 
-	// Alt screen, as a full-screen program takes: hop watches for exactly this to
-	// decide that the program on the far end owns the keyboard.
+	// hop watches for the alt screen to decide the far end owns the keyboard.
 	io.WriteString(stdout, "\x1b[?1049h\x1b[H\x1b[2J")
 	defer io.WriteString(stdout, "\x1b[?1049l")
 
@@ -129,8 +122,6 @@ func (e *editor) jump(to int) {
 	e.draw()
 }
 
-// draw paints the whole screen: the file, `~` for the rows past its end, and the
-// status line.
 func (e *editor) draw() {
 	var b strings.Builder
 	b.WriteString("\x1b[H\x1b[2J")
@@ -146,14 +137,11 @@ func (e *editor) draw() {
 	}
 
 	b.WriteString(e.statusLine())
-	// Park the cursor where the file cursor is, so the pane draws it in the right
-	// place — hop overlays its own cursor at whatever position the emulator reports.
+	// hop overlays its cursor wherever the emulator reports one, so park it on the file cursor.
 	b.WriteString(fmt.Sprintf("\x1b[%d;1H", e.cur-e.top+1))
 	io.WriteString(e.w, b.String())
 }
 
-// statusLine is vim's: the file on the left, the position on the right, in reverse
-// video across the bottom row.
 func (e *editor) statusLine() string {
 	left := fmt.Sprintf("%q %dL, %dB", path.Base(e.file), len(e.lines), byteLen(e.lines))
 	right := fmt.Sprintf("%d,1", e.cur+1)
@@ -170,8 +158,6 @@ func (e *editor) statusLine() string {
 	return fmt.Sprintf("\x1b[%d;1H\x1b[7m%s\x1b[0m", e.rows, bar)
 }
 
-// status overwrites the bottom row with a message (":q", "-- INSERT --", an error),
-// which is where vim puts them too.
 func (e *editor) status(msg string) {
 	io.WriteString(e.w, fmt.Sprintf("\x1b[%d;1H\x1b[2K%s", e.rows, truncate(msg, e.cols)))
 }

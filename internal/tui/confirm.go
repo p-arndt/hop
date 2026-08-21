@@ -8,29 +8,24 @@ import (
 	"hop/internal/store"
 )
 
-// confirmUI is the delete-confirmation card's own state: which host the cursor was on
-// when it was armed, so the question still names the right one after the list underneath
-// has scrolled or been filtered.
+// confirmUI is the delete-confirmation card's state: the alias captured when it was armed,
+// so the question still names the right host after the list underneath has moved.
 type confirmUI struct {
 	open  bool
 	alias string
 }
 
-// openConfirmDelete arms the card for h, capturing the alias now rather than re-reading
-// the cursor at delete time: the host removed is the one the question named.
 func (m *model) openConfirmDelete(h store.Host) {
 	m.confirm = confirmUI{open: true, alias: h.Alias}
 	m.status = ""
 }
 
-// closeConfirm dismisses the card, deciding nothing.
 func (m *model) closeConfirm() {
 	m.confirm = confirmUI{}
 }
 
-// handleConfirmKey routes a key while the card is up, swallowing everything: a yes/no
-// that let keys fall through could act on a host you never confirmed. Only an explicit
-// yes deletes; anything that is neither yes nor cancel keeps the question up.
+// handleConfirmKey routes a key while the card is up, swallowing everything: a key falling
+// through could act on a host you never confirmed.
 func (m *model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "enter":
@@ -41,9 +36,8 @@ func (m *model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// confirmDelete carries out the deletion the card was armed for. A host with a live
-// connection is torn down first, so its session and panes are not orphaned against a row
-// that no longer exists. A failed delete leaves the list untouched and says why.
+// confirmDelete carries out the deletion. A live connection is torn down first, so its
+// session and panes are not orphaned against a row that no longer exists.
 func (m *model) confirmDelete() {
 	alias := m.confirm.alias
 
@@ -57,29 +51,24 @@ func (m *model) confirmDelete() {
 		return
 	}
 
-	// reloadHosts re-clamps the cursor through applyFilter, settling it onto the row that
-	// took the deleted host's place.
+	// reloadHosts re-clamps the cursor through applyFilter, onto the row that took its place.
 	m.reloadHosts()
 	m.closeConfirm()
 	m.setStatus(statusOK, "deleted %s", alias)
 }
 
-// Card geometry. Narrower than the settings popover — one short question, not a form —
-// and shrinking to the window the same way, with a floor below which it truncates.
+// Card geometry.
 const (
 	confirmMaxW   = 44 // content width, borders and padding excluded
 	confirmFloorW = 20
 )
 
-// confirmInnerW is the width available to a rendered line: the box less its border and
-// padding, held to the window so the card is never wider than the screen.
 func (m *model) confirmInnerW() int {
 	room := max(m.width-2*cardPadX-2, confirmFloorW)
 	return clamp(confirmMaxW, confirmFloorW, room)
 }
 
-// renderConfirm draws the card: a title, the question naming the host, and a two-key
-// hint. Every line is truncated, since a modal that wraps spills outside its border.
+// renderConfirm draws the card; every line is truncated, since a wrapping modal spills past its border.
 func (m *model) renderConfirm() string {
 	w := m.confirmInnerW()
 	var b strings.Builder

@@ -22,9 +22,7 @@ func viewModel(w, h int) *model {
 	return m
 }
 
-// Whatever the window and whatever is up, the screen is exactly the window: every line
-// fits across it, and there are as many lines as it is tall. A view that overruns either
-// way corrupts the terminal rather than merely looking wrong.
+// The screen is exactly the window in every mode and at every size.
 func TestViewFitsTheWindow(t *testing.T) {
 	sizes := []struct{ w, h int }{
 		{200, 40}, // wide enough for all three columns, and for a split beside them
@@ -50,23 +48,17 @@ func TestViewFitsTheWindow(t *testing.T) {
 			m.connecting["raspberrypi"] = true
 			m.setStatus(statusErr, "connect web1 failed: dial tcp: connection refused")
 		},
-		// A dropped session: the pane keeps its banner and its last screen, and both
-		// have to fit the window like everything else.
 		"dropped": func(m *model) {
 			m.sessions["web1"] = &session{dead: true, lostWhy: "ssh: unexpected packet in response to channel open"}
 			m.active, m.mode = "web1", modeShell
 		},
 		"no hosts":          func(m *model) { m.hosts = nil; m.applyFilter() },
 		"sidebar collapsed": func(m *model) { m.toggleSidebar() },
-		// The tree column, which is on screen on a wide window and folded back into the
-		// content area on a narrow one. Both have to add up to the window.
 		"sftp column": func(m *model) {
 			m.sessions["web1"] = &session{browser: fakeBrowser(t, "/srv")}
 			m.active, m.mode = "web1", modeBrowser
 			m.relayout()
 		},
-		// Two editors side by side beside the tree: three boxes across the body, and the
-		// odd column an odd-width content area leaves over.
 		"split editors": func(m *model) {
 			s := &session{browser: fakeBrowser(t, "/srv"), editors: []*editorTab{
 				{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()},
@@ -102,20 +94,13 @@ func TestViewFitsTheWindow(t *testing.T) {
 	}
 }
 
-// A pane holding lines wider than the box it is drawn in still leaves the screen exactly
-// the size of the window.
-//
-// lipgloss grows a box to fit its content and wraps an over-wide line onto another row,
-// so one such row makes the screen taller than the window and the terminal scrolls hop's
-// header off the top. Lines get that wide ordinarily: scrollback holds each at the width
-// the pane had when it was pushed.
+// lipgloss would wrap an over-wide scrollback line and grow the screen past the window.
 func TestPaneContentWiderThanTheBoxDoesNotGrowTheScreen(t *testing.T) {
 	m := viewModel(100, 20)
 	m.active = "web1"
 	m.mode = modeShell
 
-	// A pane laid out for a much wider window than the model now has — which is what
-	// a resize leaves behind in the lines already in scrollback.
+	// A pane laid out for a wider window, as a resize leaves behind in scrollback.
 	wide := strings.Repeat("x", m.paneW*2-1)
 	pane := fakePaneWith(t, m.paneW*2, m.paneH, wide+"\r\n"+wide, wide)
 	m.sessions["web1"] = &session{shells: []*shellTab{{id: 1, pane: pane}}}
@@ -131,8 +116,6 @@ func TestPaneContentWiderThanTheBoxDoesNotGrowTheScreen(t *testing.T) {
 	}
 }
 
-// The two panes together fill the width: a gap down the right-hand side is the
-// layout arithmetic being off, which is invisible until you look for it.
 func TestPanesFillTheWidth(t *testing.T) {
 	m := viewModel(120, 34)
 	m.cursor = 0
@@ -145,8 +128,6 @@ func TestPanesFillTheWidth(t *testing.T) {
 	}
 }
 
-// And with the tree column between them, which is the arithmetic most likely to come out a
-// column short: three boxes, six border columns, and the rest of the row to the content.
 func TestThreeColumnsFillTheWidth(t *testing.T) {
 	m, _ := columnModel(t, 200, 34)
 
@@ -159,8 +140,6 @@ func TestThreeColumnsFillTheWidth(t *testing.T) {
 	}
 }
 
-// The filter records which characters of an alias it matched, so the row can pick
-// them out — a fuzzy hit that cannot explain itself looks like a bug.
 func TestFilterRecordsMatchedCharacters(t *testing.T) {
 	m := viewModel(80, 24)
 	m.filter = "rpi"
@@ -178,8 +157,6 @@ func TestFilterRecordsMatchedCharacters(t *testing.T) {
 	if len(hits) != 3 {
 		t.Fatalf("highlights = %v, want one offset per matched character", hits)
 	}
-	// Every recorded offset must be inside the alias and on a character the
-	// filter actually asked for.
 	alias := m.hosts[idx].Alias
 	for _, at := range hits {
 		if at < 0 || at >= len(alias) {
@@ -191,8 +168,6 @@ func TestFilterRecordsMatchedCharacters(t *testing.T) {
 	}
 }
 
-// Clearing the filter clears the highlights with it — a stale one would underline
-// characters in a list nobody is filtering.
 func TestClearingTheFilterClearsHighlights(t *testing.T) {
 	m := viewModel(80, 24)
 	m.filter = "pi"
@@ -208,8 +183,6 @@ func TestClearingTheFilterClearsHighlights(t *testing.T) {
 	}
 }
 
-// A status retires itself, but only the one its timer was armed for: a message
-// that has since been replaced must not take its successor down with it.
 func TestStatusExpiryOnlyRetiresItsOwnMessage(t *testing.T) {
 	m := viewModel(80, 24)
 	m.setStatus(statusOK, "connected to web1")
@@ -227,8 +200,6 @@ func TestStatusExpiryOnlyRetiresItsOwnMessage(t *testing.T) {
 	}
 }
 
-// Reporting something arms the timer that will take it back down. Without the
-// command, a status would sit in the header until the next one displaced it.
 func TestReportingAStatusArmsItsExpiry(t *testing.T) {
 	m := viewModel(80, 24)
 	m.cursor = 0
@@ -246,8 +217,6 @@ func TestReportingAStatusArmsItsExpiry(t *testing.T) {
 	}
 }
 
-// The spinner's clock runs only while something is dialing: an idle hop must not
-// keep waking up to redraw a screen that is not changing.
 func TestSpinnerStopsWhenNothingIsConnecting(t *testing.T) {
 	m := viewModel(80, 24)
 	m.ticking = true
@@ -266,16 +235,12 @@ func TestSpinnerStopsWhenNothingIsConnecting(t *testing.T) {
 	}
 }
 
-// A focused pane can open another shell on the host it is already on, and the footer says
-// so on the first shell as much as the second.
 func TestNewShellFromAFocusedPane(t *testing.T) {
 	m := viewModel(120, 34)
 	m.notify = make(chan struct{}, 1)
 	m.sessions["web1"] = &session{}
 	m.active, m.mode = "web1", modeShell
 
-	// The pane's footer names the leader, and the leader's own footer names the key
-	// that makes a second shell — on the first shell as much as the second.
 	if foot := m.renderFooter(); !strings.Contains(foot, "leader") {
 		t.Fatalf("the focused pane's footer does not name the leader:\n%s", foot)
 	}
@@ -285,7 +250,6 @@ func TestNewShellFromAFocusedPane(t *testing.T) {
 	}
 	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}}) // close it again
 
-	// alt+0 stays bound as an alias, for the terminals that deliver it.
 	altZero := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("0"), Alt: true}
 	_, cmd := m.Update(altZero)
 	if cmd == nil {
@@ -296,8 +260,7 @@ func TestNewShellFromAFocusedPane(t *testing.T) {
 	}
 }
 
-// Two connects in flight must not run two clocks — the frame counter would
-// advance at double speed, and the spinner with it.
+// Two connects in flight must share one clock, or the spinner runs at double speed.
 func TestOneSpinnerClockAtATime(t *testing.T) {
 	m := viewModel(80, 24)
 	m.notify = make(chan struct{}, 1)
@@ -309,8 +272,6 @@ func TestOneSpinnerClockAtATime(t *testing.T) {
 		t.Fatal("the first connect did not mark the clock as running")
 	}
 
-	// A second host dialing while the first is still in flight rides the clock
-	// that is already running.
 	m.ticking = true
 	before := m.ticking
 	m.openShell(m.hosts[2], false)

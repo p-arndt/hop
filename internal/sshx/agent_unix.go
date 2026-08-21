@@ -9,15 +9,10 @@ import (
 	"os"
 )
 
-// agentSockEnv is the environment variable OpenSSH uses to advertise the path of
-// the agent's unix socket. On macOS launchd sets it per-session; on Linux it is
-// set by ssh-agent, gnome-keyring, or the systemd user unit.
+// agentSockEnv is how OpenSSH advertises the path of the agent's unix socket.
 const agentSockEnv = "SSH_AUTH_SOCK"
 
-// dialAgent connects to the OpenSSH agent over the unix socket named by
-// $SSH_AUTH_SOCK. An unset variable is its own diagnosis — there is no
-// well-known fallback path to try, since the socket lives in a per-session
-// temp directory — so it is reported as such rather than as a dial failure.
+// dialAgent connects over $SSH_AUTH_SOCK; there is no fallback path, as the socket lives in a per-session temp directory.
 func dialAgent() (net.Conn, error) {
 	sock := os.Getenv(agentSockEnv)
 	if sock == "" {

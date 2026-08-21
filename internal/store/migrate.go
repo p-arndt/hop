@@ -1,15 +1,8 @@
 package store
 
-// The one-way migration from the SQLite database older versions of hop kept.
-//
-// It runs once, on the first start after the upgrade, and is deliberately conservative:
-// it reads the database with the dependency-free reader in sqlitefile.go, writes the two
-// new files, and only then moves the database aside — under a .bak name, never deleted,
-// so a migration that turns out to have missed something is still recoverable by hand.
-//
-// Anything it does not fully understand is an error that stops hop from starting, rather
-// than a partial import that silently loses hosts. A user who sees that error still has
-// their database exactly as it was.
+// The one-way migration from the legacy SQLite database. It runs once, keeps the database
+// under a .bak name rather than deleting it, and fails loudly rather than importing
+// partially.
 
 import (
 	"fmt"
@@ -18,13 +11,8 @@ import (
 	"sort"
 )
 
-// migrateLegacyDB converts the hop.db at dbPath into the hosts file at hostsPath and the
-// metadata sidecar at metaPath. It is a no-op when there is no database, or when the
-// hosts file already exists — the migration has then already run, and the config file is
-// the newer truth.
-//
-// dbPath and hostsPath may be the same file: OpenAt hands both the same path when it is
-// asked to open what turns out to be a database.
+// migrateLegacyDB converts the hop.db at dbPath into hostsPath plus metaPath. An existing
+// hosts file means the migration already ran. dbPath and hostsPath may be the same file.
 func migrateLegacyDB(dbPath, hostsPath, metaPath string) error {
 	if dbPath == "" || !isSQLiteFile(dbPath) {
 		return nil
@@ -40,7 +28,7 @@ func migrateLegacyDB(dbPath, hostsPath, metaPath string) error {
 		return fmt.Errorf("migrating %s: %w\n\nYour database has not been changed. Please report this with the error above; the previous hop release can still read it.", dbPath, err)
 	}
 
-	// The database moves aside first when it is in the way of its own replacement.
+	// Move the database aside first: it may be sitting where its replacement goes.
 	backup := dbPath + ".bak"
 	if err := os.Rename(dbPath, backup); err != nil {
 		return fmt.Errorf("migrating %s: %w", dbPath, err)
@@ -162,13 +150,12 @@ func readLegacyDB(path string) ([]Host, *meta, error) {
 		hosts[at].Forwards = append(hosts[at].Forwards, f)
 	}
 
-	// Write the file in id order, which is roughly the order the hosts were added.
+	// Write in id order, so a rewrite never reshuffles the file.
 	sort.SliceStable(hosts, func(i, j int) bool { return hosts[i].ID < hosts[j].ID })
 	return hosts, m, nil
 }
 
-// text narrows a decoded value to a string, tolerating the NULL that an ALTER-added
-// column has in rows written before it existed.
+// text narrows a decoded value to a string, tolerating an ALTER-added column's NULL.
 func text(v any) string {
 	switch s := v.(type) {
 	case string:

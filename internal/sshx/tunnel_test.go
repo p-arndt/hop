@@ -17,8 +17,7 @@ import (
 	"hop/internal/store"
 )
 
-// A tunnel must carry bytes in both directions and Close must release both the
-// listener and an established pair, not only stop accepting new connections.
+// Close must release the listener and an established pair, not only stop accepting.
 func TestTunnelForwardsAndClosesConnections(t *testing.T) {
 	target, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -180,8 +179,7 @@ func availablePort(t *testing.T) int {
 	return port
 }
 
-// forwardingSSHClient is a small SSH server implementing the two RFC 4254
-// forwarding paths used by x/crypto/ssh.Client.Dial and Client.Listen.
+// forwardingSSHClient serves the two RFC 4254 forwarding paths x/crypto/ssh.Client uses.
 func forwardingSSHClient(t *testing.T) *Client {
 	t.Helper()
 	_, private, err := ed25519.GenerateKey(rand.Reader)

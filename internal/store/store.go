@@ -1,15 +1,5 @@
-// Package store holds hop's saved SSH connections.
-//
-// A host is kept in two files. Everything OpenSSH understands — HostName, User, Port,
-// IdentityFile, ProxyCommand, ProxyJump and the port forwards — is written as a real Host
-// block in an OpenSSH config file that hop manages and ~/.ssh/config includes, so every
-// host you save in hop is a host plain ssh, scp and rsync can reach too. Everything that
-// is hop's own — tags, group, pin order, how often you connect — sits in a JSON sidecar
-// keyed by alias, where it cannot confuse OpenSSH.
-//
-// The whole set is small enough to hold in memory: hop reads both files once at Open and
-// rewrites them on each change. That costs a file rewrite per edit and buys the absence
-// of a SQL engine, which is the shape this data always had.
+// Package store holds hop's saved SSH connections, split across an OpenSSH config file
+// (the directives ssh understands) and a JSON sidecar keyed by alias (hop's own metadata).
 package store
 
 import (
@@ -27,7 +17,6 @@ import (
 	"hop/internal/config"
 )
 
-// Host represents a saved SSH connection target.
 type Host struct {
 	ID           int64
 	Alias        string
@@ -39,28 +28,20 @@ type Host struct {
 	Group        string
 	Visits       int
 	LastConnect  int64
-	// DefaultDir is the remote directory a session starts in: shells cd there on connect
-	// and the file browser opens there. Blank means wherever the login shell lands.
+	// DefaultDir is the remote directory a session starts in; blank means the login default.
 	DefaultDir string
-	// ProxyCommand is a local program whose stdin/stdout carry the SSH transport, as
-	// OpenSSH's directive: how a host behind a broker (AWS SSM, cloudflared) is dialled.
+	// ProxyCommand is OpenSSH's directive: a local program whose stdio carries the transport.
 	ProxyCommand string
-	// ProxyJump is a bastion to tunnel through: an alias in this store, or a bare
-	// [user@]host[:port]. Set alongside ProxyCommand it wins, as in ssh.
+	// ProxyJump is a bastion alias or bare [user@]host[:port]; it wins over ProxyCommand.
 	ProxyJump string
-	// Pinned lifts a host out of the frecency order into the PINNED section; PinOrder is
-	// its place inside it, 1-based and dense (see renumberPins), and zero when unpinned.
+	// PinOrder is 1-based and dense over the pinned hosts (see renumberPins), 0 when unpinned.
 	Pinned   bool
 	PinOrder int
 
-	// Forwards are the TCP tunnels defined for this host, loaded with it so View never
-	// queries. They are written as LocalForward and RemoteForward directives, which means
-	// ssh -N runs the same tunnels hop does.
 	Forwards []Forward
 }
 
-// ForwardKind is which side of the SSH connection owns the listening socket: a local
-// forward listens on the machine running hop, a remote one on the server.
+// ForwardKind is which side owns the listening socket.
 type ForwardKind string
 
 const (
@@ -68,7 +49,6 @@ const (
 	ForwardRemote ForwardKind = "remote"
 )
 
-// Forward is one persisted TCP port-forwarding definition.
 type Forward struct {
 	ID         int64
 	HostID     int64
@@ -79,8 +59,7 @@ type Forward struct {
 	TargetPort int
 }
 
-// Validate rejects definitions that cannot name TCP endpoints. BindHost may be blank:
-// the runtime applies the loopback default for the forward's side.
+// Validate rejects definitions that cannot name TCP endpoints; a blank BindHost is allowed.
 func (f Forward) Validate() error {
 	if f.Kind != ForwardLocal && f.Kind != ForwardRemote {
 		return fmt.Errorf("forward kind must be local or remote")
@@ -97,9 +76,8 @@ func (f Forward) Validate() error {
 	return nil
 }
 
-// Store is the saved host list, held in memory and backed by the two files described in
-// the package comment. Its methods are safe for concurrent use: the TUI touches it from
-// its update loop while a dial in flight calls HostByAlias to resolve a jump.
+// Store is the in-memory host list backing the two files; its methods are safe for
+// concurrent use.
 type Store struct {
 	hostsPath string
 	metaPath  string
@@ -107,23 +85,15 @@ type Store struct {
 	mu    sync.Mutex
 	hosts []Host
 	meta  *meta
-	// nextForwardID hands out forward identities. They are per-process: nothing persists
-	// a forward id, because the config file identifies a forward by its listening
-	// endpoint, which is what makes it a forward in the first place.
+	// nextForwardID is per-process: the config file identifies a forward by its listener,
+	// so no forward id is ever persisted.
 	nextForwardID int64
 
-	// includeErr records a failed ~/.ssh/config update. It is written once, before the
-	// store is handed to a caller, and read-only after — losing the Include costs the
-	// ssh/scp integration, not hop's own host list, so it does not fail Open.
+	// includeErr is written once before the store is handed out, read-only after.
 	includeErr error
 }
 
-// Open opens the default store: hosts in ~/.ssh/hop.config, where OpenSSH can read them,
-// their hop-only metadata under the "hosts" key of hop's own config.json, where OpenSSH
-// will never trip over it, and an Include in ~/.ssh/config so the rest of the toolchain
-// sees the hosts.
-//
-// A hop.db left by an older version is migrated on the way past, once.
+// Open opens the default store: ~/.ssh/hop.config, config.json metadata, and the Include.
 func Open() (*Store, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -146,15 +116,14 @@ func Open() (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	// A failure here costs the ssh/scp integration, not hop's own host list, so it is
-	// reported through the store rather than refusing to start.
+	// A missing Include costs only the ssh/scp integration, so it must not fail Open.
 	if err := ensureInclude(filepath.Join(sshDir, "config"), hostsPath); err != nil {
 		s.includeErr = err
 	}
 	return s, nil
 }
 
-// legacyDBPath is where versions of hop before the SQLite removal kept their database.
+// legacyDBPath is where hop kept its database before the SQLite removal.
 func legacyDBPath() string {
 	cfgDir, err := os.UserConfigDir()
 	if err != nil {
@@ -163,20 +132,10 @@ func legacyDBPath() string {
 	return filepath.Join(cfgDir, "hop", "hop.db")
 }
 
-// defaultMetaPath is hop's config.json. Tags, pins and visit counts are hop's own
-// preferences about your hosts, so they sit beside the rest of the settings rather than
-// in ~/.ssh, which belongs to OpenSSH, or in a third file of their own.
 func defaultMetaPath() (string, error) { return config.Path() }
 
-// OpenAt opens the store whose hosts live at hostsPath and whose hop-only metadata lives
-// under the "hosts" key of the JSON file at metaPath. The two are named separately
-// because they belong in different places: the hosts where OpenSSH reads them, the
-// metadata where it does not.
-//
-// A blank metaPath puts the metadata in a JSON file beside the hosts file, which is what
-// a self-contained store in one directory — a test, the demo server — wants.
-//
-// When hostsPath is a SQLite database left by an older hop, it is migrated in place first.
+// OpenAt opens the store at hostsPath with metadata under the "hosts" key of metaPath;
+// a blank metaPath puts it beside the hosts file, and a SQLite hostsPath is migrated first.
 func OpenAt(hostsPath, metaPath string) (*Store, error) {
 	if metaPath == "" {
 		metaPath = hostsPath + ".json"
@@ -201,9 +160,7 @@ func OpenAt(hostsPath, metaPath string) (*Store, error) {
 	return s, nil
 }
 
-// load reads both files into memory and reconciles them: ids and metadata come from the
-// sidecar, everything else from the config file, and the sidecar is pruned of aliases the
-// config no longer has.
+// load reads both files: ids and metadata from the sidecar, the rest from the config file.
 func (s *Store) load() error {
 	hosts, err := readHosts(s.hostsPath)
 	if err != nil {
@@ -238,8 +195,8 @@ func (s *Store) load() error {
 	return nil
 }
 
-// persist writes both files. The config file goes first: it holds the hosts, and a
-// sidecar naming an alias that does not exist yet is harmless where the reverse is not.
+// persist writes the config file before the sidecar: a sidecar entry for a not-yet-written
+// host is harmless, the reverse is not.
 func (s *Store) persist() error {
 	if err := writeHosts(s.hostsPath, s.hosts); err != nil {
 		return fmt.Errorf("write %s: %w", s.hostsPath, err)
@@ -261,16 +218,12 @@ func (s *Store) persist() error {
 	return nil
 }
 
-// Close releases the store. There is no open handle to release — every change is already
-// on disk — but callers close it, and keeping the method keeps them honest if that
-// changes.
 func (s *Store) Close() error { return nil }
 
-// IncludeWarning reports a failure to add the Include line to ~/.ssh/config, if any. The
-// host list works regardless; what is lost is ssh and scp seeing hop's hosts.
+// IncludeWarning reports a failure to add the Include line to ~/.ssh/config, if any.
 func (s *Store) IncludeWarning() error { return s.includeErr }
 
-// find returns a pointer to the stored host with this alias. Callers hold s.mu.
+// find looks up a host by alias. Callers hold s.mu.
 func (s *Store) find(alias string) *Host {
 	for i := range s.hosts {
 		if s.hosts[i].Alias == alias {
@@ -280,7 +233,7 @@ func (s *Store) find(alias string) *Host {
 	return nil
 }
 
-// findID returns a pointer to the stored host with this id. Callers hold s.mu.
+// findID looks up a host by id. Callers hold s.mu.
 func (s *Store) findID(id int64) *Host {
 	for i := range s.hosts {
 		if s.hosts[i].ID == id {
@@ -290,8 +243,7 @@ func (s *Store) findID(id int64) *Host {
 	return nil
 }
 
-// clone deep-copies a host, so a caller mutating the slices it gets back cannot reach
-// into the store's own state.
+// clone deep-copies a host so callers cannot mutate the store's slices.
 func clone(h Host) Host {
 	out := h
 	out.Tags = append([]string(nil), h.Tags...)
@@ -299,8 +251,6 @@ func clone(h Host) Host {
 	return out
 }
 
-// Hosts returns all hosts: the pinned ones in the user's order, then the rest by Visits
-// desc then LastConnect desc.
 func (s *Store) Hosts() ([]Host, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -327,8 +277,6 @@ func lessHost(a, b Host) bool {
 	return a.LastConnect > b.LastConnect
 }
 
-// HostByAlias returns the single host with this alias. Forwards come with it, which the
-// SQLite version skipped as an optimisation that an in-memory list no longer needs.
 func (s *Store) HostByAlias(alias string) (Host, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -340,9 +288,8 @@ func (s *Store) HostByAlias(alias string) (Host, bool, error) {
 	return clone(*h), true, nil
 }
 
-// Upsert inserts or updates a host keyed by its Alias and returns its id. An update
-// leaves visits, last connect, pin state and forwards alone: an edit must not reset the
-// frecency Touch has been accumulating, nor drop tunnels the form does not carry.
+// Upsert inserts or updates a host by Alias; an update leaves visits, pin state and
+// forwards alone, since the edit form does not carry them.
 func (s *Store) Upsert(h Host) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -364,9 +311,8 @@ func (s *Store) Upsert(h Host) (int64, error) {
 	return s.insert(h)
 }
 
-// Add inserts a new host, failing when the alias is taken. Unlike Upsert it never
-// overwrites, so a stale in-memory list cannot clobber a host added since — from the
-// CLI, say. Returns the new id.
+// Add inserts a new host, failing when the alias is taken, so a stale list cannot clobber
+// a host added since.
 func (s *Store) Add(h Host) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -377,21 +323,19 @@ func (s *Store) Add(h Host) (int64, error) {
 	return s.insert(normalizeHost(h))
 }
 
-// insert appends a new host and persists. Callers hold s.mu.
+// insert appends a host and persists. Callers hold s.mu.
 func (s *Store) insert(h Host) (int64, error) {
 	if strings.TrimSpace(h.Alias) == "" {
 		return 0, fmt.Errorf("host alias can't be empty")
 	}
-	// Forwards are added through AddForward, matching the old schema where they were a
-	// table of their own and an insert never carried them.
+	// Forwards only ever arrive through AddForward.
 	h.Forwards = nil
 	h.ID = s.meta.get(h.Alias).ID
 	s.hosts = append(s.hosts, h)
 	return h.ID, s.persist()
 }
 
-// Delete removes the host with the given alias, closing the hole a pinned one leaves in
-// the pin order.
+// Delete removes the host, closing the hole a pinned one leaves in the pin order.
 func (s *Store) Delete(alias string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -407,8 +351,7 @@ func (s *Store) Delete(alias string) error {
 	return nil
 }
 
-// AddForward persists a new forwarding definition for hostID. A host cannot have two
-// forwards competing for the same listener on the same side.
+// AddForward persists a new forward for hostID, rejecting a duplicate listener.
 func (s *Store) AddForward(hostID int64, f Forward) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -432,14 +375,11 @@ func (s *Store) AddForward(hostID int64, f Forward) (int64, error) {
 	return f.ID, s.persist()
 }
 
-// sameListener reports whether two forwards claim the same socket on the same side,
-// which is what the old schema's UNIQUE constraint enforced.
 func sameListener(a, b Forward) bool {
 	return a.Kind == b.Kind && a.BindHost == b.BindHost && a.BindPort == b.BindPort
 }
 
-// UpdateForward replaces an existing definition, preserving its identity so a running
-// tunnel can be matched and stopped first.
+// UpdateForward replaces a definition, keeping its id so a running tunnel stays matchable.
 func (s *Store) UpdateForward(f Forward) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -467,10 +407,8 @@ func (s *Store) UpdateForward(f Forward) error {
 	return fmt.Errorf("update forward: no such forward")
 }
 
-// upsertImportedForward syncs one OpenSSH LocalForward/RemoteForward by its listening
-// endpoint. User-created definitions go through AddForward and still get a duplicate
-// error; re-importing is allowed to update the target behind an existing listener.
-// Callers hold s.mu.
+// upsertImportedForward syncs an imported forward by listener, updating the target behind
+// an existing one rather than erroring as AddForward does. Callers hold s.mu.
 func (s *Store) upsertImportedForward(hostID int64, f Forward) error {
 	f = normalizeForward(hostID, f)
 	if err := f.Validate(); err != nil {
@@ -493,7 +431,6 @@ func (s *Store) upsertImportedForward(hostID int64, f Forward) error {
 	return nil
 }
 
-// DeleteForward removes one definition belonging to hostID.
 func (s *Store) DeleteForward(hostID, id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -511,9 +448,7 @@ func (s *Store) DeleteForward(hostID, id int64) error {
 	return fmt.Errorf("delete forward: no such forward")
 }
 
-// Rename changes a host's alias, preserving its visit count and connect history, which
-// a plain Upsert of a new alias would zero. A no-op when the two are equal; it fails when
-// newAlias is taken or oldAlias does not exist.
+// Rename changes a host's alias, preserving its id, pin and frecency.
 func (s *Store) Rename(oldAlias, newAlias string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -529,7 +464,6 @@ func (s *Store) Rename(oldAlias, newAlias string) error {
 		return fmt.Errorf("rename: no such host %q", oldAlias)
 	}
 	h.Alias = newAlias
-	// Carry the metadata across so the rename keeps the id, the pin and the frecency.
 	if hm, ok := s.meta.Hosts[oldAlias]; ok {
 		delete(s.meta.Hosts, oldAlias)
 		s.meta.Hosts[newAlias] = hm
@@ -537,9 +471,7 @@ func (s *Store) Rename(oldAlias, newAlias string) error {
 	return s.persist()
 }
 
-// SetPinned pins or unpins a host. A newly pinned host goes to the end of the section:
-// pinning is "keep this where I can find it", and reshuffling would fight the order set
-// with MovePin. It fails when there is no such host.
+// SetPinned pins or unpins a host, appending a newly pinned one so MovePin's order holds.
 func (s *Store) SetPinned(alias string, pinned bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -566,9 +498,8 @@ func (s *Store) SetPinned(alias string, pinned bool) error {
 	return s.persist()
 }
 
-// MovePin moves a pinned host delta places within the pinned section (-1 up, +1 down)
-// and reports whether it moved. An unpinned host, or one already at the end, is a no-op
-// rather than an error: it is a held-down key hitting the edge of the list.
+// MovePin moves a pinned host delta places (-1 up, +1 down) and reports whether it moved;
+// hitting the edge is a no-op, not an error, because it is a held-down key.
 func (s *Store) MovePin(alias string, delta int) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -599,8 +530,8 @@ func (s *Store) MovePin(alias string, delta int) (bool, error) {
 	return true, s.persist()
 }
 
-// pinnedOrder lists the pinned aliases in draw order, so "up" here is up on screen.
-// Callers hold s.mu.
+// pinnedOrder lists the pinned aliases in draw order, so "up" is up on screen. Callers
+// hold s.mu.
 func (s *Store) pinnedOrder() []string {
 	pinned := make([]Host, 0, len(s.hosts))
 	for _, h := range s.hosts {
@@ -624,11 +555,10 @@ func (s *Store) pinnedOrder() []string {
 	return out
 }
 
-// renumberPins rewrites PinOrder as 1..n over the pinned hosts in their current order, so
-// a delete or unpin cannot leave a hole for MovePin's arithmetic. Callers hold s.mu.
+// renumberPins closes holes MovePin's arithmetic cannot tolerate. Callers hold s.mu.
 func (s *Store) renumberPins() { s.writePinOrder(s.pinnedOrder()) }
 
-// writePinOrder stamps aliases with PinOrder 1..n, in the order given. Callers hold s.mu.
+// writePinOrder stamps PinOrder 1..n in the order given. Callers hold s.mu.
 func (s *Store) writePinOrder(order []string) {
 	for i, alias := range order {
 		if h := s.find(alias); h != nil {
@@ -651,8 +581,7 @@ func (s *Store) Touch(alias string) error {
 	return s.persist()
 }
 
-// ImportSSHConfig parses an OpenSSH config file and upserts each concrete Host alias,
-// skipping wildcard patterns, and returns how many were imported.
+// ImportSSHConfig upserts each concrete Host alias from an OpenSSH config file.
 func (s *Store) ImportSSHConfig(path string) (int, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -711,8 +640,7 @@ func (s *Store) ImportSSHConfig(path string) (int, error) {
 	return count, nil
 }
 
-// insertLocked appends a host without persisting, for callers that write once at the end
-// of a batch. Callers hold s.mu.
+// insertLocked appends a host without persisting, for batch callers. Callers hold s.mu.
 func (s *Store) insertLocked(h Host) (int64, error) {
 	if strings.TrimSpace(h.Alias) == "" {
 		return 0, fmt.Errorf("host alias can't be empty")
@@ -722,8 +650,7 @@ func (s *Store) insertLocked(h Host) (int64, error) {
 	return h.ID, nil
 }
 
-// normalizeHost fills in the defaults the SQLite schema used to apply on write, so a
-// caller that leaves Port at zero still gets a host that dials port 22.
+// normalizeHost applies the defaults the SQLite schema used to apply on write.
 func normalizeHost(h Host) Host {
 	h.Alias = strings.TrimSpace(h.Alias)
 	if h.Port == 0 {
@@ -745,9 +672,8 @@ func normalizeForward(hostID int64, f Forward) Forward {
 	return f
 }
 
-// parseSSHForward accepts OpenSSH's TCP forwarding shape, [bind_address:]port
-// host:hostport. Socket-path and dynamic forms are left to OpenSSH rather than
-// misrepresented as TCP definitions here.
+// parseSSHForward accepts OpenSSH's TCP shape, "[bind_address:]port host:hostport"; the
+// socket-path and dynamic forms are rejected rather than misrepresented as TCP.
 func parseSSHForward(value string, kind ForwardKind) (Forward, bool) {
 	fields := strings.Fields(value)
 	if len(fields) != 2 {
@@ -784,8 +710,8 @@ func splitForwardEndpoint(value string, portOnly bool) (string, int, bool) {
 	return host, port, true
 }
 
-// netSplitHostPortLoose is net.SplitHostPort plus OpenSSH's unbracketed hostname:port
-// spelling. IPv6 remains bracketed, as OpenSSH documents it.
+// netSplitHostPortLoose is net.SplitHostPort plus OpenSSH's unbracketed hostname:port;
+// IPv6 stays bracketed.
 func netSplitHostPortLoose(value string) (string, string, error) {
 	if strings.HasPrefix(value, "[") {
 		end := strings.LastIndex(value, "]:")
@@ -801,8 +727,7 @@ func netSplitHostPortLoose(value string) (string, string, error) {
 	return value[:i], value[i+1:], nil
 }
 
-// splitTags parses the comma-separated tag column the SQLite schema used, for the
-// migration to read.
+// splitTags parses the comma-separated tag column of the legacy SQLite schema.
 func splitTags(s string) []string {
 	if strings.TrimSpace(s) == "" {
 		return nil
@@ -821,8 +746,7 @@ func splitTags(s string) []string {
 	return out
 }
 
-// normalizeProxyCommand maps ssh's "none" — how the directive is disabled — to blank, so
-// hop does not try to run a program by that name.
+// normalizeProxyCommand maps ssh's "none" (the disabled spelling) to blank.
 func normalizeProxyCommand(v string) string {
 	v = strings.TrimSpace(v)
 	if strings.EqualFold(v, "none") {
@@ -831,8 +755,8 @@ func normalizeProxyCommand(v string) string {
 	return v
 }
 
-// writeFileAtomic writes via a temporary file in the same directory and renames it into
-// place, so a crash mid-write leaves the previous file rather than a truncated one.
+// writeFileAtomic renames a same-directory temp file into place, so a crash mid-write
+// leaves the previous file rather than a truncated one.
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp*")

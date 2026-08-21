@@ -7,15 +7,13 @@ import (
 	"path/filepath"
 )
 
-// The accounts the shell host runs, one per login shell — the whole point of them, since
-// hop's prompt hook is written for bash and zsh and must not be typed into anything else.
+// One account per login shell: hop's prompt hook is written for bash and zsh only.
 const (
 	BashUser = "bashy"
 	ZshUser  = "zshy"
 	FishUser = "fishy"
 
-	// SpaceDir exists so a test can cd into a directory with a space in its name — the
-	// path most likely to be mangled on its way through an escape sequence.
+	// SpaceDir is the path most likely to be mangled on its way through an escape sequence.
 	SpaceDir = "/srv/hop test dir"
 )
 
@@ -24,9 +22,7 @@ const shellHostImage = "hop-shellhost:test"
 // shellHostContainer is named per process, as the two-factor one is.
 var shellHostContainer = fmt.Sprintf("hop-shellhost-e2e-%d", os.Getpid())
 
-// ShellHost is a running SSH server with a real bash, zsh and fish to log into. hop's
-// working-directory tracking is tested against it: these shells emit OSC 7 because the
-// prompt hook asked them to, not because a fixture printed it.
+// ShellHost is a running SSH server with a real bash, zsh and fish to log into.
 type ShellHost struct {
 	// Port is the loopback port the single sshd landed on.
 	Port int
@@ -36,9 +32,7 @@ type ShellHost struct {
 	keyDir string
 }
 
-// StartShellHost builds the image, generates the client key the accounts trust, and
-// starts the container on an ephemeral loopback port. sshd has answered with a banner
-// before it returns. Call Stop when done.
+// StartShellHost builds the image and starts the container on an ephemeral loopback port.
 func StartShellHost() (*ShellHost, error) {
 	dir, err := buildDir("shellhost")
 	if err != nil {
@@ -95,8 +89,7 @@ func (s *ShellHost) Stop() {
 	}
 }
 
-// Logs returns what the container has printed — where an sshd that refused to start
-// says why.
+// Logs returns what the container has printed.
 func (s *ShellHost) Logs() string {
 	out, _ := exec.Command("docker", "logs", shellHostContainer).CombinedOutput()
 	return string(out)

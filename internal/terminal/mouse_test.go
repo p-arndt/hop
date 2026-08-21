@@ -11,8 +11,7 @@ import (
 	"hop/internal/sshx"
 )
 
-// syncBuf is a writer the test can read while the pane writes to it: SendMouse runs
-// on the UI goroutine and the emulator's response pump has the same stdin.
+// syncBuf is a writer the test can read while the pane writes to it.
 type syncBuf struct {
 	mu sync.Mutex
 	b  []byte
@@ -45,8 +44,6 @@ func press(x, y int) tea.MouseMsg {
 	return tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}
 }
 
-// A shell that has not asked for the mouse gets nothing: the wheel over it is hop's. A
-// program that asks is reported to, and stops being reported to when it leaves.
 func TestMouseEnabledFollowsTheRemote(t *testing.T) {
 	out, w := io.Pipe()
 	stdin := &syncBuf{}
@@ -60,7 +57,7 @@ func TestMouseEnabledFollowsTheRemote(t *testing.T) {
 		t.Fatal("an event was forwarded to a program that never asked for one")
 	}
 
-	// What vim's `set mouse=a` sends: button tracking plus the SGR encoding.
+	// DECSET 1002 button tracking + 1006 SGR encoding.
 	go io.WriteString(w, "\x1b[?1002h\x1b[?1006h")
 	if !waitFor(func() bool { return p.MouseEnabled() }) {
 		t.Fatal("a program asking for the mouse was not noticed")
@@ -70,7 +67,7 @@ func TestMouseEnabledFollowsTheRemote(t *testing.T) {
 		t.Fatal("a click was not forwarded to a program that asked for the mouse")
 	}
 	p.Flush()
-	// SGR: button 0 (left, no modifiers) at 1-based column 4, row 5.
+	// SGR: button 0 (left) at 1-based column 4, row 5.
 	if got, want := stdin.String(), "\x1b[<0;4;5M"; got != want {
 		t.Fatalf("forwarded %q, want %q", got, want)
 	}
@@ -81,16 +78,14 @@ func TestMouseEnabledFollowsTheRemote(t *testing.T) {
 	}
 }
 
-// The encoding, and the levels that decide whether an event is reported. A program in
-// DECSET 1000 asked for presses and releases, so 1002's motion reports are dropped.
+// The encoding, and the tracking level that decides whether an event is reported.
 func TestMouseBytes(t *testing.T) {
 	wheel := tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}
 	release := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease}
 	drag := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionMotion}
 	hover := tea.MouseMsg{Button: tea.MouseButtonNone, Action: tea.MouseActionMotion}
 	ctrlClick := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Ctrl: true}
-	// Every modifier on a wheel event: the one shape whose button field alone runs
-	// past what an ASCII byte holds.
+	// The one shape whose button field alone runs past what an ASCII byte holds.
 	wheelAllMods := tea.MouseMsg{
 		Button: tea.MouseButtonWheelDown, Action: tea.MouseActionMotion,
 		Shift: true, Alt: true, Ctrl: true,
@@ -118,17 +113,12 @@ func TestMouseBytes(t *testing.T) {
 		{"x10 release is button 3", release, 0, 0, trackRelease, false, "\x1b[M\x23\x21\x21"},
 		{"x10 at the last ASCII column", press(0, 0), 93, 0, trackPress, false, "\x1b[M\x20\x7e\x21"},
 		{"x10 the same for a row", press(0, 0), 0, 93, trackPress, false, "\x1b[M\x20\x21\x7e"},
-		// Past that the coordinate byte has its top bit set, which is what xterm sends and
-		// what a decoding program reads. A wide pane reaches these columns, and a non-SGR
-		// program has no other way to be told about them.
+		// Past that the coordinate byte has its top bit set, as xterm sends it.
 		{"x10 past the top bit, column", press(0, 0), 94, 0, trackPress, false, "\x1b[M\x20\x7f\x21"},
 		{"x10 past the top bit, row", press(0, 0), 0, 200, trackPress, false, "\x1b[M\x20\x21\xe9"},
 		{"x10 at the last cell it can name", press(0, 0), 222, 0, trackPress, false, "\x1b[M\x20\xff\x21"},
-		// And past *that* the byte would wrap onto a different cell, so nothing is sent:
-		// naming the wrong cell is worse than saying nothing.
+		// Past that the byte would wrap onto a different cell, so nothing is sent.
 		{"x10 stops where the byte runs out", press(0, 0), 223, 0, trackPress, false, ""},
-		// The modifier bits live in the button field, so a wheel with all of them set
-		// is a high byte too — and the same answer: it is what a decoder expects.
 		{"x10 carries the modifier bits in the button field", wheelAllMods, 0, 0, trackPress, false, "\x1b[M\x9d\x21\x21"},
 		{"sgr can", press(0, 0), 300, 0, trackPress, true, "\x1b[<0;301;1M"},
 		{"negative cells are not events", press(0, 0), -1, 0, trackRelease, true, ""},
@@ -144,8 +134,7 @@ func TestMouseBytes(t *testing.T) {
 	}
 }
 
-// The reporting level is the most specific mode set, and holds while any of them do:
-// turning 1002 off leaves a program with the 1000 it still asked for.
+// The level is the most specific mode set, and holds while any of them do.
 func TestTrackingLevel(t *testing.T) {
 	var s mouseState
 
@@ -170,9 +159,7 @@ func TestTrackingLevel(t *testing.T) {
 	}
 }
 
-// A full terminal reset (RIS) clears every mode, mouse reporting included. The emulator
-// does that without firing its callbacks, so the reset is noticed in the byte stream
-// instead — missing it leaves hop forwarding the wheel into a shell that stopped asking.
+// RIS clears every mode without firing emulator callbacks, so it is spotted in the stream.
 func TestFullResetForgetsTheMouse(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
@@ -188,8 +175,7 @@ func TestFullResetForgetsTheMouse(t *testing.T) {
 		t.Fatal("a full reset left hop still forwarding the mouse to the shell")
 	}
 
-	// And the modes are forgotten rather than merely masked: a program asking again
-	// gets the mouse, with the encoding it asks for this time.
+	// The modes are forgotten rather than masked: SGR is not remembered either.
 	go io.WriteString(w, "\x1b[?1000h")
 	if !waitFor(func() bool { return p.MouseEnabled() }) {
 		t.Fatal("a program asking again after a reset was not noticed")
@@ -199,8 +185,6 @@ func TestFullResetForgetsTheMouse(t *testing.T) {
 	}
 }
 
-// The reset is only a reset where it is one: an ESC c inside an OSC payload is that
-// payload's data, and must not drop what a program has asked for.
 func TestResetInsideAnOSCIsNotAReset(t *testing.T) {
 	var s oscScanner
 
@@ -218,8 +202,6 @@ func TestResetInsideAnOSCIsNotAReset(t *testing.T) {
 	}
 }
 
-// A closed pane has no far end to report to, and every other write path here checks
-// before touching the session.
 func TestSendMouseOnAClosedPane(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
@@ -235,22 +217,17 @@ func TestSendMouseOnAClosedPane(t *testing.T) {
 	}
 }
 
-// A full-screen program that leaves the alt screen without releasing the mouse takes its
-// ask with it anyway. A program that was killed never sends the "l" that switches the
-// modes off, and the shell underneath is then left "asking" for a mouse it knows nothing
-// about — every drag over it typed into it as input.
+// A program killed on the alt screen never releases the mouse, so leaving drops it.
 func TestLeavingTheAltScreenDropsTheMouse(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
 	defer p.Close()
 
-	// A full-screen program: alt screen, then the mouse and bracketed paste.
 	go io.WriteString(w, "\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?2004h")
 	if !waitFor(func() bool { return p.MouseEnabled() && p.BracketedPaste() }) {
 		t.Fatal("the program's asks were not noticed")
 	}
 
-	// ...and it goes away without a word about either of them.
 	go io.WriteString(w, "\x1b[?1049l")
 	if !waitFor(func() bool { return !p.MouseEnabled() }) {
 		t.Fatal("the shell under a program that never released the mouse is still reported to")
@@ -263,8 +240,7 @@ func TestLeavingTheAltScreenDropsTheMouse(t *testing.T) {
 	}
 }
 
-// An inline program keeps what it asked for: leaving the alt screen is the tell,
-// and a program that never took it has not left anything.
+// A program that never took the alt screen has not left it, so it keeps its mouse.
 func TestInlineMouseSurvives(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
@@ -282,10 +258,7 @@ func TestInlineMouseSurvives(t *testing.T) {
 	}
 }
 
-// The exit and what follows arrive together: over SSH, vim's teardown and the shell's
-// next prompt are one read. The asks after the exit are the shell's and must survive it —
-// dropping the modes after the whole chunk discarded them, and hop then pasted
-// unbracketed into a shell that runs each line it is given.
+// Modes set after an alt-screen exit in the same read are the shell's and must survive.
 func TestAltScreenExitKeepsWhatFollowsInTheSameChunk(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
@@ -296,7 +269,6 @@ func TestAltScreenExitKeepsWhatFollowsInTheSameChunk(t *testing.T) {
 		t.Fatal("the program's asks were not noticed")
 	}
 
-	// One write: the program's exit, then the prompt readline draws under it.
 	go io.WriteString(w, "\x1b[?1049l\x1b[?2004h$ ")
 	if !waitFor(func() bool { return !p.MouseEnabled() }) {
 		t.Fatal("the mouse outlived the program that asked for it")

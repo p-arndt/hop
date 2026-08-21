@@ -1,6 +1,4 @@
-// Command docsgen renders docs/*.md into every artefact that documents hop:
-// index.html (the website), README.md and KEYBINDINGS.md. The markdown under
-// docs/ is the only source — nothing below is hand-edited.
+// Command docsgen renders docs/*.md into index.html, README.md and KEYBINDINGS.md.
 package main
 
 import (
@@ -13,8 +11,7 @@ import (
 	"strings"
 )
 
-// A Doc is one section: the frontmatter that says where it belongs and the
-// markdown body that says what it is.
+// A Doc is one section: its frontmatter plus its markdown body.
 type Doc struct {
 	ID    string // anchor + placeholder name, e.g. "hostlist"
 	Title string // the section heading
@@ -27,7 +24,6 @@ type Doc struct {
 	File  string // source path, for error messages
 }
 
-// NavLabel is what the sidebar shows.
 func (d *Doc) NavLabel() string {
 	if d.Nav != "" {
 		return d.Nav
@@ -85,9 +81,7 @@ func orderOf(name string) int {
 	return n
 }
 
-// ParseDoc splits the `---` frontmatter from the body. Only the handful of
-// keys Doc declares are understood; an unknown one is an error rather than a
-// silently ignored typo.
+// ParseDoc splits the `---` frontmatter from the body; unknown keys are errors.
 func ParseDoc(raw string) (*Doc, error) {
 	doc := &Doc{Site: true}
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")

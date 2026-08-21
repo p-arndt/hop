@@ -235,8 +235,7 @@ func TestCrossReferencesRetargetPerFile(t *testing.T) {
 	}
 	contains(t, both, "[vim](#vim-keys)", "[self](#the-host-list)")
 
-	// A file that hides one behind <details> has no anchor for it, so the link
-	// has to leave for the file that does.
+	// A section hidden behind <details> has no anchor, so the link leaves for the file that has one.
 	one, err := RenderMarkdownFile("<!-- docs:hostlist details=\"Keys\" -->\n", docs, "KEYBINDINGS.md", targetReadme)
 	if err != nil {
 		t.Fatal(err)
@@ -262,9 +261,7 @@ func TestSiteFalseKeepsASectionOffThePage(t *testing.T) {
 	}
 }
 
-// TestCRLFCheckoutIsStillUpToDate pins the fix for a Windows-only CI failure:
-// Git checks these files out as CRLF there, docsgen writes LF, and a byte
-// comparison called an identical file out of date.
+// Regression: CRLF checkouts on Windows CI made identical files compare as out of date.
 func TestCRLFCheckoutIsStillUpToDate(t *testing.T) {
 	const lf = "a\nb\n"
 	if got := normalizeEOL("a\r\nb\r\n"); got != lf {
@@ -275,8 +272,7 @@ func TestCRLFCheckoutIsStillUpToDate(t *testing.T) {
 	}
 }
 
-// TestGeneratedFilesAreUpToDate is the guard that makes docs/ the source: it
-// fails when index.html, README.md or KEYBINDINGS.md has drifted from it.
+// Fails when index.html, README.md or KEYBINDINGS.md has drifted from docs/.
 func TestGeneratedFilesAreUpToDate(t *testing.T) {
 	if err := run("../..", true); err != nil {
 		t.Fatalf("%v", err)

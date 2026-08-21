@@ -13,9 +13,7 @@ import (
 	"github.com/pkg/sftp"
 )
 
-// demoFile is one entry in the invented filesystem the demo server serves. It is
-// the only thing the SFTP browser and the fake editor ever see, which is the whole
-// point: a recording made against it cannot leak anything real.
+// demoFile is one entry in the invented filesystem the demo server serves.
 type demoFile struct {
 	name    string // full POSIX path, e.g. /home/deploy/app/main.py
 	dir     bool
@@ -24,8 +22,7 @@ type demoFile struct {
 	mod     time.Time
 }
 
-// Name reports the base name, as os.FileInfo requires (the SFTP protocol sends
-// base names in a listing and resolves them against the directory).
+// Name must be the base name: SFTP resolves listing names against the directory.
 func (f *demoFile) Name() string { return path.Base(f.name) }
 func (f *demoFile) Size() int64  { return int64(len(f.content)) }
 func (f *demoFile) Mode() os.FileMode {
@@ -43,21 +40,16 @@ type demoFS struct {
 	files map[string]*demoFile
 }
 
-// homeDir is where the SFTP browser opens, and the user the fake shell prompts as.
 const (
 	demoUser = "deploy"
 	demoHome = "/home/deploy"
 	demoHost = "prod-web-1"
 )
 
-// newDemoFS builds the tree. Every byte of it is invented — the point of the demo
-// server is that a recording made against it shows plausible content and no real
-// content.
 func newDemoFS() *demoFS {
 	fs := &demoFS{files: map[string]*demoFile{}}
 
-	// A fixed clock, so a re-recorded GIF is byte-identical rather than differing
-	// only in the timestamps nobody can see anyway.
+	// A fixed clock, so a re-recorded GIF stays byte-identical.
 	base := time.Date(2026, 7, 21, 9, 14, 0, 0, time.UTC)
 	at := func(days int) time.Time { return base.AddDate(0, 0, -days) }
 
@@ -92,8 +84,7 @@ func newDemoFS() *demoFS {
 	return fs
 }
 
-// lookup resolves p, treating a relative path as relative to the demo home so the
-// client's "." and "" both land somewhere sensible.
+// lookup resolves p relative to the demo home.
 func (fs *demoFS) lookup(p string) (*demoFile, error) {
 	f, ok := fs.files[fs.clean(p)]
 	if !ok {
@@ -112,9 +103,7 @@ func (fs *demoFS) clean(p string) string {
 	return path.Clean(p)
 }
 
-// readdir returns the direct children of dir, directories first then by name —
-// the browser sorts too, but a server that answers in a stable order keeps a
-// re-recorded GIF identical.
+// readdir returns the direct children of dir in a stable order, for identical re-recordings.
 func (fs *demoFS) readdir(dir string) ([]os.FileInfo, error) {
 	dir = fs.clean(dir)
 	d, err := fs.lookup(dir)
@@ -175,11 +164,9 @@ func (fs *demoFS) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 	return nil, fmt.Errorf("demoserver: unsupported list method %q", r.Method)
 }
 
-// RealPath is what makes the browser open in /home/deploy: hop asks the server to
-// resolve "." and starts wherever the answer points.
+// RealPath resolving "." is what makes hop's browser open in the demo home.
 func (fs *demoFS) RealPath(p string) (string, error) { return fs.clean(p), nil }
 
-// Fileread serves downloads and the local-open (`o`) copy.
 func (fs *demoFS) Fileread(r *sftp.Request) (io.ReaderAt, error) {
 	f, err := fs.lookup(r.Filepath)
 	if err != nil {
@@ -191,8 +178,7 @@ func (fs *demoFS) Fileread(r *sftp.Request) (io.ReaderAt, error) {
 	return strings.NewReader(f.content), nil
 }
 
-// Filewrite and Filecmd exist so an accidental upload or delete during a recording
-// fails cleanly rather than panicking the server. The demo tree is read-only.
+// Filewrite and Filecmd exist so a stray upload or delete fails cleanly; the tree is read-only.
 func (fs *demoFS) Filewrite(*sftp.Request) (io.WriterAt, error) {
 	return nil, errors.New("demo filesystem is read-only")
 }
@@ -201,7 +187,6 @@ func (fs *demoFS) Filecmd(*sftp.Request) error {
 	return errors.New("demo filesystem is read-only")
 }
 
-// handlers wires the demo tree into an SFTP request server.
 func (fs *demoFS) handlers() sftp.Handlers {
 	return sftp.Handlers{FileGet: fs, FilePut: fs, FileCmd: fs, FileList: fs}
 }

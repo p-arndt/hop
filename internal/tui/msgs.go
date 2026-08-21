@@ -7,88 +7,74 @@ import (
 	"hop/internal/sshx"
 )
 
-// redrawMsg fires when a live pane has parsed new server output, so the UI
-// repaints event-driven rather than on a polling ticker.
+// redrawMsg fires when a live pane has parsed new server output.
 type redrawMsg struct{}
 
 // tickMsg drives the connect spinner, and runs only while a connect is in flight.
 type tickMsg time.Time
 
-// dragScrollMsg repeats one line of autoscroll while a selection drag is held against
-// the top or bottom row of a pane. gen is the drag chain it was armed for, so a tick
-// left over from a finished drag — or from the other edge — is dropped.
+// dragScrollMsg repeats one line of autoscroll during an edge drag; gen is the drag chain
+// it was armed for, so leftover ticks are dropped.
 type dragScrollMsg struct{ gen int }
 
-// cursorBlinkMsg is one frame of the cursor blink, and runs only while the setting is
-// on. gen is the chain it belongs to, so switching the setting off and on again does not
-// leave two clocks running at half a beat apart.
+// cursorBlinkMsg is one frame of the cursor blink. gen is the chain it belongs to, so
+// toggling the setting off and on does not leave two clocks running out of step.
 type cursorBlinkMsg struct{ gen int }
 
-// updateAvailableMsg carries the result of the startup update check: the newer release's
-// version, or "" when hop is current or the check did not run.
+// updateAvailableMsg carries the update check's result; "" when current or not run.
 type updateAvailableMsg struct{ latest string }
 
-// statusExpiredMsg retires a status line. gen is the status it was armed for, so a
-// message that has since been replaced does not take the new one down with it.
+// statusExpiredMsg retires a status line; gen keeps it from retiring a replacement.
 type statusExpiredMsg struct{ gen int }
 
-// connectedMsg is returned by the connect command once an SSH shell is ready or has
-// failed. client is non-nil only when this connect dialed a new connection; a shell on an
-// already-connected host reuses its client and reports only the tab.
+// connectedMsg lands once an SSH shell is ready or failed; client is non-nil only when
+// this connect dialed a new connection.
 type connectedMsg struct {
 	alias  string
 	client *sshx.Client
 	tab    *shellTab
-	// extra carries the shell intent through a dial, so a retry after the host-key prompt
-	// knows whether it was for another shell or a host's first. Unused once it lands.
+	// extra carries the shell intent through a dial, so a host-key retry knows which.
 	extra bool
-	// restore marks a shell being put back after a reconnect. It lands quietly, taking
-	// neither the keyboard nor the status line.
+	// restore marks a shell put back after a reconnect: no keyboard, no status line.
 	restore bool
 	err     error
 }
 
-// authPromptMsg is a question a dial in flight needs answered before it can finish. It is
-// the only message carrying a channel back to its sender: the dial is parked on reply
-// inside the handshake, so exactly one value must be sent or the connect never lands.
-// See authprompt.go.
+// authPromptMsg parks a dial inside the handshake: exactly one value must be sent on
+// reply or the connect never lands. See authprompt.go.
 type authPromptMsg struct {
 	alias string
 	ch    sshx.Challenge
 	reply chan authReply
 }
 
-// shellExitedMsg fires when a remote shell ends, so its tab can be dropped instead of
-// lingering as a dead pane.
+// shellExitedMsg fires when a remote shell ends, so its tab can be dropped.
 type shellExitedMsg struct {
 	alias string
 	id    int
 }
 
-// browserOpenedMsg is returned by the SFTP-open command once the file browser is ready or
-// has failed. client is non-nil only when a dedicated connection was made for browsing,
-// so 'd' knows it must tear it down.
+// browserOpenedMsg is the SFTP-open result; client is non-nil only when a dedicated
+// connection was made for browsing, so 'd' knows to tear it down.
 type browserOpenedMsg struct {
 	alias   string
 	browser *filebrowser.Browser
 	client  *sshx.Client
-	// restore marks a browser being put back after a reconnect: it reattaches without
-	// taking the keyboard.
+	// restore marks a browser put back after a reconnect: it does not take the keyboard.
 	restore bool
 	err     error
 }
 
-// sessionLostMsg says the SSH connection under a session has gone. client identifies
-// which connection died, since the message can arrive long after the session it belonged
-// to was replaced or torn down.
+// sessionLostMsg says an SSH connection has gone; client says which, as it can arrive
+// after the session was replaced.
 type sessionLostMsg struct {
 	alias  string
 	client *sshx.Client
 	err    error
 }
 
-// tunnelsStartedMsg is the result of starting forwarding listeners. client is non-nil
-// only when the command had to establish the host connection.
+// tunnelsStartedMsg is the result of starting listeners; client is non-nil only when the
+// command had to establish the host connection.
 type tunnelsStartedMsg struct {
 	alias   string
 	client  *sshx.Client
@@ -98,8 +84,8 @@ type tunnelsStartedMsg struct {
 	err     error
 }
 
-// tunnelStoppedMsg reports a listener ending on its own. A deliberate stop removes it
-// from the session map first, so the model ignores that stale watcher.
+// tunnelStoppedMsg reports a listener ending on its own; a deliberate stop unmaps it
+// first, so the model ignores that stale watcher.
 type tunnelStoppedMsg struct {
 	alias  string
 	id     int64
@@ -107,16 +93,14 @@ type tunnelStoppedMsg struct {
 	err    error
 }
 
-// editorOpenedMsg is returned once a remote editor is running on its own SSH session, or
-// has failed to start.
+// editorOpenedMsg is returned once a remote editor is running, or has failed to start.
 type editorOpenedMsg struct {
 	alias string
 	tab   *editorTab
 	err   error
 }
 
-// editorExitedMsg fires when a remote editor ends: ":q" is how a tab is closed, so hop
-// watches for the exit rather than binding a close key.
+// editorExitedMsg fires when a remote editor ends; ":q" closes a tab, not a hop key.
 type editorExitedMsg struct {
 	alias string
 	id    int

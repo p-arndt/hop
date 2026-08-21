@@ -12,15 +12,13 @@ import (
 	"hop/internal/terminal"
 )
 
-// opened is what a VS Code open was asked for: the host and the path.
 type opened struct {
 	alias string
 	path  string
 	calls int
 }
 
-// stubVSCode replaces the VS Code launcher for the duration of a test and returns
-// the record of what it was asked to open.
+// stubVSCode swaps in a recording VS Code launcher for the test.
 func stubVSCode(t *testing.T, err error) *opened {
 	t.Helper()
 	rec := &opened{}
@@ -33,8 +31,7 @@ func stubVSCode(t *testing.T, err error) *opened {
 	return rec
 }
 
-// cwdPane builds a pane whose remote has already reported dir over OSC 7. The stream
-// stays open and the writer it returns is the remote, so a test can say more.
+// cwdPane builds a pane whose remote reported dir over OSC 7; the returned writer is the remote.
 func cwdPane(t *testing.T, dir string) (*terminal.Pane, io.Writer) {
 	t.Helper()
 	pr, pw := io.Pipe()
@@ -53,8 +50,7 @@ func cwdPane(t *testing.T, dir string) (*terminal.Pane, io.Writer) {
 	return p, pw
 }
 
-// vscodeModel builds a model on host "web" whose shell reports dir. An empty dir gives a
-// shell that reports nothing; no shells at all is n = 0.
+// vscodeModel builds a model on "web" whose shell reports dir; empty dir reports nothing.
 func vscodeModel(t *testing.T, shells int, dir string) (*model, io.Writer) {
 	t.Helper()
 	s := &session{client: &sshx.Client{}}
@@ -73,8 +69,7 @@ func vscodeModel(t *testing.T, shells int, dir string) (*model, io.Writer) {
 	return &model{hosts: []store.Host{{Alias: "web"}}, filtered: []int{0}, sessions: map[string]*session{"web": s}, connecting: map[string]bool{}, notify: make(chan struct{}, 1), layout: layout{paneW: 40, paneH: 12, height: 20}, focus: focus{active: "web"}}, remote
 }
 
-// The feature: 'o' in the host list opens VS Code on the directory the host's
-// shell is standing in, not on the host's default directory.
+// 'o' opens VS Code where the host's shell is standing, not on its default directory.
 func TestVSCodeOpensTheShellsDirectory(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "/srv/app")
@@ -92,8 +87,7 @@ func TestVSCodeOpensTheShellsDirectory(t *testing.T) {
 	}
 }
 
-// The chord: ctrl+o arms the leader without moving anything, and the second key leaves
-// the pane and opens VS Code on the directory that shell was standing in.
+// ctrl+o arms the leader; the second key leaves the pane and opens that shell's directory.
 func TestVSCodeChordFromInsideTheShellPane(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "/var/log/nginx")
@@ -117,14 +111,12 @@ func TestVSCodeChordFromInsideTheShellPane(t *testing.T) {
 	}
 }
 
-// A ctrl+o that is not the second half of a chord does nothing in the list; otherwise
-// every exit from a pane would be one stray keypress from launching an editor.
+// A ctrl+o that completes no chord launches nothing.
 func TestVSCodeChordNeedsTheSecondPressInTime(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "/srv/app")
 	m.mode = modeShell
 
-	// A key that names no chord closes the leader and opens nothing.
 	m.handleKey(key(t, "ctrl+o"))
 	m.handleKey(runeKey('z'))
 	if rec.calls != 0 {
@@ -134,15 +126,14 @@ func TestVSCodeChordNeedsTheSecondPressInTime(t *testing.T) {
 		t.Fatal("a key that is not a chord left the leader open")
 	}
 
-	// And 'c' with no leader open is the shell's, not hop's.
+	// 'c' with no leader open is the shell's, not hop's.
 	m.handleKey(runeKey('c'))
 	if rec.calls != 0 {
 		t.Fatalf("a bare c opened VS Code with no leader open (%d calls)", rec.calls)
 	}
 }
 
-// alt+o is not hop's key: a terminal sends it as ESC then 'o', which is vim's "leave
-// insert mode, open a line below". It goes to the remote like any other key.
+// alt+o is the remote's key (vim's ESC-o), not hop's.
 func TestVSCodeIsNotOnAltO(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "/srv/app")
@@ -158,8 +149,7 @@ func TestVSCodeIsNotOnAltO(t *testing.T) {
 	}
 }
 
-// No shell to ask, so no directory: the binding falls back to what it always did
-// — open the host, let VS Code land where it lands — and says so.
+// With no shell to ask, the binding opens the host with no path and says so.
 func TestVSCodeFallsBackWithoutAShell(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 0, "")
@@ -177,8 +167,7 @@ func TestVSCodeFallsBackWithoutAShell(t *testing.T) {
 	}
 }
 
-// A shell hop could not install the hook into — fish, or a bash whose rc-file went
-// its own way — reports no directory, and is the same fallback.
+// A shell with no hook installed reports no directory, and takes the same fallback.
 func TestVSCodeFallsBackWhenTheShellReportsNothing(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "")
@@ -190,8 +179,7 @@ func TestVSCodeFallsBackWhenTheShellReportsNothing(t *testing.T) {
 	}
 }
 
-// A dropped session's pane still shows the last screen the host drew, but its directory
-// is where the shell was. Nothing is opened on the strength of it.
+// A dropped session's stale directory is not opened.
 func TestVSCodeIgnoresADeadSessionsDirectory(t *testing.T) {
 	rec := stubVSCode(t, nil)
 	m, _ := vscodeModel(t, 1, "/srv/app")
@@ -204,7 +192,6 @@ func TestVSCodeIgnoresADeadSessionsDirectory(t *testing.T) {
 	}
 }
 
-// A VS Code that is not installed (or not on PATH) is reported, not swallowed.
 func TestVSCodeReportsALaunchFailure(t *testing.T) {
 	stubVSCode(t, errors.New("exec: \"code\": executable file not found in $PATH"))
 	m, _ := vscodeModel(t, 1, "/srv/app")
@@ -216,9 +203,7 @@ func TestVSCodeReportsALaunchFailure(t *testing.T) {
 	}
 }
 
-// The leader menu only offers "vs code here" when there is a directory to open there. The
-// resting shell footer names the leader rather than its keys, so this is where the chord
-// is written down — and where the condition has to hold.
+// The leader menu offers "vs code here" only when there is a directory to open.
 func TestFooterNamesTheChordOnlyWithADirectory(t *testing.T) {
 	m, _ := vscodeModel(t, 1, "/srv/app")
 	m.mode, m.width = modeShell, 200
@@ -234,10 +219,7 @@ func TestFooterNamesTheChordOnlyWithADirectory(t *testing.T) {
 		t.Fatalf("the leader menu offers the chord with no directory to open:\n%s", bare.renderFooter())
 	}
 
-	// At rest on a narrow window the shell footer keeps to the way out, the leader and
-	// the card: the chord is one level in, which is what keeps the row readable when
-	// there is no room. A window wide enough to hold it gets it back — but still only
-	// with a directory to open.
+	// A narrow footer drops the chord; a wide one gets it back, still only with a directory.
 	m.chords.leaderAlias = ""
 	m.width = 60
 	if got := m.renderFooter(); strings.Contains(got, "vs code here") {

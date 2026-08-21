@@ -1,19 +1,5 @@
-// Package keys is hop's keyboard, written down once.
-//
-// Before this package the same binding lived in four places — the switch that ran it, the
-// action registry the palette and the context menu render from, the help card's table,
-// and the footer's hints — and they were kept in step by hand. A key that meant two
-// things in two of them was a bug nobody could see from any one file.
-//
-// Here a binding is one row: what it does (Action), where it applies (Layer), the keys
-// that trigger it, and the words the UI says about it. Everything else is derived —
-// dispatch resolves a key to an Action, the card and the footer read the labels, and a
-// user's config.json overrides the keys without any of those knowing.
-//
-// What is deliberately *not* here: the modal cards (add-host form, settings, importer,
-// confirmations). Their keyboard is dialog convention — tab moves, enter accepts, esc
-// cancels — rather than hop's own, and a card that let you rebind esc would be a card you
-// could lock yourself into.
+// Package keys is hop's keyboard registry: one row per binding, everything else derived.
+// The modal cards are deliberately not here — their keyboard is not rebindable.
 package keys
 
 import (
@@ -25,38 +11,21 @@ import (
 	"time"
 )
 
-// Layer is which keyboard is asking. A key means whatever the layer that owns the
-// keystroke says it means, and layers are consulted in the order handleKey consults
-// them: the leader above everything, then the two window-wide bindings, then the mode.
-//
-// Layers are not a fallback chain inside this package — the caller asks the layer it is
-// in, and asks Global itself where Global applies. That keeps "which layer was this key
-// read in" a fact at the call site rather than a search order to reason about.
+// Layer is which keyboard is asking. Not a fallback chain: the caller asks the layer it
+// is in, and asks Global separately where Global applies.
 type Layer int
 
 const (
-	// Global is the pair hop holds in every mode below the modal cards: they belong to
-	// the window rather than to whatever owns the keyboard.
 	Global Layer = iota
-	// List is the host list.
 	List
-	// Browser is the SFTP browser — the tui's half (the exits) and the filebrowser's own
-	// half (the file operations) are one layer, because to the user they are one keyboard.
 	Browser
-	// Pane is a live shell. Nearly every key belongs to the remote program, so this layer
-	// is small and everything it does not claim is forwarded.
 	Pane
-	// Scrollback is a shell pane scrolled back through its history.
 	Scrollback
-	// Editor is an open remote-editor tab.
 	Editor
-	// Leader is the second key of the leader chord — hop's keyboard inside a pane.
 	Leader
-	// DeadPane is a session whose connection dropped: the ways back and nothing else.
 	DeadPane
 )
 
-// layerNames are the layer's spelling in config.json and in error messages.
 var layerNames = map[Layer]string{
 	Global: "global", List: "list", Browser: "browser", Pane: "pane",
 	Scrollback: "scrollback", Editor: "editor", Leader: "leader", DeadPane: "dead",
@@ -64,13 +33,10 @@ var layerNames = map[Layer]string{
 
 func (l Layer) String() string { return layerNames[l] }
 
-// Action is what a key does, as a stable id: it is what the handlers switch on, and what
-// a user writes in config.json to rebind something. The ids outlive the keys, which is
-// the point — "browser.download" is still that action whichever key runs it.
+// Action is what a key does, as a stable id handlers switch on and config.json rebinds by.
 type Action string
 
-// None is "no binding in this layer": the caller is free to do whatever it does with a
-// key hop has no meaning for, which in a pane is forwarding it to the remote program.
+// None is "no binding in this layer".
 const None Action = ""
 
 // The actions, grouped by the layer that owns them. The string values are the config
@@ -80,8 +46,7 @@ const (
 	Sidebar Action = "global.sidebar"
 	Mouse   Action = "global.mouse"
 
-	// Motions, shared by the list and the browser (see MotionLayers). The list binds the
-	// steps, pages and in/out; the browser binds all of them.
+	// Motions, shared by the list and the browser.
 	Up        Action = "motion.up"
 	Down      Action = "motion.down"
 	Top       Action = "motion.top"
@@ -120,8 +85,8 @@ const (
 	HostReconnec Action = "list.reconnect"
 	HostDrop     Action = "list.disconnect"
 
-	// Browser. The exits and the three hop-wide cards are the tui's half of this layer;
-	// the rest is the filebrowser's own.
+	// Browser. The exits and the hop-wide cards are handled by the tui, the rest by the
+	// filebrowser.
 	BrowserLeave    Action = "browser.leave"
 	BrowserSettings Action = "browser.settings"
 	BrowserHelp     Action = "browser.help"
@@ -136,9 +101,7 @@ const (
 	BrowserMkdir    Action = "browser.mkdir"
 	BrowserSort     Action = "browser.sort"
 
-	// Browser, the multi-selection and the target. Marking is what makes an operation
-	// plural; the target is the directory a copy or a move lands in, so that neither has
-	// to be typed as a path. Both live in the filebrowser, not the tui.
+	// Browser, the multi-selection and the target. Handled by the filebrowser, not the tui.
 	BrowserMark      Action = "browser.mark"
 	BrowserMarkAll   Action = "browser.mark-all"
 	BrowserTarget    Action = "browser.set-target"
@@ -148,8 +111,7 @@ const (
 	BrowserTree      Action = "browser.tree-column"
 	BrowserSplit     Action = "browser.split"
 
-	// Pane. LeaderKey opens the Leader layer; PaneLeave is the other way out, and the two
-	// are what the escape-hatch check (see Validate) insists on keeping.
+	// Pane. LeaderKey and PaneLeave are the two exits escapeHatch insists on keeping.
 	LeaderKey    Action = "pane.leader"
 	PaneLeave    Action = "pane.leave"
 	PaneNewShell Action = "pane.new-shell"
@@ -158,8 +120,8 @@ const (
 	PaneScroll   Action = "pane.scrollback"
 	PaneScrollPg Action = "pane.scrollback-page"
 
-	// Scrollback. The motions are this layer's own rather than the shared ones: it scrolls
-	// a viewport of text, not a list of things, and "in" and "out" mean nothing to it.
+	// Scrollback. Its motions are its own rather than the shared ones: it scrolls a
+	// viewport of text, not a list.
 	ScrollUp       Action = "scrollback.up"
 	ScrollDown     Action = "scrollback.down"
 	ScrollPageUp   Action = "scrollback.page-up"
@@ -172,18 +134,13 @@ const (
 	ScrollLeave    Action = "scrollback.leave"
 
 	// Editor.
-	EditorLeave   Action = "editor.leave"
-	EditorNextTab Action = "editor.next-tab"
-	EditorPrevTab Action = "editor.previous-tab"
-	// EditorFocusTree hands the keyboard back to the tree column without closing the
-	// editor: the whole point of the column is that it stays visible while a file is open.
+	EditorLeave     Action = "editor.leave"
+	EditorNextTab   Action = "editor.next-tab"
+	EditorPrevTab   Action = "editor.previous-tab"
 	EditorFocusTree Action = "editor.focus-tree"
-	// EditorUnsplit is the way out of a split content area, and the counterpart to
-	// BrowserSplit: without it the only exit is closing files until one half runs out,
-	// which makes "two files side by side" a state you can enter and not leave.
-	EditorUnsplit Action = "editor.unsplit"
+	EditorUnsplit   Action = "editor.unsplit"
 
-	// Leader — hop's keyboard inside a pane.
+	// Leader.
 	LeaderOut     Action = "leader.out"
 	LeaderVSCode  Action = "leader.vscode"
 	LeaderPalette Action = "leader.palette"
@@ -197,28 +154,16 @@ const (
 	DeadDrop      Action = "dead.drop"
 )
 
-// Binding is one row of the keyboard.
 type Binding struct {
-	// Action is what it does, and the id config.json rebinds it by.
 	Action Action
-	// Layer is where it applies.
-	Layer Layer
-	// Keys are what triggers it. The first is the canonical one — what the help card and
-	// the footer draw — and the rest are aliases, which exist because a stock macOS
-	// terminal never sends alt+<key> as a meta escape (see KEYBINDINGS.md).
-	Keys []string
-	// Show overrides how the canonical key is drawn, for the ones whose name is longer
-	// than their symbol ("shift+→"). Empty means the key itself.
-	Show string
-	// Label says what it does, in the words the help card uses.
+	Layer  Layer
+	// Keys[0] is canonical (what the UI draws); the rest are aliases, needed because a
+	// stock macOS terminal never sends alt+<key> as a meta escape.
+	Keys  []string
+	Show  string // overrides how the canonical key is drawn
 	Label string
-	// Vim marks a key the "Vim keys" setting owns. Those are plain letters, and hop
-	// holding them silently would surprise anyone who did not ask for vim.
-	Vim bool
-	// Window is how long a multi-key sequence waits for its second key. Zero waits for
-	// ever, which is right for a chord nothing else could be — "g" alone does nothing —
-	// and wrong for one whose first key has a meaning of its own: an esc bound for a
-	// remote program must not turn into half a chord for the rest of the session.
+	Vim   bool // owned by the "Vim keys" setting
+	// Window is how long a sequence waits for its second key; zero waits for ever.
 	Window time.Duration
 }
 
@@ -230,7 +175,6 @@ func (b Binding) key() string {
 	return b.Keys[0]
 }
 
-// Keycap is how the binding's key is drawn.
 func (b Binding) Keycap() string {
 	if b.Show != "" {
 		return b.Show
@@ -238,13 +182,8 @@ func (b Binding) Keycap() string {
 	return b.key()
 }
 
-// defaults is hop's keyboard as shipped. One row per action; the layer decides where it
-// applies and the order within a layer is the order the help card and the palette show,
-// so the common things stand at the top.
-//
-// Digits are not here. "1".."9" in the list, alt+1..alt+9 in a pane and 1..9 behind the
-// leader all address a tab by its number, which is a range rather than a binding: there
-// is nothing to rebind that would still mean "the third one".
+// defaults is hop's keyboard as shipped. Order within a layer is the order the help card
+// and the palette show. Digits are handled as a range elsewhere, not bound here.
 var defaults = []Binding{
 	{Action: Sidebar, Layer: Global, Keys: []string{"ctrl+b"}, Label: "hide / show the sidebar"},
 	{Action: Mouse, Layer: Global, Keys: []string{"ctrl+g"}, Label: "hand the mouse to your terminal"},
@@ -349,8 +288,6 @@ var defaults = []Binding{
 	{Action: ScrollBottom, Layer: Scrollback, Keys: []string{"end"}, Label: "back to the live shell"},
 	{Action: ScrollBottom, Layer: Scrollback, Keys: []string{"G"}, Vim: true, Label: "back to the live shell"},
 	{Action: ScrollHelp, Layer: Scrollback, Keys: []string{"?"}, Label: "all the keys"},
-	// esc leads: it is the one the legend names, and the one every other mode's way out
-	// already is.
 	{Action: ScrollLeave, Layer: Scrollback, Keys: []string{"esc", "q", "enter", "i", "ctrl+o", "left", "right"}, Label: "back to the live shell"},
 
 	// ---- editor tab ----
@@ -359,10 +296,8 @@ var defaults = []Binding{
 	{Action: EditorNextTab, Layer: Editor, Keys: []string{"shift+right", "alt+right", "alt+l"}, Show: "shift+→", Label: "next tab"},
 	{Action: EditorPrevTab, Layer: Editor, Keys: []string{"shift+left", "alt+left", "alt+h"}, Show: "shift+←", Label: "previous tab"},
 	{Action: EditorFocusTree, Layer: Editor, Keys: []string{"alt+t"}, Label: "focus the tree"},
-	// ctrl+\ closes the split \ opened: the same key with the modifier the rule about
-	// alt chords asks for, so the pair reads as one gesture and its way back is the one
-	// thing a user would guess. It is also a key a terminal editor almost never claims —
-	// unlike ctrl+w or ctrl+s, which this layer forwards and must keep forwarding.
+	// ctrl+\ is a key terminal editors almost never claim, unlike ctrl+w / ctrl+s, which
+	// this layer forwards and must keep forwarding.
 	{Action: EditorUnsplit, Layer: Editor, Keys: []string{"ctrl+\\"}, Label: "close the split, keep this file"},
 	{Action: BrowserTree, Layer: Editor, Keys: []string{"ctrl+t"}, Label: "hide / show the tree column"},
 
@@ -380,13 +315,9 @@ var defaults = []Binding{
 	{Action: DeadHelp, Layer: DeadPane, Keys: []string{"?"}, Label: "all the keys"},
 }
 
-// Defaults returns hop's keyboard as shipped — the map a config with no "keys" object
-// produces, and what a settings UI would reset to.
 func Defaults() Map { return defaultMap() }
 
-// defaultMap builds the shipped keyboard once. It is also what the zero Map resolves to:
-// a Map nobody configured is hop's keyboard, not a keyboard that binds nothing, so a
-// caller that forgot to pass one gets working keys rather than a dead window.
+// defaultMap builds the shipped keyboard once; it is also what the zero Map resolves to.
 var defaultMap = sync.OnceValue(func() Map {
 	return build(slices.Clone(defaults))
 })
@@ -399,22 +330,18 @@ func (m Map) resolved() Map {
 	return m
 }
 
-// Map is a resolved keyboard: the bindings hop shipped with a user's overrides applied.
-// It is immutable once built, so every reader — dispatch, the help card, the footer, the
-// palette — is looking at the same keyboard.
+// Map is a resolved keyboard: hop's bindings with a user's overrides applied, immutable
+// once built.
 type Map struct {
 	bindings []Binding
 	// byKey resolves a keystroke; the string key is a layer and a key, joined.
 	byKey map[string]Action
-	// prefixes are the first halves of the multi-key sequences, per layer, so a Reader
-	// knows to wait rather than resolving "g" as nothing.
+	// prefixes are the first halves of the multi-key sequences, per layer.
 	prefixes map[string]bool
 }
 
 // Normalize is the one spelling of a keystroke hop uses. Bubble Tea names the space bar
-// " ", which cannot be told from the separator between the keys of a sequence, and which
-// no legend would print as itself; everywhere inside this package and on a legend it is
-// "space".
+// " ", which cannot be told from the separator between the keys of a sequence.
 func Normalize(key string) string {
 	if key == " " {
 		return "space"
@@ -422,24 +349,15 @@ func Normalize(key string) string {
 	return key
 }
 
-// cutSeq splits a multi-key sequence into its first key and the rest, reporting whether
-// it was one. A sequence is written with its keys separated by a space ("g g", "esc esc").
+// cutSeq splits a sequence ("g g", "esc esc") into its first key and the rest.
 func cutSeq(k string) (head, rest string, ok bool) { return strings.Cut(k, " ") }
 
 // mapKey is the composite key of byKey and prefixes: a layer and a keystroke.
 func mapKey(l Layer, key string) string { return l.String() + "\x00" + key }
 
-// New builds a Map from hop's defaults with overrides applied, and returns whatever it
-// had to refuse alongside a usable map.
-//
-// It never fails: a config that cannot be honoured in full still yields a keyboard, with
-// the bad rows left at their defaults. Locking someone out of their own hosts over a typo
-// in a JSON file is the one outcome worth designing against — the same reason
-// config.Load falls back rather than erroring.
-//
-// An override maps an action id to a key ("browser.download": "y"), or to "" to unbind
-// it. A key already spoken for in the same layer is refused; so is an unknown action id,
-// and so is any override that would leave a pane with no way out.
+// New builds a Map from hop's defaults with overrides applied. It never fails: refused
+// rows are reported and left at their defaults. An override maps an action id to a key,
+// or to "" to unbind it.
 func New(overrides map[string]string) (Map, []error) {
 	bindings := make([]Binding, len(defaults))
 	copy(bindings, defaults)
@@ -474,7 +392,6 @@ func New(overrides map[string]string) (Map, []error) {
 	return build(bindings), errs
 }
 
-// build indexes bindings into a Map.
 func build(bindings []Binding) Map {
 	m := Map{
 		bindings: bindings,
@@ -492,9 +409,8 @@ func build(bindings []Binding) Map {
 	return m
 }
 
-// indexOf finds the first binding for an action. An action bound twice — a motion with a
-// vim alias on its own row — is rebound through its first row, and the alias row keeps
-// its letter, which is what the vim setting is for.
+// indexOf finds the first binding for an action; an action bound twice (a vim alias on
+// its own row) is rebound through its first row only.
 func indexOf(bindings []Binding, a Action) int {
 	for i := range bindings {
 		if bindings[i].Action == a {
@@ -504,7 +420,6 @@ func indexOf(bindings []Binding, a Action) int {
 	return -1
 }
 
-// claimedBy reports which other action in this layer already binds key.
 func claimedBy(bindings []Binding, l Layer, key string, self Action) Action {
 	for _, b := range bindings {
 		if b.Layer != l || b.Action == self {
@@ -519,10 +434,8 @@ func claimedBy(bindings []Binding, l Layer, key string, self Action) Action {
 	return None
 }
 
-// escapeHatch refuses a keyboard that cannot be left. A pane forwards nearly every key to
-// the remote program, so the two ways back out of one — the leader and the double-esc —
-// are the only keys standing between a user and a config file they have to edit blind.
-// Unbinding one is allowed; unbinding both is not.
+// escapeHatch refuses a keyboard that cannot be left: unbinding one way out of a pane is
+// allowed, unbinding both is not.
 func escapeHatch(bindings []Binding) error {
 	for _, l := range []Layer{Pane, Editor} {
 		out := false
@@ -542,8 +455,7 @@ func escapeHatch(bindings []Binding) error {
 	return nil
 }
 
-// sortedKeys returns m's keys in order, so a config with two faults reports them the same
-// way twice rather than in map order.
+// sortedKeys returns m's keys in order, so faults are reported deterministically.
 func sortedKeys(m map[string]string) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
@@ -553,15 +465,8 @@ func sortedKeys(m map[string]string) []string {
 	return out
 }
 
-// Action resolves one keystroke in one layer, and reports None for a key this layer does
-// not bind — which in a pane means "the remote program is owed it".
-//
-// vim is the "Vim keys" setting: with it off, the keys it owns resolve to None, so those
-// letters mean whatever the caller makes of them rather than silently moving a cursor.
-// It is passed per call rather than held, so the setting has one home and turning it off
-// in the popover is live on the next keystroke.
-//
-// A multi-key sequence never resolves here — Reader owns the waiting.
+// Action resolves one keystroke in one layer, None when this layer does not bind it. A
+// multi-key sequence never resolves here — Reader owns the waiting.
 func (m Map) Action(l Layer, key string, vim bool) Action {
 	m = m.resolved()
 	key = Normalize(key)
@@ -575,9 +480,7 @@ func (m Map) Action(l Layer, key string, vim bool) Action {
 	return a
 }
 
-// Vim reports whether key is one the "Vim keys" setting owns anywhere on the keyboard —
-// the question a card with its own keymap asks. The settings popover has no motions to
-// resolve but still has to honour the setting, being the card that holds the switch.
+// Vim reports whether key is one the "Vim keys" setting owns anywhere on the keyboard.
 func (m Map) Vim(key string) bool {
 	m = m.resolved()
 	key = Normalize(key)
@@ -594,7 +497,6 @@ func (m Map) Vim(key string) bool {
 	return false
 }
 
-// isVim reports whether this key in this layer is one the vim setting owns.
 func (m Map) isVim(l Layer, key string) bool {
 	m = m.resolved()
 	for _, b := range m.bindings {
@@ -620,8 +522,7 @@ func (m Map) pending(l Layer, key string, vim bool) bool {
 	return vim || !m.isVim(l, key)
 }
 
-// Key is the keystroke that runs an action, for the UI to draw. It is the canonical key
-// of the action's first binding, "" when the user unbound it.
+// Key is the canonical keystroke that runs an action, "" when it is unbound.
 func (m Map) Key(a Action) string {
 	if b, ok := m.Binding(a); ok {
 		return b.key()
@@ -629,7 +530,6 @@ func (m Map) Key(a Action) string {
 	return ""
 }
 
-// Keycap is Key as the UI draws it, with the symbol for the keys that have one.
 func (m Map) Keycap(a Action) string {
 	if b, ok := m.Binding(a); ok {
 		return b.Keycap()
@@ -637,7 +537,6 @@ func (m Map) Keycap(a Action) string {
 	return ""
 }
 
-// Binding returns an action's first binding.
 func (m Map) Binding(a Action) (Binding, bool) {
 	m = m.resolved()
 	if i := indexOf(m.bindings, a); i >= 0 {
@@ -646,9 +545,7 @@ func (m Map) Binding(a Action) (Binding, bool) {
 	return Binding{}, false
 }
 
-// BindingIn returns an action's binding in one layer. The motions are the reason this is
-// not Binding: "in" is a row of the list layer and a row of the browser layer, and which
-// key draws it depends on which keyboard is asking.
+// BindingIn returns an action's binding in one layer; the motions are bound in several.
 func (m Map) BindingIn(l Layer, a Action) (Binding, bool) {
 	m = m.resolved()
 	for _, b := range m.bindings {
@@ -660,8 +557,7 @@ func (m Map) BindingIn(l Layer, a Action) (Binding, bool) {
 }
 
 // Layer returns the layer's bindings in registry order, skipping unbound ones and — when
-// vim is off — the keys that setting owns. It is what the help card, the palette and the
-// footer are built from, so none of them can name a key that does not work.
+// vim is off — the keys that setting owns.
 func (m Map) Layer(l Layer, vim bool) []Binding {
 	m = m.resolved()
 	var out []Binding

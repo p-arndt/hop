@@ -9,8 +9,6 @@ import (
 	"hop/internal/sshx"
 )
 
-// A shell that has not asked to be told about pastes gets the text and nothing else; one
-// that asks gets it wrapped, and stops when it leaves.
 func TestBracketedPasteFollowsTheRemote(t *testing.T) {
 	out, w := io.Pipe()
 	stdin := &syncBuf{}
@@ -45,9 +43,7 @@ func TestBracketedPasteFollowsTheRemote(t *testing.T) {
 	}
 }
 
-// A full reset takes the mode with it. The emulator rewrites its mode map without telling
-// anyone, so the scan for RIS is the only warning — and a stale shadow would put
-// ESC[200~ on a command line nobody is reading brackets on.
+// The emulator rewrites its mode map on RIS without a callback, so the scan is the warning.
 func TestResetClearsBracketedPaste(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: &syncBuf{}, Stdout: out}, 80, 24, nil)
@@ -64,8 +60,6 @@ func TestResetClearsBracketedPaste(t *testing.T) {
 	}
 }
 
-// A paste of nothing writes nothing at all: the brackets alone would knock a program
-// into and out of paste mode for no text.
 func TestEmptyPasteWritesNothing(t *testing.T) {
 	stdin := &syncBuf{}
 	p := New(&sshx.Session{Stdin: stdin, Stdout: strings.NewReader("")}, 80, 24, nil)
@@ -78,8 +72,7 @@ func TestEmptyPasteWritesNothing(t *testing.T) {
 	}
 }
 
-// The payload: line endings become the carriage return a pty reads as Enter, and what is
-// done with the control characters turns on whether the far end knows this is a paste.
+// Line endings become CR; control-character handling depends on the bracketed flag.
 func TestPasteText(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -131,8 +124,7 @@ func TestPasteText(t *testing.T) {
 			want:      "safemore",
 		},
 		{
-			// One pass splices a whole terminator out of the bytes left behind, ending
-			// the paste early. The strip repeats until the text stops changing.
+			// One pass would splice a whole terminator out of the leftovers.
 			name:      "bracketed, a terminator hidden inside a terminator goes too",
 			in:        "safe\x1b[2\x1b[201~01~rm -rf /",
 			bracketed: true,
@@ -155,11 +147,9 @@ func TestPasteText(t *testing.T) {
 	}
 }
 
-// A Go string can hold any bytes at all, and a clipboard filled from a terminal showing
-// mojibake holds exactly that. What comes out of here is always characters: the far end
-// is a UTF-8 pty.
+// The far end is a UTF-8 pty, so what comes out is always valid characters.
 func TestPasteDropsBytesThatAreNotCharacters(t *testing.T) {
-	// A truncated UTF-8 sequence between two words: what a half-copied emoji is.
+	// A truncated UTF-8 sequence: a half-copied emoji.
 	raw := "echo \xf0\x9f hi"
 
 	for _, bracketed := range []bool{false, true} {

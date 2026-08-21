@@ -14,20 +14,14 @@ import (
 	"hop/internal/sftpx"
 )
 
-// withMoved stamps a hand-built transfer with a byte count, standing in for what the copy
-// goroutine would have reported by now.
+// withMoved stamps a transfer with the byte count the copy goroutine would have reported.
 func withMoved(t *transfer, n int64) *transfer {
 	t.moved.Store(n)
 	return t
 }
 
-// drive runs cmd the way Bubble Tea's event loop does: execute it, unpack a batch into
-// its parts, feed every message back through Update, and keep going with whatever that
-// returns. Transfers are commands now, so this is the only way a test sees one finish.
-//
-// It terminates because the ticks stop on their own: once the completion message has
-// been handled b.xfer is nil, so the next tick matches nothing and returns no successor.
-// The step budget is a backstop against a bug that would otherwise hang the suite.
+// drive runs cmd the way Bubble Tea's event loop does, feeding every message back through
+// Update until the transfer stops producing successors.
 func drive(t *testing.T, b *Browser, cmd tea.Cmd) {
 	t.Helper()
 
@@ -46,8 +40,6 @@ func drive(t *testing.T, b *Browser, cmd tea.Cmd) {
 			queue = append(queue, batch...)
 			continue
 		}
-		// Everything a browser sends arrives wrapped and addressed; anything else on this
-		// queue is not the browser's and would be the model's business.
 		wrapped, ok := msg.(Msg)
 		if !ok {
 			t.Fatalf("drive: a browser command produced %T, want a filebrowser.Msg", msg)
@@ -58,8 +50,7 @@ func drive(t *testing.T, b *Browser, cmd tea.Cmd) {
 	}
 }
 
-// xferBrowser builds a browser over one directory and two files, with a fresh download
-// directory and scratch directory that the test owns.
+// xferBrowser builds a browser over one directory and two files, with throwaway local dirs.
 func xferBrowser(t *testing.T) (*Browser, *fakeClient, string) {
 	t.Helper()
 
@@ -81,8 +72,7 @@ func xferBrowser(t *testing.T) (*Browser, *fakeClient, string) {
 	return plant(b, "/home/u", ents), fc, dl
 }
 
-// typePath answers an open text prompt with s, one key at a time, and returns whatever
-// the enter produced. Only spaceless paths: the key helper has no name for a space.
+// typePath answers an open text prompt with s and returns whatever the enter produced.
 func typePath(t *testing.T, b *Browser, s string) tea.Cmd {
 	t.Helper()
 	if !b.overlay.active() {
@@ -92,8 +82,7 @@ func typePath(t *testing.T, b *Browser, s string) tea.Cmd {
 	return b.Handle(key(t, "enter"))
 }
 
-// A download reaches the client with the remote path and the local path it should, and
-// lands a status only once the copy has actually finished.
+// The client gets both paths, and the status lands only once the copy has finished.
 func TestDownloadRunsAsync(t *testing.T) {
 	b, fc, dl := xferBrowser(t)
 
@@ -102,7 +91,6 @@ func TestDownloadRunsAsync(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("d returned no tea.Cmd, want the transfer's first step")
 	}
-	// Nothing has run yet: the copy happens on the command's goroutine.
 	if len(fc.downloads) != 0 {
 		t.Fatalf("d downloaded %v before its command ran, want a synchronous no-op", fc.downloads)
 	}
@@ -143,8 +131,7 @@ func TestDownloadFailureClearsTransfer(t *testing.T) {
 	}
 }
 
-// An existing local file of the same name is confirmed before it is overwritten, and a
-// declined confirm leaves the file exactly as it was.
+// A declined confirm leaves the existing local file exactly as it was.
 func TestDownloadConfirmsLocalOverwrite(t *testing.T) {
 	for _, tc := range []struct {
 		answer string
@@ -173,8 +160,6 @@ func TestDownloadConfirmsLocalOverwrite(t *testing.T) {
 			if len(fc.downloads) != tc.want {
 				t.Fatalf("answering %q gave %d downloads, want %d", tc.answer, len(fc.downloads), tc.want)
 			}
-			// The fake writes an empty file, so the original content surviving is proof
-			// that nothing ran.
 			body, err := os.ReadFile(local)
 			if err != nil {
 				t.Fatal(err)
@@ -189,8 +174,7 @@ func TestDownloadConfirmsLocalOverwrite(t *testing.T) {
 	}
 }
 
-// "u" asks for a local path, expands a leading "~", and uploads to the current remote
-// directory under the file's base name.
+// "u" asks for a local path and uploads to the current remote directory under its base name.
 func TestUploadExpandsHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -218,7 +202,6 @@ func TestUploadExpandsHome(t *testing.T) {
 	}
 }
 
-// An upload refreshes the listing: the file the user just sent has to appear.
 func TestUploadRefreshesListing(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "new.txt")
@@ -228,7 +211,6 @@ func TestUploadRefreshesListing(t *testing.T) {
 
 	b, fc, _ := xferBrowser(t)
 	b.Handle(key(t, "u"))
-	// The server "grows" the file the moment it is sent; the browser must re-list to see it.
 	fc.entries = append(fc.entries, sftpx.Entry{Name: "new.txt", Size: 1})
 
 	drive(t, b, typePath(t, b, src))
@@ -244,8 +226,6 @@ func TestUploadRefreshesListing(t *testing.T) {
 	}
 }
 
-// A path that is not there, and a path that is a directory, are refused on the status
-// line without anything reaching the client.
 func TestUploadRejectsMissingAndDirectory(t *testing.T) {
 	dir := t.TempDir()
 	for _, tc := range []struct{ name, p, want string }{
@@ -272,7 +252,6 @@ func TestUploadRejectsMissingAndDirectory(t *testing.T) {
 	}
 }
 
-// Uploading over a name already in the listing is confirmed first.
 func TestUploadConfirmsRemoteOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "a.txt") // a.txt is already in the remote listing
@@ -300,8 +279,6 @@ func TestUploadConfirmsRemoteOverwrite(t *testing.T) {
 	}
 }
 
-// Only one copy runs at a time: a second "d" or "u" says so rather than replacing the
-// transfer the user is watching.
 func TestSecondTransferRefused(t *testing.T) {
 	for _, k := range []string{"d", "u", "o"} {
 		t.Run(k, func(t *testing.T) {
@@ -321,9 +298,7 @@ func TestSecondTransferRefused(t *testing.T) {
 			if b.xfer == nil || b.xfer.name != "big.iso" {
 				t.Fatalf("%q clobbered the transfer in flight", k)
 			}
-			// Asserted through View, not through the status field: the refusal shares its
-			// row with the progress line, so "it was recorded" and "it was shown" are two
-			// different claims and only the second one matters.
+			// Through View, not the status field: the refusal shares its row with the progress line.
 			if view := b.View(); !strings.Contains(view, "big.iso") ||
 				!strings.Contains(view, "still transferring") {
 				t.Fatalf("%q: the refusal is not on screen. View:\n%s", k, view)
@@ -332,8 +307,6 @@ func TestSecondTransferRefused(t *testing.T) {
 	}
 }
 
-// The refusal holds the last row only briefly, and then the bar the user is watching
-// comes back — it must not sit on top of the transfer for the rest of its life.
 func TestRefusalYieldsBackToTheProgressLine(t *testing.T) {
 	b, _, _ := xferBrowser(t)
 	b.xfer = withMoved(&transfer{arrow: "↓ ", name: "big.iso", total: 1 << 30}, 1<<29)
@@ -354,8 +327,7 @@ func TestRefusalYieldsBackToTheProgressLine(t *testing.T) {
 	}
 }
 
-// progressLine is only reached from View when a transfer is in flight, but it must not
-// panic when there is none, nor overrun the width it is given.
+// progressLine must not panic without a transfer, nor overrun the width it is given.
 func TestProgressLine(t *testing.T) {
 	b, _, _ := xferBrowser(t)
 
@@ -380,32 +352,26 @@ func TestProgressLine(t *testing.T) {
 		t.Fatalf("progressLine = %q, want the name and the half-done percentage", line)
 	}
 
-	// An upload's count is reported the same way a download's is, so it gets a real
-	// percentage too.
+	// An upload's count is reported like a download's, so it gets a real percentage too.
 	up1 := withMoved(&transfer{arrow: "↑ ", name: "a.txt", total: 1024}, 256)
 	b.xfer = up1
 	if line := b.progressLine(40); !strings.Contains(line, "25%") {
 		t.Fatalf("upload progressLine = %q, want the reported percentage", line)
 	}
 
-	// Without a known total there is no fraction to show, in either direction: the line
-	// falls back to what has moved so far and how long it has been going.
+	// Without a known total there is no fraction to show.
 	b.xfer = withMoved(&transfer{arrow: "↑ ", name: "a.txt"}, 4096)
 	if line := b.progressLine(40); strings.Contains(line, "%") {
 		t.Fatalf("progressLine without a total = %q, want no percentage", line)
 	}
 }
 
-// A tick is purely a repaint: it schedules the next one and nothing else. What the line
-// shows is read straight from the count the copy publishes, so a tick cannot invent
-// progress and cannot lag behind it either.
 func TestTickOnlyRepaints(t *testing.T) {
 	b, _, dl := xferBrowser(t)
 	local := filepath.Join(dl, "a.txt")
 	tr := &transfer{arrow: "↓ ", name: "a.txt", local: local, total: 1024}
 	b.xfer = tr
 
-	// Nothing reported yet.
 	if cmd := b.Update(Msg{Body: transferTickMsg{t: tr}}); cmd == nil {
 		t.Fatal("a tick for the running transfer scheduled no successor")
 	}
@@ -418,8 +384,7 @@ func TestTickOnlyRepaints(t *testing.T) {
 		t.Fatalf("progressLine = %q after 300 of 1024 bytes, want 29%%", line)
 	}
 
-	// A tick belonging to a transfer that has already ended must be ignored rather than
-	// bring the progress line back.
+	// A tick for a transfer that has already ended is ignored.
 	b.xfer = nil
 	if cmd := b.Update(Msg{Body: transferTickMsg{t: tr}}); cmd != nil {
 		t.Fatal("a stale tick scheduled another one")
@@ -429,8 +394,6 @@ func TestTickOnlyRepaints(t *testing.T) {
 	}
 }
 
-// "o" still refuses a file the OS default handler would execute, and refuses it before
-// any of the async machinery starts.
 func TestOpenInAppRefusesExecutableAsync(t *testing.T) {
 	for _, name := range []string{"invoice.pdf.hta", "invoices-2026.terminal", "report.desktop"} {
 		t.Run(name, func(t *testing.T) {
@@ -459,8 +422,7 @@ func TestOpenInAppRefusesExecutableAsync(t *testing.T) {
 	}
 }
 
-// "o" fetches into the scratch directory — never the download directory — and hands that
-// copy to the application only after the bytes have landed.
+// "o" fetches into the scratch directory and opens that copy only once the bytes landed.
 func TestOpenInAppFetchesAsync(t *testing.T) {
 	b, fc, dl := xferBrowser(t)
 	opened, _ := stubOpen(t)
@@ -491,9 +453,6 @@ func TestOpenInAppFetchesAsync(t *testing.T) {
 	}
 }
 
-// The count sftpx reports reaches the transfer, and a tick turns it into what the bar
-// draws. This is the whole path — client callback, atomic, tick snapshot, rendered
-// percentage — which no single one of the tests above covers end to end.
 func TestReportedBytesReachTheProgressLine(t *testing.T) {
 	b, fc, _ := xferBrowser(t)
 	fc.steps = byteSteps{256, 512, 1024}
@@ -504,7 +463,6 @@ func TestReportedBytesReachTheProgressLine(t *testing.T) {
 	if tr == nil {
 		t.Fatal("d left no transfer in flight")
 	}
-	// Before anything has been reported the line is honestly at zero.
 	if line := b.progressLine(40); !strings.Contains(line, "0%") {
 		t.Fatalf("progressLine before any report = %q, want 0%%", line)
 	}
@@ -522,8 +480,6 @@ func TestReportedBytesReachTheProgressLine(t *testing.T) {
 	}
 }
 
-// An upload draws from the same count, so its bar is a real fraction rather than the
-// indeterminate pacing block it used to be.
 func TestUploadProgressIsReported(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "new.txt")
@@ -550,9 +506,7 @@ func TestUploadProgressIsReported(t *testing.T) {
 	}
 }
 
-// An upload names the directory it actually went to, and only re-lists when the user is
-// still standing there. Navigation is not blocked during a transfer, so both halves are
-// reachable.
+// An upload names the directory it went to, and re-lists only if the user is still there.
 func TestUploadReportsItsRealDestination(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "new.txt")
@@ -564,8 +518,6 @@ func TestUploadReportsItsRealDestination(t *testing.T) {
 	b.Handle(key(t, "u"))
 	cmd := typePath(t, b, src)
 
-	// The user wanders off while the bytes are moving — in a tree that means re-rooting
-	// somewhere the destination is not.
 	plant(b, "/home/u/sub", fc.entries)
 	before := len(b.rows)
 	fc.entries = append(fc.entries, sftpx.Entry{Name: "elsewhere.txt"})
@@ -578,15 +530,11 @@ func TestUploadReportsItsRealDestination(t *testing.T) {
 	if !strings.Contains(b.note.text, "/home/u") || strings.Contains(b.note.text, "/home/u/sub") {
 		t.Fatalf("status = %q, want the real destination /home/u", b.note.text)
 	}
-	// Re-listing here would show /home/u/sub's contents as if the file had landed there.
 	if len(b.rows) != before {
 		t.Fatalf("rows = %d, want the %d it had — a directory the file did not land in must not be re-listed", len(b.rows), before)
 	}
 }
 
-// A "~" in the download directory is a path the shell would have expanded, not a
-// directory of that name. Left literal it creates "~" in the process's working directory
-// and makes the overwrite check look somewhere the file will never be.
 func TestDownloadDirExpandsHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -617,8 +565,7 @@ func TestDownloadDirExpandsHome(t *testing.T) {
 
 // ---- batches, and the target-based copy and move ----
 
-// Several marked files are one job, not one job each: the client is called once per file,
-// the progress line counts through them, and exactly one outcome reaches the status line.
+// One client call per file, one progress line counting through them, one outcome.
 func TestDownloadOfAMarkedSetIsOneJob(t *testing.T) {
 	b, fc, dl := xferBrowser(t)
 	b.Select(1)
@@ -632,7 +579,6 @@ func TestDownloadOfAMarkedSetIsOneJob(t *testing.T) {
 	if len(b.xfer.items) != 2 {
 		t.Fatalf("the job has %d items, want 2", len(b.xfer.items))
 	}
-	// One line, counting through the batch — not two popups.
 	if line := plain(b.progressLine(40)); !strings.Contains(line, "1/2 · a.txt") {
 		t.Fatalf("progress line = %q, want it to count through the batch", line)
 	}
@@ -655,8 +601,6 @@ func TestDownloadOfAMarkedSetIsOneJob(t *testing.T) {
 	}
 }
 
-// A directory among the marks is skipped rather than refusing the whole job: marking a
-// screenful with "a" is how a selection is usually made, and it will contain directories.
 func TestDownloadSkipsDirectoriesInTheSelection(t *testing.T) {
 	b, fc, _ := xferBrowser(t)
 	b.Do(keys.BrowserMarkAll) // sub/, a.txt, b.txt
@@ -671,8 +615,7 @@ func TestDownloadSkipsDirectoriesInTheSelection(t *testing.T) {
 	}
 }
 
-// A batch that fails part-way says so in the same three numbers every plural operation
-// here uses, and stops rather than working through the rest.
+// The failure is reported in the same three numbers every plural operation uses.
 func TestBatchDownloadStopsAtTheFirstFailure(t *testing.T) {
 	b, fc, _ := xferBrowser(t)
 	fc.errs = map[string]error{"download": errors.New("connection reset")}
@@ -696,7 +639,6 @@ func TestBatchDownloadStopsAtTheFirstFailure(t *testing.T) {
 	}
 }
 
-// "c" with no target set refuses before anything moves, and says what to press.
 func TestCopyWithoutATargetRefuses(t *testing.T) {
 	b, fc, _ := xferBrowser(t)
 	b.Select(1)
@@ -712,8 +654,7 @@ func TestCopyWithoutATargetRefuses(t *testing.T) {
 	}
 }
 
-// "t" aims at the directory under the cursor, and "c" copies the marked set into it as
-// one job.
+// "t" aims at the directory under the cursor; "c" copies the marked set into it.
 func TestCopyToTarget(t *testing.T) {
 	b, fc, _ := xferBrowser(t)
 	fc.steps = byteSteps{512, 1024}
@@ -740,15 +681,12 @@ func TestCopyToTarget(t *testing.T) {
 	if b.note.err || !strings.Contains(b.note.text, "copied 2 entries") {
 		t.Fatalf("status = %q (err=%v), want the plural outcome", b.note.text, b.note.err)
 	}
-	// The footer stops claiming a selection that has been consumed.
 	if len(b.marks) != 0 {
 		t.Fatalf("marks = %v, want them cleared", b.marks)
 	}
 }
 
-// A directory cannot be copied or moved into itself or into anything inside it. sftpx
-// refuses it too, but by then some of the tree has been written — the refusal has to come
-// from the keystroke.
+// The refusal has to come from the keystroke: sftpx notices only once part of the tree is written.
 func TestCopyRefusesADirectoryIntoItself(t *testing.T) {
 	c := &dirClient{dirs: map[string][]sftpx.Entry{
 		"/home/u":          {dir("src"), {Name: "a.txt", Size: 1}},
@@ -778,9 +716,7 @@ func TestCopyRefusesADirectoryIntoItself(t *testing.T) {
 	}
 }
 
-// A move goes through the transfer machinery like a copy does. A rename is instant, but
-// across a filesystem boundary sftpx falls back to a full copy, and that one must not be
-// holding the UI goroutine.
+// A move goes through the transfer machinery like a copy does.
 func TestMoveToTarget(t *testing.T) {
 	b, fc, _ := xferBrowser(t)
 	b.Select(0)
@@ -829,9 +765,7 @@ func TestMoveStopsAtTheFirstFailure(t *testing.T) {
 	}
 }
 
-// A batch that stops halfway leaves the entries it never reached marked. The promise is in
-// batchError's wording — "2 skipped … ready for the same keystroke" — and it only holds if
-// the marks are spent per item rather than when the job is built.
+// Marks are spent per item, not when the job is built.
 func TestAFailedBatchKeepsTheMarksItNeverReached(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -864,8 +798,7 @@ func TestAFailedBatchKeepsTheMarksItNeverReached(t *testing.T) {
 	}
 }
 
-// A copy writes through Create, which truncates, so a name already taken in the target is
-// a confirmed overwrite — the same promise "d" and "u" make in the other two directions.
+// A copy writes through Create, which truncates, so a taken name needs a confirm.
 func TestCopyConfirmsBeforeOverwriting(t *testing.T) {
 	c := &dirClient{dirs: map[string][]sftpx.Entry{
 		"/home/u":     {dir("sub"), {Name: "a.txt", Size: 1}},
@@ -893,9 +826,7 @@ func TestCopyConfirmsBeforeOverwriting(t *testing.T) {
 	}
 }
 
-// A move cannot offer the same choice — sftpx refuses a taken name and clearing the way
-// would need a recursive remote delete — so it says so from the keystroke instead of
-// failing halfway through a batch with a raw server error.
+// A move cannot offer an overwrite, so it refuses at the keystroke rather than mid-batch.
 func TestMoveRefusesACollisionUpFront(t *testing.T) {
 	c := &dirClient{dirs: map[string][]sftpx.Entry{
 		"/home/u":     {dir("sub"), {Name: "a.txt", Size: 1}},
@@ -922,10 +853,7 @@ func TestMoveRefusesACollisionUpFront(t *testing.T) {
 	}
 }
 
-// Advancing to the next item of a batch must not start a second tick chain. b.xfer still
-// points at the same transfer, so the chain already running keeps re-arming itself across
-// the boundary — scheduling another leaves one more repaint loop alive per item, and the
-// indeterminate block, one cell per tick, visibly accelerates through a long batch.
+// The chain already running re-arms itself across the boundary; a second one would accelerate the bar.
 func TestAdvancingABatchDoesNotStartASecondTickChain(t *testing.T) {
 	b, _, _ := xferBrowser(t)
 
@@ -948,9 +876,7 @@ func TestAdvancingABatchDoesNotStartASecondTickChain(t *testing.T) {
 	}
 }
 
-// An entry that already sits in the target is nothing to do, not a reason to refuse the
-// other six. "a" then "c" on a screenful is the workflow marking exists for, and a whole
-// batch cancelled because one file was already there would make it useless in that case.
+// An entry already in the target is nothing to do, not a reason to refuse the rest.
 func TestCopySkipsWhatIsAlreadyInTheTarget(t *testing.T) {
 	c := &dirClient{dirs: map[string][]sftpx.Entry{
 		"/home/u":     {dir("sub"), {Name: "a.txt", Size: 1}},
@@ -980,8 +906,7 @@ func TestCopySkipsWhatIsAlreadyInTheTarget(t *testing.T) {
 	}
 }
 
-// One "y" overwrites every colliding name at once, so the question has to name them:
-// "overwrite 3 entries?" asks for consent to something the user cannot see.
+// One "y" overwrites every colliding name at once, so the question has to name them.
 func TestTheOverwriteQuestionNamesTheFiles(t *testing.T) {
 	c := &dirClient{dirs: map[string][]sftpx.Entry{
 		"/home/u":     {dir("sub"), {Name: "a.txt", Size: 1}, {Name: "b.txt", Size: 2}},

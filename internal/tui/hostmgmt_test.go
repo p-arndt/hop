@@ -11,8 +11,7 @@ import (
 	"hop/internal/store"
 )
 
-// hostMgmtModel builds a navigation-mode model backed by a real temp-file store, so the
-// add/edit/delete flows exercise the actual config-file round-trip.
+// hostMgmtModel builds a navigation-mode model backed by a real temp-file store.
 func hostMgmtModel(t *testing.T, seed ...store.Host) *model {
 	t.Helper()
 	st, err := store.OpenAt(t.TempDir()+"/hop.config", "")
@@ -37,8 +36,7 @@ func hostMgmtModel(t *testing.T, seed ...store.Host) *model {
 	return m
 }
 
-// typeRunes feeds each rune of s to the model as its own keypress, the way a user
-// typing into a field would.
+// typeRunes feeds each rune of s to the model as its own keypress.
 func typeRunes(t *testing.T, m *model, s string) {
 	t.Helper()
 	for _, r := range s {
@@ -46,7 +44,6 @@ func typeRunes(t *testing.T, m *model, s string) {
 	}
 }
 
-// aliases collects the aliases currently in the store's view of the world.
 func aliases(t *testing.T, m *model) map[string]store.Host {
 	t.Helper()
 	hosts, err := m.st.Hosts()
@@ -60,8 +57,7 @@ func aliases(t *testing.T, m *model) map[string]store.Host {
 	return out
 }
 
-// "a" opens a blank form; filling it in and pressing enter writes the host, closes
-// the card, and parks the cursor on what was just added.
+// Adding writes the host, closes the card and parks the cursor on the new row.
 func TestAddHostFlow(t *testing.T) {
 	m := hostMgmtModel(t)
 
@@ -70,13 +66,13 @@ func TestAddHostFlow(t *testing.T) {
 		t.Fatal("a did not open the add form")
 	}
 
-	typeRunes(t, m, "web-01")    // Alias (starts focused)
-	m.handleKey(key(t, "down"))  // → User
-	typeRunes(t, m, "deploy")    //
-	m.handleKey(key(t, "down"))  // → Hostname
-	typeRunes(t, m, "10.0.0.5")  //
-	m.handleKey(key(t, "down"))  // → Port
-	typeRunes(t, m, "2222")      //
+	typeRunes(t, m, "web-01")   // Alias (starts focused)
+	m.handleKey(key(t, "down")) // → User
+	typeRunes(t, m, "deploy")
+	m.handleKey(key(t, "down")) // → Hostname
+	typeRunes(t, m, "10.0.0.5")
+	m.handleKey(key(t, "down")) // → Port
+	typeRunes(t, m, "2222")
 	m.handleKey(key(t, "enter")) // save
 
 	if m.hostForm.open {
@@ -94,7 +90,6 @@ func TestAddHostFlow(t *testing.T) {
 	}
 }
 
-// A blank port means the default 22, not a broken row.
 func TestAddHostDefaultsPort(t *testing.T) {
 	m := hostMgmtModel(t)
 	m.handleKey(key(t, "a"))
@@ -106,7 +101,6 @@ func TestAddHostDefaultsPort(t *testing.T) {
 	}
 }
 
-// An empty alias is refused, and the form stays up so it can be fixed.
 func TestAddHostEmptyAliasKeepsFormOpen(t *testing.T) {
 	m := hostMgmtModel(t)
 	m.handleKey(key(t, "a"))
@@ -120,7 +114,6 @@ func TestAddHostEmptyAliasKeepsFormOpen(t *testing.T) {
 	}
 }
 
-// A non-numeric port is refused rather than silently dropped.
 func TestAddHostBadPortKeepsFormOpen(t *testing.T) {
 	m := hostMgmtModel(t)
 	m.handleKey(key(t, "a"))
@@ -137,8 +130,7 @@ func TestAddHostBadPortKeepsFormOpen(t *testing.T) {
 	}
 }
 
-// Adding an alias that already exists is refused — the store keys on alias, and an
-// accidental overwrite of an existing host is exactly what the check is there to stop.
+// A duplicate alias must not overwrite the existing host.
 func TestAddHostDuplicateRefused(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "old", Port: 22})
 	m.handleKey(key(t, "a"))
@@ -153,8 +145,6 @@ func TestAddHostDuplicateRefused(t *testing.T) {
 	}
 }
 
-// "e" edits the host under the cursor; renaming its alias moves the row and keeps
-// its visit history rather than starting a fresh one.
 func TestEditHostRenamePreservesHistory(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	if err := m.st.Touch("web"); err != nil { // give it some history
@@ -183,7 +173,6 @@ func TestEditHostRenamePreservesHistory(t *testing.T) {
 	}
 }
 
-// Editing a field other than the alias updates in place and leaves the history alone.
 func TestEditHostFieldPreservesVisits(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "old", Port: 22})
 	if err := m.st.Touch("web"); err != nil {
@@ -206,7 +195,6 @@ func TestEditHostFieldPreservesVisits(t *testing.T) {
 	}
 }
 
-// "x" then "y" removes the host; the store loses it and the list reloads.
 func TestDeleteConfirmFlow(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 
@@ -227,7 +215,6 @@ func TestDeleteConfirmFlow(t *testing.T) {
 	}
 }
 
-// "n" (and esc) cancels the delete, leaving the host exactly where it was.
 func TestDeleteCancel(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 
@@ -241,8 +228,6 @@ func TestDeleteCancel(t *testing.T) {
 	}
 }
 
-// The form is modal: a key that would move the host list instead moves the form's
-// own field cursor, never leaking to the list behind it.
 func TestHostFormSwallowsKeys(t *testing.T) {
 	m := hostMgmtModel(t,
 		store.Host{Alias: "a", HostName: "h"},
@@ -250,7 +235,7 @@ func TestHostFormSwallowsKeys(t *testing.T) {
 	)
 	m.cursor = 0
 
-	m.handleKey(key(t, "a")) // open the add form
+	m.handleKey(key(t, "a"))
 	m.handleKey(key(t, "down"))
 
 	if m.cursor != 0 {
@@ -261,12 +246,11 @@ func TestHostFormSwallowsKeys(t *testing.T) {
 	}
 }
 
-// The confirm is modal too: nothing that is not a yes/no reaches the list.
 func TestConfirmSwallowsKeys(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h"})
 
 	m.handleKey(key(t, "x"))
-	m.handleKey(key(t, "down")) // would move the host cursor if it leaked
+	m.handleKey(key(t, "down"))
 
 	if !m.confirm.open {
 		t.Fatal("an unrelated key dismissed the confirm")
@@ -276,8 +260,6 @@ func TestConfirmSwallowsKeys(t *testing.T) {
 	}
 }
 
-// The default directory is a form field like any other: typed in on an add, and
-// stored against the host.
 func TestAddHostWithDefaultDir(t *testing.T) {
 	m := hostMgmtModel(t)
 	m.handleKey(key(t, "a"))
@@ -291,8 +273,7 @@ func TestAddHostWithDefaultDir(t *testing.T) {
 	}
 }
 
-// An edit pre-fills the field from the host and can clear it again: an empty default
-// directory is a behaviour, so it has to be reachable.
+// An edit pre-fills the default directory and can clear it again.
 func TestEditHostDefaultDirRoundTrip(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22, DefaultDir: "/srv/app"})
 
@@ -319,8 +300,7 @@ func TestEditHostDefaultDirRoundTrip(t *testing.T) {
 	}
 }
 
-// A pending reconnect's browser directory outranks the host's default: it is where
-// the user was standing a moment ago. With no such plan the default is what is left.
+// A pending reconnect's browser directory outranks the host's default.
 func TestBrowserStartDirPrefersTheDroppedSession(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22, DefaultDir: "/srv/app"})
 	h := m.hosts[0]
@@ -335,9 +315,7 @@ func TestBrowserStartDirPrefersTheDroppedSession(t *testing.T) {
 	}
 }
 
-// The card has to fit the terminal it is drawn into, giving way in the settings popover's
-// order — air first, then the number of fields — so a short window scrolls the form
-// instead of cutting off its bottom.
+// The card fits the window by giving up air first, then scrolling fields.
 func TestHostFormFitsTheWindow(t *testing.T) {
 	if hostFormMinH() > 24 {
 		t.Fatalf("the packed card needs %d rows; it must fit a standard 24-row terminal", hostFormMinH())
@@ -355,9 +333,7 @@ func TestHostFormFitsTheWindow(t *testing.T) {
 	}
 }
 
-// However short the window, the field the cursor is on is one of those drawn: a form that
-// scrolled the row you are typing into off the card would be worse than one that did not
-// scroll at all.
+// However short the window, the field the cursor is on stays drawn.
 func TestHostFormWindowHoldsTheCursor(t *testing.T) {
 	for h := 10; h <= hostFormFullH()+4; h++ {
 		m := hostMgmtModel(t)
@@ -377,8 +353,7 @@ func TestHostFormWindowHoldsTheCursor(t *testing.T) {
 	}
 }
 
-// The "n/8" counter is the one thing a scrolled window cannot say for itself, so
-// it appears exactly when the card is showing fewer fields than it has.
+// The "n/8" counter appears exactly when the card shows fewer fields than it has.
 func TestHostFormCounterOnlyWhenScrolled(t *testing.T) {
 	for _, c := range []struct {
 		height int

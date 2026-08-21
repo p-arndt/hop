@@ -12,12 +12,10 @@ import (
 	"hop/internal/store"
 )
 
-// detailsMaxW is the widest the details card gets: past it the two columns of facts
-// drift so far apart that the eye stops pairing them.
+// detailsMaxW keeps the two fact columns close enough to still read as pairs.
 const detailsMaxW = 74
 
-// renderDetails is the card shown in the right pane when no session is on screen: what
-// the host under the cursor is, what hop holds open on it, and what the keys would do.
+// renderDetails is the card shown in the right pane when no session is on screen.
 func (m *model) renderDetails(w int) string {
 	h, ok := m.selectedHost()
 	if !ok {
@@ -25,14 +23,13 @@ func (m *model) renderDetails(w int) string {
 	}
 
 	const pad = "  "
-	// A column of text, not a banner: on a wide pane it keeps a readable measure.
+	// A column of text, not a banner: keeps a readable measure on a wide pane.
 	inner := clamp(w-4, 20, detailsMaxW)
 
 	var b strings.Builder
 	b.WriteString("\n")
 
-	// The alias on the left, its state on the right. Host fields can arrive from an
-	// untrusted SSH config or a paste, so escape sequences are stripped.
+	// Host fields can arrive from an untrusted SSH config or a paste.
 	title := titleStyle.Render(stripControl(h.Alias))
 	badge := m.hostBadge(h)
 	gap := max(inner-lipgloss.Width(title)-lipgloss.Width(badge), 1)
@@ -45,7 +42,6 @@ func (m *model) renderDetails(w int) string {
 	b.WriteString(rule(inner))
 	b.WriteString("\n\n")
 
-	// What you connect to on the left, what you know about having connected on the right.
 	port := h.Port
 	if port == 0 {
 		port = 22
@@ -79,8 +75,7 @@ func (m *model) renderDetails(w int) string {
 	), pad))
 	b.WriteString("\n")
 
-	// Saved forwards belong on the dashboard whether running or not: a green dot is a live
-	// listener, a hollow one is defined and ready to start with t.
+	// A green dot is a live listener, a hollow one a saved forward not started.
 	if len(h.Forwards) > 0 {
 		b.WriteString(pad)
 		b.WriteString(sectionCap.Render("TUNNELS"))
@@ -105,7 +100,6 @@ func (m *model) renderDetails(w int) string {
 		b.WriteString("\n")
 	}
 
-	// What is open on the connection — the answer to "what am I about to close?".
 	if s := m.sessions[h.Alias]; s != nil {
 		if parts := s.summary(); len(parts) > 0 {
 			b.WriteString(pad)
@@ -118,14 +112,11 @@ func (m *model) renderDetails(w int) string {
 		}
 	}
 
-	// How much of the keyboard the card spells out is the guidance profile's one say
-	// here: keys leaves the card to the facts about the host, guided also lists what hop
-	// itself can do from this screen. See internal/config.Guidance.
+	// Guidance decides how much of the keyboard the card spells out (see internal/config).
 	if m.cfg.Guidance != config.GuidanceKeys {
 		as := m.availableHostActions()
-		// guided spells out hop's own keys beside the host's, in the same grid rather
-		// than a block of their own: a second heading would be the first thing cut off
-		// on a short pane, and the two columns fill more evenly as one list.
+		// One grid rather than a second block: a second heading is the first thing cut
+		// off on a short pane.
 		if m.cfg.Guidance == config.GuidanceGuided {
 			as = append(as, m.resolve(keys.List, globalSpecs)...)
 		}
@@ -144,7 +135,6 @@ func (m *model) renderDetails(w int) string {
 	return clampLines(b.String(), w)
 }
 
-// hostBadge is the host's state beside its name: idle, dialing, or connected.
 func (m *model) hostBadge(h store.Host) string {
 	switch {
 	case m.sessions[h.Alias] != nil && m.sessions[h.Alias].dead:
@@ -158,13 +148,7 @@ func (m *model) hostBadge(h store.Host) string {
 	}
 }
 
-// actionGrid lays actions out in two columns of keycaps, filling the left one first so
-// the pairs read down the page rather than across it.
-//
-// It draws whatever it is handed, which is how the card stays true: the same registry
-// the menu and the palette are built from (see actions.go), already narrowed to what
-// this host's state allows — there is no "focus shell" on a host with none, and no
-// second list to keep in step with the first.
+// actionGrid fills the left column first, so the pairs read down the page.
 func actionGrid(as []action, w int) string {
 	if len(as) == 0 {
 		return ""
@@ -183,8 +167,7 @@ func actionGrid(as []action, w int) string {
 	)
 }
 
-// renderNoHost is what the right pane says with nothing under the cursor: on a fresh
-// install there is no host to describe, so it describes hop.
+// renderNoHost describes hop when there is no host under the cursor to describe.
 func (m *model) renderNoHost(w int) string {
 	var b strings.Builder
 	b.WriteString("\n\n")
@@ -222,8 +205,7 @@ func (m *model) renderNoHost(w int) string {
 
 // ---- column helpers ----
 
-// kvColumn renders label/value pairs as a column with the labels aligned, dropping a pair
-// whose value is empty.
+// kvColumn aligns the labels and drops a pair whose value is empty.
 func kvColumn(pairs [][2]string, w int) string {
 	labelW := 0
 	for _, p := range pairs {
@@ -244,8 +226,7 @@ func kvColumn(pairs [][2]string, w int) string {
 	return strings.Join(lines, "\n")
 }
 
-// keyColumn renders key/label pairs as a column of keycaps with the labels aligned. The
-// keycaps are pills of different widths, so the labels are padded to a common column.
+// keyColumn pads the labels to a common column, since the keycap pills differ in width.
 func keyColumn(pairs [][2]string, w int) string {
 	capW := 0
 	for _, p := range pairs {

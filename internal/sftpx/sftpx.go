@@ -1,7 +1,4 @@
-// Package sftpx provides a small SFTP client for hop, layered over an existing
-// SSH connection. It exposes directory listing, transfer and basic mutation
-// operations used by the remote file browser. Remote paths always use forward
-// slashes and are manipulated with the stdlib "path" package.
+// Package sftpx provides a small SFTP client layered over an existing SSH connection.
 package sftpx
 
 import (
@@ -46,9 +43,7 @@ func (c *Client) Close() error {
 	return c.sc.Close()
 }
 
-// Home returns a best-effort remote starting directory: the working directory
-// if the server reports one, otherwise the real path of ".", falling back to
-// "/".
+// Home returns a best-effort remote starting directory.
 func (c *Client) Home() (string, error) {
 	if wd, err := c.sc.Getwd(); err == nil && wd != "" {
 		return wd, nil
@@ -59,8 +54,7 @@ func (c *Client) Home() (string, error) {
 	return "/", nil
 }
 
-// List reads dir and returns its entries sorted directories-first, then by
-// case-insensitive name. It does not inject a ".." entry.
+// List reads dir and returns its entries sorted directories-first, then by name.
 func (c *Client) List(dir string) ([]Entry, error) {
 	infos, err := c.sc.ReadDir(dir)
 	if err != nil {
@@ -88,15 +82,12 @@ func (c *Client) List(dir string) ([]Entry, error) {
 	return entries, nil
 }
 
-// Download copies a remote file to localPath, creating parent directories as
-// needed, and returns the number of bytes written.
+// Download copies a remote file to localPath, creating parent directories as needed.
 func (c *Client) Download(remotePath, localPath string) (int64, error) {
 	return c.DownloadProgress(remotePath, localPath, nil)
 }
 
-// DownloadProgress is Download, reporting the running byte count to progress as the copy
-// proceeds. progress may be nil, and is called from the calling goroutine — a caller
-// showing the count on another one has to publish it safely itself.
+// DownloadProgress is Download; progress may be nil and is called from the calling goroutine.
 func (c *Client) DownloadProgress(remotePath, localPath string, progress func(int64)) (int64, error) {
 	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
 		return 0, fmt.Errorf("sftpx: download: %w", err)
@@ -121,14 +112,12 @@ func (c *Client) DownloadProgress(remotePath, localPath string, progress func(in
 	return n, nil
 }
 
-// Upload copies a local file to remotePath and returns the number of bytes
-// written.
+// Upload copies a local file to remotePath.
 func (c *Client) Upload(localPath, remotePath string) (int64, error) {
 	return c.UploadProgress(localPath, remotePath, nil)
 }
 
-// UploadProgress is Upload, reporting the running byte count to progress as the copy
-// proceeds. The same caveats as DownloadProgress apply.
+// UploadProgress is Upload, with the same progress caveats as DownloadProgress.
 func (c *Client) UploadProgress(localPath, remotePath string, progress func(int64)) (int64, error) {
 	lf, err := os.Open(localPath)
 	if err != nil {
@@ -149,10 +138,7 @@ func (c *Client) UploadProgress(localPath, remotePath string, progress func(int6
 	return n, nil
 }
 
-// counted wraps w so the bytes going through it are reported, or hands back w untouched
-// when nobody is listening. The plain Download and Upload take that second path, so they
-// are exactly what they were before progress existed — wrapper included, they would not
-// be.
+// counted wraps w to report bytes written, or returns w unchanged when report is nil.
 func counted(w io.Writer, report func(int64)) io.Writer {
 	if report == nil {
 		return w
@@ -160,13 +146,7 @@ func counted(w io.Writer, report func(int64)) io.Writer {
 	return &countingWriter{w: w, report: report}
 }
 
-// countingWriter passes bytes through to w and reports the running total as they go. It
-// sits on the writing side because that is the side that knows what has actually landed:
-// a read io.Copy has buffered but not yet written is not progress worth showing.
-//
-// io.Copy works in 32 KiB blocks, so report fires about that often — frequently enough
-// for a bar to move on a slow link, rarely enough that the callback need not be cheap to
-// the point of inlining.
+// countingWriter passes bytes through to w and reports the running total.
 type countingWriter struct {
 	w      io.Writer
 	n      int64
@@ -180,25 +160,12 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// ReadFrom keeps the wrapped writer's bulk path reachable, and exists because losing it
-// costs far more than it looks like it should.
-//
-// io.Copy prefers the source's WriteTo, and *os.File has one — which then re-enters
-// io.Copy looking for a ReadFrom on the destination. Unwrapped, that destination is a
-// *sftp.File, whose ReadFrom is pkg/sftp's concurrent write pipeline: the documented way
-// to get throughput out of a high-latency link. A wrapper without this method is not a
-// ReaderFrom, so the whole upload would quietly fall back to sequential 32 KiB writes,
-// one round trip each.
-//
-// The price is where the counting happens. Delegating means the bytes are counted as
-// they are read out of the local file rather than as the server acknowledges them, so an
-// upload's progress runs slightly ahead of the wire. That is the honest trade: a bar a
-// little optimistic beats an upload an order of magnitude slower.
+// ReadFrom must exist or io.Copy loses *sftp.File's concurrent write pipeline and falls back
+// to sequential 32 KiB writes; the cost is that bytes are counted on read, ahead of the wire.
 func (c *countingWriter) ReadFrom(r io.Reader) (int64, error) {
 	rf, ok := c.w.(io.ReaderFrom)
 	if !ok {
-		// Nothing to preserve. onlyWriter hides this method from io.Copy, which would
-		// otherwise call it right back.
+		// onlyWriter hides this method from io.Copy, which would otherwise call it right back.
 		return io.Copy(onlyWriter{c}, r)
 	}
 	n, err := rf.ReadFrom(&countingReader{r: r, base: c.n, report: c.report})
@@ -206,13 +173,10 @@ func (c *countingWriter) ReadFrom(r io.Reader) (int64, error) {
 	return n, err
 }
 
-// onlyWriter is a writer with every other method hidden, so io.Copy cannot re-select the
-// fast path it is already inside.
+// onlyWriter hides every other method so io.Copy cannot re-select the fast path it is inside.
 type onlyWriter struct{ io.Writer }
 
 // countingReader reports bytes as they are read, continuing the running total from base.
-// It is the counter of last resort, used only where writing side counting would cost the
-// bulk transfer path — see countingWriter.ReadFrom.
 type countingReader struct {
 	r      io.Reader
 	n      int64
@@ -251,24 +215,9 @@ func (c *Client) Rename(oldp, newp string) error {
 	return nil
 }
 
-// Copy copies srcPath into dstDir on the same host — the result is
-// dstDir/<base(srcPath)> — recursing into directories and returning the bytes written.
-// progress may be nil; when set it receives the running cumulative byte count across the
-// whole recursive copy.
-//
-// The bytes travel through the client, not the server: pkg/sftp v1.13.11 implements no
-// server-side copy extension (it knows fsync@, hardlink@, posix-rename@ and (f)statvfs@
-// openssh.com, and exposes no way to send an arbitrary extended packet), so there is no
-// copy-data@openssh.com path to take. Every byte is therefore read down to this process
-// and written straight back up the same connection, which is twice the wire traffic of a
-// download or an upload of the same size and roughly twice the time. A caller sizing a
-// progress bar or an ETA has to budget for that.
-//
-// Symlinks are recreated, not followed: the copy gets a link with the same target. Ownership
-// is not preserved; file and directory modes are.
-//
-// A failure part way through a directory copy leaves what has already been written in
-// place. Nothing is rolled back, and the returned count covers the bytes that did land.
+// Copy copies srcPath into dstDir/<base(srcPath)> on the same host, recursing into directories.
+// pkg/sftp exposes no server-side copy extension, so every byte round-trips through this process.
+// A failure part way through is not rolled back.
 func (c *Client) Copy(srcPath, dstDir string, progress func(int64)) (int64, error) {
 	dstPath := path.Join(dstDir, path.Base(path.Clean(srcPath)))
 	if err := checkNotIntoItself("copy", srcPath, dstPath); err != nil {
@@ -288,12 +237,8 @@ func (c *Client) Copy(srcPath, dstDir string, progress func(int64)) (int64, erro
 }
 
 // copyTree copies one already-stat'ed source node to dstPath, recursing for directories.
-// total carries the running byte count across the whole recursion, so progress sees one
-// monotonically growing number rather than a per-file one restarting at zero.
 func (c *Client) copyTree(srcPath, dstPath string, fi os.FileInfo, total *int64, progress func(int64)) error {
-	// A symlink is recreated, not followed. Following one aborts the whole copy the moment
-	// it points at a directory — Open refuses that — and silently inflates the copy into a
-	// second full tree when it points at one elsewhere.
+	// Recreated, not followed: Open refuses a directory link, and following one duplicates a tree.
 	if fi.Mode()&fs.ModeSymlink != 0 {
 		target, err := c.sc.ReadLink(srcPath)
 		if err != nil {
@@ -332,8 +277,7 @@ func (c *Client) copyTree(srcPath, dstPath string, fi os.FileInfo, total *int64,
 	return nil
 }
 
-// copyFile streams one remote file to another over the same connection, continuing the
-// running total and preserving the source's mode.
+// copyFile streams one remote file to another over the same connection, preserving the mode.
 func (c *Client) copyFile(srcPath, dstPath string, mode fs.FileMode, total *int64, progress func(int64)) error {
 	rf, err := c.sc.Open(srcPath)
 	if err != nil {
@@ -347,8 +291,7 @@ func (c *Client) copyFile(srcPath, dstPath string, mode fs.FileMode, total *int6
 	}
 	defer wf.Close()
 
-	// counted reports this file's own byte count, so shift it by what earlier files
-	// already contributed to keep the number the caller sees cumulative.
+	// Shift this file's count by earlier files, so the caller sees one cumulative number.
 	base := *total
 	var report func(int64)
 	if progress != nil {
@@ -366,23 +309,14 @@ func (c *Client) copyFile(srcPath, dstPath string, mode fs.FileMode, total *int6
 	return nil
 }
 
-// Move relocates srcPath into dstDir on the same host, so the result is
-// dstDir/<base(srcPath)>.
-//
-// It tries a rename first, which is a single cheap server-side operation when source and
-// destination share a filesystem. Only if that fails — the usual reason being a mount
-// boundary — does it fall back to Copy followed by a recursive delete of the source, and
-// the source is removed only after the copy has completely succeeded. A failure during
-// the fallback therefore leaves the source intact and a partial destination behind.
+// Move relocates srcPath into dstDir/<base(srcPath)>, falling back to copy-then-delete when a
+// server-side rename fails (typically across a mount boundary).
 func (c *Client) Move(srcPath, dstDir string, progress func(int64)) error {
 	dstPath := path.Join(dstDir, path.Base(path.Clean(srcPath)))
 	if err := checkNotIntoItself("move", srcPath, dstPath); err != nil {
 		return err
 	}
-	// Refused rather than overwritten: the fallback below would truncate what is already
-	// there, and it would pay for a whole copy to do it. Callers that can see the
-	// destination are expected to check first and say so — the filebrowser refuses from the
-	// keystroke — so reaching this is the backstop, not the message the user should get.
+	// Backstop: the copy fallback would otherwise truncate an existing destination.
 	if _, err := c.sc.Lstat(dstPath); err == nil {
 		return fmt.Errorf("sftpx: move %s: %s already exists", srcPath, dstPath)
 	}
@@ -393,13 +327,7 @@ func (c *Client) Move(srcPath, dstDir string, progress func(int64)) error {
 	return c.moveByCopy(srcPath, dstDir, progress)
 }
 
-// moveByCopy is Move's fallback for the case a rename cannot serve: source and destination
-// on different filesystems. The source is removed only once the copy has completely
-// succeeded, so a failure here leaves the source intact and a partial destination behind.
-//
-// It is separate from Move because it is otherwise unreachable from a test: the only thing
-// that legitimately fails a rename is a mount boundary, which an in-process test server has
-// no way to create.
+// moveByCopy is Move's cross-filesystem fallback; split out because a test cannot fail a rename.
 func (c *Client) moveByCopy(srcPath, dstDir string, progress func(int64)) error {
 	if _, err := c.Copy(srcPath, dstDir, progress); err != nil {
 		return fmt.Errorf("sftpx: move %s: %w", srcPath, err)
@@ -410,10 +338,7 @@ func (c *Client) moveByCopy(srcPath, dstDir string, progress func(int64)) error 
 	return nil
 }
 
-// checkNotIntoItself rejects the two transfers that would destroy their own source: one
-// whose destination is the source itself, and one that would place a directory inside its
-// own subtree, which recurses into what it is writing. op names the operation so the error
-// reads in the caller's terms.
+// checkNotIntoItself rejects a transfer onto its own source or into its own subtree.
 func checkNotIntoItself(op, srcPath, dstPath string) error {
 	src, dst := path.Clean(srcPath), path.Clean(dstPath)
 	if src == dst {

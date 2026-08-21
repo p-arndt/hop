@@ -8,40 +8,23 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// The three keys that change something on the server: "x" deletes, "R" renames, "m"
-// makes a directory. Each of them asks first — a confirm for the delete, a line of text
-// for the other two — so no single keystroke mutates the remote host. The question is
-// the prompt overlay, which owns the keyboard until it is answered or dismissed; these
-// functions therefore only open it and return, and the work happens in the callback.
+// The server-mutating keys ("x", "R", "m") only open the prompt overlay and return; the
+// work happens in the callback, once the question is answered.
 
-// remove deletes what is marked — or the entry under the cursor when nothing is — behind
-// a confirm. "x" is one key away from every motion in the listing, and a delete over SFTP
-// has no undo, so the question spells out what is about to go: the name when it is one
-// entry, and the count when it is several. A count rather than one of the names is the
-// point of the plural form — "delete a.txt?" while eleven files are ticked would describe
-// a tenth of what the key is about to do.
+// remove deletes what is marked, or the entry under the cursor, behind a confirm.
 func (b *Browser) remove() tea.Cmd {
-	// The selection is captured now rather than read again in the callback: nothing can
-	// move the cursor while the overlay owns the keyboard, but the delete is meant for
-	// what the question described, not for whatever is marked when it is answered.
+	// Captured now, not in the callback: the delete must hit what the question described.
 	victims := b.targets()
 	if len(victims) == 0 {
 		return nil
 	}
-	// The row is captured too: after the delete it holds the successor of what was there,
-	// which is where the eye already is.
 	at := b.cursor
 
 	b.askConfirm(deleteQuestion(victims), func(b *Browser, _ string) tea.Cmd {
 		done := 0
 		for i, n := range victims {
 			if err := b.client.Remove(n.path); err != nil {
-				// The server refuses a directory that still has contents, and this browser
-				// does not offer a recursive delete: walking a remote tree and deleting it
-				// leaf-first is a great deal of destruction behind one keystroke, and a
-				// symlink met on the way would take it outside the directory entirely. So
-				// the refusal is passed on with the reason spelled out instead of being
-				// swallowed and retried.
+				// No recursive delete: a non-empty directory is refused, not retried.
 				why := err.Error()
 				if n.e.IsDir {
 					why += " (a directory must be empty first)"
@@ -54,9 +37,7 @@ func (b *Browser) remove() tea.Cmd {
 		}
 		b.clearMarks()
 		if !b.refresh() {
-			// The delete worked, the re-list did not. The listing error is the news, and
-			// reporting the delete over it would leave a stale entry on screen looking
-			// like a successful one.
+			// Delete worked, re-list did not: the listing error is the news.
 			return nil
 		}
 		b.focusRow(at)
@@ -70,9 +51,7 @@ func (b *Browser) remove() tea.Cmd {
 	return nil
 }
 
-// deleteQuestion is the confirm's wording: the entry by name when there is one, and the
-// count — broken into files and directories, since a directory is the expensive mistake —
-// when there are several.
+// deleteQuestion is the confirm's wording: the name for one entry, counts for several.
 func deleteQuestion(victims []*node) string {
 	if len(victims) == 1 {
 		what := "file"
@@ -94,17 +73,8 @@ func deleteQuestion(victims []*node) string {
 		len(victims), len(victims)-dirs, dirs)
 }
 
-// batchError is how every plural operation reports a failure part-way through, and the
-// place the partial-failure policy is written down.
-//
-// The policy is: stop at the first error and skip the rest. The errors that stop a batch
-// are almost always about the destination rather than about one file — no permission, no
-// space, the connection gone — so carrying on would produce the same message once per
-// remaining file and bury the first one, and it would do so while writing into a place
-// that has already said no. Stopping leaves the marks up and the remaining entries
-// untouched, so the same keystroke retries exactly what did not happen once the cause is
-// fixed. The message therefore has to carry all three numbers: what got through, what
-// failed and why, and how much was left alone.
+// batchError reports a plural operation failing part-way: the policy is to stop at the
+// first error, leaving marks up so the same keystroke retries what did not happen.
 func batchError(verb, name, why string, done, total, skipped int) error {
 	if total == 1 {
 		return fmt.Errorf("%s %s: %s", verb, name, why)
@@ -112,10 +82,7 @@ func batchError(verb, name, why string, done, total, skipped int) error {
 	return fmt.Errorf("%s %s: %s — %d of %d done, %d skipped", verb, name, why, done, total, skipped)
 }
 
-// rename renames the entry under the cursor, prefilled with its current name so the
-// common case is an edit rather than a retype. It is the one operation that stays
-// singular: a new name is a thing you type once, and there is no sense in which eleven
-// files can be given it.
+// rename renames the entry under the cursor, prefilled with its current name.
 func (b *Browser) rename() tea.Cmd {
 	n := b.cur()
 	if n == nil {
@@ -123,8 +90,6 @@ func (b *Browser) rename() tea.Cmd {
 	}
 	e, dir := n.e, path.Dir(n.path)
 	b.ask("rename to:", e.Name, func(b *Browser, name string) tea.Cmd {
-		// Answering with the name that is already there is what happens when the prompt
-		// is opened and confirmed without an edit. Nothing to do, and nothing wrong.
 		if name == e.Name {
 			return nil
 		}
@@ -146,12 +111,7 @@ func (b *Browser) mkdir() tea.Cmd {
 	return nil
 }
 
-// commit is what both keys that take a typed name do with it: check the name, do the
-// thing, re-list, stand on the result and say so. verb names the operation in a failure.
-//
-// The refresh check is the part worth having in one place — a mutation that succeeded
-// against a listing that then failed must report the listing error, and it would be easy
-// for one of two near-identical callbacks to drift out of doing that.
+// commit checks a typed name, does the thing, re-lists, stands on the result and says so.
 func (b *Browser) commit(dir, name, verb string, do func() error, okMsg string) tea.Cmd {
 	if err := checkTypedName(name); err != nil {
 		b.fail(err)
@@ -164,20 +124,13 @@ func (b *Browser) commit(dir, name, verb string, do func() error, okMsg string) 
 	if !b.refresh() {
 		return nil
 	}
-	// dir travels with the name because the tree may have the result several levels down:
-	// a name alone would find the first row that happens to match it anywhere on screen.
+	// Full path, since a bare name would match the first such row anywhere in the tree.
 	b.reveal(path.Join(dir, name))
 	b.ok(okMsg)
 	return nil
 }
 
-// checkTypedName rejects a name the user typed for an entry in the current directory.
-//
-// A slash is refused because both keys act inside cwd: "R" is a rename and not a move,
-// so a typed path would quietly relocate the file the user meant to retitle, and "m"
-// creates parents, so a typo containing a slash would build a tree rather than a
-// directory. The rest — the empty and dot names, and control characters — is what any
-// name has to clear, remote or local, and lives with the local check.
+// checkTypedName rejects a typed name; a slash is refused because both keys act inside cwd.
 func checkTypedName(name string) error {
 	if err := checkNameBasics(name); err != nil {
 		return err
@@ -188,15 +141,8 @@ func checkTypedName(name string) error {
 	return nil
 }
 
-// refresh re-lists every directory the tree has already read, reporting whether it
-// worked. load is the navigation path and so starts a fresh tree at the top, which is
-// wrong here: the user has not gone anywhere, and the directories they have open are the
-// view they are working in. Callers put the cursor back themselves, since where "back" is
-// depends on what they did — and skip their own success message when this returns false,
-// or it would paint over the listing error.
-//
-// Marks survive it. Every listing prunes the ones whose entry is gone, so what is left is
-// exactly the set that still exists.
+// refresh re-lists every directory the tree has read, keeping it rooted where it is.
+// Callers restore the cursor themselves and must skip their success message when false.
 func (b *Browser) refresh() bool {
 	if b.root == nil {
 		return b.load(b.cwd)
@@ -216,10 +162,8 @@ func (b *Browser) refresh() bool {
 	return true
 }
 
-// reload re-lists n and every directory under it that has been read, in place. A listing
-// that fails stops the walk: the tree is then part old and part new, but the caller is
-// about to report the error rather than the operation, and half a refresh shown under an
-// error is better than the whole of it thrown away.
+// reload re-lists n and every read directory under it in place; a failure stops the walk
+// and leaves the tree part old, part new.
 func (b *Browser) reload(n *node) bool {
 	ents, err := b.client.List(n.path)
 	if err != nil {
@@ -235,8 +179,7 @@ func (b *Browser) reload(n *node) bool {
 	return true
 }
 
-// focusRow stands the cursor on row i, clamped. It is focus's other half: after a delete
-// there is no name to look for, only the place the name used to be.
+// focusRow stands the cursor on row i, clamped, when there is no name left to look for.
 func (b *Browser) focusRow(i int) {
 	b.cursor = i
 	b.clampScroll()

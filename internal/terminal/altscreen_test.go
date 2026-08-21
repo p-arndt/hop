@@ -13,9 +13,7 @@ type nopWriteCloser struct{ io.Writer }
 
 func (nopWriteCloser) Close() error { return nil }
 
-// AltScreen is what the scrollback chords ask before taking a key: a full-screen
-// program — vim, htop, less — owns its own scrolling and keeps no scrollback of
-// hop's, so shift+↑ stays the program's while one is up.
+// AltScreen is what the scrollback chords ask before taking a key.
 func TestAltScreen(t *testing.T) {
 	out, w := io.Pipe()
 	p := New(&sshx.Session{Stdin: nopWriteCloser{io.Discard}, Stdout: out}, 20, 5, nil)
@@ -25,7 +23,7 @@ func TestAltScreen(t *testing.T) {
 		t.Fatal("a fresh shell reports the alt screen")
 	}
 
-	// What vim, htop and less send on the way in (DECSET 1049), and on the way out.
+	// DECSET 1049: what vim, htop and less send on the way in and out.
 	go io.WriteString(w, "\x1b[?1049h")
 	if !waitFor(func() bool { return p.AltScreen() }) {
 		t.Fatal("a program taking the alt screen was not noticed")
@@ -37,8 +35,7 @@ func TestAltScreen(t *testing.T) {
 	}
 }
 
-// waitFor polls cond until it holds or the timeout elapses: the emulator is fed by
-// a goroutine, so the state a write produces arrives a moment after the write.
+// waitFor polls cond until it holds: the emulator is fed by a goroutine.
 func waitFor(cond func() bool) bool {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {

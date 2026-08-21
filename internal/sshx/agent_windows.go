@@ -9,9 +9,7 @@ import (
 	"github.com/Microsoft/go-winio"
 )
 
-// agentPipe is the well-known named pipe exposed by the Windows OpenSSH agent.
-// It is a var, not a const, so tests can point it at a pipe nobody serves: there
-// is no environment variable to unset here the way there is on unix.
+// agentPipe is the named pipe exposed by the Windows OpenSSH agent; a var so tests can repoint it, there being no env var to unset.
 var agentPipe = `\\.\pipe\openssh-ssh-agent`
 
 // dialAgent connects to the Windows OpenSSH agent over its named pipe.

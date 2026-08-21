@@ -5,8 +5,7 @@ import (
 	"time"
 )
 
-// clock pins the Reader's clock at t and returns a function that advances it, so a
-// chord's window can be driven without sleeping through it.
+// clock pins the Reader's clock and returns a function that advances it.
 func clock(t *testing.T, start time.Time) func(time.Duration) {
 	t.Helper()
 	at := start
@@ -16,8 +15,7 @@ func clock(t *testing.T, start time.Time) func(time.Duration) {
 	return func(d time.Duration) { at = at.Add(d) }
 }
 
-// "gg" is two keystrokes that mean one thing. The first is swallowed while hop waits, and
-// a key that is not the second half is read as itself rather than lost.
+// The first keystroke is swallowed while hop waits; a non-matching second is read as itself.
 func TestReaderResolvesASequence(t *testing.T) {
 	m := Defaults()
 	var r Reader
@@ -42,8 +40,7 @@ func TestReaderResolvesASequence(t *testing.T) {
 	}
 }
 
-// The double-esc has a window because its first key means something on its own: an esc
-// bound for a remote program must not turn into half a chord for the rest of the session.
+// A pending sequence expires, so a solo key never stays half a chord.
 func TestReaderSequenceWindow(t *testing.T) {
 	m := Defaults()
 	advance := clock(t, time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC))
@@ -65,8 +62,6 @@ func TestReaderSequenceWindow(t *testing.T) {
 	}
 }
 
-// A sequence does not survive leaving the layer it was started in: an esc typed at a
-// remote shell and an esc typed in the browser are not two halves of anything.
 func TestReaderSequenceIsPerLayer(t *testing.T) {
 	m := Defaults()
 	var r Reader
@@ -86,8 +81,6 @@ func TestReaderSequenceIsPerLayer(t *testing.T) {
 	}
 }
 
-// A key with no meaning in this layer resolves to nothing, which is what lets a pane
-// forward it to the remote program.
 func TestReaderPassesThroughUnboundKeys(t *testing.T) {
 	m := Defaults()
 	var r Reader
@@ -101,9 +94,7 @@ func TestReaderPassesThroughUnboundKeys(t *testing.T) {
 	}
 }
 
-// A prefix key can mean something on its own. In the host list esc backs out of the host
-// and arms the double-esc that quits: a caller reading only one of the two fields would
-// lose one of the two meanings.
+// A prefix key reports its own action and arms the sequence in the same read.
 func TestReaderPrefixKeepsItsSoloMeaning(t *testing.T) {
 	m := Defaults()
 	clock(t, time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC))

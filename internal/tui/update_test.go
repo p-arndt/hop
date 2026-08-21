@@ -7,8 +7,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// The footer mentions a newer release once the startup check reports one, and
-// says nothing at all when hop is current.
 func TestFooterShowsUpdateHint(t *testing.T) {
 	m := viewModel(120, 34)
 	if got := m.renderFooter(); strings.Contains(got, "available") {
@@ -25,9 +23,7 @@ func TestFooterShowsUpdateHint(t *testing.T) {
 	}
 }
 
-// The hint is news, not a key, so it leads the legend — otherwise the
-// truncation that trims a long legend on a narrow window would be exactly what
-// drops it.
+// The hint leads the legend so narrow-window truncation cannot drop it.
 func TestUpdateHintSurvivesNarrowWindow(t *testing.T) {
 	m := viewModel(60, 16)
 	m.update(updateAvailableMsg{latest: "9.9.9"})
@@ -40,8 +36,7 @@ func TestUpdateHintSurvivesNarrowWindow(t *testing.T) {
 	}
 }
 
-// An empty version — no update, or a check that failed or was disabled — must
-// leave the footer exactly as it was.
+// An empty version means no update, a failed check, or one that was disabled.
 func TestNoUpdateHintWhenCurrent(t *testing.T) {
 	m := viewModel(120, 34)
 	before := m.renderFooter()
@@ -51,8 +46,6 @@ func TestNoUpdateHintWhenCurrent(t *testing.T) {
 	}
 }
 
-// The pane-focused footer is the remote shell's key legend; an update hint has
-// no business competing with it while keystrokes are going to another machine.
 func TestNoUpdateHintWhileFocused(t *testing.T) {
 	m := viewModel(120, 34)
 	m.update(updateAvailableMsg{latest: "9.9.9"})

@@ -1,7 +1,7 @@
 package tui
 
-// The host list itself: reloading it from the store, filtering it, and the row model
-// the sidebar, the scrollbar and the mouse all measure in.
+// The host list: reloading, filtering, and the row model the sidebar, the scrollbar and
+// the mouse all measure in.
 
 import (
 	"sort"
@@ -12,8 +12,7 @@ import (
 	"hop/internal/store"
 )
 
-// reloadHosts re-reads the host list, so a connect's bump to visits and last-connect
-// shows up without a restart. A read failure leaves the list hop already has.
+// reloadHosts re-reads the host list; a read failure leaves the list hop already has.
 func (m *model) reloadHosts() {
 	// Hold the cursor on its host, even when the new order moved it.
 	alias := ""
@@ -23,9 +22,8 @@ func (m *model) reloadHosts() {
 	m.reloadHostsSelecting(alias)
 }
 
-// reloadHostsSelecting re-reads the list and parks the cursor on the given alias, leaving
-// it clamped in place when that alias is gone or filtered out. It is reloadHosts' body
-// plus the one thing a save needs: landing on a host that was not selected a moment ago.
+// reloadHostsSelecting parks the cursor on alias, for a save landing on a host that was
+// not selected a moment ago.
 func (m *model) reloadHostsSelecting(alias string) {
 	if m.st == nil {
 		return
@@ -47,8 +45,7 @@ func (m *model) reloadHostsSelecting(alias string) {
 	}
 }
 
-// applyFilter recomputes m.filtered from the current filter text, records which
-// characters of each alias matched, and clamps the cursor into range.
+// applyFilter recomputes m.filtered, the per-alias match offsets, and clamps the cursor.
 func (m *model) applyFilter() {
 	if m.highlights == nil {
 		m.highlights = make(map[int][]int)
@@ -60,15 +57,13 @@ func (m *model) applyFilter() {
 		for i := range m.hosts {
 			m.filtered = append(m.filtered, i)
 		}
-		// The store hands hosts over pinned-first, so an unfiltered list is already in
-		// section order.
+		// The store hands hosts over pinned-first, so this is already in section order.
 		m.buildRows()
 		m.clampCursor()
 		return
 	}
 
-	// The haystack is what a host is — alias, user, hostname — so "root" finds a host
-	// whose alias says nothing about who you log in as.
+	// Haystack is alias+user+hostname, so "root" matches on who you log in as.
 	hay := make([]string, len(m.hosts))
 	for i, h := range m.hosts {
 		hay[i] = h.Alias + " " + h.User + " " + h.HostName
@@ -78,8 +73,7 @@ func (m *model) applyFilter() {
 	m.filtered = m.filtered[:0]
 	for _, mt := range matches {
 		m.filtered = append(m.filtered, mt.Index)
-		// Only offsets inside the alias are of use to the row renderer: it is the one part
-		// of the haystack it draws character by character.
+		// Only alias offsets are of use: it is the one part drawn character by character.
 		alias := len(m.hosts[mt.Index].Alias)
 		var in []int
 		for _, at := range mt.MatchedIndexes {
@@ -91,17 +85,14 @@ func (m *model) applyFilter() {
 			m.highlights[mt.Index] = in
 		}
 	}
-	// A pin outranks a match score: a filter narrows the list, it does not dissolve the
-	// sections. The partition is stable, so within a section the ranking survives.
+	// A pin outranks match score; the partition is stable, so ranking survives inside it.
 	m.pinnedFirst()
 	m.buildRows()
 	m.clampCursor()
 }
 
-// pinnedFirst moves the pinned hosts to the front of m.filtered in their pin order, not
-// the fuzzy matcher's: shift+j/k move within the order the user arranged by hand, so a
-// filter that reshuffled the section would leave them moving a host somewhere else. The
-// unpinned tail keeps the match ranking.
+// pinnedFirst orders pinned hosts by pin order, not match score: shift+j/k move within the
+// order the user arranged by hand.
 func (m *model) pinnedFirst() {
 	sorted := make([]int, 0, len(m.filtered))
 	for _, idx := range m.filtered {
@@ -127,9 +118,8 @@ func (m *model) pinnedFirst() {
 	m.filtered = append(m.filtered[:0], sorted...)
 }
 
-// buildRows recomputes the drawn rows from m.filtered, which is already in section order.
-// With nothing pinned there are no headings and this is a row per host. A section with no
-// matches left gets no heading, so a filter never draws an empty block.
+// buildRows assumes m.filtered is already in section order; a section with no matches gets
+// no heading, so a filter never draws an empty block.
 func (m *model) buildRows() {
 	m.rows = m.rows[:0]
 
@@ -165,14 +155,12 @@ func (m *model) buildRows() {
 	}
 }
 
-// hasSections reports whether the sidebar is drawing section headings, which it does
-// exactly when something is pinned — and which costs the single HOSTS title above them.
+// hasSections is true exactly when something is pinned.
 func (m *model) hasSections() bool {
 	return len(m.rows) > len(m.filtered)
 }
 
-// cursorRow is where the cursor sits in row space, headings included — what the scroll
-// window and the scrollbar are measured in.
+// cursorRow is the cursor's position in row space, headings included.
 func (m *model) cursorRow() int {
 	for i, r := range m.rows {
 		if r.heading == "" && r.fi == m.cursor {
@@ -182,7 +170,6 @@ func (m *model) cursorRow() int {
 	return 0
 }
 
-// selectedHost returns the host under the cursor, or false if the list is empty.
 func (m *model) selectedHost() (store.Host, bool) {
 	if m.cursor < 0 || m.cursor >= len(m.filtered) {
 		return store.Host{}, false
@@ -194,8 +181,7 @@ func (m *model) selectedHost() (store.Host, bool) {
 	return m.hosts[i], true
 }
 
-// hostByAlias returns the host with this alias, looking over every host rather than the
-// filtered ones: the modes that ask are on a host the filter may have hidden since.
+// hostByAlias searches every host, not the filtered ones: the caller's host may be hidden.
 func (m *model) hostByAlias(alias string) (store.Host, bool) {
 	for _, h := range m.hosts {
 		if h.Alias == alias {
@@ -205,12 +191,11 @@ func (m *model) hostByAlias(alias string) (store.Host, bool) {
 	return store.Host{}, false
 }
 
-// clampCursor holds the list cursor inside the filtered host list.
 func (m *model) clampCursor() {
 	m.cursor = clamp(m.cursor, 0, len(m.filtered)-1)
 }
 
-// clamp holds v inside [lo, hi], and returns lo for an empty range.
+// clamp holds v inside [lo, hi], returning lo for an empty range.
 func clamp(v, lo, hi int) int {
 	if hi < lo {
 		return lo

@@ -1,12 +1,4 @@
 // Package sshx implements the pure-Go SSH engine for hop, over golang.org/x/crypto/ssh.
-//
-// It authenticates by public key, offering both the running OpenSSH agent (agent_*.go)
-// and private keys from disk (keys.go). Host-key verification is a TOFU wrapper around
-// ~/.ssh/known_hosts.
-//
-// With a Prompter (prompt.go), keys are followed by keyboard-interactive and password —
-// how a 2FA host asks for its code. Those are answered inside the handshake rather than
-// by retrying the dial, since a one-time code cannot be replayed.
 package sshx
 
 import (
@@ -30,20 +22,16 @@ import (
 	"hop/internal/store"
 )
 
-// dialTimeout bounds the TCP connect, so an unreachable host fails rather than hangs.
-// It deliberately does not bound the handshake: interactive authentication happens
-// inside it, and a clock running while the user reads a code off their phone would time
-// out the dials most in need of patience. The Prompter's cancel is the way out there.
+// dialTimeout bounds the TCP connect only: the handshake carries interactive auth and must not be clocked.
 const dialTimeout = 15 * time.Second
 
-// Session wraps an interactive SSH shell session. Stdin accepts bytes to send
-// to the remote pty; Stdout yields the merged stdout+stderr stream.
+// Session wraps an interactive SSH shell session; Stdout is the merged stdout+stderr stream.
 type Session struct {
 	Stdin  io.WriteCloser
 	Stdout io.Reader
 
 	sess   *ssh.Session
-	pipeWr *io.PipeWriter // write end of the merged output pipe (closed on Close)
+	pipeWr *io.PipeWriter
 }
 
 // Resize informs the remote pty of a new window size.
@@ -54,7 +42,6 @@ func (se *Session) Resize(cols, rows int) error {
 	return se.sess.WindowChange(rows, cols)
 }
 
-// Close terminates the session and releases the merged output pipe.
 func (se *Session) Close() error {
 	var err error
 	if se.sess != nil {
@@ -66,7 +53,6 @@ func (se *Session) Close() error {
 	return err
 }
 
-// Wait blocks until the remote shell exits.
 func (se *Session) Wait() error {
 	if se.sess == nil {
 		return errors.New("sshx: session not initialized")
@@ -78,20 +64,14 @@ func (se *Session) Wait() error {
 type Client struct {
 	ssh *ssh.Client
 
-	// NewHostKey is the SHA256 fingerprint of a host key recorded on first contact
-	// during this dial, or "" when the host was already known. The UI shows it.
+	// NewHostKey is the SHA256 fingerprint of a host key recorded on first contact, else "".
 	NewHostKey string
 
-	// lost is closed once the transport under this client has gone. waitErr is why,
-	// written before the close and so safe to read after observing it (see LostErr). A
-	// zero Client's nil channel never fires: it was never connected.
+	// waitErr is written before lost closes, so it is only safe to read after observing that close.
 	lost    chan struct{}
 	waitErr error
 }
 
-// newClient wraps an established ssh.Client and starts the two goroutines that watch
-// the connection: one parked on Wait, which turns a dropped transport into a closed
-// Lost channel, and the keepalive, which is what makes a blackholed connection reach it.
 func newClient(cl *ssh.Client) *Client {
 	c := &Client{ssh: cl, lost: make(chan struct{})}
 	go func() {
@@ -102,17 +82,13 @@ func newClient(cl *ssh.Client) *Client {
 	return c
 }
 
-// Keepalive parameters, matching ssh's ServerAliveInterval / ServerAliveCountMax.
-// Without them a blackholed connection is never noticed: nothing is written, so TCP
-// never complains and the shell just stops updating.
+// Keepalive parameters mirroring ssh's ServerAliveInterval/ServerAliveCountMax; without them a blackholed connection is never noticed.
 const (
 	keepaliveInterval = 15 * time.Second
 	keepaliveTimeout  = 10 * time.Second
 	keepaliveMisses   = 3
 )
 
-// keepalive probes the server until it stops answering, then closes the connection,
-// which unblocks the Wait above and fires Lost.
 func (c *Client) keepalive() {
 	t := time.NewTicker(keepaliveInterval)
 	defer t.Stop()
@@ -135,9 +111,7 @@ func (c *Client) keepalive() {
 	}
 }
 
-// ping sends OpenSSH's keepalive global request and reports whether the server answered
-// at all. A failure reply is an answer: every server replies to an unknown request type.
-// Only a transport error, or no reply inside keepaliveTimeout, counts as a miss.
+// ping reports whether the server answered at all; a failure reply counts, since every server replies to an unknown request type.
 func (c *Client) ping() bool {
 	done := make(chan error, 1)
 	go func() {
@@ -152,12 +126,10 @@ func (c *Client) ping() bool {
 	}
 }
 
-// Lost is closed when the connection under this client has gone — how the UI learns a
-// session died without polling. A zero Client's channel is nil, so it blocks forever.
+// Lost is closed when the connection has gone; a zero Client's nil channel blocks forever.
 func (c *Client) Lost() <-chan struct{} { return c.lost }
 
-// IsLost reports, without blocking, whether the connection has gone — the question a
-// shell's exit has to ask, since a transport death is not somebody typing "exit".
+// IsLost reports, without blocking, whether the connection has gone.
 func (c *Client) IsLost() bool {
 	select {
 	case <-c.lost:
@@ -167,8 +139,7 @@ func (c *Client) IsLost() bool {
 	}
 }
 
-// LostErr is why the connection went, or nil while it is still up. Reading waitErr is
-// safe only after observing the channel's close, which is what publishes the write.
+// LostErr is why the connection went, or nil while it is still up.
 func (c *Client) LostErr() error {
 	select {
 	case <-c.lost:
@@ -178,8 +149,7 @@ func (c *Client) LostErr() error {
 	}
 }
 
-// AgentAuth builds an ssh.AuthMethod backed by the platform's OpenSSH agent, erroring
-// clearly if the agent cannot be reached.
+// AgentAuth builds an ssh.AuthMethod backed by the platform's OpenSSH agent.
 func AgentAuth() (ssh.AuthMethod, error) {
 	conn, err := dialAgent()
 	if err != nil {
@@ -189,18 +159,7 @@ func AgentAuth() (ssh.AuthMethod, error) {
 	return ssh.PublicKeysCallback(ag.Signers), nil
 }
 
-// authMethods assembles the auth to offer for h: the agent's identities plus private
-// keys from disk (the host's IdentityFile, else the default ~/.ssh keys). Neither source
-// is required, only their union, which is what makes hop connect wherever ssh does.
-//
-// The two are merged into a single publickey method, because the client tries each
-// method name at most once: offered separately, an empty agent would swallow the attempt
-// and the key files would never be reached.
-//
-// With a prompter, keyboard-interactive and password follow, in ssh's own order — a
-// hardened `AuthenticationMethods publickey,keyboard-interactive` server answers the key
-// with a partial success and then requires them. Both are wrapped in RetryableAuthMethod
-// so a mistyped code is another prompt inside the same handshake.
+// authMethods merges agent and file signers into a single publickey method: the client tries each method name at most once.
 func authMethods(h store.Host, p Prompter) ([]ssh.AuthMethod, error) {
 	signers, agentErr := agentSigners()
 
@@ -212,8 +171,7 @@ func authMethods(h store.Host, p Prompter) ([]ssh.AuthMethod, error) {
 		methods = append(methods, ssh.PublicKeys(signers...))
 	}
 	if p != nil {
-		// One wrapper shared by both, so a cancel ends the dial rather than moving the
-		// user on to the other method.
+		// One wrapper shared by both, so a cancel ends the dial instead of moving on to the other method.
 		sticky := &stickyCancel{p: p}
 		methods = append(methods,
 			ssh.RetryableAuthMethod(ssh.KeyboardInteractive(keyboardInteractive(sticky)), authRetries),
@@ -227,8 +185,7 @@ func authMethods(h store.Host, p Prompter) ([]ssh.AuthMethod, error) {
 	return methods, nil
 }
 
-// agentSigners returns the identities held by the OpenSSH agent. The connection is left
-// open: each signer signs over it, so closing it here would break every signature.
+// agentSigners returns the agent's identities; the connection stays open because each signer signs over it.
 func agentSigners() ([]ssh.Signer, error) {
 	conn, err := dialAgent()
 	if err != nil {
@@ -242,9 +199,7 @@ func agentSigners() ([]ssh.Signer, error) {
 	return signers, nil
 }
 
-// noAuthError explains why nothing could be offered, naming both halves — an unusable
-// agent and any key file found but skipped — since the fix depends on which one the user
-// meant to use. Only reached without a prompter, which always has a method left to try.
+// noAuthError explains why nothing could be offered, naming both the agent and any skipped key files.
 func noAuthError(agentErr error, skipped []string) error {
 	var b strings.Builder
 	b.WriteString("sshx: no usable authentication: ")
@@ -261,63 +216,39 @@ func noAuthError(agentErr error, skipped []string) error {
 	return errors.New(b.String())
 }
 
-// UnknownHostKeyError is returned by Connect when the host is met for the first time and
-// no fingerprint has been approved. It carries what the UI needs to ask the user, and
-// nothing is written to known_hosts: a first-contact MITM is not waved through silently.
+// UnknownHostKeyError reports first contact with no approved fingerprint; nothing is written to known_hosts.
 type UnknownHostKeyError struct {
-	Hostname    string // the host as presented to the host-key callback
-	Fingerprint string // ssh.FingerprintSHA256 of the presented key
-	KeyType     string // key.Type(), e.g. "ssh-ed25519"
+	Hostname    string
+	Fingerprint string
+	KeyType     string
 }
 
 func (e *UnknownHostKeyError) Error() string {
 	return fmt.Sprintf("sshx: unknown host key for %s: %s %s", e.Hostname, e.KeyType, e.Fingerprint)
 }
 
-// SetJumpResolver installs the alias lookup for ProxyJump. Set once at startup; without
-// it a jump name is taken as a bare hostname.
+// SetJumpResolver installs the alias lookup for ProxyJump; without it a jump name is a bare hostname.
 func SetJumpResolver(r JumpResolver) { jumpResolver = r }
 
-// jumpResolver is process-wide: dials happen in several places, none of which should
-// have to carry the store along.
 var jumpResolver JumpResolver
 
-// Connect resolves auth, host-key policy and address from h and dials. An unknown host
-// aborts with an error unwrapping to *UnknownHostKeyError and appends nothing to
-// known_hosts — the caller decides whether to trust the key and retries through
-// ConnectTrusting.
-//
-// p answers whatever the server asks interactively. It is called from inside the
-// handshake, so it blocks the dial while the user types. A nil p offers public keys only.
+// Connect dials h; an unknown host aborts with an error unwrapping to *UnknownHostKeyError, writing nothing.
 func Connect(h store.Host, p Prompter) (*Client, error) {
 	return connect(h, "", p)
 }
 
-// ConnectTrusting dials h like Connect, but an unknown host whose key matches
-// fingerprint is appended to known_hosts and accepted. A key that does not match is
-// refused: it changed between the prompt and this retry, which is the swap to catch.
+// ConnectTrusting dials h, recording an unknown key that matches fingerprint; a mismatch is refused as a key swap.
 func ConnectTrusting(h store.Host, fingerprint string, p Prompter) (*Client, error) {
 	return connect(h, fingerprint, p)
 }
 
-// connect is the shared dial body. trustedFP is empty for a plain TOFU-guarded
-// dial and the user-approved fingerprint for a trusting retry.
 func connect(h store.Host, trustedFP string, p Prompter) (*Client, error) {
 	return connectTrust(h, &dialState{fingerprint: trustedFP}, p)
 }
 
-// maxJumpDepth bounds how many bastions one dial may stack, so a mistake ends in an
-// error rather than a blown stack.
 const maxJumpDepth = 10
 
-// dialState is what one dial carries across the hosts it touches.
-//
-// fingerprint is one user approval, consumed by the first first-contact host it fits: a
-// jump meeting two unknown hosts then asks about each in turn, instead of measuring the
-// second against a fingerprint approved for the first.
-//
-// jumps are the bastions already dialled. A ProxyJump may name a store host that names
-// another, so the chain can close on itself.
+// dialState carries one dial across the hosts it touches; fingerprint is a single approval, spent on the first host it fits.
 type dialState struct {
 	fingerprint string
 	used        bool
@@ -373,9 +304,7 @@ func connectTrust(h store.Host, trust *dialState, p Prompter) (*Client, error) {
 	cfg := &ssh.ClientConfig{
 		User: username,
 		Auth: auths,
-		// Ask for the key types already trusted for this host; without it the server may
-		// answer with a type we have no entry for, which reads as a key mismatch. Empty
-		// for an unknown host means library defaults.
+		// Ask only for key types already trusted here, or the server may answer with one we have no entry for and it reads as a mismatch.
 		HostKeyAlgorithms: db.HostKeyAlgorithms(addr),
 		HostKeyCallback:   tofuHostKeyCallback(db, khPath, trust, &newKey),
 		Timeout:           dialTimeout,
@@ -389,9 +318,7 @@ func connectTrust(h store.Host, trust *dialState, p Prompter) (*Client, error) {
 	return cl, nil
 }
 
-// dialWithProxy opens the transport by whichever route h describes. Only the route
-// differs: the same ClientConfig, and so the same auth and host-key checks, apply to all
-// three. ProxyJump wins over ProxyCommand, as in ssh.
+// dialWithProxy opens the transport by whichever route h describes; ProxyJump wins over ProxyCommand, as in ssh.
 func dialWithProxy(h store.Host, addr, username string, port int, trust *dialState, cfg *ssh.ClientConfig, p Prompter) (*Client, error) {
 	switch {
 	case strings.TrimSpace(h.ProxyJump) != "":
@@ -407,15 +334,7 @@ func dialWithProxy(h store.Host, addr, username string, port int, trust *dialSta
 	}
 }
 
-// dialViaJump logs into the bastion first, then dials addr from there over the bastion's
-// authenticated transport. The bastion's own host key is verified by its own dial, so a
-// compromised bastion still cannot pose as the target.
-//
-// The bastion client is closed when the target's connection ends.
-//
-// The approval travels into the bastion's dial: the bastion is dialled first, so it is
-// what the user is asked about first, and without this the retry would meet the same
-// unknown key and reopen the card forever.
+// dialViaJump dials addr over the bastion's transport; the bastion's own host key is verified by its own dial.
 func dialViaJump(h store.Host, addr string, trust *dialState, cfg *ssh.ClientConfig, p Prompter) (*Client, error) {
 	j, err := parseJump(h.ProxyJump)
 	if err != nil {
@@ -436,9 +355,7 @@ func dialViaJump(h store.Host, addr string, trust *dialState, cfg *ssh.ClientCon
 		return nil, fmt.Errorf("sshx: proxy jump via %s: %w", j.Host, err)
 	}
 
-	// Bounded like a direct connect: the bastion sits on the request rather than saying
-	// the target is not there. ClientConfig.Timeout does not reach here — only ssh.Dial
-	// reads it.
+	// ClientConfig.Timeout does not reach here — only ssh.Dial reads it.
 	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
 	defer cancel()
 	conn, err := bastion.ssh.DialContext(ctx, "tcp", addr)
@@ -459,8 +376,7 @@ func dialViaJump(h store.Host, addr string, trust *dialState, cfg *ssh.ClientCon
 	return cl, nil
 }
 
-// clientOverConn completes the handshake over an established stream, closing conn on
-// failure so a refused handshake leaves nothing running.
+// clientOverConn completes the handshake over an established stream, closing conn on failure.
 func clientOverConn(conn net.Conn, addr string, cfg *ssh.ClientConfig) (*Client, error) {
 	c, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
 	if err != nil {
@@ -470,8 +386,7 @@ func clientOverConn(conn net.Conn, addr string, cfg *ssh.ClientConfig) (*Client,
 	return newClient(ssh.NewClient(c, chans, reqs)), nil
 }
 
-// ConnectAddr dials addr with the supplied config. Tests pass their own host-key
-// callback and auth method.
+// ConnectAddr dials addr with the supplied config.
 func ConnectAddr(addr string, cfg *ssh.ClientConfig) (*Client, error) {
 	cl, err := ssh.Dial("tcp", addr, cfg)
 	if err != nil {
@@ -485,15 +400,12 @@ func (c *Client) Shell(cols, rows int) (*Session, error) {
 	return c.startPTY(cols, rows, func(s *ssh.Session) error { return s.Shell() })
 }
 
-// Command runs cmd on a pty of the given size, as Shell does for a login shell. The pty
-// is what a full-screen program needs to draw at all.
+// Command runs cmd on a pty of the given size.
 func (c *Client) Command(cmd string, cols, rows int) (*Session, error) {
 	return c.startPTY(cols, rows, func(s *ssh.Session) error { return s.Start(cmd) })
 }
 
-// Output runs cmd on a channel of its own, without a pty, and returns its stdout — for
-// the small questions hop asks a host about itself. stderr is discarded: callers treat
-// "no answer" and "a bad answer" alike.
+// Output runs cmd without a pty and returns its stdout; stderr is discarded.
 func (c *Client) Output(cmd string) (string, error) {
 	sess, err := c.ssh.NewSession()
 	if err != nil {
@@ -501,9 +413,7 @@ func (c *Client) Output(cmd string) (string, error) {
 	}
 	defer sess.Close()
 
-	// Bounded, because these questions reach parts of a host that hang — a `getent passwd`
-	// against an unreachable LDAP never returns. Closing the session is what unblocks the
-	// read, so the timer closes it and Output returns the resulting error.
+	// Closing the session is what unblocks a hung read, so the timer closes it.
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -523,12 +433,9 @@ func (c *Client) Output(cmd string) (string, error) {
 	return string(out), nil
 }
 
-// outputTimeout bounds a single Output call: generous for a healthy host, short enough
-// that an unhealthy one is not waited on.
 const outputTimeout = 10 * time.Second
 
-// startPTY opens a session, requests a pty, wires the std streams with stdout and stderr
-// merged into one ordered stream, and hands the prepared session to start.
+// startPTY opens a session with a pty and hands it to start, with stdout and stderr merged.
 func (c *Client) startPTY(cols, rows int, start func(*ssh.Session) error) (*Session, error) {
 	sess, err := c.ssh.NewSession()
 	if err != nil {
@@ -596,7 +503,6 @@ func (c *Client) startPTY(cols, rows int, start func(*ssh.Session) error) (*Sess
 // SSHClient returns the underlying *ssh.Client.
 func (c *Client) SSHClient() *ssh.Client { return c.ssh }
 
-// Close closes the underlying SSH client connection.
 func (c *Client) Close() error {
 	if c.ssh == nil {
 		return nil
@@ -604,7 +510,7 @@ func (c *Client) Close() error {
 	return c.ssh.Close()
 }
 
-// currentUsername returns the current OS user, stripping any DOMAIN\ prefix.
+// currentUsername returns the current OS user, stripping any Windows DOMAIN\ prefix.
 func currentUsername() string {
 	u, err := user.Current()
 	if err != nil {
@@ -617,8 +523,7 @@ func currentUsername() string {
 	return name
 }
 
-// hostKeyDB opens ~/.ssh/known_hosts, creating the file and its directory on first run,
-// and returns the parsed database with its path.
+// hostKeyDB opens ~/.ssh/known_hosts, creating the file and its directory on first run.
 func hostKeyDB() (*knownhosts.HostKeyDB, string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -646,13 +551,7 @@ func hostKeyDB() (*knownhosts.HostKeyDB, string, error) {
 	return db, khPath, nil
 }
 
-// tofuHostKeyCallback verifies the presented key against db: a known key is accepted, a
-// changed one rejected outright.
-//
-// First contact is decided by trustedFP. Empty returns an *UnknownHostKeyError and
-// writes nothing, so the caller can ask the user. With a user-approved fingerprint, a
-// matching key is appended to khPath and reported through recorded; a non-matching one
-// is refused, since the key changed after approval.
+// tofuHostKeyCallback accepts a known key, rejects a changed one, and records first contact only against an approved fingerprint.
 func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath string, trust *dialState, recorded *string) ssh.HostKeyCallback {
 	inner := db.HostKeyCallback()
 
@@ -682,7 +581,6 @@ func tofuHostKeyCallback(db *knownhosts.HostKeyDB, khPath string, trust *dialSta
 	}
 }
 
-// appendKnownHost appends a normalized known_hosts line for the given host key.
 func appendKnownHost(path, hostname string, remote net.Addr, key ssh.PublicKey) error {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {

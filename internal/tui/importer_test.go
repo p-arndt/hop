@@ -19,9 +19,7 @@ func writeSSHConfig(t *testing.T, body string) string {
 	return path
 }
 
-// setHome points os.UserHomeDir at a temp dir and returns it. It sets every
-// variable that call consults — $HOME on unix, %USERPROFILE% on Windows — because
-// setting only $HOME leaves the Windows runner reading the real profile.
+// setHome points os.UserHomeDir at a temp dir, setting both $HOME and %USERPROFILE%.
 func setHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -30,14 +28,12 @@ func setHome(t *testing.T) string {
 	return home
 }
 
-// setPath replaces whatever the card was pre-filled with, the way ctrl+u and
-// typing would.
+// setPath replaces whatever the card was pre-filled with.
 func setPath(m *model, path string) {
 	m.importer.path = path
 }
 
-// "i" opens the card; pointing it at a config and pressing enter writes the hosts,
-// closes the card and shows them in the list — no trip back to `hop import`.
+// Importing writes the hosts, closes the card and shows them in the list.
 func TestImportFlow(t *testing.T) {
 	m := hostMgmtModel(t)
 
@@ -62,7 +58,7 @@ func TestImportFlow(t *testing.T) {
 	if h := got["web"]; h.HostName != "web.example.com" || h.User != "deploy" || h.Port != 2222 {
 		t.Errorf("web imported as %+v", h)
 	}
-	// The list behind the card is reloaded, so the hosts are there the moment it goes.
+	// The list behind the card is reloaded.
 	if len(m.hosts) != 2 {
 		t.Errorf("model has %d hosts after import, want 2", len(m.hosts))
 	}
@@ -71,8 +67,6 @@ func TestImportFlow(t *testing.T) {
 	}
 }
 
-// A path that does not exist keeps the card up with the typed path intact, so it
-// can be corrected rather than retyped.
 func TestImportBadPathKeepsCardOpen(t *testing.T) {
 	m := hostMgmtModel(t)
 	m.openImport(false)
@@ -95,8 +89,7 @@ func TestImportBadPathKeepsCardOpen(t *testing.T) {
 	}
 }
 
-// A config with nothing importable in it (only wildcard patterns) is reported as
-// such rather than as a cheerful "imported 0 hosts".
+// A config with only wildcard patterns is reported as having nothing to import.
 func TestImportNoHostsWarns(t *testing.T) {
 	m := hostMgmtModel(t)
 	m.openImport(false)
@@ -111,7 +104,6 @@ func TestImportNoHostsWarns(t *testing.T) {
 	}
 }
 
-// An empty path is refused before anything touches the store.
 func TestImportEmptyPathRefused(t *testing.T) {
 	m := hostMgmtModel(t)
 	m.openImport(false)
@@ -123,7 +115,6 @@ func TestImportEmptyPathRefused(t *testing.T) {
 	}
 }
 
-// esc dismisses the card without importing anything — the "skip" a first run needs.
 func TestImportEscSkips(t *testing.T) {
 	m := hostMgmtModel(t)
 	m.openImport(true)
@@ -137,8 +128,7 @@ func TestImportEscSkips(t *testing.T) {
 	}
 }
 
-// The card owns the keyboard while it is up: keys that mean something to the list
-// behind it are text, not commands.
+// The card owns the keyboard: list keys typed into it are text, not commands.
 func TestImportCardIsModal(t *testing.T) {
 	m := hostMgmtModel(t)
 	m.openImport(false)
@@ -153,8 +143,7 @@ func TestImportCardIsModal(t *testing.T) {
 	}
 }
 
-// Re-importing over hosts that are already there updates them instead of failing
-// on the taken alias — which is what makes "i" a sync, not just a first-run step.
+// Re-importing updates existing hosts instead of failing on the taken alias.
 func TestImportUpdatesExistingHosts(t *testing.T) {
 	m := hostMgmtModel(t)
 	m.openImport(false)
@@ -178,8 +167,6 @@ func TestImportUpdatesExistingHosts(t *testing.T) {
 	}
 }
 
-// backspace edits the path a rune at a time, so a pre-filled default can be
-// adjusted rather than cleared.
 func TestImportBackspaceEditsPath(t *testing.T) {
 	m := hostMgmtModel(t)
 	m.openImport(false)
@@ -193,7 +180,6 @@ func TestImportBackspaceEditsPath(t *testing.T) {
 	}
 }
 
-// A path typed with a ~ imports the file it names.
 func TestImportExpandsHomePath(t *testing.T) {
 	home := setHome(t)
 	if err := os.WriteFile(filepath.Join(home, "hosts.conf"), []byte("Host box\n  HostName box.example.com\n"), 0o600); err != nil {
@@ -210,8 +196,7 @@ func TestImportExpandsHomePath(t *testing.T) {
 	}
 }
 
-// The card is pre-filled with the default config path, so the common case is one
-// keystroke.
+// The card is pre-filled with the default config path.
 func TestOpenImportPrefillsDefaultPath(t *testing.T) {
 	home := setHome(t)
 
@@ -225,8 +210,7 @@ func TestOpenImportPrefillsDefaultPath(t *testing.T) {
 	}
 }
 
-// haveSSHConfig is what decides whether a first run offers the import at all: a
-// real file yes, a missing one (or a directory) no.
+// haveSSHConfig accepts a real file, but not a missing one or a directory.
 func TestHaveSSHConfig(t *testing.T) {
 	home := setHome(t)
 	if haveSSHConfig() {
@@ -252,8 +236,7 @@ func TestHaveSSHConfig(t *testing.T) {
 	}
 }
 
-// The card renders inside the window it is centered on, and says which mode it is
-// in: a first run offers to skip, a re-import to cancel.
+// The card fits its window and names its mode: skip on a first run, cancel on a re-import.
 func TestRenderImportCard(t *testing.T) {
 	m := hostMgmtModel(t)
 	m.openImport(true)

@@ -15,9 +15,7 @@ import (
 	"hop/internal/store"
 )
 
-// start brings the demo server up on a loopback port and returns a hop SSH client
-// connected to it — the same client the TUI uses, so what this test exercises is
-// what a recording exercises.
+// start brings the demo server up on a loopback port and returns a connected hop SSH client.
 func start(t *testing.T) *sshx.Client {
 	t.Helper()
 
@@ -44,8 +42,7 @@ func start(t *testing.T) *sshx.Client {
 	return cl
 }
 
-// The fake shell has to behave like a shell to hop's terminal pane: greet, prompt,
-// echo what is typed, answer a command, and exit on `exit`.
+// The fake shell greets, prompts, echoes, answers a command and exits on `exit`.
 func TestShellAnswersCommands(t *testing.T) {
 	cl := start(t)
 
@@ -74,8 +71,7 @@ func TestShellAnswersCommands(t *testing.T) {
 	}
 }
 
-// The SFTP subsystem has to answer the two things the browser opens with: where
-// home is, and what is in it.
+// The browser opens with two questions: where home is, and what is in it.
 func TestSFTPServesTheDemoTree(t *testing.T) {
 	cl := start(t)
 
@@ -115,21 +111,18 @@ func TestSFTPServesTheDemoTree(t *testing.T) {
 		}
 	}
 
-	// A download is how `d` works, and the browser's `o` gets the same bytes.
 	local := filepath.Join(t.TempDir(), "README.md")
 	if _, err := sc.Download(demoHome+"/README.md", local); err != nil {
 		t.Fatalf("download: %v", err)
 	}
 
-	// The tree is read-only on purpose: a stray upload during a recording should
-	// fail cleanly rather than mutate what the next take will show.
+	// The tree is read-only on purpose, so a stray upload during a recording fails cleanly.
 	if _, err := sc.Upload(local, demoHome+"/nope.md"); err == nil {
 		t.Error("upload succeeded; the demo tree is supposed to be read-only")
 	}
 }
 
-// The editor scene depends on hop's editor command reaching the fake vi with the
-// right file, and on `:q` ending the channel — that is what closes the tab.
+// hop's editor command reaches the fake vi with the right file, and `:q` ends the channel.
 func TestEditorOpensAndQuits(t *testing.T) {
 	cl := start(t)
 
@@ -160,8 +153,7 @@ func TestEditorOpensAndQuits(t *testing.T) {
 	}
 }
 
-// The seeded database is what the recording shows in the sidebar, so it has to hold
-// every sample host, all pointing at the demo server, ordered by frecency.
+// Every sample host, pointing at the demo server, ordered by frecency.
 func TestSeedWritesTheSampleFleet(t *testing.T) {
 	hostsPath := filepath.Join(t.TempDir(), "hop.config")
 	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 2222}
@@ -192,8 +184,6 @@ func TestSeedWritesTheSampleFleet(t *testing.T) {
 	}
 }
 
-// The server authenticates nobody, so refusing a non-loopback address is a
-// guarantee worth a test rather than a comment.
 func TestRequireLoopback(t *testing.T) {
 	for _, addr := range []string{"127.0.0.1:2222", "[::1]:2222"} {
 		if err := requireLoopback(addr); err != nil {
@@ -207,7 +197,6 @@ func TestRequireLoopback(t *testing.T) {
 	}
 }
 
-// editorTarget is the one bit of parsing between hop and the fake editor.
 func TestEditorTarget(t *testing.T) {
 	if p, ok := editorTarget(`exec vim '/home/deploy/app/main.py'`); !ok || p != "/home/deploy/app/main.py" {
 		t.Errorf("editorTarget = %q, %v", p, ok)
@@ -217,8 +206,7 @@ func TestEditorTarget(t *testing.T) {
 	}
 }
 
-// readUntil reads from r until want shows up, so a test never depends on how the
-// server happened to chunk its writes.
+// readUntil reads from r until want shows up, regardless of write chunking.
 func readUntil(t *testing.T, r io.Reader, want string) string {
 	t.Helper()
 

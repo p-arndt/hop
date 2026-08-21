@@ -7,8 +7,7 @@ import (
 	"strings"
 )
 
-// A SearchEntry is one thing the in-page search can find: a block of text,
-// the heading it sits under, and the anchor that scrolls there.
+// A SearchEntry is one thing the in-page search can find.
 type SearchEntry struct {
 	Section string `json:"s"` // the section's own title
 	Heading string `json:"h"` // the nearest heading, empty at section level
@@ -24,10 +23,7 @@ var (
 	modelinksRe = regexp.MustCompile(`(?s)<ul class="modelinks">.*?</ul>`)
 )
 
-// BuildSearchIndex walks the rendered HTML of every section and collects one
-// entry per block of prose, table row or heading. It works on the rendered
-// HTML rather than the markdown so that whatever a reader can see on the page
-// is exactly what the search can find.
+// BuildSearchIndex collects one entry per heading, prose block or table row.
 func BuildSearchIndex(docs []*Doc, rendered map[string]string) []SearchEntry {
 	var out []SearchEntry
 	for _, d := range docs {
@@ -36,8 +32,7 @@ func BuildSearchIndex(docs []*Doc, rendered map[string]string) []SearchEntry {
 		}
 		heading, anchor := "", "#"+d.ID
 		out = append(out, SearchEntry{Section: d.Title, Anchor: anchor, Text: d.Title})
-		// The sidebar label is what a reader is likely to type — "Scrollback"
-		// finds a section titled "Scrolling back through history".
+		// The sidebar label is what a reader is likely to type.
 		if nav := d.NavLabel(); nav != d.Title {
 			out = append(out, SearchEntry{Section: d.Title, Anchor: anchor, Text: nav})
 		}
@@ -62,9 +57,7 @@ func BuildSearchIndex(docs []*Doc, rendered map[string]string) []SearchEntry {
 	return out
 }
 
-// plain reduces a block of HTML to the words in it. Table cells are joined
-// with a middle dot so a key and its action stay one searchable phrase without
-// running together.
+// plain reduces a block of HTML to the words in it; cells joined by a middle dot.
 func plain(in string) string {
 	in = strings.ReplaceAll(in, "</td>", " · ")
 	in = strings.ReplaceAll(in, "</th>", " · ")

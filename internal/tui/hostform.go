@@ -11,19 +11,14 @@ import (
 	"hop/internal/store"
 )
 
-// hostFormField is one editable row of the add/edit card. Unlike a settings field it has
-// no get/set into a live config: the form edits its own buffer and only touches the
-// store on submit.
+// hostFormField is one editable row of the add/edit card.
 type hostFormField struct {
-	label string
-	// placeholder says what the field means when nothing is typed: "required" for the
-	// alias, and the default hop falls back to for the rest.
+	label       string
 	placeholder string
 }
 
-// hostFormFields are the rows of the card, in tab order — the single place a field's
-// position is decided. An array rather than a slice so its length is a constant the
-// buffer below can be sized from.
+// hostFormFields are the rows of the card, in tab order. An array, so its length is a
+// constant the buffer can be sized from.
 var hostFormFields = [...]hostFormField{
 	{"Alias", "required"},
 	{"User", "none"},
@@ -51,9 +46,7 @@ const (
 	hfProxyCommand
 )
 
-// hostFormUI is the add/edit card's own state: one buffer per field, and in edit mode
-// the identity of the host it stands in for — orig is the alias to rename from, and
-// visits/lastConnect are carried through so saving does not reset the host's history.
+// hostFormUI is the add/edit card's own state; orig is the alias to rename from.
 type hostFormUI struct {
 	open   bool
 	edit   bool
@@ -61,8 +54,7 @@ type hostFormUI struct {
 	cursor int
 	buf    [len(hostFormFields)]string
 
-	// visits and lastConnect are the edited host's history, held so an Upsert hands them
-	// back rather than zeroing them.
+	// Held so an Upsert hands the host's history back rather than zeroing it.
 	visits      int
 	lastConnect int64
 }
@@ -73,8 +65,7 @@ func (m *model) openHostFormAdd() {
 	m.status = ""
 }
 
-// openHostFormEdit shows a card pre-filled from h, remembering h.Alias as the alias to
-// rename from and carrying its history through so a save preserves it.
+// openHostFormEdit shows a card pre-filled from h, carrying its history through.
 func (m *model) openHostFormEdit(h store.Host) {
 	f := hostFormUI{
 		open:        true,
@@ -105,9 +96,7 @@ func (m *model) closeHostForm() {
 	m.hostForm = hostFormUI{}
 }
 
-// handleHostFormKey routes a key while the card is up. Unlike the settings popover there
-// is no separate editing mode: the focused field always has the keyboard. It swallows
-// everything, since a modal that let keys through would be a trap.
+// handleHostFormKey routes a key while the card is up, swallowing everything.
 func (m *model) handleHostFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -132,8 +121,7 @@ func (m *model) handleHostFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.hostForm.buf[m.hostForm.cursor] = ""
 
 	default:
-		// Anything carrying text goes to the focused field — which is why the vim motions
-		// are never gated here: "h" is a letter of the value.
+		// All text goes to the focused field, so vim motions are never gated here.
 		if len(msg.Runes) > 0 {
 			m.hostForm.buf[m.hostForm.cursor] += string(msg.Runes)
 		}
@@ -147,10 +135,7 @@ func (m *model) moveHostForm(delta int) {
 	m.hostForm.cursor = ((m.hostForm.cursor+delta)%n + n) % n
 }
 
-// submitHostForm validates the buffers and writes the host, leaving the card open on any
-// error so a bad value can be fixed rather than lost. On success it reloads the list,
-// parks the cursor on the saved host and closes the card. Nothing touches the store until
-// every check has passed.
+// submitHostForm validates the buffers and writes the host, leaving the card open on error.
 func (m *model) submitHostForm() {
 	f := &m.hostForm
 
@@ -189,23 +174,20 @@ func (m *model) submitHostForm() {
 	if f.edit {
 		verb = "updated"
 
-		// A rename only has to clear the way when the alias actually changed. Rename
-		// itself rejects a taken alias, so it is the guard rather than the in-memory list.
+		// Rename itself rejects a taken alias, so it is the guard rather than the in-memory list.
 		if alias != f.orig {
 			if err := m.st.Rename(f.orig, alias); err != nil {
 				m.setStatus(statusErr, "%v", err)
 				return
 			}
 		}
-		// Upsert updates the row in place; its ON CONFLICT clause leaves visits and
-		// last_connect untouched, so a plain edit keeps history.
+		// Upsert's ON CONFLICT leaves visits and last_connect untouched, so an edit keeps history.
 		if _, err := m.st.Upsert(host); err != nil {
 			m.setStatus(statusErr, "save host: %v", err)
 			return
 		}
 	} else {
-		// A new host starts with a clean history and goes in through Add — an INSERT that
-		// fails on a taken alias — so it cannot overwrite a host the list did not know of.
+		// Add is an INSERT that fails on a taken alias, so it cannot overwrite an unlisted host.
 		host.Visits = 0
 		host.LastConnect = 0
 		if _, err := m.st.Add(host); err != nil {
@@ -214,16 +196,13 @@ func (m *model) submitHostForm() {
 		}
 	}
 
-	// Land the cursor on the host just saved: a new or renamed alias reloadHosts alone
-	// would not find.
+	// Land the cursor on the host just saved: reloadHosts alone would not find a new alias.
 	m.reloadHostsSelecting(alias)
 	m.closeHostForm()
 	m.setStatus(statusOK, "%s %s", verb, alias)
 }
 
-// splitFormTags turns the tags field's text into the slice the store keeps: comma
-// separated, trimmed, empties dropped. It mirrors store.splitTags, so tags typed here
-// shape up like tags read back from an SSH config import.
+// splitFormTags splits the tags field on commas; mirrors store.splitTags.
 func splitFormTags(s string) []string {
 	parts := strings.Split(s, ",")
 	out := parts[:0]
@@ -240,29 +219,22 @@ func splitFormTags(s string) []string {
 
 // Card geometry.
 const (
-	hostFormMaxW = 48 // content width, borders and padding excluded
-	// hostFormFloorW is the narrowest the card gets before it stops shrinking.
+	hostFormMaxW   = 48 // content width, borders and padding excluded
 	hostFormFloorW = 20
 )
 
-// hostFormChrome is what the card costs before any field is drawn: border, padding,
-// title and its blank, then the rule and the hint line.
+// hostFormChrome is what the card costs before any field is drawn.
 const hostFormChrome = 2 + 2 + 2 + 1 + 1
 
-// hostFormMinFields is the fewest fields the card shows: the selected one and one on
-// either side. It keeps the floor below fixed as fields are added (see hostFormWindow).
+// hostFormMinFields is the fewest fields the card shows: the selected one and its neighbours.
 const hostFormMinFields = 3
 
-// hostFormFullH is how tall the card stands with a blank line between its fields,
-// hostFormPackedH with every field and no air, hostFormMinH with hostFormMinFields of
-// them — below which the overlay cuts the bottom rows off. See renderHostForm.
+// Card heights: with air between fields, packed, and at hostFormMinFields.
 func hostFormFullH() int   { return hostFormChrome + 3*len(hostFormFields) }
 func hostFormPackedH() int { return hostFormChrome + 2*len(hostFormFields) }
 func hostFormMinH() int    { return hostFormChrome + 2*hostFormMinFields }
 
-// hostFormWindow is the run of fields the card has room to draw, as a first index and a
-// count, always containing the cursor. It is the settings popover's rule: all of them
-// where there is room, otherwise what fits, centred on the cursor.
+// hostFormWindow is the run of fields the card has room to draw, always containing the cursor.
 func (m *model) hostFormWindow() (first, count int) {
 	n := len(hostFormFields)
 	if m.height >= hostFormPackedH() {
@@ -274,15 +246,13 @@ func (m *model) hostFormWindow() (first, count int) {
 	return first, count
 }
 
-// hostFormInnerW is the width available to a rendered row: the box less its border and
-// padding, held to the window so the card never spills past the screen.
+// hostFormInnerW is the width available to a rendered row, held to the window.
 func (m *model) hostFormInnerW() int {
 	room := max(m.width-2*cardPadX-2, hostFormFloorW)
 	return clamp(hostFormMaxW, hostFormFloorW, room)
 }
 
-// renderHostForm draws the add/edit card: a stack of fields, each a quiet label over its
-// value, with the focused one lit and holding a caret — the settings popover's shape.
+// renderHostForm draws the add/edit card: a stack of labelled fields, the focused one lit.
 func (m *model) renderHostForm() string {
 	w := m.hostFormInnerW()
 	var b strings.Builder
@@ -294,8 +264,7 @@ func (m *model) renderHostForm() string {
 	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n\n")
 
-	// Air gives way first, then the number of fields on screen — the settings popover's
-	// order of give, so a short terminal never hides the field you tabbed to.
+	// Air gives way before the field count, so a short terminal never hides the focused field.
 	gap := "\n\n"
 	if m.height < hostFormFullH() {
 		gap = "\n"
@@ -328,9 +297,7 @@ func (m *model) renderHostForm() string {
 	return cardBox.Width(w + 2*cardPadX).Render(b.String())
 }
 
-// renderHostFormValue draws one field's value as a full-width row: the focused field is
-// filled like a text input with a caret; the rest show their value, or a dim placeholder
-// naming the default when blank.
+// renderHostFormValue draws one field's value, or a dim placeholder when blank.
 func (m *model) renderHostFormValue(i int, f hostFormField, selected bool, w int) string {
 	const indent = "    "
 	vw := w - lipgloss.Width(indent)

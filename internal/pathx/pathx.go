@@ -1,6 +1,4 @@
-// Package pathx holds the small path manipulations several of hop's packages need and
-// none of them owns. It deliberately depends on nothing but the standard library, so the
-// SSH layer, the file browser and the TUI can all reach it without a direction problem.
+// Package pathx holds the small path manipulations several of hop's packages share.
 package pathx
 
 import (
@@ -9,15 +7,8 @@ import (
 	"strings"
 )
 
-// ExpandHome resolves a leading "~" against the user's home directory.
-//
-// Only a leading one, and only as a whole path element: "~/x" and "~" expand, "~user/x"
-// does not — that is a shell's business, and a file literally named "~foo" should stay
-// itself. A home directory that cannot be found leaves the path alone rather than
-// failing: the caller is about to use it and will report a better error than this can.
-//
-// Both separators are accepted, because a Windows user types the one their shell shows
-// them and a config file may carry either.
+// ExpandHome resolves a leading "~" against the user's home directory. Only as a whole
+// element ("~user/x" is a shell's business); both separators are accepted for Windows.
 func ExpandHome(p string) string {
 	if p != "~" && !strings.HasPrefix(p, "~/") && !strings.HasPrefix(p, `~\`) {
 		return p

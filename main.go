@@ -1,5 +1,4 @@
 // Command hop is a Windows-first TUI SSH connection manager with embedded terminal panes.
-// Run with no arguments to launch the TUI; the subcommands manage the host store.
 package main
 
 import (
@@ -20,11 +19,9 @@ import (
 func main() {
 	args := os.Args[1:]
 
-	// A previous self-update on Windows leaves the old binary beside the new one, since a
-	// running .exe can be renamed but not deleted.
+	// A running .exe can be renamed but not deleted, so a Windows self-update leaves the old one behind.
 	update.CleanupLeftovers()
 
-	// Handle commands that don't need the store first.
 	if len(args) > 0 {
 		switch args[0] {
 		case "version", "--version", "-v":
@@ -46,9 +43,7 @@ func main() {
 	}
 	defer st.Close()
 
-	// A ProxyJump may name another host in this store by its alias; without this lookup
-	// the name would only ever be taken as a bare hostname, losing that host's own user,
-	// port and key.
+	// A ProxyJump target may name a store alias, not just a bare hostname.
 	sshx.SetJumpResolver(func(name string) (store.Host, bool) {
 		h, ok, err := st.HostByAlias(name)
 		if err != nil || !ok {
@@ -76,13 +71,11 @@ func main() {
 		usage()
 	}
 
-	// A one-line hint on stderr, never stdout, so `hop list` stays pipeable. It reports
-	// the previous check and refreshes the cache for the next run.
+	// stderr, never stdout, so `hop list` stays pipeable.
 	update.NotifyIfAvailable(os.Stderr, buildinfo.Version)
 }
 
-// cmdUpdate backs `hop self-update` and, with checkOnly, `hop check-update`: the first
-// replaces the running binary once the checksum verifies, the second only reports.
+// cmdUpdate backs `hop self-update` and, with checkOnly, `hop check-update`.
 func cmdUpdate(checkOnly bool) {
 	current := buildinfo.Version
 	ctx, cancel := context.WithTimeout(context.Background(), update.UpdateTimeout)
@@ -107,8 +100,7 @@ func cmdUpdate(checkOnly bool) {
 	}
 }
 
-// cmdImport imports hosts from an OpenSSH config file. The path defaults to
-// ~/.ssh/config but may be overridden by the first argument.
+// cmdImport imports hosts from an OpenSSH config file, ~/.ssh/config by default.
 func cmdImport(st *store.Store, args []string) {
 	var path string
 	if len(args) > 0 && args[0] != "" {

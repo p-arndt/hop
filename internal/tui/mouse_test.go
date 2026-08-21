@@ -19,8 +19,7 @@ import (
 	"hop/internal/terminal"
 )
 
-// newMouseModel builds a model in navigation mode with n hosts, a 32-column sidebar, 15
-// list rows and the first host on screen row 3.
+// newMouseModel builds a navigation-mode model with n hosts, a 32-column sidebar and 15 list rows.
 func newMouseModel(n int) *model {
 	hosts := make([]store.Host, n)
 	filtered := make([]int, n)
@@ -30,8 +29,6 @@ func newMouseModel(n int) *model {
 	}
 	m := &model{hosts: hosts, filtered: filtered, sessions: map[string]*session{}, connecting: map[string]bool{}, cfg: config.Default(), layout: layout{width: 100, height: 20, ready: true}}
 	m.recomputeLayout()
-	// applyFilter is what builds the drawn rows the click arithmetic runs backwards;
-	// with an empty filter it hands back the same filtered list built above.
 	m.applyFilter()
 	return m
 }
@@ -73,9 +70,7 @@ func TestZoneAt(t *testing.T) {
 		}
 	}
 
-	// Collapsed, the sidebar is not there to point at: the pane owns every column. The
-	// relayout is what toggleSidebar does in production — the pointer hit-tests against
-	// the frame that was last laid out, not against state nothing has drawn yet.
+	// Collapsed, the pane owns every column; the relayout is what toggleSidebar does in production.
 	m.sidebarHidden = true
 	m.recomputeLayout()
 	if got := m.zoneAt(4, 5); got != zonePane {
@@ -83,8 +78,7 @@ func TestZoneAt(t *testing.T) {
 	}
 }
 
-// The wheel over the list steps the selection one host at a time, and stops at both
-// ends — the list does not scroll, so the wheel is ↑/↓ by another name.
+// The wheel over the list steps the selection one host at a time and stops at both ends.
 func TestWheelOverList(t *testing.T) {
 	m := newMouseModel(4)
 
@@ -106,8 +100,6 @@ func TestWheelOverList(t *testing.T) {
 	}
 }
 
-// A click stands the cursor on the host it landed on. The rows above the list are not
-// hosts, and a click on them leaves the cursor where it was.
 func TestClickSelectsHost(t *testing.T) {
 	m := newMouseModel(6)
 
@@ -130,8 +122,6 @@ func TestClickSelectsHost(t *testing.T) {
 	}
 }
 
-// A scrolled list maps rows through the same window it is drawn with: on a list
-// standing on its 21st host, the top row is not the first host.
 func TestClickSelectsScrolledHost(t *testing.T) {
 	m := newMouseModel(30)
 	m.cursor = 20 // listRows() == 15, so the window starts at 6
@@ -145,8 +135,7 @@ func TestClickSelectsScrolledHost(t *testing.T) {
 	}
 }
 
-// A second click on the same host connects to it — enter, by pointing. Two clicks on
-// *different* hosts are two selections, and a slow second click is not a double.
+// A second click on the same host connects to it; clicks on different hosts are two selections.
 func TestDoubleClickConnects(t *testing.T) {
 	t.Run("same row", func(t *testing.T) {
 		m := newMouseModel(3)
@@ -187,8 +176,7 @@ func TestDoubleClickConnects(t *testing.T) {
 		}
 	})
 
-	// The list re-scrolls around the cursor a click has just moved, so two clicks on one
-	// row can be two clicks on two hosts. The chord is keyed on the host, not the row.
+	// The list re-scrolls around the cursor, so the chord is keyed on the host, not the row.
 	t.Run("the same row, a different host", func(t *testing.T) {
 		m := newMouseModel(30)
 		m.cursor = 20 // the window starts at 6; the top row is host 6
@@ -208,8 +196,6 @@ func TestDoubleClickConnects(t *testing.T) {
 	})
 }
 
-// A click in the sidebar is a click away from whatever pane holds the keyboard: it
-// hands it back to the list, exactly as ctrl+o does, and keeps the session on screen.
 func TestClickInSidebarLeavesThePane(t *testing.T) {
 	for _, mode := range []string{"focused", "browsing", "editing"} {
 		t.Run(mode, func(t *testing.T) {
@@ -237,8 +223,6 @@ func TestClickInSidebarLeavesThePane(t *testing.T) {
 	}
 }
 
-// A card takes every event while it is up, as it takes every key: one falling through
-// onto the list behind it is the trap the modal ordering prevents.
 func TestModalCardSwallowsMouse(t *testing.T) {
 	m := newMouseModel(6)
 	m.help = true
@@ -251,8 +235,7 @@ func TestModalCardSwallowsMouse(t *testing.T) {
 	}
 }
 
-// paneLocal maps a screen cell into the pane's content box, and rejects the cells
-// outside it — the borders, and the sidebar's own columns.
+// paneLocal maps a screen cell into the pane's content box and rejects the cells outside it.
 func TestPaneLocal(t *testing.T) {
 	m := newMouseModel(3) // listWidth 32, paneW 66, paneH 16
 
@@ -271,8 +254,6 @@ func TestPaneLocal(t *testing.T) {
 	}
 }
 
-// Clicking a pane the list still has the keyboard in is the way in — the pointer's
-// s (a shell) or f (a browser on a session that has no shell).
 func TestClickIntoPaneTakesTheKeyboard(t *testing.T) {
 	m := newMouseModel(3)
 	m.active = "ha"
@@ -285,8 +266,6 @@ func TestClickIntoPaneTakesTheKeyboard(t *testing.T) {
 	}
 }
 
-// A dropped session's pane is a picture of a shell: it answers r, d and ctrl+o, and
-// nothing the pointer could do would look like driving the far end.
 func TestMouseOnDeadPaneDoesNothing(t *testing.T) {
 	m := newMouseModel(3)
 	m.active = "ha"
@@ -302,14 +281,12 @@ func TestMouseOnDeadPaneDoesNothing(t *testing.T) {
 	}
 }
 
-// The tab strip is hop's own row: a click on a pill switches to it, measured off the
-// same pills the strip is drawn from. The gaps between pills belong to neither.
+// A click on a tab pill switches to it; the gaps between pills belong to neither.
 func TestTabAt(t *testing.T) {
 	m := newMouseModel(3)
 	names := []string{"one", "two", "three"}
 
-	// Pill widths: tabActive/tabInactive pad "1 one" etc., so walk the strip rather
-	// than hard-coding columns — the point is that the mapping agrees with the render.
+	// Walk the strip rather than hard-coding columns, so the mapping is checked against the render.
 	pills := tabPills(names, 0)
 	col := 0
 	for i := range pills {
@@ -328,8 +305,6 @@ func TestTabAt(t *testing.T) {
 	}
 }
 
-// A click on a shell tab switches to it, and the row below it is the shell's own
-// screen rather than the strip.
 func TestClickShellTab(t *testing.T) {
 	m := newMouseModel(3)
 	m.active = "ha"
@@ -350,8 +325,6 @@ func TestClickShellTab(t *testing.T) {
 	}
 }
 
-// A double-click in the browser opens what it landed on. The row is mapped through the
-// pane's borders and the browser's own header and rule.
 func TestDoubleClickInBrowserOpens(t *testing.T) {
 	br, err := filebrowser.New(
 		fbtest.Stub{Dir: "/srv", Entries: []sftpx.Entry{{Name: "logs", IsDir: true}, {Name: "app.conf", Size: 12}}},
@@ -374,10 +347,7 @@ func TestDoubleClickInBrowserOpens(t *testing.T) {
 	}
 }
 
-// A browser waiting on an answer owns the pointer as well as the keyboard. Without this
-// a double-click would walk the listing out from under an open question, and the answer
-// — a rename, an upload, a delete — would then be carried out in a directory the user
-// never aimed at.
+// A browser waiting on an answer owns the pointer too, or the answer lands in a directory nobody aimed at.
 func TestPointerIsIgnoredWhileTheBrowserIsAsking(t *testing.T) {
 	br, err := filebrowser.New(
 		fbtest.Stub{Dir: "/srv", Entries: []sftpx.Entry{{Name: "logs", IsDir: true}, {Name: "app.conf", Size: 12}}},
@@ -408,8 +378,7 @@ func TestPointerIsIgnoredWhileTheBrowserIsAsking(t *testing.T) {
 	}
 }
 
-// scrollbackPane builds a pane that has history behind it: twelve lines through a
-// five-row screen leaves seven in scrollback.
+// scrollbackPane builds a pane with history behind it: twelve lines through a five-row screen.
 func scrollbackPane(t *testing.T) *terminal.Pane {
 	t.Helper()
 	sess := &sshx.Session{
@@ -427,8 +396,7 @@ func scrollbackPane(t *testing.T) *terminal.Pane {
 	return p
 }
 
-// Nothing on the far end asked for the mouse, so the wheel over a shell is hop's: it
-// pauses into history, and scrolling back to live hands the keyboard back.
+// The wheel over a shell is hop's: it pauses into history, and scrolling back to live resumes.
 func TestWheelOverShellDrivesScrollback(t *testing.T) {
 	m := newMouseModel(3)
 	m.active = "ha"
@@ -459,9 +427,6 @@ func TestWheelOverShellDrivesScrollback(t *testing.T) {
 	}
 }
 
-// Switching the mouse off has to reach the user's terminal, which only Bubble Tea can
-// address, so it comes back as a command. An edit that did not touch the field sends
-// nothing: mouseOn is what hop last asked for.
 func TestApplyMouseOnlySpeaksWhenItChanges(t *testing.T) {
 	m := newMouseModel(1)
 	m.mouseOn = true // as Init left it, the setting being on by default
@@ -483,8 +448,7 @@ func TestApplyMouseOnlySpeaksWhenItChanges(t *testing.T) {
 	}
 }
 
-// recordingStdin is a far end that keeps what was typed at it, so a test can read back
-// the bytes a gesture put on the wire.
+// recordingStdin keeps what was typed at it, so a test can read back the bytes a gesture sent.
 type recordingStdin struct {
 	mu  sync.Mutex
 	buf strings.Builder
@@ -504,9 +468,7 @@ func (r *recordingStdin) String() string {
 	return r.buf.String()
 }
 
-// A full-screen program keeps no scrollback here, so hop has nothing of its own to
-// scroll: without this the wheel over less or vim did nothing at all. It is translated
-// into the arrow keys the program already answers — xterm's alternate-scroll.
+// On the alt screen hop keeps no scrollback, so the wheel becomes xterm's alternate-scroll arrows.
 func TestWheelOnAltScreenSendsArrowKeys(t *testing.T) {
 	m := newMouseModel(3)
 	m.active = "ha"
@@ -542,8 +504,7 @@ func TestWheelOnAltScreenSendsArrowKeys(t *testing.T) {
 	}
 }
 
-// treeMouseModel is newMouseModel on a window wide enough for all three columns, with an
-// SFTP browser open on the active host and a shell behind it in the content area.
+// treeMouseModel is newMouseModel wide enough for all three columns, with a browser and a shell.
 func treeMouseModel(t *testing.T) (*model, *session) {
 	t.Helper()
 	m := newMouseModel(3)
@@ -564,8 +525,7 @@ func treeMouseModel(t *testing.T) (*model, *session) {
 	return m, s
 }
 
-// Three columns, so three regions across the body. Each starts where the one to its left
-// ends, which is the arithmetic View composes with.
+// Three columns, so three regions across the body, each starting where the one left of it ends.
 func TestZoneAtWithTheTreeColumn(t *testing.T) {
 	m, _ := treeMouseModel(t)
 	lw, tw := m.listWidth(), m.treeWidth()
@@ -595,8 +555,7 @@ func TestZoneAtWithTheTreeColumn(t *testing.T) {
 	}
 }
 
-// The browser measures rows from its own top-left corner, so the column's border and the
-// screen header have to come off a click before it is asked what was under it.
+// A click is translated through the column's border and the header before the browser is asked.
 func TestTreeLocalTranslatesPerColumn(t *testing.T) {
 	m, _ := treeMouseModel(t)
 	lw, tw := m.listWidth(), m.treeWidth()
@@ -616,15 +575,11 @@ func TestTreeLocalTranslatesPerColumn(t *testing.T) {
 	}
 }
 
-// Clicking a column that does not hold the keyboard is the pointer's tab and alt+t. The
-// click that crosses also stands on the row it landed on, exactly as a click in the
-// sidebar stands on the host it landed on.
 func TestClickingAColumnFocusesIt(t *testing.T) {
 	m, s := treeMouseModel(t)
 	m.mode = modeShell
 
-	// The browser's first entry: content row 2 (the path header and its rule), so screen
-	// row 4, in the tree column rather than the content area.
+	// The browser's first entry: content row 2, so screen row 4, in the tree column.
 	m.handleMouse(click(m.listWidth()+2, 4))
 	if !m.browsing() {
 		t.Fatal("a click in the tree column did not give it the keyboard")
@@ -633,8 +588,7 @@ func TestClickingAColumnFocusesIt(t *testing.T) {
 		t.Fatalf("browser row 2 = %d, %v; the listing is not where the test thinks", i, ok)
 	}
 
-	// And back the other way: a click on the content area takes the keyboard out of the
-	// column without closing it.
+	// And back the other way: a click on the content area takes the keyboard out of the column.
 	m.handleMouse(click(m.listWidth()+m.treeWidth()+4, 6))
 	if !m.focused() {
 		t.Fatal("a click on the content area did not take the keyboard out of the tree")
@@ -644,8 +598,6 @@ func TestClickingAColumnFocusesIt(t *testing.T) {
 	}
 }
 
-// The wheel is not a way into a column: a notch aimed at the file being read must not move
-// the keyboard out of it.
 func TestWheelDoesNotFocusTheTreeColumn(t *testing.T) {
 	m, _ := treeMouseModel(t)
 	m.mode = modeShell
@@ -657,8 +609,6 @@ func TestWheelDoesNotFocusTheTreeColumn(t *testing.T) {
 	}
 }
 
-// A double-click in the column opens what it landed on, with the row mapped through the
-// column's own border rather than the content area's.
 func TestDoubleClickInTheTreeColumnOpens(t *testing.T) {
 	m, s := treeMouseModel(t)
 	m.mode = modeBrowser
@@ -673,9 +623,6 @@ func TestDoubleClickInTheTreeColumnOpens(t *testing.T) {
 	}
 }
 
-// A click in the tree and a click on the file beside it are two clicks on two things, and
-// must never pair up into a double. They are in different regions, which is what the
-// chord is keyed on.
 func TestClicksInTwoColumnsAreNotADouble(t *testing.T) {
 	m, s := treeMouseModel(t)
 	m.mode = modeBrowser
@@ -689,8 +636,7 @@ func TestClicksInTwoColumnsAreNotADouble(t *testing.T) {
 	}
 }
 
-// A split content area is two boxes inside the columns the one box had. A click has to
-// land in the half it was aimed at, and the half it lands in takes the keyboard.
+// A click has to land in the split half it was aimed at, and that half takes the keyboard.
 func TestContentLocalAcrossASplit(t *testing.T) {
 	m, s := treeMouseModel(t)
 	s.editors = []*editorTab{
@@ -739,8 +685,7 @@ func TestContentLocalAcrossASplit(t *testing.T) {
 	}
 }
 
-// Each half draws the same tab names against a different open one, so a click on a strip
-// has to be measured for the half being pointed at.
+// Each half draws the same tab names, so a click on a strip is measured for the half pointed at.
 func TestClickOnASplitHalfsTabStrip(t *testing.T) {
 	m, s := treeMouseModel(t)
 	s.editors = []*editorTab{
@@ -754,8 +699,7 @@ func TestClickOnASplitHalfsTabStrip(t *testing.T) {
 	m.relayout()
 
 	base, w := m.listWidth()+m.treeWidth(), m.splitHalf()
-	// The right half's strip, on its second pill. Screen row 2 is content row 0, which is
-	// the strip.
+	// The right half's strip, on its second pill; screen row 2 is content row 0.
 	pills := tabPills(editorTabNames(s), 1)
 	x := base + w + 3 + lipgloss.Width(pills[0]) + 1
 	m.handleMouse(click(x, 2))
@@ -768,11 +712,7 @@ func TestClickOnASplitHalfsTabStrip(t *testing.T) {
 	}
 }
 
-// The layout keys are hop's, not the browser's, so they are resolved in handleBrowserKey —
-// which puts them on the wrong side of the question the browser may be asking. A tab typed
-// into a filename is a tab, not a focus change, and a ctrl+t is not a collapse. This is the
-// same trap the settings "," fell into once; the gate is one early return, so one test that
-// walks every new key is what keeps it that way.
+// Regression, as the settings "," once did: layout keys must not escape an open browser question.
 func TestLayoutKeysDoNotEscapeAnOpenQuestion(t *testing.T) {
 	for _, k := range []tea.KeyMsg{
 		{Type: tea.KeyTab},
@@ -812,9 +752,7 @@ func TestLayoutKeysDoNotEscapeAnOpenQuestion(t *testing.T) {
 	}
 }
 
-// The pointer resolves against the box the renderer drew: a split session focused on its
-// shell shows ONE full-width box, so a cell on its right is the left half, there being no
-// other, measured from that box's border rather than a divider nobody drew.
+// A split session focused on its shell is drawn as one full-width box, and resolves as one.
 func TestShellInASplitSessionIsPointedAtAsOneBox(t *testing.T) {
 	m := viewModel(200, 20)
 	withSplitShell(t, m)
@@ -843,15 +781,13 @@ func TestShellInASplitSessionIsPointedAtAsOneBox(t *testing.T) {
 	}
 }
 
-// A click in a full-width shell must not move the editors' focus to "the other half".
 func TestClickInAFullWidthShellKeepsTheEditorHalf(t *testing.T) {
 	m := viewModel(200, 20)
 	withSplitShell(t, m)
 	s := m.sessions["web1"]
 	before := s.splitRight
 
-	// A third of the way across, which is the left phantom half — the session's editors
-	// are focused on the right one, so a flip is visible.
+	// A third across is the left phantom half; the editors are focused right, so a flip would show.
 	m.handleMouse(click(m.frame.content.x+m.frame.content.w/3, 5))
 
 	if s.splitRight != before {

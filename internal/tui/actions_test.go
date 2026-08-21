@@ -29,10 +29,7 @@ func has(as []action, label string) bool {
 	return false
 }
 
-// The registry only offers what the state allows: an idle host can be connected to, a
-// live one focused, a dropped one reconnected — and each excludes the others. This is
-// the rule the menu and the palette both rest on, so it is tested against the model
-// rather than through a keystroke.
+// Idle, live and dropped hosts each offer their own actions and exclude the others.
 func TestHostActionAvailability(t *testing.T) {
 	m := newNavModel(2)
 	m.sessions = map[string]*session{}
@@ -68,8 +65,6 @@ func TestHostActionAvailability(t *testing.T) {
 	}
 }
 
-// A cursor standing on nothing offers nothing to do to a host, and the menu it would
-// open does not open.
 func TestMenuNeedsAHost(t *testing.T) {
 	m := newNavModel(0)
 	if as := m.availableHostActions(); len(as) != 0 {
@@ -81,8 +76,7 @@ func TestMenuNeedsAHost(t *testing.T) {
 	}
 }
 
-// space opens the menu on the host under the cursor, and enter on a row does what that
-// row's key does — here the edit form, which is the host form pre-filled.
+// space opens the menu on the host under the cursor; enter runs the row's key.
 func TestMenuRunsTheSelectedAction(t *testing.T) {
 	m := newNavModel(3)
 	m.cursor = 1
@@ -95,7 +89,6 @@ func TestMenuRunsTheSelectedAction(t *testing.T) {
 		t.Fatalf("menu opened on %q, want h1", m.menu.alias)
 	}
 
-	// Down to "edit this host", whichever row the availability rules put it on.
 	want := -1
 	for i, a := range m.menu.items {
 		if a.label == "edit this host" {
@@ -121,8 +114,7 @@ func TestMenuRunsTheSelectedAction(t *testing.T) {
 	}
 }
 
-// esc closes the menu without deciding anything, and the keys it swallowed never reach
-// the list underneath — "x" inside the menu must not arm a delete.
+// Keys the menu swallows never reach the list: "x" inside it must not arm a delete.
 func TestMenuSwallowsKeys(t *testing.T) {
 	m := newNavModel(3)
 	m.handleKey(key(t, "space"))
@@ -164,8 +156,6 @@ func TestPaletteFiltersAndRuns(t *testing.T) {
 	}
 }
 
-// The key is matched as well as the label: someone who half-remembers the chord finds
-// the row by typing it.
 func TestPaletteMatchesTheKey(t *testing.T) {
 	m := newNavModel(1)
 	m.openPalette()
@@ -177,8 +167,7 @@ func TestPaletteMatchesTheKey(t *testing.T) {
 	}
 }
 
-// A query nothing matches leaves an empty list, and enter on it does nothing rather
-// than running whatever was selected before.
+// enter on an empty palette must not run whatever was selected before.
 func TestPaletteEmptyQueryIsInert(t *testing.T) {
 	m := newNavModel(1)
 	m.openPalette()
@@ -194,8 +183,7 @@ func TestPaletteEmptyQueryIsInert(t *testing.T) {
 	}
 }
 
-// Both are drawn as rows of "what it does … the key that does it": the key on every row
-// is the whole point, since it is what makes the palette unnecessary next time.
+// Every row shows the key that does it, which is what makes the palette unnecessary next time.
 func TestActionRowsCarryTheirKey(t *testing.T) {
 	m := newNavModel(2)
 	m.width, m.height = 100, 24
@@ -213,8 +201,6 @@ func TestActionRowsCarryTheirKey(t *testing.T) {
 		}
 	}
 
-	// The palette shows a window onto its matches, so the global actions are below the
-	// host's until a query narrows to them.
 	m.closeMenu()
 	m.openPalette()
 	m.palette.query = "add"
@@ -224,8 +210,7 @@ func TestActionRowsCarryTheirKey(t *testing.T) {
 	}
 }
 
-// A right-click stands the cursor on the host it landed on and opens its menu — the one
-// gesture, not two. Row 3 is the first host (see newMouseModel).
+// Right-click moves the cursor and opens the menu in one gesture; row 3 is the first host.
 func TestRightClickOpensTheMenu(t *testing.T) {
 	m := newMouseModel(4)
 
@@ -240,8 +225,7 @@ func TestRightClickOpensTheMenu(t *testing.T) {
 		t.Fatalf("menu opened on %q, want %q", m.menu.alias, m.hosts[2].Alias)
 	}
 
-	// While it is up the pointer belongs to it: a click on another row must not move the
-	// cursor out from under the question.
+	// While the menu is up the pointer belongs to it.
 	m.handleMouse(click(4, 3))
 	if m.cursor != 2 || !m.menu.open {
 		t.Fatalf("a click reached the list under the menu (cursor=%d open=%v)", m.cursor, m.menu.open)
@@ -258,7 +242,6 @@ func TestMenuIsAnchoredToItsRow(t *testing.T) {
 	if x != 2 {
 		t.Fatalf("menu at column %d, want 2", x)
 	}
-	// Under its host, since a 20-row window has the room below it.
 	if want := m.cursorScreenRow() + 1; y != want {
 		t.Fatalf("menu at row %d, want %d (under its host)", y, want)
 	}
@@ -267,8 +250,7 @@ func TestMenuIsAnchoredToItsRow(t *testing.T) {
 	}
 	_ = card
 
-	// A host near the bottom of a short window gets a shorter menu rather than one
-	// running off the screen — and it still stands clear of the row it belongs to.
+	// Near the bottom the menu shrinks rather than running off the screen.
 	m.closeMenu()
 	m.cursor = 3
 	m.height = 16
@@ -282,8 +264,6 @@ func TestMenuIsAnchoredToItsRow(t *testing.T) {
 	}
 }
 
-// Each mode's palette offers that mode's keyboard. Anything else would be a list of keys
-// that do nothing where you are standing.
 func TestContextActionsFollowTheMode(t *testing.T) {
 	m := newNavModel(2)
 	m.sessions = map[string]*session{}
@@ -309,7 +289,6 @@ func TestContextActionsFollowTheMode(t *testing.T) {
 	if !has(shell, "another shell on this host") || has(shell, "connect") {
 		t.Fatalf("shell mode: %v", labels(shell))
 	}
-	// In a pane hop's keyboard is behind the leader, and the palette says so.
 	for _, a := range shell {
 		if a.label == "another shell on this host" && a.keycap() != "ctrl+o 0" {
 			t.Fatalf("the leader is missing from %q: %q", a.label, a.keycap())
@@ -317,14 +296,12 @@ func TestContextActionsFollowTheMode(t *testing.T) {
 	}
 }
 
-// A row picked in a pane runs the action itself rather than replaying its keystrokes,
-// and the leader it was offered behind is not left half-open by the running.
+// The leader a row was offered behind must not be left armed by running it.
 func TestChordActionsRunWithoutReplay(t *testing.T) {
 	m := newNavModel(2)
 	m.sessions = map[string]*session{"h0": {}}
 	m.active, m.mode = "h0", modeShell
 
-	// The palette from inside a pane is itself behind the leader.
 	m.handleKey(key(t, "ctrl+o"))
 	m.handleKey(key(t, "ctrl+k"))
 	if !m.palette.open {
@@ -344,18 +321,9 @@ func TestChordActionsRunWithoutReplay(t *testing.T) {
 	}
 }
 
-// The card, the palette and the footer are hand-written lists, not generated from the key
-// registry, so a key added to internal/keys reaches the user only if someone remembers all
-// three. Marking, the target and copy/move were bound and working while appearing in none
-// of them — a key that is never shown is a key that does not exist. This walks the layers
-// that have such lists and insists every action is reachable from the card or the palette.
-//
-// The editor layer joined the walk when the split gained a way out: the split key was
-// reachable from the browser for a release before anything on screen said how to undo it,
-// which is the same failure one layer over.
+// Guards keys bound but shown nowhere: marking, the target, copy/move, later the editor's unsplit.
 func TestEveryActionIsDiscoverable(t *testing.T) {
-	// The motions are left out on purpose, for the reason browserSpecs states: nobody
-	// opens a menu to move the cursor down. The card lists them as a group of their own.
+	// Motions are left out on purpose: the card lists them as a group of their own.
 	motions := map[keys.Action]bool{
 		keys.Up: true, keys.Down: true, keys.Top: true, keys.Bottom: true,
 		keys.HalfUp: true, keys.HalfDown: true, keys.PageUp: true, keys.PageDown: true,
@@ -363,9 +331,7 @@ func TestEveryActionIsDiscoverable(t *testing.T) {
 		keys.BrowserUp: true,
 	}
 
-	// The editor's two ways out are written into the card by hand rather than resolved
-	// from the registry — they are drawn as the leader chord and as the remote editor's
-	// own ":q", which is what the hand actually does — so the tables cannot name them.
+	// The editor's two ways out are written into the card by hand, so the tables cannot name them.
 	editorExempt := map[keys.Action]bool{
 		keys.LeaderKey: true, keys.EditorLeave: true,
 	}

@@ -12,9 +12,8 @@ import (
 	"hop/internal/sftpx"
 )
 
-// liveClient is a fakeClient whose listing actually changes when a mutation succeeds, so
-// a test can assert where the cursor ends up after the browser re-lists — which is the
-// half of these operations the recorded calls say nothing about.
+// liveClient is a fakeClient whose listing changes when a mutation succeeds, so a test
+// can assert where the cursor ends up after the browser re-lists.
 type liveClient struct {
 	fakeClient
 }
@@ -84,8 +83,7 @@ func typeText(t *testing.T, b *Browser, s string) {
 	}
 }
 
-// "x" alone must never delete: it opens a question naming the entry, and until that is
-// answered nothing has reached the server.
+// "x" opens a question naming the entry, and nothing reaches the server until it is answered.
 func TestRemoveAsksFirst(t *testing.T) {
 	b, c := opsBrowser(files("a.txt", "b.txt")...)
 	b.cursor = 1
@@ -102,8 +100,7 @@ func TestRemoveAsksFirst(t *testing.T) {
 		t.Fatalf("confirm reads %q; it must name the entry so a mis-pressed x is visible", b.overlay.label)
 	}
 
-	// "n" — like any key that is not y — declines, and is swallowed rather than falling
-	// through to the listing behind it.
+	// "n", like any key that is not y, declines and is swallowed.
 	b.Handle(key(t, "n"))
 	if len(c.removes) != 0 {
 		t.Fatalf("n deleted %v, want a cancel", c.removes)
@@ -113,8 +110,6 @@ func TestRemoveAsksFirst(t *testing.T) {
 	}
 }
 
-// "y" commits, and the cursor stays on the row it was on rather than jumping to the top
-// of the re-listed directory.
 func TestRemoveDeletesAndKeepsTheRow(t *testing.T) {
 	b, c := opsBrowser(files("a", "b", "c", "d")...)
 	b.cursor = 1 // b
@@ -136,8 +131,6 @@ func TestRemoveDeletesAndKeepsTheRow(t *testing.T) {
 	}
 }
 
-// Deleting the last entry has no successor row to stand on, so the cursor clamps up
-// instead of pointing past the end.
 func TestRemoveLastEntryClampsTheCursor(t *testing.T) {
 	b, _ := opsBrowser(files("a", "b")...)
 	b.cursor = 1
@@ -150,8 +143,7 @@ func TestRemoveLastEntryClampsTheCursor(t *testing.T) {
 	}
 }
 
-// A non-empty directory is refused by the server, and that refusal is reported — the
-// browser has no recursive delete to fall back on and must not pretend otherwise.
+// There is no recursive delete to fall back on, so the server's refusal is what is shown.
 func TestRemoveNonEmptyDirectoryReportsTheRefusal(t *testing.T) {
 	b, c := opsBrowser(sftpx.Entry{Name: "sub", IsDir: true})
 	c.errs = map[string]error{"remove": errors.New("sftp: \"Failure\" (SSH_FX_FAILURE)")}
@@ -173,8 +165,7 @@ func TestRemoveNonEmptyDirectoryReportsTheRefusal(t *testing.T) {
 	}
 }
 
-// "R" prefills the current name, renames within the directory, and leaves the cursor on
-// the entry under its new name.
+// "R" prefills the current name and leaves the cursor on the entry under its new name.
 func TestRenameRoundTrip(t *testing.T) {
 	b, c := opsBrowser(files("a.txt", "b.txt", "c.txt")...)
 	b.cursor = 1
@@ -199,8 +190,7 @@ func TestRenameRoundTrip(t *testing.T) {
 	}
 }
 
-// A typed answer is a name, not a path: a slash would move the file out of the directory
-// the user is looking at, and "." or ".." address the directory itself.
+// A typed answer is a name, not a path.
 func TestRenameRefusesPathsAndDots(t *testing.T) {
 	for _, name := range []string{"sub/b.txt", "/etc/passwd", "..", "."} {
 		t.Run(name, func(t *testing.T) {
@@ -221,8 +211,6 @@ func TestRenameRefusesPathsAndDots(t *testing.T) {
 	}
 }
 
-// Opening the prompt and confirming the name that is already there is a no-op, not a
-// failed rename: the user changed nothing and nothing is wrong.
 func TestRenameToTheSameNameIsANoop(t *testing.T) {
 	b, c := opsBrowser(files("a.txt")...)
 
@@ -237,7 +225,6 @@ func TestRenameToTheSameNameIsANoop(t *testing.T) {
 	}
 }
 
-// esc drops the question without renaming anything.
 func TestRenameEscapeCancels(t *testing.T) {
 	b, c := opsBrowser(files("a.txt")...)
 
@@ -273,8 +260,7 @@ func TestMkdirCreatesAndFocuses(t *testing.T) {
 	}
 }
 
-// The same name rules apply to "m": Mkdir creates parents, so a slash would build a tree
-// rather than the directory that was asked for.
+// Mkdir creates parents, so a slash would build a tree rather than one directory.
 func TestMkdirRefusesPathsAndDots(t *testing.T) {
 	for _, name := range []string{"a/b", "..", "."} {
 		t.Run(name, func(t *testing.T) {
@@ -294,9 +280,7 @@ func TestMkdirRefusesPathsAndDots(t *testing.T) {
 	}
 }
 
-// A server that says no must land on the status line as an error. The refresh that
-// follows a success clears the status, so an error swallowed here would leave the user
-// believing the operation went through.
+// The refresh after a success clears the status, so a swallowed error would read as success.
 func TestServerErrorsReachTheStatusLine(t *testing.T) {
 	cases := []struct {
 		name string
@@ -327,8 +311,7 @@ func TestServerErrorsReachTheStatusLine(t *testing.T) {
 	}
 }
 
-// None of the three keys does anything in an empty directory: there is no entry to
-// delete or rename, and mkdir still has a directory to create in.
+// x and R have no entry to act on; mkdir still has a directory to create in.
 func TestOpsOnAnEmptyListing(t *testing.T) {
 	b, c := opsBrowser()
 
@@ -362,9 +345,6 @@ func TestCheckTypedName(t *testing.T) {
 	}
 }
 
-// A mutation that lands on a server whose listing then fails must not report success:
-// the entry is still on screen, and a green "deleted" over a hidden connection error is
-// the worst of both.
 func TestMutationDoesNotPaintOverAListingError(t *testing.T) {
 	for _, tc := range []struct{ name, key, answer string }{
 		{"delete", "x", "y"},
@@ -395,16 +375,14 @@ func TestMutationDoesNotPaintOverAListingError(t *testing.T) {
 	}
 }
 
-// The directory an operation was aimed at is the one it acts in, even if something moves
-// the browser between the question and the answer.
+// Even if something moves the browser between the question and the answer.
 func TestOpsActInTheDirectoryTheyWereAimedAt(t *testing.T) {
 	b, c := opsBrowser(files("a.txt", "b.txt")...)
 	b.cursor = 1
 	name := b.rows[1].e.Name
 
 	b.Handle(key(t, "x"))
-	// Nothing in the keyboard or the pointer can do this now, but the callbacks must not
-	// depend on that: the path was fixed when the question was asked.
+	// The path was fixed when the question was asked.
 	b.cwd = "/somewhere/else"
 	b.Handle(key(t, "y"))
 
@@ -418,8 +396,6 @@ func TestOpsActInTheDirectoryTheyWereAimedAt(t *testing.T) {
 
 // ---- the plural operations ----
 
-// A delete of several entries names the count, not one of the names: "delete a.txt?" with
-// eleven rows ticked describes a tenth of what the key is about to do.
 func TestDeleteConfirmNamesTheCount(t *testing.T) {
 	b, c := opsBrowser(files("a", "b", "c")...)
 	b.Do(keys.BrowserMark)
@@ -446,8 +422,7 @@ func TestDeleteConfirmNamesTheCount(t *testing.T) {
 	}
 }
 
-// A directory in the selection is worth spelling out separately: it is the expensive
-// mistake, and the count alone does not say one is in there.
+// A directory in the selection is the expensive mistake, so it is spelled out separately.
 func TestDeleteConfirmCountsDirectories(t *testing.T) {
 	b, _ := opsBrowser(sftpx.Entry{Name: "sub", IsDir: true}, sftpx.Entry{Name: "a", Size: 1})
 	b.Do(keys.BrowserMarkAll)
@@ -461,9 +436,7 @@ func TestDeleteConfirmCountsDirectories(t *testing.T) {
 	}
 }
 
-// The partial-failure policy, stated as a test: the batch stops at the first error, and
-// the message carries all three numbers — what got through, what failed and why, and how
-// much was deliberately left alone.
+// The message carries all three numbers: what got through, what failed and why, what was skipped.
 func TestDeleteStopsAtTheFirstFailure(t *testing.T) {
 	b, c := opsBrowser(files("a", "b", "c", "d")...)
 	c.errs = map[string]error{"remove": errors.New("permission denied")}
@@ -490,8 +463,6 @@ func TestDeleteStopsAtTheFirstFailure(t *testing.T) {
 	}
 }
 
-// One entry still reads as one entry: the plural wording would be worse for the case the
-// browser is in most of the time.
 func TestDeleteOfOneStillNamesIt(t *testing.T) {
 	b, _ := opsBrowser(files("a.txt", "b.txt")...)
 	b.cursor = 1

@@ -14,8 +14,7 @@ import (
 	"hop/internal/sftpx"
 )
 
-// key builds the tea.KeyMsg whose String() is name. Only the keys the browser
-// binds are covered.
+// key builds the tea.KeyMsg whose String() is name, for the keys the browser binds.
 func key(t *testing.T, name string) tea.KeyMsg {
 	t.Helper()
 	switch name {
@@ -47,9 +46,7 @@ func key(t *testing.T, name string) tea.KeyMsg {
 	}
 }
 
-// fakeClient serves a fixed listing for every directory and records the paths every
-// mutating call was made with, so a test can assert what reached the server rather than
-// only what the status line says.
+// fakeClient serves a fixed listing and records the paths every mutating call was made with.
 type fakeClient struct {
 	entries   []sftpx.Entry
 	downloads [][2]string // {remote, local}
@@ -60,29 +57,23 @@ type fakeClient struct {
 	copies    [][2]string // {src, dstDir}
 	moves     [][2]string // {src, dstDir}
 
-	// Errors to return instead of succeeding, keyed by the operation name
-	// ("upload", "mkdir", "remove", "rename", "download").
+	// Errors to return instead of succeeding, keyed by operation name.
 	errs map[string]error
 
-	// steps are the running byte totals a transfer reports as it copies. Empty means a
-	// copy that reports nothing, which is what most of these tests want.
+	// steps are the running byte totals a transfer reports as it copies.
 	steps byteSteps
 
-	// listErr fails every subsequent List, standing in for a connection lost partway
-	// through a sequence rather than at its start.
+	// listErr fails every subsequent List.
 	listErr error
 
-	// lists counts the listings, which is how a test tells a directory that was read once
-	// and cached from one that is re-read on every keypress.
+	// lists counts the listings, telling a cached directory from a re-read one.
 	lists int
 
-	// badName narrows errs to the entry of that name, so a test can fail the third file of
-	// seven and then say what happened to the other four.
+	// badName narrows errs to the entry of that name.
 	badName string
 }
 
-// errFor is the scripted error for op, or nil — and nil for every entry but badName when
-// one is set.
+// errFor is the scripted error for op, or nil.
 func (f *fakeClient) errFor(op, name string) error {
 	err := f.errs[op]
 	if err == nil || (f.badName != "" && f.badName != name) {
@@ -106,8 +97,7 @@ func (f *fakeClient) DownloadProgress(remote, local string, progress func(int64)
 	if err := f.errFor("download", path.Base(remote)); err != nil {
 		return 0, err
 	}
-	// Create the local file like the real client would: the scratch fetch behind "o"
-	// quarantines the copy afterwards, and the xattr call needs a file to land on.
+	// Create the local file like the real client would; the quarantine xattr needs one.
 	if err := os.WriteFile(local, nil, 0o644); err != nil {
 		return 0, err
 	}
@@ -131,8 +121,7 @@ func (f *fakeClient) UploadProgress(local, remote string, progress func(int64)) 
 	return fi.Size(), nil
 }
 
-// byteSteps is a scripted progress report: the running totals a copy publishes on its way
-// through, standing in for the 32 KiB blocks the real counting writer reports.
+// byteSteps is a scripted progress report: the running totals a copy publishes.
 type byteSteps []int64
 
 func (s byteSteps) last() int64 {
@@ -183,10 +172,7 @@ func (f *fakeClient) Move(src, dstDir string, _ func(int64)) error {
 
 func (f *fakeClient) Close() error { return nil }
 
-// plant gives a hand-built Browser the tree it would have had from load: dir as the root,
-// ents as its rows. Every test here builds its Browser by hand — the point is usually the
-// keyboard, not the listing — so this is the one place that knows how a root is put
-// together.
+// plant gives a hand-built Browser the tree it would have had from load.
 func plant(b *Browser, dir string, ents []sftpx.Entry) *Browser {
 	b.cwd = dir
 	b.root = &node{e: sftpx.Entry{Name: path.Base(dir), IsDir: true}, path: dir, depth: -1, expanded: true}
@@ -195,16 +181,14 @@ func plant(b *Browser, dir string, ents []sftpx.Entry) *Browser {
 	return b
 }
 
-// setName renames the entry on row i in place, which is how a test that is about what a
-// name does to a key states its case without going through the server.
+// setName renames the entry on row i in place, without going through the server.
 func setName(b *Browser, i int, name string) {
 	n := b.rows[i]
 	n.e.Name = name
 	n.path = path.Join(path.Dir(n.path), name)
 }
 
-// rowNames is the visible tree as a list of names, indented so a test can assert on the
-// shape of an expanded tree and not only on its contents.
+// rowNames is the visible tree as a list of names, indented by depth.
 func rowNames(b *Browser) []string {
 	out := make([]string, len(b.rows))
 	for i, n := range b.rows {
@@ -213,8 +197,7 @@ func rowNames(b *Browser) []string {
 	return out
 }
 
-// newTestBrowser builds a Browser over n synthetic entries with room for 10 content rows,
-// rooted at /home/u. The vim motions are switched on, being what most of these test.
+// newTestBrowser builds a Browser over n entries with 10 content rows and vim keys on.
 func newTestBrowser(n int) (*Browser, *fakeClient) {
 	ents := make([]sftpx.Entry, n)
 	for i := range ents {
@@ -231,8 +214,7 @@ func newTestBrowser(n int) (*Browser, *fakeClient) {
 	return plant(b, "/home/u", ents), fc
 }
 
-// left, backspace and h are all strict "up a directory". None of them leaves the
-// browser, and at the filesystem root they are no-ops rather than an exit.
+// All three walk up, and at the filesystem root they are no-ops rather than an exit.
 func TestHandleUpKeys(t *testing.T) {
 	for _, k := range []string{"left", "backspace", "h"} {
 		t.Run(k, func(t *testing.T) {
@@ -285,8 +267,7 @@ func TestVimMotions(t *testing.T) {
 	}
 }
 
-// With the setting off the vim motions are not bound, so "h" is not a way out of a
-// directory and "j" is not a way down a list. The arrows and backspace still are.
+// With the setting off the vim motions are unbound; the arrows and backspace still work.
 func TestVimMotionsOffByDefault(t *testing.T) {
 	for _, k := range []string{"j", "k", "g", "G", "H", "M", "L", "ctrl+d", "ctrl+u", "ctrl+f"} {
 		t.Run(k, func(t *testing.T) {
@@ -302,8 +283,7 @@ func TestVimMotionsOffByDefault(t *testing.T) {
 		})
 	}
 
-	// The "gg" chord must not be armed while the setting is off, or turning it on
-	// would complete a motion the user began before they had the keys.
+	// The "gg" chord must not be armed while the setting is off.
 	t.Run("gg is not armed while off", func(t *testing.T) {
 		b, _ := newTestBrowser(30)
 		b.opts.VimKeys = false
@@ -344,8 +324,7 @@ func TestVimMotionsOffByDefault(t *testing.T) {
 	})
 }
 
-// TestScreenMotions checks H/M/L land inside the visible window, not the whole
-// list, which is what makes them differ from gg/G once the list scrolls.
+// H/M/L land inside the visible window, not the whole list.
 func TestScreenMotions(t *testing.T) {
 	cases := []struct {
 		key  string
@@ -373,8 +352,7 @@ func TestScreenMotions(t *testing.T) {
 	}
 }
 
-// fileTestBrowser builds a Browser over one directory and one file, with the
-// scratch and download directories pointed at throwaway locations.
+// fileTestBrowser builds a Browser over one directory and one file, with throwaway local dirs.
 func fileTestBrowser(t *testing.T) (*Browser, *fakeClient, string, string) {
 	t.Helper()
 	ents := []sftpx.Entry{
@@ -394,8 +372,7 @@ func fileTestBrowser(t *testing.T) (*Browser, *fakeClient, string, string) {
 	return plant(b, "/home/u", ents), fc, tmp, dl
 }
 
-// stubOpen swaps the default-app launcher for a command that starts and exits at once,
-// recording the path it was handed, and restores the original when the test ends.
+// stubOpen swaps the default-app launcher for a no-op that records the path it was handed.
 func stubOpen(t *testing.T) (opened, openedWith *string) {
 	t.Helper()
 	var p, with string
@@ -408,8 +385,7 @@ func stubOpen(t *testing.T) (opened, openedWith *string) {
 	return &p, &with
 }
 
-// Enter on a file asks the model to open it, and touches no local disk at all:
-// the editor runs on the remote host, against the real file.
+// Enter on a file asks the model to open it and touches no local disk at all.
 func TestEnterAsksToOpenFile(t *testing.T) {
 	b, fc, tmp, dl := fileTestBrowser(t)
 
@@ -418,7 +394,6 @@ func TestEnterAsksToOpenFile(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("enter returned no tea.Cmd, want an OpenFileMsg for the model")
 	}
-	// Everything the browser sends is addressed, so the model can route it by session.
 	wrapped, ok := cmd().(Msg)
 	if !ok {
 		t.Fatalf("enter produced %T, want a filebrowser.Msg", cmd())
@@ -443,9 +418,7 @@ func TestEnterAsksToOpenFile(t *testing.T) {
 	}
 }
 
-// ActivateBeside is enter with the split key's intent attached, and the intent rides on
-// the message rather than on anything remembered here: the model reads it off the
-// OpenFileMsg when the editor is asked for, a round trip later.
+// The split intent rides on the message rather than on anything remembered here.
 func TestActivateBesideMarksTheFile(t *testing.T) {
 	b, _, _, _ := fileTestBrowser(t)
 
@@ -462,17 +435,14 @@ func TestActivateBesideMarksTheFile(t *testing.T) {
 		t.Fatalf("OpenFileMsg = %+v, want /home/u/a.txt marked Beside", msg)
 	}
 
-	// Plain enter is the same path without the intent, so an ordinary open never arrives
-	// wearing a split it did not ask for.
+	// Plain enter is the same path without the intent.
 	b.cursor = 1
 	if msg := b.Activate()().(Msg).Body.(OpenFileMsg); msg.Beside {
 		t.Fatalf("Activate produced %+v, want Beside unset", msg)
 	}
 }
 
-// A directory answers with no message at all, beside or not. This is what keeps the
-// intent from outliving the key press: there is nothing for the model to receive, so
-// there is nothing left armed to spend on whatever is opened next.
+// No message means the split intent cannot outlive the key press.
 func TestActivateBesideOnDirNavigatesAndSaysNothing(t *testing.T) {
 	b, _, _, _ := fileTestBrowser(t)
 
@@ -485,7 +455,6 @@ func TestActivateBesideOnDirNavigatesAndSaysNothing(t *testing.T) {
 	}
 }
 
-// Enter on a directory still navigates into it, and asks for nothing.
 func TestEnterOnDirNavigates(t *testing.T) {
 	b, fc, _, _ := fileTestBrowser(t)
 
@@ -502,15 +471,12 @@ func TestEnterOnDirNavigates(t *testing.T) {
 	}
 }
 
-// "o" fetches into the scratch dir — not the download dir — and hands that copy
-// to the OS default app. On a directory it does nothing at all.
+// "o" fetches into the scratch dir, opens that copy, and does nothing on a directory.
 func TestOpenInAppKey(t *testing.T) {
 	b, fc, tmp, dl := fileTestBrowser(t)
 	opened, _ := stubOpen(t)
 
 	b.cursor = 1 // a.txt
-	// The fetch behind "o" is a transfer like any other, so the key hands back a command
-	// rather than a finished download; drive runs it to completion the way the TUI does.
 	drive(t, b, b.Handle(key(t, "o")))
 
 	want := filepath.Join(tmp, "a.txt")
@@ -537,8 +503,7 @@ func TestOpenInAppKey(t *testing.T) {
 	}
 }
 
-// With an "open with" setting, "o" uses that command instead of the desktop
-// default — flags and all.
+// With an "open with" setting, "o" uses that command, flags and all.
 func TestOpenWithOverride(t *testing.T) {
 	b, _, tmp, _ := fileTestBrowser(t)
 	opened, with := stubOpen(t)
@@ -575,9 +540,7 @@ func TestDownloadKey(t *testing.T) {
 	}
 }
 
-// A server-supplied entry name must not place a download outside the chosen directory,
-// address an NTFS stream, or name a device — for "d" and "o" alike, since both write
-// locally.
+// A remote name must not escape the download directory, address an NTFS stream, or name a device.
 func TestRejectsUnsafeRemoteNames(t *testing.T) {
 	for _, name := range []string{
 		`..`, `..\..\evil.exe`, `../../evil`, `sub/file`, `C:evil`,
@@ -606,7 +569,6 @@ func TestRejectsUnsafeRemoteNames(t *testing.T) {
 	}
 }
 
-// A plain name — dots, spaces, unicode — must keep working.
 func TestAcceptsOrdinaryNames(t *testing.T) {
 	for _, name := range []string{"a.txt", "my report.pdf", "übersicht.md", "archive.tar.gz", "console.log"} {
 		b, fc, _, dl := fileTestBrowser(t)
@@ -622,8 +584,7 @@ func TestAcceptsOrdinaryNames(t *testing.T) {
 	}
 }
 
-// Control characters in remote-supplied strings are display-stripped, so a file
-// name cannot smuggle an escape sequence into the user's terminal.
+// A remote name cannot smuggle an escape sequence into the user's terminal.
 func TestViewStripsControlCharacters(t *testing.T) {
 	b, _, _, _ := fileTestBrowser(t)
 	setName(b, 1, "evil\x1b]0;owned\x07\x9b31mname")
@@ -640,8 +601,7 @@ func TestViewStripsControlCharacters(t *testing.T) {
 	}
 }
 
-// executableName must flag exactly the names the OS default handler would run, judging by
-// the last extension only, and see through the trailing dot or space Windows strips.
+// Judged by the last extension only, seeing through the trailing dot or space Windows strips.
 func TestExecutableName(t *testing.T) {
 	cases := []struct {
 		name string
@@ -670,8 +630,7 @@ func TestExecutableName(t *testing.T) {
 	}
 }
 
-// "o" on a file with an executable extension must refuse when the launch would reach the
-// OS default handler, which would execute it. Nothing is fetched and nothing is launched.
+// Nothing is fetched and nothing is launched.
 func TestOpenInAppRefusesExecutable(t *testing.T) {
 	b, fc, _, _ := fileTestBrowser(t)
 	opened, _ := stubOpen(t)
@@ -693,8 +652,7 @@ func TestOpenInAppRefusesExecutable(t *testing.T) {
 	}
 }
 
-// With an explicit OpenWith command the file is an argument to a program the
-// user chose, not a ShellExecute target, so an executable extension is allowed.
+// The file is an argument to a chosen program, not a ShellExecute target.
 func TestOpenInAppExecutableAllowedWithOpenWith(t *testing.T) {
 	b, _, tmp, _ := fileTestBrowser(t)
 	opened, with := stubOpen(t)
@@ -712,8 +670,7 @@ func TestOpenInAppExecutableAllowedWithOpenWith(t *testing.T) {
 	}
 }
 
-// "d" on the same executable-named file still downloads: saving a file is not
-// executing it, so the guard applies only to "o".
+// Saving a file is not executing it, so the guard applies only to "o".
 func TestDownloadExecutableAllowed(t *testing.T) {
 	b, fc, _, dl := fileTestBrowser(t)
 
@@ -730,8 +687,7 @@ func TestDownloadExecutableAllowed(t *testing.T) {
 	}
 }
 
-// A reserved device name dressed up with the trailing dot/space or an extension
-// Windows normalizes away must still be refused for "d" and "o" alike.
+// A device name Windows normalizes back is still refused, for "d" and "o" alike.
 func TestRejectsNormalizedReservedNames(t *testing.T) {
 	for _, name := range []string{"CON .txt", "con."} {
 		t.Run(name, func(t *testing.T) {
@@ -757,7 +713,6 @@ func TestRejectsNormalizedReservedNames(t *testing.T) {
 	}
 }
 
-// TestCursorStaysVisible is the invariant every motion must preserve.
 func TestCursorStaysVisible(t *testing.T) {
 	b, _ := newTestBrowser(100)
 	for _, k := range []string{"G", "ctrl+u", "ctrl+u", "j", "ctrl+f", "k", "g", "g", "ctrl+d"} {
@@ -769,8 +724,7 @@ func TestCursorStaysVisible(t *testing.T) {
 	}
 }
 
-// pickyClient lists only the directories it knows, so a start directory can be
-// made to fail the way a host's default directory does once it is renamed away.
+// pickyClient lists only the directories it knows, so a start directory can be made to fail.
 type pickyClient struct {
 	fakeClient
 	ok map[string]bool
@@ -788,7 +742,6 @@ func (p *pickyClient) List(dir string) ([]sftpx.Entry, error) {
 	return p.entries, nil
 }
 
-// A start directory that lists is where the browser opens.
 func TestNewOpensInTheStartDir(t *testing.T) {
 	c := &pickyClient{ok: map[string]bool{"/srv/app": true, "/home/u": true}}
 	b, err := New(c, "web1", "/srv/app", Options{DownloadDir: t.TempDir()}, 40, 13)
@@ -803,8 +756,7 @@ func TestNewOpensInTheStartDir(t *testing.T) {
 	}
 }
 
-// One that does not — a default directory removed on the server — lands in the home
-// directory instead, with the reason on the status line.
+// The reason lands on the status line.
 func TestNewFallsBackWhenTheStartDirIsGone(t *testing.T) {
 	c := &pickyClient{ok: map[string]bool{"/home/u": true}}
 	b, err := New(c, "web1", "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13)
@@ -819,8 +771,6 @@ func TestNewFallsBackWhenTheStartDirIsGone(t *testing.T) {
 	}
 }
 
-// With neither a listable start directory nor a listable home there is nothing to
-// show, and New says so rather than handing back an empty browser.
 func TestNewFailsWhenNothingLists(t *testing.T) {
 	c := &pickyClient{ok: map[string]bool{}}
 	if _, err := New(c, "web1", "/srv/gone", Options{DownloadDir: t.TempDir()}, 40, 13); err == nil {

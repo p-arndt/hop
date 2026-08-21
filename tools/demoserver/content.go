@@ -1,7 +1,6 @@
 package main
 
-// The invented contents of the demo filesystem, and the invented output of the
-// commands the fake shell knows. Nothing here comes from a real host.
+// The invented contents of the demo filesystem and the fake shell's command output.
 
 const dockerCompose = `services:
   web:
@@ -124,9 +123,7 @@ const motd = "Welcome to Ubuntu 24.04.2 LTS (GNU/Linux 6.8.0-45-generic x86_64)\
 	"\r\n" +
 	"Last login: Tue Jul 21 09:04:11 2026 from 10.0.4.18\r\n"
 
-// commands is what the fake shell answers with. Keys are matched exactly, so the
-// tape types only what is in here; anything else gets the not-found line, which is
-// itself a believable thing for a shell to say.
+// commands is what the fake shell answers with; keys are matched exactly.
 var commands = map[string]string{
 	"ls": "\x1b[1;34mapp\x1b[0m  \x1b[1;34mbackups\x1b[0m  \x1b[1;34mlogs\x1b[0m  " +
 		"\x1b[1;32mdeploy.sh\x1b[0m  docker-compose.yml  notes.txt  README.md\r\n",

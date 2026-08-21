@@ -5,21 +5,12 @@ import (
 	"strings"
 )
 
-// prompt is what the fake shell draws before every command. It is coloured the way
-// a stock Ubuntu bash prompt is, because the recording should look like a shell
-// rather than like a mock of one.
+// prompt mimics a stock Ubuntu bash prompt.
 func prompt() string {
 	return "\x1b[1;32m" + demoUser + "@" + demoHost + "\x1b[0m:\x1b[1;34m~\x1b[0m$ "
 }
 
-// runShell is the fake interactive shell: it echoes what is typed, answers the
-// commands in the table, and exits on `exit`. It reads the keystrokes hop's
-// terminal pane sends and writes what a pty would write back, which is all the
-// pane ever sees — so as far as hop is concerned this is an ordinary remote shell.
-//
-// Line editing is deliberately minimal (printable runes, backspace, ctrl+c,
-// ctrl+u): the tape types known commands, and a demo shell that reimplemented
-// readline would be a worse demo, not a better one.
+// runShell is the fake interactive shell; line editing is minimal on purpose.
 func runShell(stdin io.Reader, stdout io.Writer, greet bool) {
 	if greet {
 		io.WriteString(stdout, crlf(motd))
@@ -95,8 +86,6 @@ func runCommand(w io.Writer, cmd string) bool {
 		return false
 	}
 
-	// Believable failure for anything the table does not know, so a mistyped tape
-	// looks like a typo rather than like a broken server.
 	io.WriteString(w, "bash: "+firstWord(cmd)+": command not found\r\n")
 	return false
 }

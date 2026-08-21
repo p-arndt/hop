@@ -66,9 +66,7 @@ func TestSplitProxyCommand(t *testing.T) {
 	}
 }
 
-// A command line only a shell could run is refused rather than handed to `sh -c`: a
-// ProxyCommand can arrive from an imported config, so that path must not run arbitrary
-// shell.
+// ProxyCommand lines can arrive from an imported config, so that path must not run a shell.
 func TestSplitProxyCommandRejectsShell(t *testing.T) {
 	for _, in := range []string{
 		"nc %h %p | tee /tmp/log",
@@ -137,8 +135,7 @@ func TestBoundedBufferCaps(t *testing.T) {
 	}
 }
 
-// A proxy that dies before speaking SSH must surface its own stderr, not a bare EOF:
-// that message is the only account of why the broker refused.
+// A proxy that dies before speaking SSH must surface its own stderr, not a bare EOF.
 func TestProcConnReportsStderr(t *testing.T) {
 	conn, err := dialProxyCommand(failingProxyCommand(), "h", 22, "u", "alias")
 	if err != nil {
@@ -159,9 +156,7 @@ func TestProcConnReportsStderr(t *testing.T) {
 	}
 }
 
-// Real ProxyCommand lines from vendor documentation, as a guard on where the
-// no-shell line is drawn: everything a broker actually ships must run, and only genuine
-// shell syntax may be turned away.
+// Real vendor ProxyCommand lines: everything a broker actually ships must run.
 func TestRealWorldProxyCommands(t *testing.T) {
 	runnable := []struct{ name, line string }{
 		{"aws ssm", "aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p"},
@@ -179,8 +174,7 @@ func TestRealWorldProxyCommands(t *testing.T) {
 		{"plink", "plink -batch -T %h"},
 		{"windows openssh", `"C:\Windows\System32\OpenSSH\ssh.exe" -W %h:%p bastion`},
 		{"home relative", "~/bin/my-tunnel %h %p"},
-		// A quoted shell invocation is fine: sh is then the program hop runs, chosen by
-		// the user in the config, not a shell hop wrapped around their line.
+		// A quoted shell invocation is fine: sh is then the program the user chose.
 		{"explicit sh wrapper", `sh -c "exec openssl s_client -connect %h:%p"`},
 	}
 	for _, tc := range runnable {

@@ -14,10 +14,7 @@ import (
 	"hop/internal/terminal"
 )
 
-// selModel builds a focused shell on a pane that has printed text, with the clipboard
-// writer replaced: a test must never write the clipboard of the machine it runs on. It
-// returns a reader for whatever was copied. marker is the text the screen ends with,
-// waited for before a test points at it.
+// selModel builds a focused shell on a pane that has printed text, with the clipboard writer stubbed.
 func selModel(t *testing.T, screen, marker string) (*model, func() string) {
 	t.Helper()
 
@@ -40,8 +37,7 @@ func selModel(t *testing.T, screen, marker string) (*model, func() string) {
 	}, m.paneW, m.paneH, nil)
 	m.sessions["ha"] = &session{shells: []*shellTab{{id: 1, pane: p}}}
 
-	// The screen arrives on the pane's own pump; wait for it to be parsed onto the
-	// emulator before any test points at it.
+	// The screen arrives on the pane's own pump; wait for it before pointing at it.
 	deadline := time.Now().Add(2 * time.Second)
 	for !strings.Contains(p.View(), marker) && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
@@ -57,11 +53,9 @@ func selModel(t *testing.T, screen, marker string) (*model, func() string) {
 	}
 }
 
-// drag builds the three events one drag arrives as, in pane-content coordinates
-// offset onto the screen: press, motion, release.
+// dragEvents builds the three events one drag arrives as: press, motion, release.
 func dragEvents(x1, y1, x2, y2 int) []tea.MouseMsg {
-	// The sidebar's outer width plus the pane's border, and the header plus the
-	// pane's top border — the inverse of paneLocal.
+	// The sidebar's outer width plus the borders - the inverse of paneLocal.
 	const dx, dy = 33, 2
 	return []tea.MouseMsg{
 		{X: x1 + dx, Y: y1 + dy, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress},
@@ -70,8 +64,6 @@ func dragEvents(x1, y1, x2, y2 int) []tea.MouseMsg {
 	}
 }
 
-// The gesture the mouse took away, given back: drag over a shell pane, and what
-// was under the pointer is on the clipboard when the button comes up.
 func TestDragOverShellSelectsAndCopies(t *testing.T) {
 	m, copied := selModel(t, "sudo apt update\r\n", "sudo apt update")
 
@@ -88,14 +80,11 @@ func TestDragOverShellSelectsAndCopies(t *testing.T) {
 	if m.sel.dragging {
 		t.Fatal("the drag is still live after the release")
 	}
-	// And the highlight is on the screen the pane draws.
 	if !strings.Contains(m.View(), "\x1b[7m") {
 		t.Fatal("the selection is not painted on the pane")
 	}
 }
 
-// A click that never moved selects nothing and copies nothing: a pointer resting on a
-// pane must not clear the clipboard somebody was about to paste from.
 func TestClickWithoutDragCopiesNothing(t *testing.T) {
 	m, copied := selModel(t, "sudo apt update\r\n", "sudo apt update")
 
@@ -110,8 +99,7 @@ func TestClickWithoutDragCopiesNothing(t *testing.T) {
 	}
 }
 
-// A selection is a moment. The next key takes it down — and is not spent doing so:
-// it still means whatever it means.
+// A selection is a moment: the next key takes it down, and still means whatever it means.
 func TestAnyKeyClearsTheSelection(t *testing.T) {
 	m, _ := selModel(t, "sudo apt update\r\n", "sudo apt update")
 	for _, e := range dragEvents(0, 0, 14, 0) {
@@ -128,8 +116,6 @@ func TestAnyKeyClearsTheSelection(t *testing.T) {
 	}
 }
 
-// The wheel moves the screen under the highlight, and the highlight goes with it: the
-// same words stay covered, three rows further down.
 func TestScrollCarriesTheSelection(t *testing.T) {
 	screen, marker := longScreen(60)
 	m, _ := selModel(t, screen, marker)
@@ -152,9 +138,7 @@ func TestScrollCarriesTheSelection(t *testing.T) {
 	}
 }
 
-// The bug this fixes: the wheel used to clear a live drag, so growing a selection past
-// the screen it started on meant pinning the pointer to an edge row and waiting for the
-// autoscroll. Now a notch scrolls under the drag, and the selection grows by it.
+// Regression: the wheel used to clear a live drag instead of scrolling under it.
 func TestWheelDuringDragExtendsTheSelection(t *testing.T) {
 	screen, marker := longScreen(60)
 	m, copied := selModel(t, screen, marker)
@@ -180,15 +164,12 @@ func TestWheelDuringDragExtendsTheSelection(t *testing.T) {
 		t.Fatalf("head row = %d, want 5 — the pointer did not move", m.sel.head.Y)
 	}
 
-	// So the release copies the rows the wheel opened up between the two ends.
 	m.handleMouse(tea.MouseMsg{X: 33 + 6, Y: 2 + 5, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
 	if got := countLines(copied()); got != wheelStep+1 {
 		t.Fatalf("copied %d lines (%q), want %d", got, copied(), wheelStep+1)
 	}
 }
 
-// A remote program that asked for the mouse keeps it, selection included: vim with
-// `set mouse=a` does its own, and two selections for one drag is worse than either.
 func TestRemoteMouseKeepsTheDrag(t *testing.T) {
 	m, copied := selModel(t, "\x1b[?1002h\x1b[?1006hvim\r\n", "vim")
 
@@ -213,8 +194,6 @@ func TestRemoteMouseKeepsTheDrag(t *testing.T) {
 	}
 }
 
-// ctrl+g hands the pointer back to the terminal and takes it again — the escape hatch for
-// the selections hop's own does not cover.
 func TestToggleMouseKeyHandsThePointerOver(t *testing.T) {
 	m := newMouseModel(3)
 	m.mouseOn = true
@@ -236,8 +215,7 @@ func TestToggleMouseKeyHandsThePointerOver(t *testing.T) {
 	}
 }
 
-// Switching the mouse off mid-drag ends the drag: hop will see no release, and a
-// highlight nothing can finish is a lie about what is on the clipboard.
+// Switching the mouse off mid-drag ends the drag: no release will ever arrive.
 func TestMouseOffClearsALiveSelection(t *testing.T) {
 	m, _ := selModel(t, "sudo apt update\r\n", "sudo apt update")
 	m.mouseOn = true
@@ -253,8 +231,7 @@ func TestMouseOffClearsALiveSelection(t *testing.T) {
 	}
 }
 
-// Not every terminal names the button that came up — the X10 encoding has no room
-// to — and a drag that never ends is a highlight that never copies.
+// Not every terminal names the button that came up, and a drag that never ends never copies.
 func TestReleaseWithoutAButtonStillCopies(t *testing.T) {
 	m, copied := selModel(t, "sudo apt update\r\n", "sudo apt update")
 
@@ -273,30 +250,25 @@ func TestReleaseWithoutAButtonStillCopies(t *testing.T) {
 	}
 }
 
-// A drag that runs off the pane still ends when the button comes up, and follows the
-// pointer to the pane edge it left by on the way — what a terminal's own selection does.
-// A drag left live over the sidebar would make the next release finish a gesture nobody
-// was making.
+// A drag released off the pane still ends, following the pointer to the edge it left by.
 func TestDragReleasedOutsideThePaneEnds(t *testing.T) {
 	m, copied := selModel(t, "sudo apt update\r\n", "sudo apt update")
 
 	events := dragEvents(0, 0, 14, 0)
-	m.handleMouse(events[0]) // press, in the pane
-	m.handleMouse(events[1]) // drag across the line
+	m.handleMouse(events[0])
+	m.handleMouse(events[1])
 	// ...and the button comes up over the sidebar.
 	m.handleMouse(tea.MouseMsg{X: 4, Y: 5, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
 
 	if m.sel.dragging {
 		t.Fatal("a drag released outside the pane is still live")
 	}
-	// The release landed level with pane row 3, left of column 0: the selection runs
-	// there, so the copy is the line plus the blank rows under it.
+	// The release landed level with pane row 3, so the copy runs down to it.
 	if copied() != "sudo apt update\n\n\n" {
 		t.Fatalf("clipboard = %q, want the drag to have copied down to where it ended", copied())
 	}
 
-	// And a stray release over the pane now copies nothing, rather than finishing
-	// the drag that was abandoned above.
+	// A stray release with no press behind it copies nothing.
 	m.clipWrite = func(text string) error {
 		t.Fatalf("a release with no press behind it copied %q", text)
 		return nil
@@ -306,8 +278,7 @@ func TestDragReleasedOutsideThePaneEnds(t *testing.T) {
 
 // ---- autoscroll: a drag held against a pane edge ----
 
-// longScreen is enough output to push lines off the top of a pane, so there is history
-// for a drag at the top edge to scroll into.
+// longScreen is enough output to push lines off the top of a pane.
 func longScreen(n int) (string, string) {
 	var b strings.Builder
 	for i := 0; i < n; i++ {
@@ -322,9 +293,7 @@ func motion(x, y int) tea.MouseMsg {
 	return tea.MouseMsg{X: x + dx, Y: y + dy, Button: tea.MouseButtonLeft, Action: tea.MouseActionMotion}
 }
 
-// The bug this fixes: a drag that reaches the top row used to stop there, so a selection
-// could never cover more than the screenful it started on. Now the view scrolls under
-// the pointer, and the anchor travels with the text it was put on.
+// Regression: a drag reaching the top row used to stop there instead of scrolling into history.
 func TestDragAtTopEdgeScrollsIntoHistory(t *testing.T) {
 	screen, marker := longScreen(60)
 	m, _ := selModel(t, screen, marker)
@@ -350,8 +319,7 @@ func TestDragAtTopEdgeScrollsIntoHistory(t *testing.T) {
 	}
 }
 
-// The pointer held still sends nothing more, so the repeat is a tick — and it keeps
-// scrolling until the drag ends or history runs out.
+// A pointer held still sends no more motion, so the repeat is a tick.
 func TestDragScrollTickRepeats(t *testing.T) {
 	screen, marker := longScreen(60)
 	m, _ := selModel(t, screen, marker)
@@ -375,15 +343,12 @@ func TestDragScrollTickRepeats(t *testing.T) {
 		t.Fatalf("scroll offset = %d, want the stale tick to have moved nothing", p.ScrollOffset())
 	}
 
-	// And the release ends it: the next tick finds no drag behind it.
 	m.handleMouse(tea.MouseMsg{X: 33, Y: 2, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
 	if cmd := m.dragScrollTick(m.dragGen); cmd != nil {
 		t.Fatal("autoscroll outlived the button that was driving it")
 	}
 }
 
-// The other edge, the one the report was about: dragging down at the bottom row walks
-// the view back toward the live screen while paused in history.
 func TestDragAtBottomEdgeScrollsBack(t *testing.T) {
 	screen, marker := longScreen(60)
 	m, _ := selModel(t, screen, marker)
@@ -395,7 +360,6 @@ func TestDragAtBottomEdgeScrollsBack(t *testing.T) {
 	m.dragScrollTick(m.dragGen)
 	before := p.ScrollOffset()
 
-	// Now back down to the last row of the pane.
 	if _, cmd := m.handleMouse(motion(0, m.paneH-1)); cmd == nil {
 		t.Fatal("the bottom edge armed no tick")
 	}
@@ -407,8 +371,6 @@ func TestDragAtBottomEdgeScrollsBack(t *testing.T) {
 	}
 }
 
-// Walking all the way back down to the live screen leaves history behind it: the pane is
-// live again, so it must not go on drawing — and answering keys as — scrollback.
 func TestDragToBottomLeavesScrollback(t *testing.T) {
 	screen, marker := longScreen(60)
 	m, _ := selModel(t, screen, marker)
@@ -423,7 +385,6 @@ func TestDragToBottomLeavesScrollback(t *testing.T) {
 		t.Fatal("the drag never entered scrollback")
 	}
 
-	// Now hold the pointer on the bottom row until the view is back at the live bottom.
 	m.handleMouse(motion(0, m.paneH-1))
 	for i := 0; i < 10 && !p.AtBottom(); i++ {
 		m.dragScrollTick(m.dragGen)
@@ -439,8 +400,6 @@ func TestDragToBottomLeavesScrollback(t *testing.T) {
 	}
 }
 
-// A live screen has nothing below it, so a drag at the bottom of one scrolls nothing and
-// arms no clock that would tick forever.
 func TestDragAtBottomOfLiveScreenDoesNothing(t *testing.T) {
 	screen, marker := longScreen(60)
 	m, _ := selModel(t, screen, marker)
@@ -459,9 +418,6 @@ func TestDragAtBottomOfLiveScreenDoesNothing(t *testing.T) {
 	}
 }
 
-// A drag that wanders over the sidebar keeps its selection: the events belong to the
-// drag, not to the region the pointer is over, or the highlight would be cleared halfway
-// through making it.
 func TestDragOverSidebarKeepsSelection(t *testing.T) {
 	m, _ := selModel(t, "sudo apt update\r\n", "sudo apt update")
 
@@ -476,19 +432,14 @@ func TestDragOverSidebarKeepsSelection(t *testing.T) {
 	}
 }
 
-// A selection the wheel has grown is taller than the pane, so most of what it covers is
-// no longer on screen. The copy is read out of the pane's rows rather than its screen,
-// or letting go would silently put back only the screenful that survived the scrolling.
 func TestSelectionTallerThanThePaneCopiesEveryRow(t *testing.T) {
 	screen, marker := longScreen(60)
 	m, copied := selModel(t, screen, marker)
 
-	// Press on the pane's last row, then wheel two notches back into history: the anchor
-	// travels down with the text, six rows past the bottom of the window.
+	// Press on the last row, then wheel back into history so the anchor travels past the bottom.
 	m.handleMouse(dragEvents(0, m.paneH-1, 0, m.paneH-1)[0])
 	m.handleMouse(wheel(33, 2+m.paneH-1, true))
 	m.handleMouse(wheel(33, 2+m.paneH-1, true))
-	// And release on the top row, so the selection runs the whole way.
 	m.handleMouse(tea.MouseMsg{X: 33, Y: 2, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
 
 	want := m.paneH + 2*wheelStep
@@ -502,12 +453,7 @@ func TestSelectionTallerThanThePaneCopiesEveryRow(t *testing.T) {
 
 // ---- the width a selection is measured at ----
 
-// splitSelModel builds a wide window with the content area split between two editor
-// tabs, the keyboard in the right half, and a clipboard writer that records rather than
-// writing. The panes are deliberately built wider than a half: the width under test is
-// the width of the box the content was drawn in, and a pane already cut to the half would
-// not tell m.paneW and m.splitHalf() apart — Highlight and PlainText both stop at a row's
-// own end, so an over-wide width only shows up on rows with something past the half.
+// splitSelModel splits the content area between two editor tabs, keyboard right, panes wider than a half.
 func splitSelModel(t *testing.T, screen, marker string) (*model, *session, func() string) {
 	t.Helper()
 
@@ -537,8 +483,7 @@ func splitSelModel(t *testing.T, screen, marker string) (*model, *session, func(
 	m.sessions["ha"] = s
 	s.openSplit()
 
-	// As openSplit's caller does in production: the halves are boxes of the frame, so a
-	// split that nothing has laid out again is a split the frame has not heard about.
+	// As openSplit's caller does in production: the halves are boxes of the frame.
 	m.recomputeLayout()
 	if !m.splitOn(s) {
 		t.Fatal("the content area is not split, so nothing here is being tested")
@@ -553,18 +498,13 @@ func splitSelModel(t *testing.T, screen, marker string) (*model, *session, func(
 	}
 }
 
-// wideLine is a row longer than one half of the content area, and a second row under it
-// for the selection to end on: the width only decides where a fully covered row stops, so
-// a one-row selection is measured by its own end cell and says nothing.
+// wideLine is a row longer than one half of the content area, plus a second row to end on.
 func wideLine() (string, string, string) {
 	line := strings.Repeat("0123456789", 12)
 	return line + "\r\nhello\r\n", "hello", line
 }
 
-// The bug this fixes: a selection dragged inside a split half was measured against
-// m.paneW — the whole content area — so a row covered end to end was read out to a column
-// well past the half it was drawn in, and the clipboard came back with text that was
-// never on screen there.
+// Regression: a selection in a split half was measured against the whole content area's width.
 func TestSelectionInASplitHalfIsMeasuredAtTheHalfWidth(t *testing.T) {
 	screen, marker, line := wideLine()
 	m, s, copied := splitSelModel(t, screen, marker)
@@ -587,22 +527,17 @@ func TestSelectionInASplitHalfIsMeasuredAtTheHalfWidth(t *testing.T) {
 	}
 }
 
-// The other half of the same question. A shell is never one of two boxes, so its
-// selection is the whole content area even while the session behind it is holding a split
-// of editors — the naive reading, "the session is split, so the width is a half", cuts a
-// shell copy off at half the row.
+// A shell is never one of two boxes, so its selection is the full content area even in a split session.
 func TestSelectionInAShellIsMeasuredAtTheFullWidth(t *testing.T) {
 	screen, marker, line := wideLine()
 	m, s, copied := splitSelModel(t, screen, marker)
 
-	// The keyboard moves to a shell on the same session; the editors, and the split, stay
-	// open behind it.
+	// The keyboard moves to a shell; the editors and the split stay open behind it.
 	s.shells = []*shellTab{{id: 1, pane: fakePaneWith(t, m.paneW, 6, screen, marker)}}
 	t.Cleanup(func() { s.shells[0].pane.Close() })
 	m.mode = modeShell
 
-	// A shell is drawn in the content box entire, which is the box mouseShell hands to
-	// mouseSelect however the session behind it is split.
+	// A shell is drawn in the content box entire, split session or not.
 	box := m.frame.content
 	if box.innerW() != m.paneW {
 		t.Fatalf("the content box is %d wide, want %d: a shell is never split",
@@ -620,9 +555,7 @@ func TestSelectionInAShellIsMeasuredAtTheFullWidth(t *testing.T) {
 	}
 }
 
-// A window resized while the button is still down: the release must be read out at the
-// width the pane is drawn at now. box used to be a rect snapshot, so a covered row came
-// back cut at the pre-resize column — text the highlight never covered.
+// Regression: box was a rect snapshot, so a mid-drag resize read the row out at the old width.
 func TestSelectionResizedMidDragIsMeasuredAtTheNewWidth(t *testing.T) {
 	screen, marker, line := wideLine()
 	m, s, copied := splitSelModel(t, screen, marker)
@@ -632,9 +565,7 @@ func TestSelectionResizedMidDragIsMeasuredAtTheNewWidth(t *testing.T) {
 	m.startSelection(terminal.Cell{X: 0, Y: 0}, m.frame.half(s.focusedHalf()))
 	m.dragSelection(terminal.Cell{X: 4, Y: 1})
 
-	// ...and the window is dragged wider before it comes up. relayout re-lays the columns
-	// and hands every pane its new size, so the half the drag is in is a different width
-	// from the one it started in.
+	// ...and the window is dragged wider before the button comes up.
 	m.Update(tea.WindowSizeMsg{Width: 240, Height: 20})
 
 	if m.splitHalf() == was {

@@ -7,8 +7,7 @@ import (
 	"testing"
 )
 
-// Typing a command has to read as one pill, not as one pill per letter, and named
-// chords have to stay separate events.
+// A typed run reads as one pill; named chords stay separate events.
 func TestKeycastGroupsTypedRuns(t *testing.T) {
 	m := viewModel(120, 34)
 
@@ -26,7 +25,6 @@ func TestKeycastGroupsTypedRuns(t *testing.T) {
 	}
 }
 
-// The trail is a window on the last few events, not a transcript.
 func TestKeycastKeepsOnlyTheRecentEvents(t *testing.T) {
 	m := viewModel(120, 34)
 
@@ -41,8 +39,7 @@ func TestKeycastKeepsOnlyTheRecentEvents(t *testing.T) {
 	}
 }
 
-// Drawing the trail must not change the shape of the screen: it is composited into
-// the existing rows, so a recording never shifts hop's layout.
+// The trail composites into existing rows and never shifts hop's layout.
 func TestKeycastDrawKeepsTheScreenShape(t *testing.T) {
 	m := viewModel(120, 34)
 	before := m.View()

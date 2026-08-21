@@ -11,8 +11,7 @@ import (
 	"hop/internal/store"
 )
 
-// Tunnel is one running local or remote TCP forward. It owns the listening socket and
-// every connection accepted from it; Close releases all of them and waits.
+// Tunnel is one running local or remote TCP forward; Close releases the listener and every accepted connection.
 type Tunnel struct {
 	definition store.Forward
 	listener   net.Listener
@@ -27,9 +26,7 @@ type Tunnel struct {
 	once    sync.Once
 }
 
-// StartForward starts f over this client's authenticated transport. Local forwards listen
-// on hop's machine and dial through SSH; remote forwards ask the server to listen and dial
-// their target on hop's machine.
+// StartForward starts f over this client's authenticated transport.
 func (c *Client) StartForward(f store.Forward) (*Tunnel, error) {
 	if c == nil || c.ssh == nil {
 		return nil, errors.New("sshx: client not initialized")
@@ -70,9 +67,7 @@ func (c *Client) StartForward(f store.Forward) (*Tunnel, error) {
 	return nil, fmt.Errorf("sshx: listen %s: %w", bind, err)
 }
 
-// startTunnel takes an open listener and the dial function for the far side. Keeping that
-// boundary injectable makes both directions testable without a test server that
-// understands every forwarding request.
+// startTunnel takes an open listener and the dial function for the far side.
 func startTunnel(f store.Forward, ln net.Listener, dial func(string, string) (net.Conn, error)) *Tunnel {
 	t := &Tunnel{
 		definition: f,
@@ -123,8 +118,7 @@ func (t *Tunnel) forward(incoming net.Conn) {
 	}
 	defer t.unregister(outgoing)
 
-	// Either half closing ends the pair: closing both sockets releases the opposite
-	// io.Copy, including a peer that went quiet without closing itself.
+	// Either half closing ends the pair: closing both sockets releases the opposite io.Copy.
 	copied := make(chan struct{}, 1)
 	go func() {
 		_, _ = io.Copy(outgoing, incoming)
@@ -191,8 +185,7 @@ func (t *Tunnel) Close() error {
 	return err
 }
 
-// Done closes when the listener stops, by Close, connection loss or error. Err is
-// meaningful after it closes.
+// Done closes when the listener stops; Err is meaningful after it closes.
 func (t *Tunnel) Done() <-chan struct{} { return t.done }
 
 // Err reports an unexpected listener failure; a tunnel closed by the user has none.
@@ -202,7 +195,6 @@ func (t *Tunnel) Err() error {
 	return t.err
 }
 
-// Definition is the persisted definition this runtime represents.
 func (t *Tunnel) Definition() store.Forward { return t.definition }
 
 // ListenAddr is the address actually bound by the listener.

@@ -31,10 +31,8 @@ func newSigner(t *testing.T) ssh.Signer {
 	return signer
 }
 
-// startSFTPServer spins up an in-process SSH server on 127.0.0.1:0 that accepts
-// any public key. On a session channel it accepts a "subsystem" request named
-// "sftp" and serves it with a real sftp.Server over the real filesystem. It
-// returns the listener address; the server runs until t.Cleanup closes it.
+// startSFTPServer spins up an in-process SSH server on 127.0.0.1:0 serving a real
+// sftp.Server, and returns its address.
 func startSFTPServer(t *testing.T, hostKey ssh.Signer) string {
 	t.Helper()
 
@@ -64,8 +62,7 @@ func startSFTPServer(t *testing.T, hostKey ssh.Signer) string {
 	return ln.Addr().String()
 }
 
-// serveSFTPConn performs the SSH handshake and services session channels,
-// answering an "sftp" subsystem request with a real sftp.Server.
+// serveSFTPConn performs the SSH handshake and services session channels.
 func serveSFTPConn(nc net.Conn, cfg *ssh.ServerConfig) {
 	sc, chans, reqs, err := ssh.NewServerConn(nc, cfg)
 	if err != nil {
@@ -121,8 +118,6 @@ func handleSFTPSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
 	}
 }
 
-// TestSFTPRoundTrip proves the sftpx layer end to end against an in-process SFTP
-// server rooted at the real filesystem — no external sshd, no admin rights.
 func TestSFTPRoundTrip(t *testing.T) {
 	hostKey := newSigner(t)
 	clientKey := newSigner(t)
@@ -148,7 +143,6 @@ func TestSFTPRoundTrip(t *testing.T) {
 	}
 	defer c.Close()
 
-	// A usable base directory without relying on OS-specific absolute paths.
 	base, err := c.Home()
 	if err != nil {
 		t.Fatalf("Home: %v", err)
@@ -170,7 +164,6 @@ func TestSFTPRoundTrip(t *testing.T) {
 
 	const payload = "hop-sftp-ok"
 
-	// Local source file to upload.
 	src, err := os.CreateTemp(t.TempDir(), "hop-src-*.txt")
 	if err != nil {
 		t.Fatalf("create local src: %v", err)
@@ -188,7 +181,6 @@ func TestSFTPRoundTrip(t *testing.T) {
 		t.Fatalf("Upload wrote %d bytes, want %d", n, len(payload))
 	}
 
-	// List must surface the uploaded file as a non-directory with a positive size.
 	entries, err := c.List(p)
 	if err != nil {
 		t.Fatalf("List %s: %v", p, err)
@@ -210,7 +202,6 @@ func TestSFTPRoundTrip(t *testing.T) {
 		t.Fatalf("a.txt Size = %d, want > 0", found.Size)
 	}
 
-	// Download and verify the bytes round-trip exactly.
 	dst := filepath.Join(t.TempDir(), "a-downloaded.txt")
 	m, err := c.Download(remoteFile, dst)
 	if err != nil {
@@ -236,8 +227,7 @@ func TestSFTPRoundTrip(t *testing.T) {
 	}
 }
 
-// A counting writer passes every byte through unchanged and reports the running total
-// after each write, which is the whole contract the progress callbacks rest on.
+// Bytes pass through unchanged and the running total is reported after each write.
 func TestCountingWriter(t *testing.T) {
 	var sink strings.Builder
 	var seen []int64
@@ -256,8 +246,7 @@ func TestCountingWriter(t *testing.T) {
 		t.Fatalf("reported %v, want the running totals %v", seen, want)
 	}
 
-	// With nobody to report to there must be no wrapper at all: that is what keeps the
-	// plain Download and Upload byte-for-byte the calls they were before progress existed.
+	// With nobody to report to there must be no wrapper at all.
 	if got := counted(&sink, nil); got != io.Writer(&sink) {
 		t.Fatalf("counted(w, nil) = %T, want the writer itself", got)
 	}
@@ -266,16 +255,13 @@ func TestCountingWriter(t *testing.T) {
 	}
 }
 
-// The wrapper must not cost the destination its bulk transfer path: io.Copy reaches it
-// through ReadFrom, and a wrapper that is not an io.ReaderFrom silently downgrades an
-// upload to sequential 32 KiB writes. This is the assertion that would catch that.
+// A wrapper that is not an io.ReaderFrom would downgrade uploads to 32 KiB writes.
 func TestCountingWriterKeepsTheBulkPath(t *testing.T) {
 	var w io.Writer = counted(&recordingReaderFrom{}, func(int64) {})
 	if _, ok := w.(io.ReaderFrom); !ok {
 		t.Fatal("a counted writer is not an io.ReaderFrom, so io.Copy cannot reach the destination's bulk path")
 	}
 
-	// And it must actually delegate rather than fall back to its own loop.
 	dst := &recordingReaderFrom{}
 	var seen []int64
 	cw := counted(dst, func(n int64) { seen = append(seen, n) }).(io.ReaderFrom)
@@ -307,10 +293,8 @@ func (d *recordingReaderFrom) ReadFrom(r io.Reader) (int64, error) {
 	return io.Copy(&d.buf, r)
 }
 
-// The progress callback fires during a real transfer in both directions, with totals
-// that only ever grow and end on the file's size. The payload is deliberately larger
-// than io.Copy's 32 KiB block so more than one report has to happen — a callback that
-// only fired once at the end would satisfy a smaller file and tell the user nothing.
+// Totals only grow and end on the file's size; the payload exceeds io.Copy's 32 KiB
+// block so more than one report has to happen.
 func TestTransferProgressReports(t *testing.T) {
 	hostKey := newSigner(t)
 	clientKey := newSigner(t)
@@ -342,9 +326,7 @@ func TestTransferProgressReports(t *testing.T) {
 		t.Fatalf("Mkdir %s: %v", dir, err)
 	}
 	remote := path.Join(dir, "big.bin")
-	// Best-effort only, and it really is only that: t.Cleanup runs after this function's
-	// defers, by which time the client is closed and these calls cannot work. The
-	// removals that matter are the explicit ones at the end.
+	// Best-effort only: the removals that matter are the explicit ones at the end.
 	t.Cleanup(func() {
 		os.Remove(filepath.Join("hop_sftp_progress", "big.bin"))
 		os.Remove("hop_sftp_progress")
@@ -356,8 +338,7 @@ func TestTransferProgressReports(t *testing.T) {
 		t.Fatalf("write local source: %v", err)
 	}
 
-	// check asserts the shape every progress report must have, whichever way the bytes
-	// were going: at least two of them, never going backwards, ending on the size.
+	// check: at least two reports, never going backwards, ending on the size.
 	check := func(what string, seen []int64) {
 		t.Helper()
 		if len(seen) < 2 {
@@ -392,9 +373,7 @@ func TestTransferProgressReports(t *testing.T) {
 	}
 	check("download", downSeen)
 
-	// While the client is still open, so the server actually sees them. The test server
-	// is rooted at the real filesystem, and a leftover 200 KiB file would land in the
-	// package directory.
+	// While the client is still open, so the server actually sees them.
 	if err := c.Remove(remote); err != nil {
 		t.Fatalf("Remove %s: %v", remote, err)
 	}
@@ -403,10 +382,8 @@ func TestTransferProgressReports(t *testing.T) {
 	}
 }
 
-// newTestClient dials the in-process SFTP server and returns a connected sftpx client
-// together with a scratch directory of its own beneath the server's start directory. The
-// directory is removed while the client is still open, because a t.Cleanup running after
-// the deferred Close could not reach the server any more.
+// newTestClient returns a connected sftpx client and a scratch directory of its own,
+// removed while the client is still open.
 func newTestClient(t *testing.T, name string) (*Client, string) {
 	t.Helper()
 
@@ -482,9 +459,7 @@ func existsRemote(c *Client, p string) bool {
 	return err == nil
 }
 
-// A single file copy lands the bytes at dstDir/<base>, returns the size, and drives the
-// progress callback with growing totals ending on that size. The payload is deliberately
-// larger than io.Copy's 32 KiB block so more than one report has to happen.
+// Copy lands the bytes at dstDir/<base>, returns the size, and reports growing totals.
 func TestCopyFileWithProgress(t *testing.T) {
 	c, base := newTestClient(t, "hop_sftp_copy_file")
 
@@ -522,8 +497,7 @@ func TestCopyFileWithProgress(t *testing.T) {
 	}
 }
 
-// A directory copy reproduces the whole subtree under dstDir/<base>, and the progress
-// totals stay cumulative across files instead of restarting at zero for each one.
+// The whole subtree comes across, and progress totals stay cumulative across files.
 func TestCopyDirectoryRecursive(t *testing.T) {
 	c, base := newTestClient(t, "hop_sftp_copy_dir")
 
@@ -577,8 +551,6 @@ func TestCopyDirectoryRecursive(t *testing.T) {
 	}
 }
 
-// The cheap path: a move within one filesystem is a rename, so the destination appears and
-// the source is gone.
 func TestMoveViaRename(t *testing.T) {
 	c, base := newTestClient(t, "hop_sftp_move_rename")
 
@@ -600,9 +572,7 @@ func TestMoveViaRename(t *testing.T) {
 	}
 }
 
-// The fallback: moving a directory onto an existing, non-empty directory of the same name
-// cannot be a rename, so Move has to copy and then delete. The pre-existing file surviving
-// alongside the moved one is what proves the copy path ran rather than a rename.
+// The pre-existing file surviving alongside the moved one proves the copy path ran.
 func TestMoveFallsBackToCopyAndDelete(t *testing.T) {
 	c, base := newTestClient(t, "hop_sftp_move_fallback")
 
@@ -613,9 +583,7 @@ func TestMoveFallsBackToCopyAndDelete(t *testing.T) {
 	dstDir := path.Join(base, "dst")
 	writeRemote(t, c, path.Join(dstDir, "d", "keep.txt"), "kept")
 
-	// moveByCopy directly: Move itself refuses a destination that already exists, and a
-	// mount boundary — the one thing that legitimately fails a rename — cannot be staged
-	// in-process.
+	// moveByCopy directly: a mount boundary cannot be staged in-process.
 	if err := c.moveByCopy(src, dstDir, nil); err != nil {
 		t.Fatalf("moveByCopy: %v", err)
 	}
@@ -634,9 +602,7 @@ func TestMoveFallsBackToCopyAndDelete(t *testing.T) {
 	}
 }
 
-// Copying a directory into its own subtree would recurse into what it is writing, and
-// copying anything onto itself would destroy it. Both are refused before a byte moves,
-// and Move refuses them on the same terms.
+// Copy into own subtree, and onto itself, are refused before a byte moves; so is Move.
 func TestCopyAndMoveRefuseSelfDestructiveCases(t *testing.T) {
 	c, base := newTestClient(t, "hop_sftp_copy_self")
 
@@ -676,15 +642,12 @@ func TestCopyAndMoveRefuseSelfDestructiveCases(t *testing.T) {
 		})
 	}
 
-	// And nothing was touched.
 	if got := readRemote(t, c, path.Join(src, "sub", "a.txt")); got != "alpha" {
 		t.Fatalf("source changed after refusals: %q", got)
 	}
 }
 
-// A move onto a name that is already taken is refused rather than silently overwriting it,
-// and refused before anything moves — the copy fallback would otherwise truncate what is
-// there and charge a whole copy to do it.
+// Refused before anything moves, rather than overwriting the destination.
 func TestMoveRefusesAnExistingDestination(t *testing.T) {
 	c, base := newTestClient(t, "hop_sftp_move_exists")
 
@@ -708,9 +671,7 @@ func TestMoveRefusesAnExistingDestination(t *testing.T) {
 	}
 }
 
-// A symlink is recreated, not followed. Following one aborts the whole copy the moment it
-// points at a directory, because Open refuses that — so a tree with an ordinary "current"
-// link in it used to be uncopyable.
+// Regression: following a symlink to a directory aborted the whole copy.
 func TestCopyRecreatesSymlinks(t *testing.T) {
 	c, base := newTestClient(t, "hop_sftp_copy_links")
 

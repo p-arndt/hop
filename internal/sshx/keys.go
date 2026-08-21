@@ -12,17 +12,10 @@ import (
 	"hop/internal/pathx"
 )
 
-// defaultKeyNames are the private keys OpenSSH tries when a host names no IdentityFile,
-// in its order: newer, cheaper algorithms first. Only used when they exist.
+// defaultKeyNames are the private keys OpenSSH tries when a host names no IdentityFile, in its order.
 var defaultKeyNames = []string{"id_ed25519", "id_ecdsa", "id_rsa", "id_dsa"}
 
-// keySigners loads private keys from disk: the host's IdentityFile when it names one,
-// otherwise the default ~/.ssh keys. It is the fallback for an agent that is running but
-// holds no identities — the normal state on macOS for anyone who has not run `ssh-add`.
-//
-// Missing files are skipped silently. A key that needs a passphrase is skipped too but
-// reported through skipped, so the caller can say which one rather than leaving the user
-// with a bare "no supported methods remain".
+// keySigners loads private keys from disk; a missing or passphrase-protected key is skipped but named in skipped.
 func keySigners(identityFile string) (signers []ssh.Signer, skipped []string) {
 	paths, explicit := keyPaths(identityFile)
 
@@ -51,9 +44,7 @@ func keySigners(identityFile string) (signers []ssh.Signer, skipped []string) {
 	return signers, skipped
 }
 
-// keyPaths resolves the private keys to try for a host. A host's IdentityFile wins
-// outright and is reported as explicit, so a typo in it surfaces rather than being masked
-// by a default key that happens to exist.
+// keyPaths resolves the keys to try; an IdentityFile is explicit, so a typo in it surfaces rather than falling back.
 func keyPaths(identityFile string) (paths []string, explicit bool) {
 	if f := strings.TrimSpace(identityFile); f != "" {
 		return []string{pathx.ExpandHome(f)}, true

@@ -1,17 +1,8 @@
 package terminal
 
-// Copying out of a pane — the harder half of copy-and-paste, since the text is on the far
-// end of an SSH connection and the clipboard is here. The convention every terminal
-// settled on is OSC 52: a program writes the text, base64-encoded, to its own stdout:
-//
-//	ESC ] 52 ; c ; <base64> BEL      (or ST, ESC \, as the terminator)
-//
-// hop watches the same byte stream it watches for OSC 7 (see cwd.go), decodes the payload
-// and hands it to a sink the TUI installs — see internal/clipboard.
-//
-// The sink is optional and a setting, because this is a channel from a remote machine to
-// your desktop: everything running on the far end can write your clipboard through it.
-// Off, the sequence is decoded and dropped.
+// Copying out of a pane, via OSC 52: a program writes the text base64-encoded to its own
+// stdout as ESC ] 52 ; c ; <base64> BEL (or ST). The sink is optional and a setting, since
+// it is a channel from the remote machine to your desktop's clipboard.
 
 import (
 	"encoding/base64"
@@ -19,26 +10,20 @@ import (
 	"unicode/utf8"
 )
 
-// oscClipPrefix introduces a clipboard write, and is what oscScanner.cap recognises to
-// give the payload room for a clipboard rather than a path.
+// oscClipPrefix is what oscScanner.cap recognises to give the payload clipboard-sized room.
 const oscClipPrefix = "52;"
 
-// SetClipboardSink installs the function a clipboard write from the remote is handed to;
-// nil switches the feature off. It is called on the pane's output pump, off the UI
-// goroutine, so what is installed must be safe to call from there.
+// SetClipboardSink installs the sink for clipboard writes from the remote; nil switches the
+// feature off. Called on the output pump, so the sink must be safe off the UI goroutine.
 func (p *Pane) SetClipboardSink(sink func(string)) {
 	p.clipMu.Lock()
 	defer p.clipMu.Unlock()
 	p.clipSink = sink
 }
 
-// copyOut hands a decoded clipboard write to the sink, off the output pump — writing the
-// system clipboard may mean spawning a helper, and the pump is what keeps the pane's
-// screen up to date.
-//
-// One worker with a mailbox of one, rather than a goroutine per sequence: the far end
-// decides how often this is called, and racing writes could leave the clipboard holding
-// the older text. Serialised, a burst costs one write and one pending write.
+// copyOut hands a decoded clipboard write to the sink off the output pump, which must stay
+// free to keep the pane's screen up to date. One worker with a mailbox of one, so racing
+// writes cannot leave the clipboard holding the older text.
 func (p *Pane) copyOut(text string) {
 	p.clipMu.Lock()
 	defer p.clipMu.Unlock()
@@ -60,9 +45,8 @@ func (p *Pane) copyOut(text string) {
 	go p.drainClipboard()
 }
 
-// drainClipboard runs the sink until the mailbox is empty, then stands down. The flag it
-// clears is taken under copyOut's lock, so a write arriving as it finishes either finds
-// the worker running or starts another — never neither.
+// drainClipboard runs the sink until the mailbox is empty. The flag it clears is taken
+// under copyOut's lock, so a write arriving as it finishes never finds no worker at all.
 func (p *Pane) drainClipboard() {
 	for {
 		p.clipMu.Lock()
@@ -81,18 +65,9 @@ func (p *Pane) drainClipboard() {
 	}
 }
 
-// parseOSC52 pulls the text out of an OSC payload, or reports that this is not a
-// clipboard write carrying any.
-//
-// The payload is "52;<targets>;<base64>". The targets name which X selection to write and
-// are ignored: hop writes the one clipboard it can.
-//
-// Data of "?" is a read of the clipboard rather than a write. hop does not answer it —
-// that would put the local clipboard on the wire on the remote's say-so — and recognises
-// it here only so it is not mistaken for a write of the literal "?".
-//
-// The decoded text is refused unless it is valid UTF-8, and control characters other than
-// tab and newline are dropped: what lands on the clipboard is pasted somewhere else later.
+// parseOSC52 pulls the text out of a "52;<targets>;<base64>" payload. The targets name an
+// X selection and are ignored. Data of "?" is a clipboard read, which hop refuses to
+// answer; it is recognised here only so it is not taken for a write of a literal "?".
 func parseOSC52(payload string) (string, bool) {
 	rest, ok := strings.CutPrefix(payload, oscClipPrefix)
 	if !ok {
@@ -129,8 +104,8 @@ func parseOSC52(payload string) (string, bool) {
 	}, text), true
 }
 
-// decodeBase64 decodes the payload's data, tolerating the two things emitters disagree
-// about: the padding, and the line breaks a long payload is sometimes folded with.
+// decodeBase64 tolerates the two things emitters disagree about: the padding, and the line
+// breaks a long payload is sometimes folded with.
 func decodeBase64(data string) ([]byte, error) {
 	data = strings.NewReplacer("\n", "", "\r", "", " ", "").Replace(data)
 	if b, err := base64.StdEncoding.DecodeString(data); err == nil {

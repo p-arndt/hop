@@ -1,25 +1,15 @@
 package terminal
 
-// Selecting text with the pointer, inside hop.
-//
-// While hop reports the mouse, the drag never reaches the terminal, so its own selection
-// never happens. A TUI that takes the mouse has to hand that back itself, which is the
-// two operations here, over a rendered pane rather than over the emulator:
-//
-//	Highlight  paint the span in reverse video, for the screen
-//	PlainText  read the span back as text, for the clipboard
-//
-// Working on the rendered string is what makes both work everywhere a pane is drawn: the
-// live screen, the scrollback window, and an editor pane. Where the drag comes from is
-// the TUI's problem — see internal/tui/selection.go.
+// Selecting text with the pointer, inside hop. While hop reports the mouse the drag never
+// reaches the terminal, so hop highlights and reads back spans over the rendered string —
+// which works for the live screen, the scrollback window and an editor pane alike.
 
 import (
 	"strings"
 	"unicode"
 )
 
-// Cell is a position in a pane's rendered content: column X of row Y, both
-// zero-based, with (0, 0) the top-left cell of what is on screen.
+// Cell is column X of row Y in a pane's rendered content, zero-based from the top left.
 type Cell struct {
 	X, Y int
 }
@@ -32,18 +22,13 @@ func (c Cell) Before(d Cell) bool {
 	return c.X < d.X
 }
 
-// Span is a selected run of cells, from the anchor to the head, in reading order rather
-// than the order they were pointed at.
-//
-// It flows like a terminal's own selection rather than covering a rectangle: the first
-// row runs from the anchor to the end of the line, the rows between are taken whole, and
-// the last ends at the head — what selecting a wrapped command line has to do.
+// Span is a selected run of cells in reading order. It flows like a terminal's selection
+// rather than covering a rectangle, so a wrapped command line selects whole.
 type Span struct {
 	From, To Cell
 }
 
-// NewSpan orders two cells into a span. The head cell is included, so both ends on one
-// cell select that character.
+// NewSpan orders two cells into a span; the head cell is included.
 func NewSpan(anchor, head Cell) Span {
 	if head.Before(anchor) {
 		return Span{From: head, To: anchor}
@@ -51,12 +36,10 @@ func NewSpan(anchor, head Cell) Span {
 	return Span{From: anchor, To: head}
 }
 
-// Empty reports whether the span covers nothing, as an unstarted selection does.
 func (s Span) Empty() bool { return s == Span{} }
 
-// bounds is the half-open column range [lo, hi) the span covers on row y, and whether it
-// covers any of it. The rows between the ends are covered to width, so the highlight runs
-// to the edge as a terminal's does.
+// bounds is the half-open column range [lo, hi) the span covers on row y. Rows between the
+// ends are covered to width, so the highlight runs to the edge as a terminal's does.
 func (s Span) bounds(y, width int) (int, int, bool) {
 	if y < s.From.Y || y > s.To.Y {
 		return 0, 0, false
@@ -80,12 +63,8 @@ func (s Span) bounds(y, width int) (int, int, bool) {
 	return lo, hi, true
 }
 
-// Highlight paints the span onto a rendered view in reverse video, leaving every other
-// cell — and every escape sequence — as it was.
-//
-// width decides how far a fully covered row is highlighted. A shorter row is highlighted
-// to its own end rather than padded, which would draw reverse-video space over the
-// pane's background.
+// Highlight paints the span onto a rendered view in reverse video. A row shorter than
+// width is highlighted to its own end rather than padded.
 func Highlight(view string, s Span, width int) string {
 	if s.Empty() {
 		return view
@@ -101,12 +80,8 @@ func Highlight(view string, s Span, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// PlainText reads the span back as the text it covers, escape sequences dropped and each
-// row's trailing blanks trimmed — a terminal row is padded to the screen's width, which
-// is not what was selected.
-//
-// Rows are joined with newlines, and a row blank inside the span stays an empty line:
-// the blank between two commands is part of a selection over both.
+// PlainText reads the span back as text, escapes dropped and trailing blanks trimmed — a
+// terminal row is padded to the screen's width, which is not what was selected.
 func PlainText(view string, s Span, width int) string {
 	if s.Empty() {
 		return ""
@@ -123,10 +98,8 @@ func PlainText(view string, s Span, width int) string {
 	return strings.Join(out, "\n")
 }
 
-// reverseSpan wraps the cells in [lo, hi) of one rendered row in reverse video. The
-// escape sequences are copied through and occupy no column, as reverseAtColumn walks
-// them, with one addition: an SGR reset inside the span would cancel the reverse
-// attribute, so it is re-asserted after every sequence copied while inside.
+// reverseSpan wraps the cells in [lo, hi) of one rendered row in reverse video. An SGR
+// reset inside the span would cancel it, so it is re-asserted after every sequence copied.
 func reverseSpan(line string, lo, hi int) string {
 	var b strings.Builder
 	inside := false
@@ -159,7 +132,7 @@ func reverseSpan(line string, lo, hi int) string {
 }
 
 // sliceColumns returns the characters of one rendered row occupying columns [lo, hi),
-// escape sequences dropped: the row as text.
+// escape sequences dropped.
 func sliceColumns(line string, lo, hi int) string {
 	var b strings.Builder
 	col := 0
@@ -175,9 +148,7 @@ func sliceColumns(line string, lo, hi int) string {
 	return b.String()
 }
 
-// walkRow walks a rendered row, calling fn once per escape sequence (esc set, r zero) and
-// once per character (esc empty) — reverseAtColumn's traversal, factored out so the two
-// operations above agree about which cell is which.
+// walkRow calls fn once per escape sequence (esc set, r zero) and once per character.
 func walkRow(line string, fn func(esc string, r rune)) {
 	runes := []rune(line)
 	for i := 0; i < len(runes); {
@@ -192,9 +163,8 @@ func walkRow(line string, fn func(esc string, r rune)) {
 	}
 }
 
-// escapeEnd returns the index just past the escape sequence starting at i, handling the
-// two forms a rendered row carries — CSI and OSC — and treating anything else as ESC plus
-// one byte.
+// escapeEnd returns the index just past the escape sequence at i, handling CSI and OSC and
+// treating anything else as ESC plus one byte.
 func escapeEnd(runes []rune, i int) int {
 	j := i + 1
 	if j >= len(runes) {

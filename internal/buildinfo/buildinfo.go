@@ -1,14 +1,4 @@
-// Package buildinfo exposes the binary's version metadata.
-//
-// The values default to a "dev" build and are overridden at release time via
-// the Go linker, e.g.
-//
-//	go build -ldflags "-X hop/internal/buildinfo.Version=1.2.3 \
-//	                   -X hop/internal/buildinfo.Commit=abc1234 \
-//	                   -X hop/internal/buildinfo.Date=2026-07-01T12:00:00Z"
-//
-// The release pipeline reads the version from the repo-root VERSION file (the
-// single source of truth) and injects it here. See .github/workflows/release.yml.
+// Package buildinfo exposes the binary's version metadata, injected at release time via -ldflags.
 package buildinfo
 
 var (

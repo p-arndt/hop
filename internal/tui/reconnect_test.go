@@ -19,8 +19,7 @@ func fakeBrowser(t *testing.T, dir string) *filebrowser.Browser {
 	return fakeBrowserWith(t, dir)
 }
 
-// fakeBrowserWith is fakeBrowser over a listing rather than an empty directory, for the
-// tests that need the cursor to be standing on something in particular.
+// fakeBrowserWith is fakeBrowser over a listing rather than an empty directory.
 func fakeBrowserWith(t *testing.T, dir string, entries ...sftpx.Entry) *filebrowser.Browser {
 	t.Helper()
 	br, err := filebrowser.New(fbtest.Stub{Dir: dir, Entries: entries}, "ha", dir,
@@ -31,8 +30,7 @@ func fakeBrowserWith(t *testing.T, dir string, entries ...sftpx.Entry) *filebrow
 	return br
 }
 
-// deadModel builds a model on host "web" holding n shells and optionally a browser on one
-// connection, pane focused. cli is the connection the loss message has to name.
+// deadModel builds a focused model on host "web" with n shells and optionally a browser.
 func deadModel(t *testing.T, n int, browser bool) (*model, *session, *sshx.Client) {
 	t.Helper()
 	cli := &sshx.Client{}
@@ -43,8 +41,6 @@ func deadModel(t *testing.T, n int, browser bool) (*model, *session, *sshx.Clien
 	if browser {
 		s.browser = fakeBrowser(t, "/srv/www")
 	}
-	// The host lives in the store as well: a landing shell reloads the list from it, and
-	// a reconnect's plan is applied against the host it finds there.
 	host := store.Host{Alias: "web", HostName: "web.example.com", User: "deploy"}
 	st := testStore(t)
 	if _, err := st.Add(host); err != nil {
@@ -60,8 +56,7 @@ func deadModel(t *testing.T, n int, browser bool) (*model, *session, *sshx.Clien
 	return m, s, cli
 }
 
-// A dropped connection marks the session dead and leaves everything on screen. Tearing
-// it down would take the reconnect offer, and the last screen the host drew, with it.
+// Everything stays on screen: tearing it down would take the reconnect offer with it.
 func TestDroppedConnectionMarksTheSessionDead(t *testing.T) {
 	m, s, cli := deadModel(t, 2, true)
 
@@ -84,8 +79,7 @@ func TestDroppedConnectionMarksTheSessionDead(t *testing.T) {
 	}
 }
 
-// Every channel on a dropped connection ends at once, so the shells report exits too.
-// They are not exits: a dead session ignores them.
+// Every channel ends at a drop, so those shell exits are not exits.
 func TestShellExitsAfterADropKeepTheSession(t *testing.T) {
 	m, s, cli := deadModel(t, 2, false)
 	m.Update(sessionLostMsg{alias: "web", client: cli})
@@ -101,8 +95,6 @@ func TestShellExitsAfterADropKeepTheSession(t *testing.T) {
 	}
 }
 
-// An editor's exit on a dropped connection is the same story: the channel was cut,
-// nobody typed ":q".
 func TestEditorExitAfterADropKeepsTheSession(t *testing.T) {
 	m, s, cli := deadModel(t, 1, true)
 	s.editors = append(s.editors, &editorTab{id: 1, name: "nginx.conf", path: "/etc/nginx.conf", pane: fakePane()})
@@ -115,8 +107,7 @@ func TestEditorExitAfterADropKeepsTheSession(t *testing.T) {
 	}
 }
 
-// The loss message names the connection that died, not just the host: it fires for every
-// close hop makes itself, and by then the alias may hold a new, live connection.
+// The loss names a connection, since the alias may already hold a new one.
 func TestLossOfAReplacedConnectionIsIgnored(t *testing.T) {
 	m, s, _ := deadModel(t, 1, false)
 
@@ -127,13 +118,11 @@ func TestLossOfAReplacedConnectionIsIgnored(t *testing.T) {
 	}
 }
 
-// A dead pane forwards nothing to the far end — there is nothing there — and it does
-// not quietly swallow keys either: what is left is reconnect, leave, and drop.
+// A dead pane forwards nothing and swallows nothing: what is left is reconnect, leave, drop.
 func TestDeadPaneKeyboard(t *testing.T) {
 	m, _, cli := deadModel(t, 1, false)
 	m.Update(sessionLostMsg{alias: "web", client: cli})
 
-	// An ordinary key does nothing at all: no reconnect, no exit from the pane.
 	if _, cmd := m.handleKey(key(t, "j")); cmd != nil {
 		t.Fatal("a plain key on a dead pane ran a command")
 	}
@@ -141,8 +130,6 @@ func TestDeadPaneKeyboard(t *testing.T) {
 		t.Fatal("a plain key on a dead pane reconnected or left the pane")
 	}
 
-	// ctrl+o backs out to the list, leaving the pane on screen as the host's last
-	// known state.
 	m.handleKey(key(t, "ctrl+o"))
 	if m.focused() || m.active != "web" {
 		t.Fatalf("focused = %v, active = %q; want the list focused with the pane still shown",
@@ -150,8 +137,7 @@ func TestDeadPaneKeyboard(t *testing.T) {
 	}
 }
 
-// 'r' on a dead pane reconnects: the dead session goes, a dial starts, and what was
-// open on it is parked as the plan the landing will put back.
+// r drops the dead session, starts a dial, and parks what was open as a plan.
 func TestDeadPaneReconnects(t *testing.T) {
 	m, _, cli := deadModel(t, 2, true)
 	m.Update(sessionLostMsg{alias: "web", client: cli})
@@ -181,8 +167,6 @@ func TestDeadPaneReconnects(t *testing.T) {
 	}
 }
 
-// Someone who was in the SFTP browser when the link dropped comes back to it: it is what
-// the reconnect dials first, and the first thing to land takes the keyboard.
 func TestReconnectComesBackToTheBrowser(t *testing.T) {
 	m, _, cli := deadModel(t, 1, true)
 	m.mode = modeBrowser
@@ -196,8 +180,7 @@ func TestReconnectComesBackToTheBrowser(t *testing.T) {
 	}
 }
 
-// The landing of a reconnect puts the rest back over the one new connection. Editor tabs
-// are not reopened, and the status says so rather than leaving them quietly missing.
+// Editor tabs are not reopened, and the status says so.
 func TestReconnectLandingRestoresTheRest(t *testing.T) {
 	m, s, cli := deadModel(t, 3, true)
 	s.editors = append(s.editors, &editorTab{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()})
@@ -224,8 +207,7 @@ func TestReconnectLandingRestoresTheRest(t *testing.T) {
 	}
 }
 
-// A shell a reconnect is putting back lands quietly: the reconnect has already
-// decided where the keyboard goes, so a restored tab must not steal it.
+// The reconnect has already decided where the keyboard goes.
 func TestRestoredShellLandsQuietly(t *testing.T) {
 	m, s, _ := deadModel(t, 1, false)
 	m.mode = modeBrowser
@@ -245,8 +227,7 @@ func TestRestoredShellLandsQuietly(t *testing.T) {
 	}
 }
 
-// A reconnect that fails for good must not leave its plan lying about, or the next
-// ordinary connect to that host would restore tabs nobody asked for.
+// A leftover plan would restore tabs on the next ordinary connect.
 func TestFailedReconnectDropsThePlan(t *testing.T) {
 	m, _, cli := deadModel(t, 2, false)
 	m.Update(sessionLostMsg{alias: "web", client: cli})
@@ -259,8 +240,6 @@ func TestFailedReconnectDropsThePlan(t *testing.T) {
 	}
 }
 
-// 'r' in the host list reconnects the dropped session under the cursor — a drop you
-// notice by the red dot in the sidebar is as likely as one you notice in the pane.
 func TestReconnectKeyInTheList(t *testing.T) {
 	m, _, cli := deadModel(t, 1, false)
 	m.Update(sessionLostMsg{alias: "web", client: cli})
@@ -275,7 +254,6 @@ func TestReconnectKeyInTheList(t *testing.T) {
 	}
 }
 
-// ...and on a host that is not dropped it says so rather than dialing something.
 func TestReconnectKeyOnALiveHostExplains(t *testing.T) {
 	m, _, _ := deadModel(t, 1, false)
 	m.mode = modeList
@@ -295,8 +273,7 @@ func TestReconnectKeyOnALiveHostExplains(t *testing.T) {
 	}
 }
 
-// The screen says the connection is gone in the three places you might be looking:
-// the pane's banner, the header's breadcrumb, and the footer's keys.
+// The drop shows in the pane's banner, the header, the footer and the details card.
 func TestDeadSessionOnScreen(t *testing.T) {
 	m, _, cli := deadModel(t, 1, false)
 	m.Update(sessionLostMsg{alias: "web", client: cli, err: errors.New("EOF")})
@@ -310,16 +287,12 @@ func TestDeadSessionOnScreen(t *testing.T) {
 	if !strings.Contains(m.renderFooter(), "drop session") {
 		t.Fatalf("the dead pane's footer does not offer the way out:\n%s", m.renderFooter())
 	}
-	// The host list and the details card both mark the host, so the state is visible
-	// with the pane left behind as much as in it.
 	m.mode, m.active = modeList, ""
 	if !strings.Contains(m.renderDetails(m.paneW), "connection lost") {
 		t.Fatal("the details card does not say the host's session dropped")
 	}
 }
 
-// Dropping a dead session is what 'd' means on it: the pane goes, and the host is
-// idle again rather than sitting there red forever.
 func TestDropADeadSession(t *testing.T) {
 	m, _, cli := deadModel(t, 1, false)
 	m.Update(sessionLostMsg{alias: "web", client: cli})
@@ -334,8 +307,6 @@ func TestDropADeadSession(t *testing.T) {
 	}
 }
 
-// Every way of asking for a shell on a dropped session means "get me back on this
-// host": there is no shell to focus, only one to re-earn.
 func TestOpeningAnythingOnADeadSessionReconnects(t *testing.T) {
 	for _, k := range []string{"enter", "s", "S", "f"} {
 		t.Run(k, func(t *testing.T) {
@@ -355,10 +326,7 @@ func TestOpeningAnythingOnADeadSessionReconnects(t *testing.T) {
 
 // ---- the size a reconnected browser is built at ----
 
-// watchBrowserSize swaps the browser command out for the length of the test and hands
-// back a reader for the size a reconnect asked for. Nothing is dialed: the arguments are
-// the only part of the command a test can see, and the size among them is the one the
-// listing is first laid out against.
+// watchBrowserSize swaps the browser command out and reports the size a reconnect asked for.
 func watchBrowserSize(t *testing.T) func() (int, int) {
 	t.Helper()
 	var w, h int
@@ -366,17 +334,14 @@ func watchBrowserSize(t *testing.T) func() (int, int) {
 	reconnectBrowserCmd = func(_ store.Host, _ *sshx.Client, _ string, _ sshx.Prompter,
 		_ filebrowser.Options, _ string, pw, ph int, _ bool) tea.Cmd {
 		w, h = pw, ph
-		// A command that does nothing rather than no command: tea.Batch drops nils, and
-		// the caller checks it was handed something to run.
+		// Not a nil command: tea.Batch drops nils and the caller checks for one.
 		return func() tea.Msg { return nil }
 	}
 	t.Cleanup(func() { reconnectBrowserCmd = restore })
 	return func() (int, int) { return w, h }
 }
 
-// wideDeadModel is deadModel on a window with room for all three columns, which is the
-// only window on which the tree column and the content area are different sizes — and so
-// the only one that can tell which of them the browser was built for.
+// wideDeadModel is deadModel on a window wide enough for the tree column and content area to differ.
 func wideDeadModel(t *testing.T, shells int, browser bool) (*model, *session, *sshx.Client) {
 	t.Helper()
 	m, s, cli := deadModel(t, shells, browser)
@@ -388,10 +353,7 @@ func wideDeadModel(t *testing.T, shells int, browser bool) (*model, *session, *s
 	return m, s, cli
 }
 
-// The bug this fixes: a reconnect built the browser at the size of the content area,
-// which is where it used to live. It lives in the tree column now, which is narrower, and
-// the size handed over here is the one the listing is laid out — and its filenames
-// elided — against for the frame before browserLanded's relayout resizes it.
+// Regression: a reconnect built the browser at the content area's width, not the tree column's.
 func TestReconnectBuildsTheBrowserAtTheColumnWidth(t *testing.T) {
 	m, _, _ := wideDeadModel(t, 0, true)
 	size := watchBrowserSize(t)
@@ -408,9 +370,7 @@ func TestReconnectBuildsTheBrowserAtTheColumnWidth(t *testing.T) {
 	}
 }
 
-// And the same for the browser put back once the new connection has landed, which is the
-// other half of a reconnect: a session with a shell in front of its browser opens the
-// shell first and reattaches the browser here.
+// The same for the browser put back once the new connection has landed.
 func TestReconnectLandingBuildsTheBrowserAtTheColumnWidth(t *testing.T) {
 	m, _, _ := wideDeadModel(t, 1, false)
 	size := watchBrowserSize(t)

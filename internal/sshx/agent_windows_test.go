@@ -7,9 +7,7 @@ import (
 	"testing"
 )
 
-// disableAgent makes dialAgent fail for the duration of the test. Windows has no
-// $SSH_AUTH_SOCK to unset — the agent is found at a fixed named pipe — so the
-// pipe name is swapped for one nobody serves.
+// disableAgent points dialAgent at a pipe nobody serves.
 func disableAgent(t *testing.T) {
 	t.Helper()
 	orig := agentPipe
@@ -17,8 +15,7 @@ func disableAgent(t *testing.T) {
 	t.Cleanup(func() { agentPipe = orig })
 }
 
-// A pipe nobody serves must fail rather than hang, and the message must name the
-// pipe so a stopped ssh-agent service is visible as the cause.
+// Must fail rather than hang, naming the pipe.
 func TestDialAgentWithoutPipe(t *testing.T) {
 	disableAgent(t)
 
@@ -32,8 +29,7 @@ func TestDialAgentWithoutPipe(t *testing.T) {
 	}
 }
 
-// AgentAuth is the only caller; it must surface the dial failure rather than
-// return a nil method that would fail later inside the handshake.
+// AgentAuth must surface the dial failure instead of a nil method.
 func TestAgentAuthReportsMissingAgent(t *testing.T) {
 	disableAgent(t)
 

@@ -9,9 +9,7 @@ import (
 	"hop/internal/keys"
 )
 
-// toggleKey is the sidebar chord as the terminal delivers it: a control byte, not
-// the meta escape an alt+letter would need the terminal to be configured for. See
-// keys.Defaults().Keycap(keys.Sidebar).
+// toggleKey is the sidebar chord as the terminal delivers it: a control byte.
 func toggleKey() tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyCtrlB}
 }
@@ -22,8 +20,7 @@ func TestSidebarToggleKey(t *testing.T) {
 	}
 }
 
-// Collapsed, the sidebar costs nothing: its width is zero and every column it held
-// goes to the pane. Toggling back restores exactly what was there before.
+// Collapsing gives every sidebar column to the pane; toggling back restores them.
 func TestSidebarToggleGivesColumnsToThePane(t *testing.T) {
 	m := viewModel(120, 34)
 	wide, listW := m.paneW, m.listWidth()
@@ -53,7 +50,6 @@ func TestSidebarToggleGivesColumnsToThePane(t *testing.T) {
 	}
 }
 
-// The host list is not drawn narrow while collapsed — it is not drawn at all.
 func TestSidebarCollapsedRendersNoHostList(t *testing.T) {
 	m := viewModel(120, 34)
 	if !strings.Contains(m.View(), "HOSTS") {
@@ -70,9 +66,7 @@ func TestSidebarCollapsedRendersNoHostList(t *testing.T) {
 	}
 }
 
-// A window resize while collapsed keeps it collapsed, and the pane still gets the
-// whole window — the toggle is layout state, not a one-off adjustment that the next
-// WindowSizeMsg undoes.
+// The toggle is layout state: a resize while collapsed keeps it collapsed.
 func TestSidebarSurvivesResize(t *testing.T) {
 	m := viewModel(120, 34)
 	m.handleKey(toggleKey())
@@ -87,8 +81,7 @@ func TestSidebarSurvivesResize(t *testing.T) {
 	}
 }
 
-// The toggle is the one binding hop holds in every mode below the cards: the point
-// of it is the focused shell, where the remote program owns nearly every key.
+// The toggle is held in every mode below the cards, the focused shell included.
 func TestSidebarTogglesFromEveryMode(t *testing.T) {
 	modes := map[string]func(m *model){
 		"navigation": func(m *model) {},
@@ -108,7 +101,6 @@ func TestSidebarTogglesFromEveryMode(t *testing.T) {
 			if !m.sidebarHidden {
 				t.Fatalf("ctrl+b did not collapse the sidebar in %s mode", name)
 			}
-			// Nothing else moved: the key is layout, not a way out of the mode.
 			if m.focused() != (name == "shell" || name == "scrollback") ||
 				m.browsing() != (name == "browser") || m.editing() != (name == "editor") {
 				t.Fatalf("ctrl+b changed the mode in %s", name)
@@ -117,8 +109,6 @@ func TestSidebarTogglesFromEveryMode(t *testing.T) {
 	}
 }
 
-// A card takes every key while it is up, the toggle included: the sidebar is behind
-// it, and a card that answers to some keys but not others is a card you cannot trust.
 func TestSidebarToggleIsSwallowedByCards(t *testing.T) {
 	cards := map[string]func(m *model){
 		"help":     func(m *model) { m.help = true },
@@ -140,7 +130,6 @@ func TestSidebarToggleIsSwallowedByCards(t *testing.T) {
 	}
 }
 
-// The toggle breaks a half-typed double-esc, as every other non-esc key does.
 func TestSidebarToggleBreaksTheEscChord(t *testing.T) {
 	m := newPaneModel()
 
@@ -156,9 +145,7 @@ func TestSidebarToggleBreaksTheEscChord(t *testing.T) {
 	}
 }
 
-// columnModel is statusModel with an SFTP browser open on the active host, which is what
-// puts the tree column on screen. The size is the caller's, because whether there is a
-// column at all is a question about the window.
+// columnModel is statusModel with an SFTP browser open, which puts the tree column up.
 func columnModel(t *testing.T, w, h int) (*model, *session) {
 	t.Helper()
 	m, s := statusModel(t, w, h)
@@ -168,9 +155,7 @@ func columnModel(t *testing.T, w, h int) (*model, *session) {
 	return m, s
 }
 
-// The three columns, across the range of terminals hop is run in. The rule is that the
-// tree column is all or nothing: it takes its preferred width or it is not there, so a
-// window that cannot hold three readable columns gets the two it can.
+// The tree column is all or nothing: its preferred width, or two columns instead.
 func TestColumnWidthsAcrossTerminalWidths(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -186,9 +171,7 @@ func TestColumnWidthsAcrossTerminalWidths(t *testing.T) {
 		{"one column short of it falls back", sidebarWidth + treeColWidth + minContentWidth - 1, false,
 			0, sidebarWidth + treeColWidth + minContentWidth - 1 - sidebarWidth - 2, true},
 		{"the classic 80 columns falls back", 80, false, 0, 80 - sidebarWidth - 2, true},
-		// Collapsing the host list is what buys the column back on a middling window:
-		// the threshold is measured against what is left after the sidebar, not against
-		// the whole width.
+		// The threshold is measured against what is left after the sidebar.
 		{"collapsing the sidebar buys the column", 120, true, treeColWidth, 120 - treeColWidth - 2, false},
 	}
 	for _, c := range cases {
@@ -210,8 +193,7 @@ func TestColumnWidthsAcrossTerminalWidths(t *testing.T) {
 	}
 }
 
-// A session with no browser costs no columns at all: the content area takes the whole row,
-// which is every screen hop drew before the column existed.
+// With no browser there is no tree column: the content area takes the whole row.
 func TestNoBrowserCostsNoColumn(t *testing.T) {
 	m, s := statusModel(t, 200, 34)
 	m.relayout()
@@ -230,9 +212,7 @@ func TestNoBrowserCostsNoColumn(t *testing.T) {
 	}
 }
 
-// The tree column collapses on the same terms the host list does: its width goes to zero
-// and every column it held goes to the content area, and toggling back restores exactly
-// what was there.
+// The tree column collapses and restores on the same terms the host list does.
 func TestTreeColumnToggleGivesColumnsToTheContent(t *testing.T) {
 	m, _ := columnModel(t, 200, 34)
 	wide, treeW := m.paneW, m.treeWidth()
@@ -248,8 +228,7 @@ func TestTreeColumnToggleGivesColumnsToTheContent(t *testing.T) {
 	if want := wide + treeW; m.paneW != want {
 		t.Fatalf("collapsed paneW = %d, want %d — the content did not take the freed columns", m.paneW, want)
 	}
-	// Collapsed, the browser has nowhere but the content area to be drawn in, which is
-	// the same fallback a narrow window puts it in.
+	// Collapsed, the browser falls back into the content area.
 	if !m.treeInline() {
 		t.Fatal("a collapsed column left the browser with nowhere to be drawn")
 	}
@@ -261,9 +240,7 @@ func TestTreeColumnToggleGivesColumnsToTheContent(t *testing.T) {
 	}
 }
 
-// Both halves of a split are the same width, which is what lets every tab — the hidden
-// ones too — be sized once. The odd column an odd-width content area leaves over is
-// given up rather than making one half wider than the other.
+// Both halves of a split are the same width; the odd column is given up.
 func TestSplitHalvesTheContentArea(t *testing.T) {
 	m, s := columnModel(t, 200, 34)
 	full, _ := m.editorSize(s)
@@ -281,13 +258,11 @@ func TestSplitHalvesTheContentArea(t *testing.T) {
 	}
 }
 
-// A content area too narrow to halve refuses rather than offering two unreadable slivers.
 func TestSplitRefusesANarrowContentArea(t *testing.T) {
 	m, _ := columnModel(t, 200, 34)
 	if !m.splitFits() {
 		t.Fatal("a 200-column window cannot be split, so this test proves nothing")
 	}
-	// A content area one column short of two minimum halves.
 	m.paneW = 2*minSplitHalf - 3
 	if m.splitFits() {
 		t.Fatalf("a %d-column content area claims to fit two halves of %d", m.paneW, minSplitHalf)

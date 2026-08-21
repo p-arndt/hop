@@ -225,8 +225,7 @@ func (m *model) saveTunnelEdit() {
 			m.setStatus(statusErr, "%v", err)
 			return
 		}
-		// A running listener still embodies the old definition. Stop it explicitly;
-		// the next enter/t starts the saved replacement.
+		// A running listener still embodies the old definition; the next enter/t starts the replacement.
 		m.stopTunnel(h.Alias, f.ID, false)
 		m.reloadHostsSelecting(h.Alias)
 		m.setStatus(statusOK, "updated tunnel — start it to apply")
@@ -243,9 +242,8 @@ func parseTunnelPort(s, name string) (int, error) {
 	return n, nil
 }
 
-// toggleTunnels is the one-key host action: any running definition means stop
-// all; otherwise start all. With nothing defined it opens the manager at its add
-// action instead of presenting a dead key.
+// toggleTunnels is the one-key host action: any running definition means stop all,
+// otherwise start all. With nothing defined it opens the manager at its add action.
 func (m *model) toggleTunnels(h store.Host) tea.Cmd {
 	if len(h.Forwards) == 0 {
 		m.openTunnels(h)

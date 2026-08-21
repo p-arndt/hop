@@ -6,9 +6,7 @@ import (
 	"testing"
 )
 
-// VS Code is handed the remote authority and, when there is one, the folder to open —
-// each as its own argv element. A path is optional: opening the host itself and letting
-// VS Code restore its last folder is a legitimate outcome, not a missing argument.
+// Remote authority plus optional folder, each as its own argv element.
 func TestVSCodeArgs(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -32,9 +30,7 @@ func TestVSCodeArgs(t *testing.T) {
 	}
 }
 
-// The tab lands in the current window rather than a new one, and the shell it starts
-// stays open after the program exits — otherwise a failing command flashes a tab that is
-// gone before it can be read.
+// Current window, and the shell stays open after the program exits.
 func TestNewTabArgsShape(t *testing.T) {
 	got := newTabArgs("ssh", []string{"web1"})
 	want := []string{"-w", "0", "nt", "pwsh", "-NoExit", "-Command", `& 'ssh' 'web1'`}
@@ -43,8 +39,7 @@ func TestNewTabArgsShape(t *testing.T) {
 	}
 }
 
-// A program with no arguments is still a quoted call operator invocation, not a bare
-// command line pwsh would parse itself.
+// No arguments is still a quoted call operator invocation, not a bare command line.
 func TestNewTabArgsWithoutArguments(t *testing.T) {
 	got := newTabArgs("pwsh", nil)
 	if cmd := got[len(got)-1]; cmd != `& 'pwsh'` {
@@ -52,9 +47,6 @@ func TestNewTabArgsWithoutArguments(t *testing.T) {
 	}
 }
 
-// Whatever the program and arguments carry, the -Command handed to pwsh must be
-// a single "& '…' '…'" invocation in which every part sits inside single quotes
-// — the one PowerShell context where nothing is expanded or re-parsed.
 func TestNewTabArgsQuotesEveryPart(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -80,9 +72,6 @@ func TestNewTabArgsQuotesEveryPart(t *testing.T) {
 	}
 }
 
-// psQuote must leave no way out of the quoted region: after stripping doubled
-// quotes (PowerShell's escaped literal), the only single quotes left are the
-// enclosing pair.
 func TestPsQuoteCannotEscape(t *testing.T) {
 	for _, s := range []string{"", "plain", "it's", "'''", "a'b'c", "$env:PATH;&|"} {
 		q := psQuote(s)

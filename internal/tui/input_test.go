@@ -13,8 +13,7 @@ import (
 	"hop/internal/terminal"
 )
 
-// stalledStdin is a far end that never reads: every write parks forever, which is what an
-// SSH channel does once the remote's window is exhausted.
+// stalledStdin is a far end that never reads: every write parks forever.
 type stalledStdin struct{ gate sync.WaitGroup }
 
 func newStalledStdin() *stalledStdin {
@@ -32,10 +31,7 @@ func (s *stalledStdin) Close() error { return nil }
 
 var _ io.WriteCloser = (*stalledStdin)(nil)
 
-// A pane holds a bounded amount of input for a far end that has stopped reading; past
-// that it refuses, and the refusal has to reach the user. Silently dropped keystrokes
-// leave a command line that is missing characters from its middle — worse than the delay
-// the queue exists to avoid, and invisible until the wrong command runs.
+// Input dropped past the bounded queue must be reported, not silently swallowed.
 func TestDroppedInputIsReported(t *testing.T) {
 	sess := &sshx.Session{Stdin: newStalledStdin(), Stdout: strings.NewReader("")}
 	pane := terminal.New(sess, 20, 5, nil)

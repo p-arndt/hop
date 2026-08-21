@@ -16,9 +16,7 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
-// md is the shared markdown parser: GFM tables and strikethrough, typographic
-// punctuation, auto heading IDs (so a search hit can deep-link a subheading)
-// and hop's own [[key]] syntax for <kbd>.
+// md is the shared markdown parser; auto heading IDs let search deep-link subheadings.
 var md = goldmark.New(
 	goldmark.WithExtensions(extension.Table, extension.Strikethrough, extension.Typographer, kbdExt{}),
 	goldmark.WithParserOptions(parser.WithAutoHeadingID()),
@@ -47,8 +45,7 @@ type kbdParser struct{}
 
 func (kbdParser) Trigger() []byte { return []byte{'['} }
 
-// Parse claims [[…]]. An inline parser rather than a text substitution because
-// only a parser knows it is not looking at the inside of a code span.
+// An inline parser, not a text substitution: only a parser knows it is not inside a code span.
 func (kbdParser) Parse(_ ast.Node, block gtext.Reader, _ parser.Context) ast.Node {
 	line, _ := block.PeekLine()
 	if !bytes.HasPrefix(line, []byte("[[")) {
@@ -79,9 +76,7 @@ func (kbdRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 
 // ---- markdown -> HTML --------------------------------------------------------
 
-// RenderHTML turns a doc body into the HTML the website embeds. shift moves
-// every heading down that many levels, so a body written with "##" subheads
-// renders as <h3> beneath the section's own <h2>.
+// RenderHTML renders a doc body, moving every heading down shift levels.
 func RenderHTML(src string, shift int) (string, error) {
 	src, blocks, err := extractDirectives(src, shift)
 	if err != nil {
@@ -100,8 +95,6 @@ func RenderHTML(src string, shift int) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
-// spliceDirectives puts each rendered directive back where its placeholder
-// paragraph landed.
 func spliceDirectives(in string, blocks []string) string {
 	for i, b := range blocks {
 		in = strings.ReplaceAll(in, "<p>"+placeholder(i)+"</p>", b)
@@ -143,8 +136,7 @@ func shiftHeadings(src string, shift int) string {
 	return strings.Join(lines, "\n")
 }
 
-// wrapTables gives every table the horizontal-scroll wrapper the stylesheet
-// expects, and tags key tables so their first column stops wrapping.
+// wrapTables adds the scroll wrapper the stylesheet expects; key tables get a class.
 func wrapTables(in string) string {
 	return tableRe.ReplaceAllStringFunc(in, func(t string) string {
 		class := ""
@@ -163,9 +155,7 @@ func firstColumn(table string) string {
 	return b.String()
 }
 
-// markCodeComments dims trailing "# …" comments in shell snippets. There is no
-// syntax highlighter on the page and none is wanted — in these snippets the
-// comment is the only part worth telling apart from the command.
+// markCodeComments dims trailing "# …" comments in shell snippets.
 func markCodeComments(in string) string {
 	return preRe.ReplaceAllStringFunc(in, func(block string) string {
 		if !strings.Contains(block, "language-bash") && !strings.Contains(block, "language-powershell") &&

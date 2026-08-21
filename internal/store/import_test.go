@@ -26,9 +26,7 @@ func importConfig(t *testing.T, s *Store, body string) int {
 	return n
 }
 
-// The directives hop stores are read off each concrete Host block, and the defaults an
-// omitted directive implies are ssh's own: port 22, and the alias standing in as the
-// hostname when there is no HostName.
+// Omitted directives take ssh's defaults: port 22, and the alias as hostname.
 func TestImportSSHConfigReadsDirectivesAndDefaults(t *testing.T) {
 	s := newStore(t)
 	n := importConfig(t, s, `
@@ -62,9 +60,7 @@ Host bare
 	}
 }
 
-// A pattern is not a host: "*" and "web?" name whatever matches them, and importing one
-// would put a row in the list that cannot be dialled. Their directives still reach the
-// concrete aliases through ssh_config's own matching.
+// Patterns are skipped, but their directives still reach the concrete aliases.
 func TestImportSSHConfigSkipsWildcardPatterns(t *testing.T) {
 	s := newStore(t)
 	n := importConfig(t, s, `
@@ -92,8 +88,6 @@ Host web1
 	}
 }
 
-// One Host line can carry several aliases, and each becomes its own row sharing the
-// block's settings.
 func TestImportSSHConfigSplitsMultiAliasBlocks(t *testing.T) {
 	s := newStore(t)
 	n := importConfig(t, s, `
@@ -115,8 +109,6 @@ Host db1 db2
 	}
 }
 
-// A Port that is not a usable number is ignored rather than stored: ssh's default is a
-// better guess than 0, which nothing can connect to.
 func TestImportSSHConfigIgnoresUnusablePorts(t *testing.T) {
 	s := newStore(t)
 	importConfig(t, s, `
@@ -140,8 +132,6 @@ Host negative
 	}
 }
 
-// Re-importing after an edit refreshes the connection details, and — being an Upsert —
-// leaves the visit history the user has accumulated against that alias intact.
 func TestImportSSHConfigRefreshesWithoutLosingFrecency(t *testing.T) {
 	s := newStore(t)
 	importConfig(t, s, "Host web\n  HostName old.example.com\n  User old\n")
@@ -163,8 +153,6 @@ func TestImportSSHConfigRefreshesWithoutLosingFrecency(t *testing.T) {
 	}
 }
 
-// A missing config file is an error the caller reports; an unreadable one must not look
-// like "nothing to import".
 func TestImportSSHConfigMissingFile(t *testing.T) {
 	s := newStore(t)
 	n, err := s.ImportSSHConfig(filepath.Join(t.TempDir(), "no-such-config"))
@@ -176,8 +164,7 @@ func TestImportSSHConfigMissingFile(t *testing.T) {
 	}
 }
 
-// parseSSHForward accepts OpenSSH's TCP shapes and only those: the socket and dynamic
-// forms belong to ssh itself and would be misrepresented as TCP definitions here.
+// Only OpenSSH's TCP forward shapes are accepted; socket and dynamic forms are not.
 func TestParseSSHForward(t *testing.T) {
 	cases := []struct {
 		name  string

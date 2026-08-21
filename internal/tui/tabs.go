@@ -7,21 +7,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// renderEditorTabs draws the strip of open files above one half of the content area. Both
-// halves draw the same names — there is one tab list — and mark a different one open,
-// which is what says at a glance that the two halves are two views of one set of files.
 func (m *model) renderEditorTabs(s *session, right bool) string {
 	return m.renderTabStrip(editorTabNames(s), s.editorIndex(right), m.contentW(s))
 }
 
-// renderShellTabs draws the strip of shells open on the host. Shells never split, so the
-// strip is always the width of the whole content area.
 func (m *model) renderShellTabs(s *session) string {
 	return m.renderTabStrip(shellTabNames(s), s.activeSh, m.paneW)
 }
 
-// editorTabNames labels each open file with its name, split out of the renderer because
-// the mouse measures the same labels.
 func editorTabNames(s *session) []string {
 	names := make([]string, len(s.editors))
 	for i, e := range s.editors {
@@ -30,8 +23,7 @@ func editorTabNames(s *session) []string {
 	return names
 }
 
-// shellTabNames labels each shell. They have no names, so they are numbered — which is
-// also how the leader's digit chord addresses them.
+// shellTabNames numbers each shell, matching the leader's digit chord.
 func shellTabNames(s *session) []string {
 	names := make([]string, len(s.shells))
 	for i := range s.shells {
@@ -40,16 +32,8 @@ func shellTabNames(s *session) []string {
 	return names
 }
 
-// renderTabStrip draws a row of tab pills, the open one filled with the accent and the
-// rest sunk into the surface behind it.
-//
-// It is always exactly one line — the pane below was sized on that promise — so it is
-// truncated to w, the inner width of the box it is drawn in. With more tabs than fit, the
-// strip scrolls to keep the open one on screen.
-//
-// The width is a parameter rather than m.paneW because a split content area draws two
-// strips, each half as wide; measuring them against the whole row would scroll the wrong
-// pills off.
+// renderTabStrip draws a row of tab pills, always exactly one line wide. w is passed in
+// because a split content area draws two strips, each half the row's width.
 func (m *model) renderTabStrip(names []string, active, w int) string {
 	pills := tabPills(names, active)
 	start := tabStart(pills, active, w)
@@ -61,12 +45,9 @@ func (m *model) renderTabStrip(names []string, active, w int) string {
 	return truncate(strip, w)
 }
 
-// tabMore stands in for the pills scrolled off the left. Its width is part of the strip's
-// geometry, so tabAt measures it rather than assuming.
+// tabMore stands in for the pills scrolled off the left; tabAt measures its width.
 const tabMore = "‹ "
 
-// tabPills renders each tab as its pill, the open one filled, split out so the mouse can
-// measure the same pills the screen shows.
 func tabPills(names []string, active int) []string {
 	pills := make([]string, len(names))
 	for i, n := range names {
@@ -79,8 +60,8 @@ func tabPills(names []string, active int) []string {
 	return pills
 }
 
-// tabStart is the first pill drawn: whole pills are dropped off the left until the open
-// one fits, rather than letting truncate cut it in half.
+// tabStart drops whole pills off the left until the open one fits, rather than letting
+// truncate cut it in half.
 func tabStart(pills []string, active, w int) int {
 	start := 0
 	for start < active && stripWidth(pills[start:], w) > w {
@@ -89,9 +70,7 @@ func tabStart(pills []string, active, w int) int {
 	return start
 }
 
-// tabAt maps a column on the strip to the tab drawn there, or false for the gaps between
-// pills. It walks the same pills renderTabStrip lays down, so a click lands on the tab the
-// eye is on rather than an index counted from the left.
+// tabAt maps a column on the strip to the tab drawn there, or false for the gaps.
 func (m *model) tabAt(names []string, active, x, w int) (int, bool) {
 	pills := tabPills(names, active)
 	start := tabStart(pills, active, w)
@@ -110,8 +89,7 @@ func (m *model) tabAt(names []string, active, x, w int) (int, bool) {
 	return 0, false
 }
 
-// stripWidth is the display width of pills joined by a space, stopping once it exceeds
-// limit: the caller only asks whether they fit.
+// stripWidth is the display width of pills joined by a space, stopping once it exceeds limit.
 func stripWidth(pills []string, limit int) int {
 	total := 0
 	for i, p := range pills {

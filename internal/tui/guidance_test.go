@@ -7,8 +7,7 @@ import (
 	"hop/internal/config"
 )
 
-// isolateConfig points os.UserConfigDir at a throwaway directory, so a test that saves
-// cannot rewrite the developer's own config.
+// isolateConfig points os.UserConfigDir at a throwaway directory.
 func isolateConfig(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
@@ -17,7 +16,6 @@ func isolateConfig(t *testing.T) {
 	t.Setenv("HOME", dir)
 }
 
-// guidanceModel is a model with the first-run question up, on an isolated config.
 func guidanceModel(t *testing.T) *model {
 	t.Helper()
 	isolateConfig(t)
@@ -28,8 +26,7 @@ func guidanceModel(t *testing.T) *model {
 	return m
 }
 
-// The question opens on the profile in force and answers with the one under the cursor,
-// and the answer is on disk — the file existing is what stops it being asked again.
+// The answer lands on disk; the file existing is what stops it being asked again.
 func TestGuidanceAnswerPersists(t *testing.T) {
 	m := guidanceModel(t)
 
@@ -54,8 +51,7 @@ func TestGuidanceAnswerPersists(t *testing.T) {
 	}
 }
 
-// esc is an answer too: the middle profile, saved — otherwise the question comes back on
-// every start until it is answered the way hop wanted.
+// esc answers with the middle profile rather than letting the question return.
 func TestGuidanceEscapeStillAnswers(t *testing.T) {
 	m := guidanceModel(t)
 
@@ -72,7 +68,6 @@ func TestGuidanceEscapeStillAnswers(t *testing.T) {
 	}
 }
 
-// It is modal, and above every other card: a keystroke must not reach the list behind it.
 func TestGuidanceSwallowsKeys(t *testing.T) {
 	m := guidanceModel(t)
 	m.cursor = 1
@@ -87,8 +82,6 @@ func TestGuidanceSwallowsKeys(t *testing.T) {
 	}
 }
 
-// The profile decides how much is on screen and nothing else. The clearest statement of
-// that is the details card: the same keys, spelled out or not.
 func TestProfileChangesWhatIsShownNotWhatWorks(t *testing.T) {
 	m := newMouseModel(3)
 
@@ -111,14 +104,11 @@ func TestProfileChangesWhatIsShownNotWhatWorks(t *testing.T) {
 		if got := strings.Contains(card, "import an ssh config"); got != c.global {
 			t.Fatalf("%s: hop's own keys = %v, want %v:\n%s", c.guidance, got, c.global, card)
 		}
-		// The host's keys are named in every profile, whether or not the card lists
-		// them: the footer's core is not the profile's to cut.
 		core, _, _ := m.footerHints()
 		if !strings.Contains(strings.Join(core, " "), "connect") {
 			t.Fatalf("%s: the footer core lost its keys: %v", c.guidance, core)
 		}
 
-		// And the keys themselves are untouched — the quietest profile still adds a host.
 		m.handleKey(key(t, "a"))
 		if !m.hostForm.open {
 			t.Fatalf("%s: 'a' did not open the host form", c.guidance)
@@ -127,8 +117,7 @@ func TestProfileChangesWhatIsShownNotWhatWorks(t *testing.T) {
 	}
 }
 
-// keys drops the extras a wide window would have room for; guided lifts the way to the
-// action list into the core, where truncation cannot reach it.
+// keys drops the extras; guided lifts the action list into the core.
 func TestProfileShapesTheFooter(t *testing.T) {
 	m := newMouseModel(3)
 
@@ -148,7 +137,6 @@ func TestProfileShapesTheFooter(t *testing.T) {
 	if len(guidedCore) != len(hybridCore)+1 {
 		t.Fatalf("guided core %v, want one more than hybrid's %v", guidedCore, hybridCore)
 	}
-	// Moved, not duplicated.
 	if len(guidedExtra) != len(hybridExtra)-1 {
 		t.Fatalf("guided extras %v, want one fewer than hybrid's %v", guidedExtra, hybridExtra)
 	}

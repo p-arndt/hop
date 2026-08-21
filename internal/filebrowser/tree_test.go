@@ -9,11 +9,7 @@ import (
 	"hop/internal/sftpx"
 )
 
-// The tree and the multi-selection, which are one subject: what a key acts on is the
-// marked set, and what can be marked is whatever the tree is currently showing.
-
-// dirClient lists a different set of entries per directory, which the flat fakeClient
-// cannot — a tree test needs /a to hold something other than what its parent holds.
+// dirClient lists a different set of entries per directory, which the flat fakeClient cannot.
 type dirClient struct {
 	fakeClient
 	dirs map[string][]sftpx.Entry
@@ -34,8 +30,7 @@ func (c *dirClient) List(dir string) ([]sftpx.Entry, error) {
 // dir is shorthand for a directory entry.
 func dir(name string) sftpx.Entry { return sftpx.Entry{Name: name, IsDir: true} }
 
-// treeFixture is /home/u holding one directory and two files, with two more files inside
-// the directory. It is the smallest shape that has a nesting to get wrong.
+// treeFixture is /home/u holding one directory and two files, with two files inside it.
 func treeFixture(t *testing.T) (*Browser, *dirClient) {
 	t.Helper()
 	c := &dirClient{dirs: map[string][]sftpx.Entry{
@@ -50,9 +45,6 @@ func treeFixture(t *testing.T) (*Browser, *dirClient) {
 	return b, c
 }
 
-// A directory is listed on the first open and never again: the contents are kept, so
-// closing and re-opening it is free. A pane that re-listed on every twisty would put a
-// round trip behind a cursor key.
 func TestExpandListsOnceAndCaches(t *testing.T) {
 	b, c := treeFixture(t)
 
@@ -75,8 +67,6 @@ func TestExpandListsOnceAndCaches(t *testing.T) {
 	}
 }
 
-// A directory that will not list stays shut with the reason on the status line. Drawing
-// it open and empty would claim it has no contents, which is a different fact.
 func TestExpandReportsAListingFailure(t *testing.T) {
 	b, c := treeFixture(t)
 	c.listErr = errors.New("permission denied")
@@ -91,8 +81,7 @@ func TestExpandReportsAListingFailure(t *testing.T) {
 	}
 }
 
-// Enter on a file is still an OpenFileMsg, and it names the file's real path — which,
-// inside an open directory, is not a name joined to the current directory.
+// The message names the file's real path, not a name joined to the current directory.
 func TestInOnANestedFileOpensIt(t *testing.T) {
 	b, _ := treeFixture(t)
 	b.Do(keys.In) // open src
@@ -108,8 +97,6 @@ func TestInOnANestedFileOpensIt(t *testing.T) {
 	}
 }
 
-// Backspace re-roots the tree above wherever it is rooted, whatever the cursor is doing
-// three levels down — it is how the visible tree grows upwards.
 func TestBrowserUpReRootsTheTree(t *testing.T) {
 	c := &dirClient{dirs: map[string][]sftpx.Entry{
 		"/home/u":     {dir("src")},
@@ -133,9 +120,6 @@ func TestBrowserUpReRootsTheTree(t *testing.T) {
 	}
 }
 
-// A refresh re-lists the whole tree in place: the directories the user has open stay
-// open, and the cursor stays on the row it was on. Snapping every directory shut because
-// one file changed somewhere would throw away the view being worked in.
 func TestRefreshKeepsTheTreeOpen(t *testing.T) {
 	b, c := treeFixture(t)
 	b.Do(keys.In) // open src
@@ -153,8 +137,7 @@ func TestRefreshKeepsTheTreeOpen(t *testing.T) {
 	}
 }
 
-// Marks survive a refresh where the entry is still there, and go where it is not. A mark
-// is a path, and a listing is the only thing that can say whether it still means anything.
+// Marks survive where the entry is still there, and go where it is not.
 func TestMarksSurviveARefresh(t *testing.T) {
 	b, c := treeFixture(t)
 	b.Do(keys.In) // open src
@@ -179,9 +162,7 @@ func TestMarksSurviveARefresh(t *testing.T) {
 	}
 }
 
-// Space marks the entry and steps down, which is what makes marking a run of files one
-// held key rather than two alternating ones. It stops at the last row rather than
-// wrapping onto an entry it has already marked.
+// It stops at the last row rather than wrapping onto an entry it has already marked.
 func TestMarkAdvancesTheCursor(t *testing.T) {
 	b, _ := treeFixture(t)
 
@@ -201,7 +182,6 @@ func TestMarkAdvancesTheCursor(t *testing.T) {
 		t.Fatalf("status = %q, want the count", b.note.text)
 	}
 
-	// Space on a marked row takes the mark off again.
 	b.Select(2)
 	b.Do(keys.BrowserMark)
 	if b.marks["/home/u/b.txt"] {
@@ -209,8 +189,7 @@ func TestMarkAdvancesTheCursor(t *testing.T) {
 	}
 }
 
-// "a" works on the current directory, not on the screen: an open subdirectory's rows
-// belong to that subdirectory, and marking a parent must not sweep them up.
+// "a" works on the current directory, not on the screen.
 func TestMarkAllTakesTheCurrentDirectory(t *testing.T) {
 	b, _ := treeFixture(t)
 	b.Do(keys.In) // open src; the cursor is on it, so /home/u/src is the current directory
@@ -220,7 +199,6 @@ func TestMarkAllTakesTheCurrentDirectory(t *testing.T) {
 		t.Fatalf("marks = %v, want the two entries of the open directory", b.marks)
 	}
 
-	// Again, and they all come off.
 	b.Do(keys.BrowserMarkAll)
 	if len(b.marks) != 0 {
 		t.Fatalf("marks = %v, want the second press to clear them", b.marks)
@@ -234,8 +212,7 @@ func TestMarkAllTakesTheCurrentDirectory(t *testing.T) {
 	}
 }
 
-// With nothing marked an operation acts on the cursor's entry, which is what keeps a
-// browser nobody has pressed space in behaving exactly as it did before.
+// With nothing marked an operation acts on the cursor's entry.
 func TestTargetsFallsBackToTheCursor(t *testing.T) {
 	b, _ := treeFixture(t)
 	b.Select(1) // a.txt
@@ -245,8 +222,7 @@ func TestTargetsFallsBackToTheCursor(t *testing.T) {
 		t.Fatalf("targets = %v, want the entry under the cursor", nodePaths(got))
 	}
 
-	// Marked entries are answered in tree order however they were marked, and a mark
-	// inside a closed directory still counts — hiding a file is not unmarking it.
+	// A mark inside a closed directory still counts: hiding a file is not unmarking it.
 	b.Select(0)
 	b.Do(keys.In) // open src
 	b.Select(2)
@@ -269,8 +245,7 @@ func nodePaths(ns []*node) []string {
 	return out
 }
 
-// reveal walks the tree by path segment, so a bare prefix test would let a sibling in:
-// with root /home/u, /home/user-data starts with the root's path but is not inside it.
+// A bare prefix test would let /home/user-data in under root /home/u.
 func TestRevealDoesNotWalkIntoASibling(t *testing.T) {
 	c := &dirClient{dirs: map[string][]sftpx.Entry{
 		"/home/u":          {dir("ser-data")},
@@ -288,8 +263,7 @@ func TestRevealDoesNotWalkIntoASibling(t *testing.T) {
 	}
 }
 
-// The target is an aim at a directory, and a deleted directory is not one. Without this
-// the footer keeps pointing at it and "c" fails with a raw server error instead.
+// Otherwise the footer keeps pointing at it and "c" fails with a raw server error.
 func TestTargetIsDroppedWhenItsDirectoryGoes(t *testing.T) {
 	c := &dirClient{dirs: map[string][]sftpx.Entry{
 		"/home/u":     {dir("sub"), {Name: "a.txt", Size: 1}},

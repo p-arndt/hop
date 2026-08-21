@@ -72,17 +72,14 @@ func key(t *testing.T, name string) tea.KeyMsg {
 	}
 }
 
-// newNavModel builds a model in navigation mode with n hosts in the filtered
-// list and a viewport where listRows() == 15. The vim motions are switched on:
-// they are what most of these tests are about, and they are off by default.
+// newNavModel builds a navigation-mode model with n hosts, listRows() == 15 and vim keys on.
 func newNavModel(n int) *model {
 	hosts := make([]store.Host, n)
 	for i := range hosts {
 		hosts[i] = store.Host{Alias: fmt.Sprintf("h%d", i), HostName: "example.test"}
 	}
 	m := &model{hosts: hosts, cfg: config.Config{VimKeys: true}, layout: layout{height: 20}}
-	// applyFilter is what fills the filtered list *and* the drawn rows the paging
-	// arithmetic is measured in; with no filter it is every host, in order.
+	// applyFilter fills the filtered list and the drawn rows paging is measured in.
 	m.applyFilter()
 	return m
 }
@@ -112,8 +109,6 @@ func TestNavVimMotions(t *testing.T) {
 	}
 }
 
-// With the setting off, every vim motion is inert: the letters are not bound to
-// anything, so a user who never asked for vim cannot move (or leave) by typing one.
 func TestNavVimMotionsOffByDefault(t *testing.T) {
 	for _, k := range []string{"j", "k", "G", "H", "M", "L", "ctrl+d", "ctrl+u", "ctrl+f"} {
 		t.Run(k, func(t *testing.T) {
@@ -133,9 +128,7 @@ func TestNavVimMotionsOffByDefault(t *testing.T) {
 		})
 	}
 
-	// "gg" is two keys, and with the setting off the first must not quietly arm a
-	// chord that a later "g" completes — least of all after the setting is switched
-	// back on, which would make turning it on jump the cursor by itself.
+	// With the setting off, the first g must not arm a chord a later g completes.
 	m := newNavModel(30)
 	m.cfg.VimKeys = false
 	m.cursor = 5
@@ -154,8 +147,6 @@ func TestNavVimMotionsOffByDefault(t *testing.T) {
 	}
 }
 
-// Turning vim keys off must not cost you a way to move: the arrows, enter and the
-// page keys are bound either way.
 func TestNavPlainKeysWorkWithoutVim(t *testing.T) {
 	m := newNavModel(30)
 	m.cfg.VimKeys = false
@@ -176,10 +167,7 @@ func TestNavPlainKeysWorkWithoutVim(t *testing.T) {
 	}
 }
 
-// The jumps and the ctrl chords are the browser's keyboard, not the list's: in a
-// list that fits on screen they landed a keypress from where j and k already were,
-// and the letters are worth more as commands. Vim keys on or off, they must not
-// move the cursor here.
+// The jumps and ctrl chords belong to the browser, not the list, vim keys on or off.
 func TestNavJumpKeysAreUnbound(t *testing.T) {
 	for _, k := range []string{"G", "H", "M", "L", "ctrl+d", "ctrl+u", "ctrl+f"} {
 		t.Run(k, func(t *testing.T) {
@@ -195,8 +183,7 @@ func TestNavJumpKeysAreUnbound(t *testing.T) {
 	}
 }
 
-// "gg" is not bound in the list either — and the first g must not arm a chord that
-// swallows the key after it.
+// The first g must not arm a chord that swallows the key after it.
 func TestNavHasNoGChord(t *testing.T) {
 	m := newNavModel(30)
 	m.cursor = 5
@@ -231,8 +218,6 @@ func TestNavMotionsOnEmptyList(t *testing.T) {
 func TestNavBackKeys(t *testing.T) {
 	for _, k := range []string{"esc", "left", "h"} {
 		t.Run(k, func(t *testing.T) {
-			// Navigation mode showing a host's details: active is set, but
-			// neither browsing nor focused (those modes swallow keys first).
 			m := newNavModel(30)
 			m.active = "web1"
 			m.status = "connected to web1"
@@ -249,8 +234,6 @@ func TestNavBackKeys(t *testing.T) {
 	}
 }
 
-// enter/right/l are the forward key: with no host under the cursor they must be
-// inert rather than panic.
 func TestNavForwardKeysOnEmptyList(t *testing.T) {
 	for _, k := range []string{"enter", "right", "l"} {
 		t.Run(k, func(t *testing.T) {
@@ -263,8 +246,7 @@ func TestNavForwardKeysOnEmptyList(t *testing.T) {
 	}
 }
 
-// newPaneModel builds a model focused on a terminal pane. The session map is
-// empty, so key forwarding is a no-op and we can assert purely on mode changes.
+// newPaneModel focuses a terminal pane with no live session, so only mode changes show.
 func newPaneModel() *model {
 	return &model{sessions: map[string]*session{}, layout: layout{height: 20}, focus: focus{active: "web1", mode: modeShell}}
 }
@@ -289,8 +271,6 @@ func TestPaneDoubleEscLeaves(t *testing.T) {
 	}
 }
 
-// Two escs further apart than the window are two independent escapes for the
-// remote shell, not a "leave" chord.
 func TestPaneSlowEscsStayInPane(t *testing.T) {
 	m := newPaneModel()
 
@@ -306,7 +286,6 @@ func TestPaneSlowEscsStayInPane(t *testing.T) {
 	}
 }
 
-// An intervening key breaks the sequence: esc, j, esc is not a double-esc.
 func TestPaneEscSequenceBrokenByOtherKey(t *testing.T) {
 	m := newPaneModel()
 
@@ -338,7 +317,6 @@ func TestPaneCtrlOLeaves(t *testing.T) {
 	}
 }
 
-// The browser leaves on the same two chords the pane does: a fast double esc...
 func TestBrowsingDoubleEscLeaves(t *testing.T) {
 	m := newBrowseModel()
 
@@ -356,7 +334,6 @@ func TestBrowsingDoubleEscLeaves(t *testing.T) {
 	}
 }
 
-// ...and any other key in between breaks the chord, as in the pane.
 func TestBrowsingEscOtherEscIsNotAChord(t *testing.T) {
 	m := newBrowseModel()
 
@@ -369,7 +346,6 @@ func TestBrowsingEscOtherEscIsNotAChord(t *testing.T) {
 	}
 }
 
-// A slow second esc is two lone escapes, not a chord.
 func TestBrowsingSlowDoubleEscStays(t *testing.T) {
 	m := newBrowseModel()
 
@@ -396,14 +372,11 @@ func TestBrowsingCtrlOLeaves(t *testing.T) {
 	}
 }
 
-// newBrowseModel builds a model in browsing mode with no live session, so keys
-// that would reach the browser are simply dropped.
+// newBrowseModel browses with no live session, so browser-bound keys are dropped.
 func newBrowseModel() *model {
 	return &model{sessions: map[string]*session{}, layout: layout{height: 20}, focus: focus{active: "web1", mode: modeBrowser}}
 }
 
-// A letter typed into the filter is literal text: the filter owns every rune while
-// it has the keyboard, motion key or not.
 func TestFilterSwallowsMotionLetters(t *testing.T) {
 	m := viewModel(120, 34)
 	m.filtering = true
@@ -421,8 +394,6 @@ func TestFilterSwallowsMotionLetters(t *testing.T) {
 	}
 }
 
-// paneModeIf is the test fixtures' "start in this mode, or in the list" — the
-// shape a table of models with and without a live pane keeps needing.
 func paneModeIf(cond bool, mode paneMode) paneMode {
 	if cond {
 		return mode
@@ -430,8 +401,6 @@ func paneModeIf(cond bool, mode paneMode) paneMode {
 	return modeList
 }
 
-// The point of the registry: a key hop never shipped runs an action, and the key it
-// shipped stops doing so, without a line of this file knowing which key it was.
 func TestRebindingMovesAnAction(t *testing.T) {
 	m := newNavModel(2)
 	binds, errs := keys.New(map[string]string{
@@ -453,8 +422,7 @@ func TestRebindingMovesAnAction(t *testing.T) {
 		t.Fatal("an unbound key still opened the host form")
 	}
 
-	// The legend follows the keyboard rather than repeating what the code was written
-	// with: a footer naming a key that no longer works is worse than no footer.
+	// The footer follows the keyboard, not the defaults.
 	_, extra, _ := m.footerHints()
 	joined := strings.Join(extra, " ")
 	if want := m.hint(keys.List, keys.HostBrowser, "sftp"); !strings.Contains(joined, want) {

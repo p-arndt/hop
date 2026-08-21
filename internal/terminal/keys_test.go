@@ -7,10 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// The base mapping keyToBytes documents, key by key: what a pane writes to the remote pty
-// for every event that is not modifier-encoded (those live in cursor_test.go). A remote
-// program sees only these bytes, so a wrong or missing entry is a key that silently does
-// nothing — or the wrong thing — over SSH.
+// The base mapping, key by key; the modifier-encoded keys live in cursor_test.go.
 func TestKeyToBytesTable(t *testing.T) {
 	cases := []struct {
 		name string
@@ -47,9 +44,7 @@ func TestKeyToBytesTable(t *testing.T) {
 	}
 }
 
-// ctrl+<letter> is the letter with its top three bits cleared — the whole alphabet, not
-// just the few chords hop happens to name. ctrl+c must reach the remote as 0x03 or
-// nothing on the far side can ever be interrupted.
+// ctrl+<letter> is the letter with its top three bits cleared, for the whole alphabet.
 func TestKeyToBytesCtrlLetters(t *testing.T) {
 	types := map[byte]tea.KeyType{
 		'a': tea.KeyCtrlA, 'b': tea.KeyCtrlB, 'c': tea.KeyCtrlC, 'd': tea.KeyCtrlD,
@@ -71,8 +66,7 @@ func TestKeyToBytesCtrlLetters(t *testing.T) {
 	}
 }
 
-// The control bytes that are not letters — the ones a shell reaches for as ctrl+\ (quit)
-// and ctrl+_ (undo) — are the character masked to five bits.
+// The non-letter control bytes are the character masked to five bits.
 func TestKeyToBytesCtrlSymbols(t *testing.T) {
 	cases := []struct {
 		typ  tea.KeyType
@@ -96,9 +90,6 @@ func TestKeyToBytesCtrlSymbols(t *testing.T) {
 	}
 }
 
-// A key hop has no mapping for produces nothing rather than a stray byte: the pane
-// writes keyToBytes' result straight to the pty, and a wrong guess is indistinguishable
-// from the user having typed it.
 func TestKeyToBytesUnmappedKeysProduceNothing(t *testing.T) {
 	for _, msg := range []tea.KeyMsg{
 		{Type: tea.KeyF1},

@@ -15,8 +15,7 @@ import (
 	"hop/internal/terminal"
 )
 
-// footerModes puts m into each mode the footer has a legend for, so a rule about the
-// legend can be asserted against all of them at once rather than one test per mode.
+// footerModes builds one model per mode the footer has a legend for.
 func footerModes(t *testing.T) map[string]func() *model {
 	t.Helper()
 	return map[string]func() *model{
@@ -54,9 +53,7 @@ func footerModes(t *testing.T) map[string]func() *model {
 	}
 }
 
-// The rule the whole trim rests on: no mode's legend runs past four keys. The keyboard no
-// longer fits a row, so the row stops pretending to be the keyboard and points at the
-// card instead.
+// No mode's legend runs past four keys; past that the row points at the card instead.
 func TestFooterKeepsToFourKeys(t *testing.T) {
 	for name, build := range footerModes(t) {
 		t.Run(name, func(t *testing.T) {
@@ -76,16 +73,12 @@ func TestFooterKeepsToFourKeys(t *testing.T) {
 	}
 }
 
-// The one hint that makes every other hint optional. It is in every mode's legend, and it
-// is reachable by the key the legend names — in a shell that cannot be a bare "?", which
-// is text the remote is owed, so there it is the leader's.
+// Every mode's legend offers the card, behind the leader where a bare "?" is text.
 func TestFooterAlwaysOffersTheCard(t *testing.T) {
 	for name, build := range footerModes(t) {
 		t.Run(name, func(t *testing.T) {
 			m := build()
 			if m.filtering {
-				// Every printable key is part of the filter, "?" included, so the legend
-				// has no card key to honestly offer.
 				if _, _, help := m.footerHints(); help != "" {
 					t.Fatalf("the filter legend offers a card key that would be typed into the filter: %q", help)
 				}
@@ -94,7 +87,6 @@ func TestFooterAlwaysOffersTheCard(t *testing.T) {
 			if !strings.Contains(m.renderFooter(), "keys") {
 				t.Fatalf("the %s legend does not offer the help card:\n%s", name, m.renderFooter())
 			}
-			// The chord belongs only where a bare "?" would be typed at a remote.
 			wantChord := (m.editing() || m.mode == modeShell) && !m.activeDead()
 			if got := strings.Contains(m.renderFooter(), "ctrl+o ?"); got != wantChord {
 				t.Fatalf("the %s legend offers the chord = %v, want %v — a bare ? is text in a pane that forwards:\n%s",
@@ -104,8 +96,6 @@ func TestFooterAlwaysOffersTheCard(t *testing.T) {
 	}
 }
 
-// And the key works from every one of them: a legend naming a key that does nothing is
-// worse than no legend.
 func TestTheCardOpensFromEveryMode(t *testing.T) {
 	for name, build := range footerModes(t) {
 		t.Run(name, func(t *testing.T) {
@@ -114,7 +104,6 @@ func TestTheCardOpensFromEveryMode(t *testing.T) {
 				return // no key to press: "?" is filter text here
 			}
 			if (m.editing() || m.mode == modeShell) && !m.activeDead() {
-				// Through the leader, since the bare key belongs to the remote.
 				m.handleKey(key(t, "ctrl+o"))
 			}
 			m.handleKey(key(t, "?"))
@@ -125,8 +114,6 @@ func TestTheCardOpensFromEveryMode(t *testing.T) {
 	}
 }
 
-// A shell that has not asked for the keyboard back must not be typed into by accident: in
-// a live shell a bare "?" is a question mark, not a card.
 func TestBareQuestionMarkStaysTextInAShell(t *testing.T) {
 	m, _ := statusModel(t, 120, 34)
 	m.mode = modeShell
@@ -136,8 +123,7 @@ func TestBareQuestionMarkStaysTextInAShell(t *testing.T) {
 	}
 }
 
-// Whatever is in a legend, it fits the window — the classic 80 columns included, which is
-// the width the trim exists for.
+// Every legend is one row and fits the window, the classic 80 columns included.
 func TestFooterFitsTheWindow(t *testing.T) {
 	for _, w := range []int{200, 120, 80, 60, 40} {
 		for name, build := range footerModes(t) {
@@ -155,9 +141,7 @@ func TestFooterFitsTheWindow(t *testing.T) {
 	}
 }
 
-// The list's legend is about the host under the cursor, so a dropped session there is
-// worth a slot — and an empty list, where there is nothing to connect to, spends its slots
-// on the two keys that make a list at all.
+// The list legend offers reconnect only on a dropped session, and add/import when empty.
 func TestListFooterFollowsTheCursor(t *testing.T) {
 	m, _ := statusModel(t, 120, 34)
 	m.active, m.mode = "", modeList
@@ -182,8 +166,6 @@ func TestListFooterFollowsTheCursor(t *testing.T) {
 	}
 }
 
-// Collapsed, the way back to the hosts outranks the mode's own keys: with the sidebar gone
-// nothing else on screen says it is still there.
 func TestSidebarHintLeadsWhileCollapsed(t *testing.T) {
 	m, _ := statusModel(t, 120, 34)
 	m.mode, m.sidebarHidden = modeShell, true
@@ -196,8 +178,6 @@ func TestSidebarHintLeadsWhileCollapsed(t *testing.T) {
 	}
 }
 
-// A wide terminal is not made to look like a narrow one: the room a window has goes to
-// keys, in priority order, and a window with no room shows only the core.
 func TestFooterSpendsTheRoomAWindowHas(t *testing.T) {
 	for name, build := range footerModes(t) {
 		t.Run(name, func(t *testing.T) {
@@ -214,14 +194,10 @@ func TestFooterSpendsTheRoomAWindowHas(t *testing.T) {
 				t.Fatalf("a 220-column %s legend does not spend its room on %q:\n%s",
 					name, extra[0], wide.renderFooter())
 			}
-			// The narrow one is allowed fewer keys, never more — but never fewer than
-			// the way out, which is the first thing each mode's list names.
 			if !strings.Contains(narrow.renderFooter(), stripHint(core[0])) {
 				t.Fatalf("the 60-column %s legend dropped its way out (%q):\n%s",
 					name, core[0], narrow.renderFooter())
 			}
-			// And what it does show, it shows whole: a legend ending mid-word names no
-			// key, so a hint that does not fit is dropped rather than cut.
 			for _, w := range strings.Fields(narrow.renderFooter()) {
 				if strings.HasSuffix(w, "…") {
 					t.Fatalf("the 60-column %s legend cut %q in half:\n%s", name, w, narrow.renderFooter())
@@ -234,8 +210,7 @@ func TestFooterSpendsTheRoomAWindowHas(t *testing.T) {
 	}
 }
 
-// stripHint is a hint's label, which is the part that survives styling in a test binary
-// with colour off and is unique enough to look for.
+// stripHint is a hint's label, the part that survives styling with colour off.
 func stripHint(hint string) string {
 	parts := strings.Fields(hint)
 	if len(parts) == 0 {
@@ -244,9 +219,7 @@ func stripHint(hint string) string {
 	return parts[len(parts)-1]
 }
 
-// esc esc leaves hop from the host list, the same "one level out" the panes bind — the
-// list being the last level. One esc must not: it drops the host you were reading about,
-// and a stray esc is not a quit.
+// One esc only drops the selected host; the second quits.
 func TestDoubleEscQuitsFromTheList(t *testing.T) {
 	m, _ := statusModel(t, 120, 34)
 	m.active, m.mode = "web1", modeList
@@ -263,7 +236,6 @@ func TestDoubleEscQuitsFromTheList(t *testing.T) {
 	}
 }
 
-// Outside the window the pair is not a pair: two escs far enough apart are two firsts.
 func TestSlowDoubleEscDoesNotQuit(t *testing.T) {
 	m, _ := statusModel(t, 120, 34)
 	m.active, m.mode = "web1", modeList
@@ -277,20 +249,13 @@ func TestSlowDoubleEscDoesNotQuit(t *testing.T) {
 
 // ---- characterization ----
 
-// footerState is one row of the characterization set: a name for the arm it pins down,
-// and the model that lands on it.
+// footerState names one arm of the legend and the model that lands on it.
 type footerState struct {
 	name  string
 	build func() *model
 }
 
-// footerStates is one state per arm of the legend, plus the edge conditions that live
-// inside an arm: an importer on its first run, a shell with a second tab, a list cursor
-// standing on a dropped session.
-//
-// It is deliberately exhaustive rather than representative. The legend is a first-match
-// walk over ordered arms, so an arm that stops matching does not fail loudly — it falls
-// through to the next one and quietly shows the legend for a mode you are not in.
+// footerStates is one state per arm; exhaustive because the arms are a first-match walk.
 func footerStates(t *testing.T) []footerState {
 	t.Helper()
 	base := func() *model { m, _ := statusModel(t, 120, 34); m.active, m.mode = "", modeList; return m }
@@ -323,8 +288,6 @@ func footerStates(t *testing.T) []footerState {
 			return m
 		}},
 		{"card/settings list", func() *model { m := base(); m.settings.open = true; return m }},
-		// A card outranks every pane mode, and so does the leader: both are set up from a
-		// shell, so it is the arm order rather than the mode that decides the answer.
 		{"card/over a shell", func() *model { m, _ := shell(); m.help = true; return m }},
 		{"leader/armed", func() *model {
 			m, _ := shell()
@@ -389,8 +352,6 @@ func footerStates(t *testing.T) []footerState {
 			return m
 		}},
 
-		// The two things layered over whichever arm matched: the collapsed sidebar's hint,
-		// prepended to the core, and the guidance profile's trim.
 		{"layer/sidebar collapsed in a shell", func() *model { m, _ := shell(); m.sidebarHidden = true; return m }},
 		{"layer/sidebar collapsed in the list", func() *model { m := base(); m.sidebarHidden = true; return m }},
 		{"layer/guidance keys in a shell", func() *model {
@@ -417,9 +378,7 @@ func footerStates(t *testing.T) []footerState {
 	}
 }
 
-// scrolledPane is a pane with history behind it: enough lines have been printed for rows
-// to have left the top of the screen. The scrollback hint is offered only over one of
-// these, so a plain fakePane cannot stand in for it.
+// scrolledPane is a pane with rows already pushed into scrollback.
 func scrolledPane(t *testing.T) *terminal.Pane {
 	t.Helper()
 	p, w := cwdPane(t, "/srv/app")
@@ -436,9 +395,7 @@ func scrolledPane(t *testing.T) *terminal.Pane {
 	return p
 }
 
-// footerShape is one state's whole legend, flattened. The three lists are kept apart so a
-// hint that moves between core and extra shows up as a difference rather than cancelling
-// itself out — which of the two a hint is in decides whether a narrow window keeps it.
+// footerShape flattens one state's legend, keeping core, extra and help apart.
 func footerShape(m *model) string {
 	core, extra, help := m.footerHints()
 	return "core: " + strings.Join(core, " | ") +
@@ -446,8 +403,7 @@ func footerShape(m *model) string {
 		"\nhelp: " + help
 }
 
-// TestFooterHintsDump prints the shape of every state, for regenerating the golden set
-// below by hand. Skipped unless asked for: it asserts nothing.
+// Prints every state's legend for regenerating the golden set; asserts nothing.
 func TestFooterHintsDump(t *testing.T) {
 	if os.Getenv("HOP_FOOTER_DUMP") == "" {
 		t.Skip("set HOP_FOOTER_DUMP=1 to regenerate the golden set")
@@ -457,14 +413,8 @@ func TestFooterHintsDump(t *testing.T) {
 	}
 }
 
-// footerGolden is the legend every state above produced before the arms became a table.
-// It was captured from the switch it replaced, which is the only thing that makes it
-// worth anything: the refactor is proven identical rather than assumed identical, and a
-// hint that moves, changes wording or changes list fails here rather than on a user's
-// screen.
-//
-// Regenerate with HOP_FOOTER_DUMP=1 go test ./internal/tui -run TestFooterHintsDump -v,
-// and only after deciding on purpose that the legend should read differently.
+// footerGolden is the legend each state produced before the arms became a table.
+// Regenerate with HOP_FOOTER_DUMP=1 go test ./internal/tui -run TestFooterHintsDump -v.
 var footerGolden = map[string]string{
 	"card/auth":                            "core:  enter  submit |  esc  cancel |  ctrl+u  clear\nextra: \nhelp: ",
 	"card/guidance":                        "core:  ↑↓  pick |  enter  start hopping\nextra: \nhelp: ",
@@ -504,9 +454,7 @@ var footerGolden = map[string]string{
 	"layer/guidance guided in the list":    "core:  enter  connect |  space  actions |  /  filter |  ctrl+k  search actions\nextra:  ↑↓  move |  f  sftp |  a  add |  e  edit |  x  delete |  p  pin |  t  tunnels |  i  import |  ,  settings |  esc esc  quit\nhelp:  ?  keys",
 }
 
-// The characterization: every state the legend has an arm for still reads exactly as it
-// did. Nothing here says what the legend *should* say — that is the other tests' job.
-// This one says only that it has not moved.
+// Characterization: every state's legend still reads exactly as it did.
 func TestFooterHintsAreUnchanged(t *testing.T) {
 	states := footerStates(t)
 	if len(states) != len(footerGolden) {

@@ -39,16 +39,11 @@ func TestOverlayCursorPicksRow(t *testing.T) {
 	if got != want {
 		t.Errorf("overlayCursor row select = %q, want %q", got, want)
 	}
-	// Out-of-range row leaves the input unchanged.
 	if got := overlayCursor("only", 0, 5, blockMark); got != "only" {
 		t.Errorf("overlayCursor out-of-range = %q, want unchanged", got)
 	}
 }
 
-// An alt-modified key forwarded to the remote is that key behind an ESC — the way a
-// terminal sends it, and the way readline (alt+b, alt+f) and vim (<esc>o) read it
-// back. hop reserves a few alt chords of its own, but the ones it does not take have
-// to arrive intact.
 func TestKeyToBytesPrefixesAltWithEsc(t *testing.T) {
 	cases := []struct {
 		name string
@@ -68,10 +63,8 @@ func TestKeyToBytesPrefixesAltWithEsc(t *testing.T) {
 	}
 }
 
-// A ctrl- or shift-modified cursor key carries its modifier inside the sequence
-// (ESC[1;5D), not behind an ESC. These used to fall through keyToBytes as nil —
-// ctrl+left/right, the word-wise motion every shell binds, reached the remote as
-// nothing at all.
+// Modified cursor keys carry the modifier inside the sequence (ESC[1;5D), not behind an
+// ESC; regression: they used to fall through keyToBytes as nil.
 func TestKeyToBytesModifiedCursorKeys(t *testing.T) {
 	cases := []struct {
 		name string
@@ -96,12 +89,10 @@ func TestKeyToBytesModifiedCursorKeys(t *testing.T) {
 		{"ctrl+shift+end", tea.KeyMsg{Type: tea.KeyCtrlShiftEnd}, "\x1b[1;6F"},
 		{"ctrl+pgup", tea.KeyMsg{Type: tea.KeyCtrlPgUp}, "\x1b[5;5~"},
 		{"ctrl+pgdown", tea.KeyMsg{Type: tea.KeyCtrlPgDown}, "\x1b[6;5~"},
-		// alt on top of one of these is a bit in the same parameter, not an ESC prefix.
+		// alt is a bit in the same parameter, not an ESC prefix.
 		{"ctrl+alt+left", tea.KeyMsg{Type: tea.KeyCtrlLeft, Alt: true}, "\x1b[1;7D"},
-		// The unmodified keys are unchanged.
 		{"left", tea.KeyMsg{Type: tea.KeyLeft}, "\x1b[D"},
 		{"pgup", tea.KeyMsg{Type: tea.KeyPgUp}, "\x1b[5~"},
-		// The other keys whose String() matches no branch and used to drop to nil.
 		{"shift+tab", tea.KeyMsg{Type: tea.KeyShiftTab}, "\x1b[Z"},
 		{"insert", tea.KeyMsg{Type: tea.KeyInsert}, "\x1b[2~"},
 	}
@@ -112,10 +103,7 @@ func TestKeyToBytesModifiedCursorKeys(t *testing.T) {
 	}
 }
 
-// The three shapes DECSCUSR asks for, and what hop draws for each: a block is the cell
-// in reverse video, an underline is the character with a line under it, and a bar — which
-// has no half-cell to stand in — is the thinnest glyph there is, in place of the
-// character.
+// What hop draws for each DECSCUSR shape.
 func TestMarkAtColumnPerStyle(t *testing.T) {
 	cases := []struct {
 		name string
@@ -129,8 +117,7 @@ func TestMarkAtColumnPerStyle(t *testing.T) {
 		{"bar", "hello", 1, barMark, "h▏llo"},
 		{"bar-past-end", "ab", 3, barMark, "ab ▏"},
 		{"bar-keeps-ansi", "\x1b[31mab", 0, barMark, "\x1b[31m▏b"},
-		// A one-cell bar in place of a two-cell character would slide the rest of the row
-		// left, so a wide cell wears the block instead.
+		// A one-cell bar would slide a wide cell's row left, so it wears the block.
 		{"bar-on-wide-char", "日本", 0, barMark, "\x1b[7m日\x1b[27m本"},
 	}
 	for _, c := range cases {
@@ -140,8 +127,7 @@ func TestMarkAtColumnPerStyle(t *testing.T) {
 	}
 }
 
-// markFor maps the emulator's styles onto the marks, and anything it does not know onto
-// the block: a cursor in the wrong shape beats no cursor at all.
+// Unknown styles map onto the block rather than nothing.
 func TestMarkForStyle(t *testing.T) {
 	cases := []struct {
 		style vt.CursorStyle
@@ -159,9 +145,6 @@ func TestMarkForStyle(t *testing.T) {
 	}
 }
 
-// A cursor the far end has hidden (DECTCEM) is not drawn, and showing it again brings it
-// back: a full-screen program that hides the cursor while it paints must not have hop
-// painting one over its output.
 func TestPaneHonoursHiddenCursor(t *testing.T) {
 	p, w := cursorPane(t)
 
@@ -182,8 +165,7 @@ func TestPaneHonoursHiddenCursor(t *testing.T) {
 	}
 }
 
-// DECSCUSR picks the shape and says whether it blinks; hop draws the shape and remembers
-// the rest for its own blink clock.
+// DECSCUSR picks the shape and whether it blinks; hop draws the shape.
 func TestPaneHonoursCursorStyle(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -218,8 +200,6 @@ func TestPaneHonoursCursorStyle(t *testing.T) {
 	}
 }
 
-// A full reset (RIS) takes the cursor with it, as it takes every mode: the emulator
-// rewrites its own state without a callback, so the pane has to notice.
 func TestCursorResetOnRIS(t *testing.T) {
 	p, w := cursorPane(t)
 
@@ -237,8 +217,7 @@ func TestCursorResetOnRIS(t *testing.T) {
 	}
 }
 
-// A program killed on the alt screen never puts the cursor back, so the shell underneath
-// would inherit its bar. Leaving the alt screen resets the shape, as it resets the modes.
+// A program killed on the alt screen never restores the shape, so leaving resets it.
 func TestCursorResetLeavingAltScreen(t *testing.T) {
 	p, w := cursorPane(t)
 
@@ -253,8 +232,7 @@ func TestCursorResetLeavingAltScreen(t *testing.T) {
 	}
 }
 
-// The blink is hop's own clock: a frame with the cursor down draws nothing, and a cursor
-// the far end asked to stand still ignores the frame entirely.
+// The blink is hop's own clock; a steady or hidden cursor ignores the frame.
 func TestCursorBlinkPhase(t *testing.T) {
 	p, w := cursorPane(t)
 
@@ -271,7 +249,6 @@ func TestCursorBlinkPhase(t *testing.T) {
 		t.Error("a cursor back up was not drawn")
 	}
 
-	// Steady: the far end asked for no blink, so the frame is not its business.
 	go io.WriteString(w, "\x1b[2 q")
 	if !waitFor(func() bool { return p.cursor.look().steady }) {
 		t.Fatal("the steady block never arrived")
@@ -284,7 +261,6 @@ func TestCursorBlinkPhase(t *testing.T) {
 		t.Error("a steady cursor reports that it blinks")
 	}
 
-	// Hidden beats both: there is nothing to blink.
 	go io.WriteString(w, "\x1b[?25l")
 	if !waitFor(func() bool { return p.cursor.look().hidden }) {
 		t.Fatal("DECTCEM off never arrived")

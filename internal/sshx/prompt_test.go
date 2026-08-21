@@ -18,13 +18,11 @@ import (
 	"hop/internal/store"
 )
 
-// recordingPrompter answers with fixed replies and remembers every challenge, so a test
-// can assert both what the user saw and what went back on the wire.
+// recordingPrompter answers with fixed replies and records every challenge.
 type recordingPrompter struct {
 	answers []string
 	err     error
-	// answer, when set, decides the reply per challenge: for cases depending on what was
-	// asked, or on how often it has been asked.
+	// answer, when set, decides the reply per challenge.
 	answer func(Challenge) ([]string, error)
 
 	mu   sync.Mutex
@@ -52,8 +50,6 @@ func (p *recordingPrompter) challenges() []Challenge {
 
 // ---- authMethods wiring ----
 
-// A prompter adds the two interactive methods after the keys, which is what lets a
-// publickey,keyboard-interactive host finish the second factor on the same connection.
 func TestAuthMethodsAddsInteractiveMethods(t *testing.T) {
 	home := fakeHome(t)
 	writeKey(t, filepath.Join(home, ".ssh", "id_ed25519"), "")
@@ -68,8 +64,6 @@ func TestAuthMethodsAddsInteractiveMethods(t *testing.T) {
 	}
 }
 
-// Without a prompter nothing interactive is offered: a caller with no way to ask
-// a human must not sit in a handshake waiting for an answer that cannot come.
 func TestAuthMethodsWithoutPrompterOffersKeysOnly(t *testing.T) {
 	home := fakeHome(t)
 	writeKey(t, filepath.Join(home, ".ssh", "id_ed25519"), "")
@@ -84,8 +78,7 @@ func TestAuthMethodsWithoutPrompterOffersKeysOnly(t *testing.T) {
 	}
 }
 
-// The regression 2FA support brings: with no agent and no key, an interactive
-// host is still reachable. Before the prompter this was a hard error.
+// Regression: with no agent and no key, an interactive host is still reachable.
 func TestAuthMethodsWithNoKeysStillOffersInteractive(t *testing.T) {
 	fakeHome(t)
 	disableAgent(t)
@@ -101,8 +94,6 @@ func TestAuthMethodsWithNoKeysStillOffersInteractive(t *testing.T) {
 
 // ---- the keyboard-interactive callback ----
 
-// Questions and their echo flags reach the prompter intact, and the answers go
-// back in question order.
 func TestKeyboardInteractiveCarriesQuestionsAndEchoFlags(t *testing.T) {
 	p := &recordingPrompter{answers: []string{"hunter2", "123456"}}
 	cb := keyboardInteractive(p)
@@ -132,8 +123,7 @@ func TestKeyboardInteractiveCarriesQuestionsAndEchoFlags(t *testing.T) {
 	}
 }
 
-// A server that says a question may be echoed is believed: not everything a PAM
-// stack asks is a secret, and masking a username helps nobody.
+// A server may say a question is echoable; not everything PAM asks is a secret.
 func TestKeyboardInteractiveKeepsEchoTrue(t *testing.T) {
 	p := &recordingPrompter{answers: []string{"deploy"}}
 	cb := keyboardInteractive(p)
@@ -146,8 +136,6 @@ func TestKeyboardInteractiveKeepsEchoTrue(t *testing.T) {
 	}
 }
 
-// A round with no questions is the server showing its banner. It is answered
-// without troubling the user — a card with nothing to type in is pure noise.
 func TestKeyboardInteractiveSkipsBannerRounds(t *testing.T) {
 	p := &recordingPrompter{answers: []string{"unused"}}
 	cb := keyboardInteractive(p)
@@ -164,8 +152,6 @@ func TestKeyboardInteractiveSkipsBannerRounds(t *testing.T) {
 	}
 }
 
-// A short reply would be read by the server as answering the wrong prompts, so
-// it is refused here rather than sent.
 func TestKeyboardInteractiveRejectsWrongAnswerCount(t *testing.T) {
 	cb := keyboardInteractive(&recordingPrompter{answers: []string{"only-one"}})
 
@@ -176,8 +162,7 @@ func TestKeyboardInteractiveRejectsWrongAnswerCount(t *testing.T) {
 
 // ---- cancellation ----
 
-// One cancel ends the whole dial: otherwise the client moves on to the next method and
-// puts a second prompt in front of a user who dismissed the first.
+// One cancel ends the whole dial, so no second prompt follows a dismissed one.
 func TestStickyCancelRefusesLaterQuestions(t *testing.T) {
 	inner := &recordingPrompter{err: ErrAuthCanceled}
 	s := &stickyCancel{p: inner}
@@ -193,8 +178,7 @@ func TestStickyCancelRefusesLaterQuestions(t *testing.T) {
 	}
 }
 
-// An error that is not a cancel does not stick, which is what makes
-// ssh.RetryableAuthMethod's re-prompt on a mistyped code work.
+// A non-cancel error does not stick, which is what lets a mistyped code re-prompt.
 func TestStickyCancelDoesNotStickOnOtherErrors(t *testing.T) {
 	inner := &recordingPrompter{err: errors.New("something else")}
 	s := &stickyCancel{p: inner}
@@ -209,8 +193,6 @@ func TestStickyCancelDoesNotStickOnOtherErrors(t *testing.T) {
 
 // ---- end to end, against a server that demands a code ----
 
-// A host offering only keyboard-interactive is connected to by answering it — the whole
-// path, with no keys anywhere.
 func TestConnectAnswersKeyboardInteractive(t *testing.T) {
 	const code = "123456"
 	p := &recordingPrompter{answers: []string{code}}
@@ -241,8 +223,6 @@ func TestConnectAnswersKeyboardInteractive(t *testing.T) {
 	}
 }
 
-// Dismissing the prompt fails the dial with ErrAuthCanceled, still recognisable through
-// the ssh package's wrapping, which is what the UI keys off.
 func TestConnectReportsCanceledAuth(t *testing.T) {
 	p := &recordingPrompter{err: ErrAuthCanceled}
 
@@ -261,8 +241,6 @@ func TestConnectReportsCanceledAuth(t *testing.T) {
 	}
 }
 
-// With no agent, no keys and no prompter there is nothing to offer, and the
-// error still has to name the fix rather than blaming the server.
 func TestConnectWithoutPrompterOrKeysStillExplains(t *testing.T) {
 	h := serveInteractive(t, func(ssh.ConnMetadata, ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error) {
 		return &ssh.Permissions{}, nil
@@ -275,10 +253,7 @@ func TestConnectWithoutPrompterOrKeysStillExplains(t *testing.T) {
 	}
 }
 
-// serveInteractive starts an SSH server on loopback authenticating through cb alone, and
-// returns the store.Host that reaches it. $HOME points at a temp dir holding a
-// known_hosts entry for the server's key and no client key, which keeps the dial off the
-// developer's ~/.ssh and on the interactive path.
+// serveInteractive starts a loopback SSH server authenticating through cb alone.
 func serveInteractive(t *testing.T, cb func(ssh.ConnMetadata, ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error)) store.Host {
 	t.Helper()
 	disableAgent(t)

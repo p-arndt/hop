@@ -1,13 +1,4 @@
-// Package dockerenv brings up the throwaway servers hop's end-to-end tests need, in
-// Docker, so more than one package can test against the same real server. There are two:
-//
-//   - StartTwoFactor: an Ubuntu box running OpenSSH and pam_google_authenticator, for
-//     proving the SSH engine and the auth card answer a real two-factor challenge.
-//   - StartShellHost: an Ubuntu box with one account per login shell, for proving the
-//     working-directory tracking works against real bash, zsh and fish.
-//
-// Nothing here runs unless a test asks for it, and those tests are opt-in on
-// HOP_DOCKER_E2E: Docker is not on every machine and the image takes a minute to build.
+// Package dockerenv brings up the throwaway Docker servers hop's end-to-end tests need.
 package dockerenv
 
 import (
@@ -27,9 +18,7 @@ import (
 // EnvVar is the environment variable that opts a test run into using Docker.
 const EnvVar = "HOP_DOCKER_E2E"
 
-// The throwaway account and its fixed TOTP secret, baked into the image. The secret is
-// fixed so a test can compute codes the server accepts, which is why the container only
-// ever listens on loopback.
+// The TOTP secret is fixed so a test can compute codes, hence the loopback-only container.
 const (
 	User     = "deploy"
 	Password = "hunter2"
@@ -38,24 +27,18 @@ const (
 
 const image = "hop-twofactor:test"
 
-// container is named per process: `go test ./...` runs each package in its own process,
-// and two sharing a name would race to recreate each other's server.
+// container is named per process: `go test ./...` runs each package in its own process.
 var container = fmt.Sprintf("hop-twofactor-e2e-%d", os.Getpid())
 
-// TwoFactor is a running two-factor SSH server. Each port is a different shape of login,
-// since "the host has 2FA" means at least three different handshakes.
+// TwoFactor is a running two-factor SSH server, one port per shape of login.
 type TwoFactor struct {
 	// CodePort wants a verification code and nothing else.
 	CodePort int
-	// KeyPort wants a public key and then a code — the hardened
-	// `AuthenticationMethods publickey,keyboard-interactive` setup.
+	// KeyPort wants a public key and then a code.
 	KeyPort int
 	// PasswordPort wants the account password and then a code, as two prompts.
 	PasswordPort int
-	// EitherPort offers keyboard-interactive and password as alternatives — the only
-	// shape that shows what happens after a dismissed prompt, since the client still has
-	// the other method to try. The password method is there to be offered, not to
-	// succeed: it runs the code-only PAM stack. Use PasswordPort to log in for real.
+	// EitherPort offers both as alternatives; its password method is offered but never succeeds.
 	EitherPort int
 	// ClientKey is the private key KeyPort's account authorizes.
 	ClientKey string
@@ -66,9 +49,7 @@ type TwoFactor struct {
 // Enabled reports whether the environment has opted into Docker-backed tests.
 func Enabled() bool { return os.Getenv(EnvVar) != "" }
 
-// StartTwoFactor builds the image, generates the client key the publickey+code instance
-// trusts, and starts the container on ephemeral loopback ports. Every daemon has answered
-// with an SSH banner before it returns. Call Stop when done, typically from TestMain.
+// StartTwoFactor builds the image and starts the container on ephemeral loopback ports.
 func StartTwoFactor() (*TwoFactor, error) {
 	dir, err := buildDir("twofactor")
 	if err != nil {
@@ -133,15 +114,13 @@ func (s *TwoFactor) Stop() {
 	}
 }
 
-// Logs returns what the container has printed — where a daemon that refused to start
-// says why.
+// Logs returns what the container has printed.
 func (s *TwoFactor) Logs() string {
 	out, _ := exec.Command("docker", "logs", container).CombinedOutput()
 	return string(out)
 }
 
-// buildDir locates testdata/<name> relative to this source file, so the test's own
-// directory does not matter.
+// buildDir locates testdata/<name> relative to this source file.
 func buildDir(name string) (string, error) {
 	_, self, _, ok := runtime.Caller(0)
 	if !ok {
@@ -168,9 +147,7 @@ func publishedPort(container string, inside int) (int, error) {
 	return strconv.Atoi(portStr)
 }
 
-// waitForSSH blocks until every daemon is actually serving. Readiness is the SSH banner,
-// not a TCP connect: Docker's port proxy accepts connections whether or not anything
-// inside is listening, so a connect test passes against an empty container.
+// waitForSSH waits for a banner, not a TCP connect: Docker's port proxy accepts connections into an empty container.
 func waitForSSH(container string, ports ...int) error {
 	deadline := time.Now().Add(90 * time.Second)
 	for _, p := range ports {
@@ -188,8 +165,7 @@ func waitForSSH(container string, ports ...int) error {
 	return nil
 }
 
-// banner reads the version string a live sshd sends on connect. Anything else means the
-// daemon is not there yet.
+// banner reads the version string a live sshd sends on connect.
 func banner(port int) error {
 	c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 2*time.Second)
 	if err != nil {
@@ -208,7 +184,6 @@ func banner(port int) error {
 	return nil
 }
 
-// tail keeps the last lines of a command's output, where it says what went wrong.
 func tail(b []byte) string {
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
 	if len(lines) > 12 {

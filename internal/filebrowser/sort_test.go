@@ -8,9 +8,7 @@ import (
 	"hop/internal/sftpx"
 )
 
-// sortFixture is a listing built to pin every rule at once: two directories, files whose
-// size order and age order both disagree with the name order, and a pair tied on size and
-// on mtime so the name tie-break is exercised.
+// sortFixture disagrees with the name order on size and age, and ties one pair on both.
 func sortFixture() []sftpx.Entry {
 	return []sftpx.Entry{
 		{Name: "beta.txt", Size: 300, ModTime: 100},
@@ -34,8 +32,7 @@ func sortBrowser() *Browser {
 	return plant(b, "/home/u", ents)
 }
 
-// rowEntries is the visible tree as the entries it was built from, which is what the sort
-// tests assert an order over.
+// rowEntries is the visible tree as the entries it was built from.
 func rowEntries(b *Browser) []sftpx.Entry {
 	out := make([]sftpx.Entry, len(b.rows))
 	for i, n := range b.rows {
@@ -58,8 +55,7 @@ func TestApplySortOrders(t *testing.T) {
 		want []string
 	}{
 		{sortName, []string{"docs", "src", "Alpha.txt", "beta.txt", "gamma.bin", "zeta.log"}},
-		// Directories keep their own block and sort by name inside it, being all of one
-		// size; the tied 300-byte pair falls back to the name order.
+		// Directories keep their own block; the tied 300-byte pair falls back to the name order.
 		{sortSize, []string{"docs", "src", "gamma.bin", "Alpha.txt", "beta.txt", "zeta.log"}},
 		{sortMTime, []string{"src", "docs", "zeta.log", "Alpha.txt", "beta.txt", "gamma.bin"}},
 	} {
@@ -72,8 +68,6 @@ func TestApplySortOrders(t *testing.T) {
 	}
 }
 
-// applySort must not reorder the slice it is handed: load passes the client's listing
-// straight through.
 func TestApplySortCopies(t *testing.T) {
 	b := sortBrowser()
 	b.sortBy = sortSize
@@ -85,8 +79,6 @@ func TestApplySortCopies(t *testing.T) {
 	}
 }
 
-// Equal rows must land in the same place every time, or a refresh would reshuffle them
-// under the cursor.
 func TestSortIsStableAcrossRuns(t *testing.T) {
 	for _, mode := range []sortMode{sortName, sortSize, sortMTime} {
 		b := sortBrowser()
@@ -117,8 +109,7 @@ func TestSortKeyCycles(t *testing.T) {
 	}
 }
 
-// The cursor follows its entry through a re-sort. "d" and "o" act on whatever it stands
-// on, so this is a safety property rather than a nicety.
+// "d" and "o" act on whatever it stands on, so this is a safety property.
 func TestSortKeepsCursorOnSameEntry(t *testing.T) {
 	b := sortBrowser() // planted in name order, as load leaves it
 	for i, n := range b.rows {
@@ -137,7 +128,6 @@ func TestSortKeepsCursorOnSameEntry(t *testing.T) {
 	}
 }
 
-// An empty listing has nothing to keep the cursor on; cycling must still work.
 func TestSortEmptyListing(t *testing.T) {
 	b := sortBrowser()
 	plant(b, "/home/u", nil)
@@ -165,12 +155,10 @@ func TestModTimeColumn(t *testing.T) {
 		t.Errorf("older mtime: got %q, want %q", got, want)
 	}
 
-	// Both formats must occupy the same column width.
 	if a, c := b.modTimeCol(sftpx.Entry{ModTime: thisYear.Unix()}), b.modTimeCol(sftpx.Entry{ModTime: lastYear.Unix()}); len(a) != len(c) {
 		t.Errorf("mtime formats differ in width: %q vs %q", a, c)
 	}
 
-	// An unreported time gets no column at all rather than the epoch.
 	if got := b.modTimeCol(sftpx.Entry{Name: "f"}); got != "" {
 		t.Errorf("unknown mtime: got %q, want empty", got)
 	}

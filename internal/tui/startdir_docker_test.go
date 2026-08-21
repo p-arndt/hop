@@ -8,14 +8,7 @@ import (
 	"hop/internal/dockerenv"
 )
 
-// A host's default directory, end to end against a real OpenSSH server running real
-// shells: connect the way a user does and the shell has to be standing in that directory,
-// with nothing on screen to say how it got there.
-//
-//	HOP_DOCKER_E2E=1 go test ./internal/tui/ -run StartDirE2E -v
-//
-// bash and zsh get the cd on the same line as the OSC 7 hook, so both halves are checked
-// at once: the shell moved, and the hook ran after the move.
+// A host's default directory end to end: HOP_DOCKER_E2E=1 go test ./internal/tui/ -run StartDirE2E
 func TestStartDirE2ELandsInTheDefaultDirectory(t *testing.T) {
 	for _, c := range []struct{ user, dir string }{
 		{dockerenv.BashUser, "/etc/ssh"},
@@ -32,8 +25,6 @@ func TestStartDirE2ELandsInTheDefaultDirectory(t *testing.T) {
 				t.Fatalf("the line hop typed is still on screen:\n%s", view)
 			}
 
-			// And the binding that reads the cwd sees it, so opening the host opens the
-			// directory it was configured to start in.
 			rec := stubVSCode(t, nil)
 			m.handleKey(key(t, "ctrl+o"))
 			m.handleKey(key(t, "ctrl+o"))
@@ -44,9 +35,7 @@ func TestStartDirE2ELandsInTheDefaultDirectory(t *testing.T) {
 	}
 }
 
-// fish gets no OSC 7 hook, but "cd" is a line every shell understands, so the default
-// directory still takes effect. The proof is on the screen rather than in a cwd report:
-// hop typed the cd, the shell ran it, and nothing was left behind.
+// fish has no OSC 7 hook, but the typed cd still takes effect.
 func TestStartDirE2EWorksOnAnUnhookableShell(t *testing.T) {
 	m, sh := connectShellHostIn(t, dockerenv.FishUser, "/etc/ssh")
 
@@ -62,8 +51,6 @@ func TestStartDirE2EWorksOnAnUnhookableShell(t *testing.T) {
 	}
 }
 
-// A default directory that is not there is not silently swallowed: the shell's own
-// error stays on screen, which is how the user finds out the setting is stale.
 func TestStartDirE2EShowsAMissingDirectory(t *testing.T) {
 	_, sh := connectShellHostIn(t, dockerenv.BashUser, "/srv/definitely-not-here")
 

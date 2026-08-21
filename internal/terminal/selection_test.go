@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// The span is what a terminal's selection is: reading order, flowing over the row
-// ends rather than covering a rectangle — so the same drag made upward selects the
-// same text as the one made downward.
+// A span is in reading order, flowing over row ends rather than covering a rectangle.
 func TestNewSpanOrdersItsEnds(t *testing.T) {
 	a, b := Cell{X: 5, Y: 1}, Cell{X: 2, Y: 3}
 	if NewSpan(a, b) != NewSpan(b, a) {
@@ -21,8 +19,7 @@ func TestNewSpanOrdersItsEnds(t *testing.T) {
 	}
 }
 
-// The column range each row of a span covers: the first from the anchor to the
-// pane's edge, the ones between whole, the last up to and including the head.
+// The column range each row of a span covers.
 func TestSpanBounds(t *testing.T) {
 	s := NewSpan(Cell{X: 3, Y: 1}, Cell{X: 4, Y: 3})
 
@@ -44,15 +41,13 @@ func TestSpanBounds(t *testing.T) {
 		}
 	}
 
-	// A single cell selects that one character rather than nothing.
 	lo, hi, ok := NewSpan(Cell{X: 2, Y: 0}, Cell{X: 2, Y: 0}).bounds(0, 10)
 	if !ok || lo != 2 || hi != 3 {
 		t.Fatalf("a one-cell span covered %d..%d (%v), want 2..3", lo, hi, ok)
 	}
 }
 
-// Highlight paints the span and nothing else. The rows outside it come back
-// untouched, byte for byte.
+// Rows outside the span come back untouched, byte for byte.
 func TestHighlightPaintsOnlyTheSpan(t *testing.T) {
 	view := "hello world\nsecond line\nthird line"
 	got := Highlight(view, NewSpan(Cell{X: 10, Y: 0}, Cell{X: 6, Y: 0}), 11)
@@ -67,12 +62,9 @@ func TestHighlightPaintsOnlyTheSpan(t *testing.T) {
 	}
 }
 
-// The escape sequences a rendered row carries occupy no column, so they must not
-// shift the selection — and a colour reset inside the span must not cancel the
-// reverse attribute for the rest of it.
+// Escapes occupy no column, and a reset inside the span must not cancel the highlight.
 func TestHighlightSurvivesEscapesInTheRow(t *testing.T) {
-	// "ab" in colour, then "cd" plain. Selecting columns 1..2 covers the "b" that
-	// sits behind the escape and the "c" that follows the reset.
+	// "ab" in colour, then "cd" plain; columns 1..2 straddle the reset.
 	row := "\x1b[31mab\x1b[0mcd"
 	got := Highlight(row, NewSpan(Cell{X: 1, Y: 0}, Cell{X: 2, Y: 0}), 4)
 
@@ -87,8 +79,7 @@ func TestHighlightSurvivesEscapesInTheRow(t *testing.T) {
 	}
 }
 
-// PlainText is what lands on the clipboard: the text under the span, with the
-// escapes dropped and the padding a terminal row carries trimmed off each line.
+// PlainText drops the escapes and trims each row's padding.
 func TestPlainText(t *testing.T) {
 	view := strings.Join([]string{
 		"\x1b[32mparndt@allthing\x1b[0m:~$ apt update   ",
@@ -102,8 +93,7 @@ func TestPlainText(t *testing.T) {
 		t.Fatalf("PlainText = %q, want %q", got, want)
 	}
 
-	// A row that is blank inside the span stays as a line: the gap between two
-	// commands is part of what a selection over both of them covers.
+	// A row blank inside the span still counts as a line.
 	got = PlainText("one\n   \ntwo", NewSpan(Cell{X: 0, Y: 0}, Cell{X: 2, Y: 2}), 3)
 	if got != "one\n\ntwo" {
 		t.Fatalf("PlainText = %q, want %q", got, "one\n\ntwo")
@@ -114,9 +104,6 @@ func TestPlainText(t *testing.T) {
 	}
 }
 
-// A wide rune occupies two columns, and the two operations have to agree about
-// which — a selection that ends inside a CJK character must not cut it in half or
-// slide the highlight a column off the text.
 func TestSelectionCountsWideRunes(t *testing.T) {
 	row := "a世b"
 	if got := PlainText(row, NewSpan(Cell{X: 1, Y: 0}, Cell{X: 2, Y: 0}), 4); got != "世" {

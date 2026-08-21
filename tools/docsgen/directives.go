@@ -7,22 +7,8 @@ import (
 	"strings"
 )
 
-// Fenced directives are the small set of layouts the page has that markdown
-// has no syntax for — a card grid, a collapsed rationale, a figure with a
-// caption. They nest by fence length, mdBook/MyST style:
-//
-//	::::shots
-//	:::figure src="a.png" alt="…"
-//	the caption
-//	:::
-//	::::
-//
-// Every one of them also has a plain-markdown lowering (see markdown.go), so
-// README.md and KEYBINDINGS.md can be generated from the same source.
-//
-// A block that does not belong everywhere says so: `only="site"` renders it on
-// the website alone, `not="readme"` renders it everywhere but there. The
-// targets are the three outputs — site, readme, reference.
+// Fenced directives nest by fence length, mdBook/MyST style; every one also has
+// a plain-markdown lowering in markdown.go.
 var (
 	openRe  = regexp.MustCompile(`^(:{3,})\s*([a-z]+)\s*(.*)$`)
 	attrRe  = regexp.MustCompile(`([a-z]+)\s*=\s*("[^"]*"|\S+)`)
@@ -53,8 +39,7 @@ func listHas(list, want string) bool {
 	return false
 }
 
-// stripAttrs removes the key=value pairs from a directive's argument line, so
-// what is left is the free text — a :::why summary, say.
+// stripAttrs leaves only the free text of a directive's argument line.
 func stripAttrs(args string) string {
 	return strings.TrimSpace(attrRe.ReplaceAllString(args, ""))
 }
@@ -74,11 +59,8 @@ func parseAttrs(args string) map[string]string {
 	return attrs
 }
 
-// extractDirectives replaces every top-level directive block with a
-// placeholder word and returns the HTML each one rendered to. The placeholder
-// survives markdown conversion as its own paragraph, which spliceDirectives
-// then swaps back out — that way the directive's own HTML never has to be
-// escaped past goldmark.
+// extractDirectives swaps each top-level directive for a placeholder paragraph,
+// so its HTML never passes through goldmark; spliceDirectives puts it back.
 func extractDirectives(src string, shift int) (string, []string, error) {
 	var blocks []string
 	lines := strings.Split(src, "\n")
@@ -168,8 +150,7 @@ func renderDirective(d directive, shift int) (string, error) {
 	}
 }
 
-// renderModes turns the mode table — which GitHub renders as a table and needs
-// no help with — into the strip of cards the website shows instead.
+// renderModes turns the mode table into the strip of cards the website shows.
 func renderModes(d directive) (string, error) {
 	var b strings.Builder
 	b.WriteString(`<div class="modes">`)
@@ -206,8 +187,6 @@ func renderModes(d directive) (string, error) {
 	return b.String(), nil
 }
 
-// unwrap removes one enclosing tag, for a cell whose markdown emphasis the
-// surrounding markup already provides.
 func unwrap(in, tag string) string {
 	open, close := "<"+tag+">", "</"+tag+">"
 	if strings.HasPrefix(in, open) && strings.HasSuffix(in, close) {
@@ -238,8 +217,7 @@ func tableRows(body string) [][]string {
 	return rows
 }
 
-// renderCards splits the body on its headings: one heading plus everything
-// under it is one card.
+// renderCards makes one card per heading-led chunk of the body.
 func renderCards(d directive, shift int) (string, error) {
 	wrap, item, title := "grid", "card", "h4"
 	var b strings.Builder
@@ -306,8 +284,7 @@ func renderFigure(d directive, shift int) (string, error) {
 	return out + "</figure>", nil
 }
 
-// renderInline renders one line of markdown without its wrapping paragraph —
-// for a <summary> or a card title.
+// renderInline renders one line of markdown without its wrapping paragraph.
 func renderInline(src string) (string, error) {
 	out, err := RenderHTML(src, 0)
 	if err != nil {

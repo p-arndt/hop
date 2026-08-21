@@ -9,18 +9,12 @@ import (
 	"testing"
 )
 
-// disableAgent makes dialAgent fail for the duration of the test. Tests that are
-// about the no-agent fallback live in platform-neutral files, so how an agent is
-// taken away — an unset $SSH_AUTH_SOCK here, an unserved pipe on Windows — is
-// kept behind this helper.
+// disableAgent makes dialAgent fail for the duration of the test.
 func disableAgent(t *testing.T) {
 	t.Helper()
 	t.Setenv(agentSockEnv, "")
 }
 
-// With no agent advertised there is nothing to dial, and the error has to say so
-// in the user's terms: a bare "connection refused" for an empty path would send
-// them looking at the network instead of at their agent.
 func TestDialAgentWithoutSockEnv(t *testing.T) {
 	t.Setenv(agentSockEnv, "")
 
@@ -34,8 +28,7 @@ func TestDialAgentWithoutSockEnv(t *testing.T) {
 	}
 }
 
-// A path that names no listener must fail rather than hang, and the message must
-// carry the path so a stale $SSH_AUTH_SOCK is visible as the cause.
+// Must fail rather than hang, naming the stale socket path.
 func TestDialAgentWithDeadSocket(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "agent.sock")
 	t.Setenv(agentSockEnv, sock)
@@ -50,11 +43,8 @@ func TestDialAgentWithDeadSocket(t *testing.T) {
 	}
 }
 
-// The happy path: a unix socket with a listener behind it connects. This is the
-// case that never compiled on non-Windows before, so it is worth pinning.
 func TestDialAgentConnectsToUnixSocket(t *testing.T) {
-	// macOS caps unix socket paths at ~104 bytes, and t.TempDir() names embed the
-	// test name — short-name the file so the path stays under the limit.
+	// macOS caps unix socket paths at ~104 bytes, so keep the name short.
 	sock := filepath.Join(t.TempDir(), "a.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
@@ -78,8 +68,7 @@ func TestDialAgentConnectsToUnixSocket(t *testing.T) {
 	conn.Close()
 }
 
-// AgentAuth is the only caller; it must surface the dial failure rather than
-// return a nil method that would fail later inside the handshake.
+// AgentAuth must surface the dial failure instead of a nil method.
 func TestAgentAuthReportsMissingAgent(t *testing.T) {
 	t.Setenv(agentSockEnv, "")
 

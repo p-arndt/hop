@@ -9,12 +9,10 @@ import (
 	"hop/internal/config"
 )
 
-// settingsModel is a model with the popover open on an isolated config file, so
-// saving a setting cannot touch the real one.
+// settingsModel opens the popover on an isolated config file.
 func settingsModel(t *testing.T) *model {
 	t.Helper()
-	// Redirect every variable os.UserConfigDir consults, or saving a setting here
-	// rewrites the developer's own config.
+	// os.UserConfigDir must not find the developer's real config.
 	dir := t.TempDir()
 	t.Setenv("AppData", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
@@ -24,8 +22,7 @@ func settingsModel(t *testing.T) *model {
 	return m
 }
 
-// fieldIndex finds a field by label, so the tests do not hard-code the order of
-// the list.
+// fieldIndex finds a field by label, so tests do not hard-code the list's order.
 func fieldIndex(t *testing.T, label string) int {
 	t.Helper()
 	for i, f := range settingsFields {
@@ -37,8 +34,6 @@ func fieldIndex(t *testing.T, label string) int {
 	return -1
 }
 
-// Typing a value and pressing enter commits it to the config and writes it out,
-// so it is still there next launch.
 func TestSettingsEditCommitsAndPersists(t *testing.T) {
 	m := settingsModel(t)
 	m.settings.cursor = fieldIndex(t, "Editor")
@@ -89,8 +84,7 @@ func TestSettingsEditCancel(t *testing.T) {
 	}
 }
 
-// "r" puts a field back to its default — the way out of a value that broke
-// something.
+// "r" puts a field back to its default.
 func TestSettingsResetField(t *testing.T) {
 	m := settingsModel(t)
 	m.cfg.Accent = "99"
@@ -103,8 +97,7 @@ func TestSettingsResetField(t *testing.T) {
 	}
 }
 
-// ←/→ walk the accent palette, wrapping, and apply as they go — you judge a color
-// by seeing it, so there is nothing to confirm.
+// ←/→ walk the accent palette, wrapping, applying and persisting as they go.
 func TestAccentSwatchCycling(t *testing.T) {
 	m := settingsModel(t)
 	m.settings.cursor = fieldIndex(t, "Accent color")
@@ -121,7 +114,6 @@ func TestAccentSwatchCycling(t *testing.T) {
 		t.Fatalf("saved Accent = %q; picking a color must persist it", got)
 	}
 
-	// Left from the first swatch wraps to the last.
 	m.handleKey(key(t, "left"))
 	m.handleKey(key(t, "left"))
 	if want := accentSwatches[len(accentSwatches)-1].code; m.cfg.Accent != want {
@@ -129,7 +121,6 @@ func TestAccentSwatchCycling(t *testing.T) {
 	}
 }
 
-// A color typed by hand still works, and still shows up on the strip.
 func TestAccentCustomValueSurvives(t *testing.T) {
 	m := settingsModel(t)
 	m.settings.cursor = fieldIndex(t, "Accent color")
@@ -144,16 +135,14 @@ func TestAccentCustomValueSurvives(t *testing.T) {
 	if m.cfg.Accent != "99" {
 		t.Fatalf("Accent = %q, want the typed 99", m.cfg.Accent)
 	}
-	// It is not in the palette, so the strip must show it as its own swatch, named
-	// by its code rather than dropped.
+	// A value outside the palette gets its own swatch on the strip.
 	strip := m.renderSwatches(settingsFields[m.settings.cursor], true, 60)
 	if !strings.Contains(strip, "99") {
 		t.Fatalf("swatch strip = %q, want the custom value shown", strip)
 	}
 }
 
-// The vim keys field is a switch: ←/→ and enter flip it, it applies to the browsers
-// already open, and it persists. It never opens a text field.
+// The vim keys field is a switch: it flips, applies to open browsers, persists, and takes no text.
 func TestVimKeysToggle(t *testing.T) {
 	m := settingsModel(t)
 	m.settings.cursor = fieldIndex(t, "Vim keys")
@@ -176,8 +165,6 @@ func TestVimKeysToggle(t *testing.T) {
 		t.Fatal("the browsers were not told the vim keys are on")
 	}
 
-	// Either arrow flips it back — there are only two states, so there is no
-	// direction to walk in.
 	m.handleKey(key(t, "left"))
 	if m.cfg.VimKeys {
 		t.Fatal("left did not turn the vim keys back off")
@@ -187,14 +174,12 @@ func TestVimKeysToggle(t *testing.T) {
 		t.Fatal("right did not turn the vim keys back on")
 	}
 
-	// And "r" resets it to the default, like any other field.
 	m.handleKey(key(t, "r"))
 	if m.cfg.VimKeys {
 		t.Fatal("r did not reset the vim keys to off")
 	}
 }
 
-// ←/→ do nothing on a text field: they are the color picker's keys alone.
 func TestArrowsLeaveTextFieldsAlone(t *testing.T) {
 	m := settingsModel(t)
 	m.settings.cursor = fieldIndex(t, "Editor")
@@ -208,7 +193,6 @@ func TestArrowsLeaveTextFieldsAlone(t *testing.T) {
 	}
 }
 
-// The popover is modal: keys go to it, not to the host list behind it.
 func TestSettingsSwallowsKeys(t *testing.T) {
 	m := settingsModel(t)
 	m.filtered = []int{0, 1, 2}
@@ -224,9 +208,7 @@ func TestSettingsSwallowsKeys(t *testing.T) {
 	}
 }
 
-// The popover honours the vim setting like everything else: a card answering to hjkl
-// while holding the switch that says they are off would be lying. Turning them off here
-// cannot strand you — the arrows and enter are never gated.
+// The popover gates hjkl on the vim setting; the arrows and enter never are.
 func TestSettingsHonoursVimSetting(t *testing.T) {
 	m := settingsModel(t)
 
@@ -241,8 +223,6 @@ func TestSettingsHonoursVimSetting(t *testing.T) {
 		t.Fatalf("settings cursor = %d; with the vim keys on, j must move it", m.settings.cursor)
 	}
 
-	// And the arrows work regardless, which is what makes turning the keys off from
-	// in here a decision rather than a trap.
 	m.cfg.VimKeys = false
 	m.handleKey(key(t, "down"))
 	if m.settings.cursor != 2 {
@@ -250,8 +230,7 @@ func TestSettingsHonoursVimSetting(t *testing.T) {
 	}
 }
 
-// The gate sits below text entry: while a field has the keyboard, "h" is a letter of
-// the value being typed, not a motion the vim setting gets to veto.
+// While a field has the keyboard, "h" is a letter, not a motion the gate can veto.
 func TestSettingsTypingIsNotGated(t *testing.T) {
 	m := settingsModel(t)
 	m.settings.cursor = fieldIndex(t, "Editor")
@@ -282,8 +261,7 @@ func TestSettingsOpenClose(t *testing.T) {
 	}
 }
 
-// An editor set in the settings is what actually runs on the remote host, with its
-// flags intact and the path still quoted.
+// The configured editor runs on the remote host with its flags and a quoted path.
 func TestConfiguredEditorIsUsed(t *testing.T) {
 	got := remoteEditorCmd("vim -R", "/tmp/my notes.md")
 	want := `exec vim -R '/tmp/my notes.md'`
@@ -291,14 +269,12 @@ func TestConfiguredEditorIsUsed(t *testing.T) {
 		t.Fatalf("remoteEditorCmd = %q, want %q", got, want)
 	}
 
-	// With none configured, the probe is still what runs.
 	if auto := remoteEditorCmd("", "/etc/hosts"); !strings.Contains(auto, "${EDITOR:-") {
 		t.Fatalf("remoteEditorCmd with no setting = %q, want the remote $EDITOR probe", auto)
 	}
 }
 
-// The popover floats: the screen behind it keeps its size, and its own content is
-// visible on top.
+// The popover floats: the screen behind it keeps its size.
 func TestOverlayKeepsBackgroundShape(t *testing.T) {
 	bg := strings.Repeat("abcdefghij\n", 6)
 	bg = strings.TrimSuffix(bg, "\n")
@@ -326,7 +302,6 @@ func TestOverlayKeepsBackgroundShape(t *testing.T) {
 	}
 }
 
-// A box taller than what is left below y must not panic or grow the screen.
 func TestOverlayClipsAtBottom(t *testing.T) {
 	bg := "aaaa\nbbbb"
 	got := overlay(bg, "XX\nXX\nXX", 1, 1)
@@ -340,14 +315,7 @@ func TestOverlayClipsAtBottom(t *testing.T) {
 	}
 }
 
-// The card has to fit the window it floats over: a modal whose bottom rows are cut off
-// loses the hint line naming the keys that work it. Two things give way on a short window
-// (see renderSettings) — the spacing between fields, then the number on screen — so it
-// fits every window from settingsMinH rows up, which includes the standard 24.
-//
-// Below settingsMinH there is nothing left to drop that is not the selected field, its
-// explanation or the hints. The floor is a function of settingsMinFields, not of how many
-// settings hop has, so adding one must not raise it.
+// The card fits every window from settingsMinH rows up, the standard 24 included.
 func TestSettingsCardFitsTheWindow(t *testing.T) {
 	if settingsMinH() > 24 {
 		t.Fatalf("the packed card needs %d rows; it must fit a standard 24-row terminal", settingsMinH())
@@ -362,8 +330,6 @@ func TestSettingsCardFitsTheWindow(t *testing.T) {
 }
 
 // A window too short for every field shows a run of them, always holding the cursor's.
-// A scrolling list that can hide the selection is worse than a truncated card: the keys
-// still work, on a field nobody can see.
 func TestSettingsCardScrollsToTheCursor(t *testing.T) {
 	m := &model{cfg: config.Default(), layout: layout{height: settingsMinH(), width: 100}}
 	m.openSettings()
@@ -381,7 +347,6 @@ func TestSettingsCardScrollsToTheCursor(t *testing.T) {
 		if got := lipgloss.Height(m.renderSettings()); got > m.height {
 			t.Fatalf("cursor on field %d: a %d-row window got a %d-line card", i, m.height, got)
 		}
-		// The selected field's label is what says it is on screen at all.
 		if !strings.Contains(m.renderSettings(), settingsFields[i].label) {
 			t.Fatalf("field %q is selected but not drawn", settingsFields[i].label)
 		}

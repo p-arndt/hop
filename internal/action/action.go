@@ -1,5 +1,4 @@
-// Package action provides side-effecting integrations with external tools
-// such as VS Code Remote and Windows Terminal.
+// Package action provides side-effecting integrations with external tools.
 package action
 
 import (
@@ -7,21 +6,13 @@ import (
 	"strings"
 )
 
-// OpenVSCodeRemote launches VS Code connected to the given SSH host alias via
-// the Remote-SSH extension. If remotePath is non-empty it is opened as the
-// target folder/file; otherwise VS Code opens without a specific path.
-//
-// "code" is invoked directly rather than through "cmd /c": exec resolves it to
-// code.cmd itself and refuses arguments that cannot be escaped safely for a
-// batch file, whereas an explicit cmd line would re-parse metacharacters in the
-// alias (which can come from an imported ssh config) as shell syntax.
+// OpenVSCodeRemote launches VS Code on the SSH host alias via Remote-SSH.
+// "code" is run directly, not through "cmd /c", so metacharacters in an alias are never re-parsed.
 func OpenVSCodeRemote(alias, remotePath string) error {
 	return exec.Command("code", vscodeArgs(alias, remotePath)...).Start()
 }
 
-// vscodeArgs builds OpenVSCodeRemote's argument list: the Remote-SSH authority for the
-// alias, plus the target path when there is one. Each argument is its own argv element,
-// so nothing in an alias or path is ever re-parsed as syntax.
+// vscodeArgs builds OpenVSCodeRemote's argument list.
 func vscodeArgs(alias, remotePath string) []string {
 	args := []string{"--remote", "ssh-remote+" + alias}
 	if remotePath != "" {
@@ -30,17 +21,12 @@ func vscodeArgs(alias, remotePath string) []string {
 	return args
 }
 
-// NewTab opens a new Windows Terminal tab running program with args in pwsh,
-// keeping the shell open afterwards. The program and each argument are quoted
-// individually before they reach -Command, so nothing in them — a path with
-// spaces, a name carrying "$()" or ";" — is re-parsed as PowerShell syntax.
+// NewTab opens a new Windows Terminal tab running program with args in pwsh.
 func NewTab(program string, args ...string) error {
 	return exec.Command("wt.exe", newTabArgs(program, args)...).Start()
 }
 
-// newTabArgs builds the wt.exe argument list for NewTab: a new tab ("nt") in
-// the current window ("-w 0") running pwsh, whose -Command is "& 'program'
-// 'arg' ..." with every part psQuoted.
+// newTabArgs builds the wt.exe argument list for NewTab.
 func newTabArgs(program string, args []string) []string {
 	parts := []string{"&", psQuote(program)}
 	for _, a := range args {
@@ -49,8 +35,7 @@ func newTabArgs(program string, args []string) []string {
 	return []string{"-w", "0", "nt", "pwsh", "-NoExit", "-Command", strings.Join(parts, " ")}
 }
 
-// psQuote wraps s in single quotes for PowerShell, inside which nothing is
-// expanded or interpreted; a literal single quote is escaped by doubling it.
+// psQuote wraps s in single quotes for PowerShell, doubling any literal quote.
 func psQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

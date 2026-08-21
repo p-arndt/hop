@@ -4,17 +4,8 @@ package clipboard
 
 import "os"
 
-// The helpers, in the order they are tried. There is no one clipboard tool on
-// Linux and the BSDs: which one works depends on the display server, so the list
-// is walked until one of them is both installed and willing.
-//
-//   - wl-copy first, and only under Wayland: it is the native tool there, and it
-//     is checked against WAYLAND_DISPLAY because a machine can have both installed
-//     while only one of the two servers is actually running.
-//   - xclip and xsel are the X tools, in the order they are usually installed.
-//     They also serve XWayland, which is why they are tried unconditionally.
-//   - clip.exe is the WSL case: a Linux hop talking to a Windows clipboard. It is
-//     last because on a real Linux desktop it is not there at all.
+// Tried in order; which one works depends on the display server. wl-copy is gated on
+// WAYLAND_DISPLAY (both servers can be installed), and clip.exe is the WSL fallback.
 var helpers = []struct {
 	name    string
 	args    []string

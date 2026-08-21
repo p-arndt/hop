@@ -1,30 +1,21 @@
 package tui
 
-// The copy half of copy-and-paste: text yanked on the remote host arriving on the local
-// clipboard.
-//
-// The pane recognises the OSC 52 and decodes it (internal/terminal/clipboard.go), then
-// hands the text to the sink installed here — which is what knows there is a setting, and
-// where the desktop is finally written to.
-//
-// It runs on the pane's output pump rather than the UI goroutine, which is why the setting
-// is read through an atomic and nothing here touches the model. Failure is silent: a Linux
-// box with no clipboard helper is a normal thing to be sitting at.
+// The pane decodes the remote host's OSC 52 (internal/terminal/clipboard.go) and hands the
+// text to the sink installed here. The sink runs on the pane's output pump, not the UI
+// goroutine, so the setting is read through an atomic and nothing here touches the model.
 
 import (
 	"hop/internal/clipboard"
 	"hop/internal/terminal"
 )
 
-// applyClipboard brings the panes' view of the setting in line with the config, at
-// startup and after every settings save.
+// applyClipboard brings the panes' view of the setting in line with the config.
 func (m *model) applyClipboard() {
 	m.clipOK.Store(m.cfg.Clipboard)
 }
 
-// armClipboard installs the sink on a pane that has just landed. The closure captures the
-// model only to read the atomic, and reads it at write time, so switching the setting off
-// takes effect on panes that are already open.
+// armClipboard installs the sink on a pane that has just landed. The atomic is read at
+// write time, so switching the setting off reaches panes that are already open.
 func (m *model) armClipboard(p *terminal.Pane) {
 	if p == nil {
 		return
@@ -37,8 +28,7 @@ func (m *model) armClipboard(p *terminal.Pane) {
 	})
 }
 
-// writeClipboard writes the desktop's clipboard — the real one, unless a test has
-// replaced it. Nothing else in hop reaches the local clipboard.
+// writeClipboard writes the desktop's clipboard — the real one, unless a test replaced it.
 func (m *model) writeClipboard() func(string) error {
 	if m.clipWrite != nil {
 		return m.clipWrite

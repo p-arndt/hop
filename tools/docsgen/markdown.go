@@ -7,11 +7,7 @@ import (
 	"unicode"
 )
 
-// RenderMarkdown lowers a doc body to plain GitHub-flavoured markdown: the
-// directives become the things GitHub already renders well (tables, blockquote
-// alerts, <details>), and [[key]] becomes a code span, because GitHub strips
-// <kbd> styling anyway. target says which file this is for, so a block can opt
-// out of one of them.
+// RenderMarkdown lowers a doc body to plain GitHub-flavoured markdown for target.
 func RenderMarkdown(src string, shift int, target string) (string, error) {
 	out, err := lowerDirectives(src, shift, target)
 	if err != nil {
@@ -75,9 +71,6 @@ func lowerDirectives(src string, shift int, target string) (string, error) {
 }
 
 func lowerDirective(d directive, shift int, target string) (string, error) {
-	// A block aimed elsewhere leaves no trace here: `only="site"` is a figure
-	// the README lays out its own way, `not="readme"` a rationale the full
-	// reference carries and the README does not need to.
 	if !wants(d.Attrs, target) {
 		return "", nil
 	}
@@ -111,8 +104,7 @@ func lowerDirective(d directive, shift int, target string) (string, error) {
 	}
 }
 
-// lowerCards turns the card grid into the two-column table README has always
-// used for it: an icon-and-name column, and the sentence.
+// lowerCards turns the card grid into the README's two-column table.
 func lowerCards(body string) string {
 	rows := []string{"|  | |", "| --- | --- |"}
 	for _, part := range splitCards(body) {
@@ -124,8 +116,7 @@ func lowerCards(body string) string {
 	return strings.Join(rows, "\n")
 }
 
-// splitIcon peels a leading emoji off a card title so it stays outside the
-// bold, the way the README table reads best.
+// splitIcon peels a leading emoji off a card title so it stays outside the bold.
 func splitIcon(title string) (icon, name string) {
 	first, rest, ok := strings.Cut(title, " ")
 	if !ok || first == "" {

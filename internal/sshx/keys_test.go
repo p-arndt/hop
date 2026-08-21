@@ -14,8 +14,7 @@ import (
 	"hop/internal/store"
 )
 
-// writeKey generates an ed25519 private key and writes it to path in OpenSSH
-// format, encrypting it with passphrase when that is non-empty.
+// writeKey writes an ed25519 key to path, encrypted when passphrase is non-empty.
 func writeKey(t *testing.T, path, passphrase string) {
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -39,11 +38,7 @@ func writeKey(t *testing.T, path, passphrase string) {
 	}
 }
 
-// fakeHome points os.UserHomeDir at a temp dir for the duration of the test, so
-// the default-key lookup sees a controlled ~/.ssh instead of the real one. It
-// sets every variable that call consults — $HOME on unix, %USERPROFILE% on
-// Windows — because setting only $HOME leaves the Windows runner reading the
-// real profile, where the keys these tests write do not exist.
+// fakeHome points os.UserHomeDir at a temp dir; Windows needs %USERPROFILE% set too.
 func fakeHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -52,8 +47,6 @@ func fakeHome(t *testing.T) string {
 	return home
 }
 
-// A host naming an IdentityFile authenticates with that key, which is the whole
-// point of storing it: agent-only auth left it unused.
 func TestKeyAuthUsesIdentityFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "custom_key")
@@ -68,8 +61,7 @@ func TestKeyAuthUsesIdentityFile(t *testing.T) {
 	}
 }
 
-// A ~-prefixed IdentityFile is what ssh_config uses and what the importer stores
-// verbatim, so it has to resolve rather than be opened literally.
+// ssh_config stores ~-paths verbatim, so they have to resolve.
 func TestKeyAuthExpandsTilde(t *testing.T) {
 	home := fakeHome(t)
 	writeKey(t, filepath.Join(home, ".ssh", "work_key"), "")
@@ -80,8 +72,6 @@ func TestKeyAuthExpandsTilde(t *testing.T) {
 	}
 }
 
-// With no IdentityFile, the default ~/.ssh keys are tried — the case that makes
-// hop work on a fresh macOS install where launchd's agent holds no identities.
 func TestKeyAuthFallsBackToDefaultKeys(t *testing.T) {
 	home := fakeHome(t)
 	writeKey(t, filepath.Join(home, ".ssh", "id_ed25519"), "")
@@ -92,8 +82,6 @@ func TestKeyAuthFallsBackToDefaultKeys(t *testing.T) {
 	}
 }
 
-// An empty ~/.ssh is not an error, just nothing to offer: the agent may still
-// have the identity.
 func TestKeyAuthNoKeysIsSilent(t *testing.T) {
 	fakeHome(t)
 
@@ -106,8 +94,6 @@ func TestKeyAuthNoKeysIsSilent(t *testing.T) {
 	}
 }
 
-// A passphrase-protected key cannot be used unattended, but silently ignoring it
-// leaves the user with an unexplained auth failure — it must be reported.
 func TestKeyAuthReportsPassphraseProtectedKey(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "locked_key")
@@ -122,8 +108,6 @@ func TestKeyAuthReportsPassphraseProtectedKey(t *testing.T) {
 	}
 }
 
-// An IdentityFile the user typed wrong must surface, unlike a missing default
-// key: they named that path deliberately.
 func TestKeyAuthReportsMissingIdentityFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "absent_key")
 
@@ -136,8 +120,7 @@ func TestKeyAuthReportsMissingIdentityFile(t *testing.T) {
 	}
 }
 
-// The regression this fixes: agent reachable but empty (macOS launchd) plus a
-// key on disk must still yield a usable auth method.
+// Regression: an empty agent (macOS launchd) plus a key on disk must still authenticate.
 func TestAuthMethodsUsesKeysWithoutAgent(t *testing.T) {
 	home := fakeHome(t)
 	writeKey(t, filepath.Join(home, ".ssh", "id_ed25519"), "")
@@ -152,8 +135,6 @@ func TestAuthMethodsUsesKeysWithoutAgent(t *testing.T) {
 	}
 }
 
-// With neither an agent nor a key there is nothing to offer, and the error has
-// to say so in terms the user can act on.
 func TestAuthMethodsErrorsWithNoAgentAndNoKeys(t *testing.T) {
 	fakeHome(t)
 	disableAgent(t)

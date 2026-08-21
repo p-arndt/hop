@@ -1,17 +1,5 @@
-// Command demoserver is a throwaway SSH server for recording hop's README demo, so the
-// GIF shows connecting, running commands, browsing and editing without a real host,
-// credentials or data. Everything it serves is invented (see content.go): a fake shell,
-// an in-memory filesystem over SFTP, and a fake vi.
-//
-// It accepts every client without authentication and serves a host key generated on the
-// spot, so it only ever listens on loopback — checked at startup, not configurable.
-//
-//	demoserver -addr 127.0.0.1:2222 -known-hosts <path> -seed-db <path>
-//
-// -seed-db writes the sample host list into a hop database (all of whose hosts
-// point at this server) and -known-hosts writes the generated host key, so hop
-// connects without its first-contact prompt. scripts/demo.mjs drives all of it;
-// see demo/hop.tape for the recording itself.
+// Command demoserver is a throwaway SSH server for recording hop's README demo.
+// It authenticates nobody, so it only ever listens on loopback.
 package main
 
 import (
@@ -53,8 +41,7 @@ func run(addr, khPath, seedDB, clientKey string) error {
 		return err
 	}
 
-	// hop needs at least one signer to offer before it will dial, and the recording runs
-	// with a HOME of its own that has none. This server accepts whatever is offered.
+	// hop needs at least one signer to offer before it will dial, and the recording's HOME has none.
 	if clientKey != "" {
 		if err := writeClientKey(clientKey); err != nil {
 			return err
@@ -91,8 +78,7 @@ func run(addr, khPath, seedDB, clientKey string) error {
 	return nil
 }
 
-// acceptLoop serves every connection on ln until it is closed, separate from run so a
-// test can drive the server over its own listener.
+// acceptLoop serves every connection on ln until it is closed.
 func acceptLoop(ln net.Listener, signer ssh.Signer) {
 	cfg := &ssh.ServerConfig{NoClientAuth: true}
 	cfg.AddHostKey(signer)
@@ -107,8 +93,7 @@ func acceptLoop(ln net.Listener, signer ssh.Signer) {
 	}
 }
 
-// requireLoopback refuses to listen anywhere a stranger could reach, because this
-// server authenticates nobody.
+// requireLoopback refuses any address a stranger could reach; this server has no auth.
 func requireLoopback(addr string) error {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -120,8 +105,7 @@ func requireLoopback(addr string) error {
 	return nil
 }
 
-// newHostKey generates a throwaway ed25519 host key, never written to disk: each run gets
-// a fresh one and the known_hosts file is rewritten to match.
+// newHostKey generates a throwaway host key; known_hosts is rewritten to match each run.
 func newHostKey() (ssh.Signer, error) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -134,8 +118,7 @@ func newHostKey() (ssh.Signer, error) {
 	return signer, nil
 }
 
-// writeClientKey generates an unencrypted ed25519 key at p, in the format hop's
-// keySigners reads. Regenerated every run, inside the recording's throwaway HOME.
+// writeClientKey writes an unencrypted ed25519 key in the format hop's keySigners reads.
 func writeClientKey(p string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return fmt.Errorf("client key dir: %w", err)
@@ -154,8 +137,7 @@ func writeClientKey(p string) error {
 	return nil
 }
 
-// writeKnownHosts records the generated key for the address being listened on, so hop's
-// first-contact card does not appear mid-recording. It has its own scene in the tape.
+// writeKnownHosts records the generated key so hop's first-contact card stays off screen.
 func writeKnownHosts(p string, addr net.Addr, key ssh.PublicKey) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return fmt.Errorf("known_hosts dir: %w", err)
@@ -165,8 +147,7 @@ func writeKnownHosts(p string, addr net.Addr, key ssh.PublicKey) error {
 		return fmt.Errorf("split listen addr: %w", err)
 	}
 
-	// hop dials the alias' hostname, so the entry names the same host:port pair the demo
-	// hosts use — "localhost", not the resolved 127.0.0.1.
+	// hop dials the alias' hostname, so entries must name "localhost" too, not just 127.0.0.1.
 	addrs := []string{net.JoinHostPort("localhost", port), net.JoinHostPort(host, port)}
 	var b strings.Builder
 	for _, a := range addrs {
@@ -179,8 +160,7 @@ func writeKnownHosts(p string, addr net.Addr, key ssh.PublicKey) error {
 	return nil
 }
 
-// seed writes the sample host list into a hop database. Every host points at this server,
-// but only the aliases are on screen, so the list reads as somebody's real fleet.
+// seed writes the sample host list into a hop database; every host points at this server.
 func seed(hostsPath string, addr net.Addr) error {
 	_, portStr, err := net.SplitHostPort(addr.String())
 	if err != nil {
@@ -261,8 +241,7 @@ func serve(nc net.Conn, cfg *ssh.ServerConfig, fs *demoFS) {
 	wg.Wait()
 }
 
-// ptyReq is the payload of a pty-req; the first fields are all we need — the size the
-// fake editor lays out to.
+// ptyReq is the payload of a pty-req.
 type ptyReq struct {
 	Term          string
 	Cols, Rows    uint32
@@ -277,8 +256,7 @@ type winChange struct {
 	WidthPx, HiPx uint32
 }
 
-// handleSession runs one channel: a shell, an exec (which for hop means an editor),
-// or the SFTP subsystem.
+// handleSession runs one channel: a shell, an exec, or the SFTP subsystem.
 func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, fs *demoFS) {
 	defer ch.Close()
 
@@ -338,9 +316,7 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, fs *demoFS) {
 	}
 }
 
-// runExec answers an exec request. hop's only exec is remoteEditorCmd's one-liner, ending
-// in `exec ${ed:-vi} '<path>'`, so the path is pulled out and the fake editor opens it.
-// Anything else falls through to the command table.
+// runExec answers an exec request, recognising remoteEditorCmd's `exec ${ed:-vi} '<path>'`.
 func runExec(ch ssh.Channel, fs *demoFS, cmd string, cols, rows int) {
 	if p, ok := editorTarget(cmd); ok {
 		f, err := fs.lookup(p)
@@ -359,8 +335,7 @@ func runExec(ch ssh.Channel, fs *demoFS, cmd string, cols, rows int) {
 	io.WriteString(ch, "bash: "+firstWord(cmd)+": command not found\r\n")
 }
 
-// editorTarget extracts the file path from hop's editor command: the last
-// single-quoted run in it, which is how remoteEditorCmd quotes the path.
+// editorTarget takes the last single-quoted run, which is how remoteEditorCmd quotes the path.
 func editorTarget(cmd string) (string, bool) {
 	end := strings.LastIndex(cmd, "'")
 	if end < 0 {
@@ -377,7 +352,7 @@ func editorTarget(cmd string) (string, bool) {
 	return p, true
 }
 
-// exit sends the exit-status the client waits for: hop closes an editor tab on it.
+// exit sends the exit-status hop closes an editor tab on.
 func exit(ch ssh.Channel, code uint32) {
 	ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Code uint32 }{code}))
 }

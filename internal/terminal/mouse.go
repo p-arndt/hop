@@ -7,18 +7,10 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// A remote program that wants the mouse says so by setting one of the DEC private modes
-// below; until it does, the wheel belongs to whatever is drawing the screen. hop honours
-// the same contract: the TUI asks MouseEnabled before forwarding anything.
-//
-// The modes are watched through the emulator's mode callbacks rather than the stream,
-// since that is where the parsing already happened — and vt's isModeSet is unexported,
-// so its SendMouse cannot be asked whether a report would go anywhere. hop encodes the
-// event itself (see mouseBytes) and queues it the way every other write goes out.
+// tracking: hop encodes mouse reports itself because vt's isModeSet is unexported.
 type tracking int
 
 const (
-	// trackNone is a program that has not asked for the mouse.
 	trackNone tracking = iota
 	// trackPress is DECSET 9 (X10): button presses only, no releases, no motion.
 	trackPress
@@ -30,9 +22,7 @@ const (
 	trackAll
 )
 
-// trackingModes maps each mouse-reporting mode to the level it asks for. They are
-// checked in order of that level, so a program setting several gets the most specific —
-// the resolution vt's own SendMouse makes.
+// trackingModes is ordered by level, so a program setting several gets the most specific.
 var trackingModes = []struct {
 	mode  ansi.DECMode
 	level tracking
@@ -44,19 +34,14 @@ var trackingModes = []struct {
 	{ansi.ModeMouseAnyEvent, trackAll},      // ?1003
 }
 
-// mouseState is the mouse reporting the far end has asked for. Written by the output
-// pump (the mode callbacks run inside Write) and read by the UI goroutine, hence the
-// mutex.
+// mouseState is written by the output pump and read by the UI goroutine, hence the mutex.
 type mouseState struct {
 	mu  sync.Mutex
 	set map[ansi.DECMode]bool
-	// sgr is DECSET 1006, the extended encoding modern programs ask for alongside their
-	// tracking mode. Without it the report falls back to X10's byte-per-coordinate form.
+	// sgr is DECSET 1006; without it reports fall back to X10's byte-per-coordinate form.
 	sgr bool
 }
 
-// setMode records a mode the remote program has enabled or disabled, ignoring the ones
-// hop does not care about.
 func (s *mouseState) setMode(mode ansi.Mode, on bool) {
 	dec, ok := mode.(ansi.DECMode)
 	if !ok {
@@ -82,8 +67,8 @@ func (s *mouseState) setMode(mode ansi.Mode, on bool) {
 	}
 }
 
-// clear forgets every mode, as a full terminal reset does. Called from the output pump
-// on the RIS the mode callbacks do not report.
+// clear forgets every mode; called from the output pump on the RIS the mode callbacks do
+// not report.
 func (s *mouseState) clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -91,7 +76,6 @@ func (s *mouseState) clear() {
 	s.sgr = false
 }
 
-// state reports the reporting level in force and whether SGR encoding is on.
 func (s *mouseState) state() (tracking, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -105,21 +89,12 @@ func (s *mouseState) state() (tracking, bool) {
 	return level, s.sgr
 }
 
-// MouseEnabled reports whether the far end has asked for mouse reporting — what the TUI
-// checks before forwarding an event. With nothing asking, the wheel is hop's.
 func (p *Pane) MouseEnabled() bool {
 	level, _ := p.mouse.state()
 	return level != trackNone
 }
 
-// SendMouse forwards a mouse event to the remote program, addressed to the pane's own
-// cell (x, y): the caller has already subtracted the border and any tab strip.
-//
-// It reports whether anything was sent. An event the far end did not ask for is dropped
-// rather than encoded — a program in DECSET 1000 would be confused by 1002's motion.
 func (p *Pane) SendMouse(msg tea.MouseMsg, x, y int) bool {
-	// A closed pane has no far end to report to. send drops it either way; this is so the
-	// caller is told nothing went out.
 	if p.isClosed() {
 		return false
 	}
@@ -132,8 +107,7 @@ func (p *Pane) SendMouse(msg tea.MouseMsg, x, y int) bool {
 	return true
 }
 
-// mouseBytes encodes a mouse event as the report a terminal would send, or nil when the
-// tracking level in force does not cover it. Pure, so it is testable without a session.
+// mouseBytes encodes a mouse report, or nil when the tracking level does not cover it.
 func mouseBytes(msg tea.MouseMsg, x, y int, level tracking, sgr bool) []byte {
 	if level == trackNone || x < 0 || y < 0 {
 		return nil
@@ -172,9 +146,8 @@ func mouseBytes(msg tea.MouseMsg, x, y int, level tracking, sgr bool) []byte {
 		))
 	}
 
-	// X10 carries each coordinate in one byte offset by 33, so a cell past x10Max cannot
-	// be addressed. Dropping the report is what xterm does; the alternative names a cell
-	// nobody pointed at.
+	// X10 carries each coordinate in one byte offset by 33, so a cell past x10Max cannot be
+	// addressed; xterm drops the report rather than naming the wrong cell.
 	if x > x10Max || y > x10Max {
 		return nil
 	}
@@ -184,43 +157,31 @@ func mouseBytes(msg tea.MouseMsg, x, y int, level tracking, sgr bool) []byte {
 	}
 	b := ansi.EncodeMouseButton(button, motion, msg.Shift, msg.Alt, msg.Ctrl)
 	// The button field carries the modifier bits, so a wheel event with all of them set
-	// overflows the last byte a report may carry. See x10Max.
+	// overflows the last byte a report may carry.
 	if int(b)+x10Offset > x10Last {
 		return nil
 	}
-	// Written here rather than by ansi.MouseX10, which builds them with string(byte(x)+33)
-	// — a rune conversion, so every coordinate from 95 up is UTF-8 encoded into two bytes
-	// and the report arrives malformed.
+	// Written here rather than by ansi.MouseX10, which builds bytes with string(byte(x)+33)
+	// — a rune conversion, so coordinates from 95 up are UTF-8 encoded into two bytes.
 	return []byte{0x1b, '[', 'M', b + x10Offset, byte(x) + x10Offset + 1, byte(y) + x10Offset + 1}
 }
 
-// x10Offset is the bias every field of an X10 mouse report carries, so no byte of it can
-// be a control character; x10Last is the last byte one may hold, and x10Max the last cell
-// one can name.
-//
-// The ceiling is xterm's 0xff, so the encoding runs to column 222. Stopping at 0x7e —
-// refusing a byte with its top bit set, so that junk from a stale mouse mode stays
-// decodable on a UTF-8 pty — cost every non-SGR program (older vim, mc, ncurses) its
-// clicks past column 94. A program that is decoding wants exactly what xterm sends.
-//
-// The stale mode itself is handled where it happens: the modes go with the alt screen
-// they were set on, and with a RIS. See terminal.go.
+// x10Offset is the bias every field of an X10 report carries so no byte is a control
+// character; x10Last is xterm's ceiling (0xff) and x10Max the last cell nameable.
 const (
 	x10Offset = 32
 	x10Last   = 0xff
 	x10Max    = x10Last - x10Offset - 1
 )
 
-// isWheel reports whether b is one of the four wheel directions. Bubble Tea has this as
-// a method on MouseEvent, which MouseMsg does not inherit.
+// isWheel: MouseMsg does not inherit Bubble Tea's wheel-check method.
 func isWheel(b tea.MouseButton) bool {
 	return b == tea.MouseButtonWheelUp || b == tea.MouseButtonWheelDown ||
 		b == tea.MouseButtonWheelLeft || b == tea.MouseButtonWheelRight
 }
 
-// ansiButton translates a Bubble Tea mouse button into the ansi package's. The two
-// enumerations agree, but the mapping is written out rather than cast: a reordering in
-// either would otherwise silently report the wrong button.
+// ansiButton translates a Bubble Tea mouse button into the ansi package's. Written out
+// rather than cast: a reordering in either would silently report the wrong button.
 func ansiButton(b tea.MouseButton) (ansi.MouseButton, bool) {
 	switch b {
 	case tea.MouseButtonNone:

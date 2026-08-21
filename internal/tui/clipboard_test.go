@@ -12,8 +12,7 @@ import (
 	"hop/internal/terminal"
 )
 
-// clipModel builds a model with the clipboard writer replaced and returns a reader for
-// whatever the sink was handed: a test must never write the real clipboard.
+// clipModel replaces the clipboard writer with a sink the test can read.
 func clipModel(on bool) (*model, *terminal.Pane, func() string) {
 	var mu sync.Mutex
 	var got string
@@ -27,8 +26,7 @@ func clipModel(on bool) (*model, *terminal.Pane, func() string) {
 	}
 	m.applyClipboard()
 
-	// The output pump starts reading the moment New returns, so the pipe holds the yank
-	// back until the sink is installed — otherwise the pump can drop the OSC 52 first.
+	// The pipe holds the yank back until the sink is installed.
 	pr, pw := io.Pipe()
 	pane := terminal.New(&sshx.Session{
 		Stdin:  nopWriteCloser{io.Discard},
@@ -47,8 +45,7 @@ func clipModel(on bool) (*model, *terminal.Pane, func() string) {
 	}
 }
 
-// waitClip gives the sink — which runs on the pane's output pump, and then on a
-// goroutine of its own — a moment to be called.
+// waitClip gives the sink a moment to be called.
 func waitClip(read func() string, want string) bool {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -60,8 +57,6 @@ func waitClip(read func() string, want string) bool {
 	return read() == want
 }
 
-// A yank on the remote host reaches the local clipboard: the pane decodes the
-// sequence, the sink hop installed writes it.
 func TestRemoteYankReachesTheClipboard(t *testing.T) {
 	_, pane, read := clipModel(true)
 	defer pane.Close()
@@ -71,21 +66,18 @@ func TestRemoteYankReachesTheClipboard(t *testing.T) {
 	}
 }
 
-// With the setting off, the sequence is decoded and dropped — the point of the setting,
-// since everything on the far end can reach this channel.
 func TestRemoteYankIsDroppedWhenTheSettingIsOff(t *testing.T) {
 	_, pane, read := clipModel(false)
 	defer pane.Close()
 
-	// Nothing to wait for, so the absence has to be given time to be an absence.
+	// The absence has to be given time to be an absence.
 	time.Sleep(200 * time.Millisecond)
 	if read() != "" {
 		t.Fatalf("the clipboard was written %q with the setting off", read())
 	}
 }
 
-// The setting is consulted when the write happens, not when the pane was opened, so
-// switching it off reaches the panes that are already running.
+// The setting is read at write time, so it reaches panes already running.
 func TestClipboardSettingAppliesToOpenPanes(t *testing.T) {
 	m, pane, read := clipModel(true)
 	defer pane.Close()

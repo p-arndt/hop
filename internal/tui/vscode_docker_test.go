@@ -12,18 +12,10 @@ import (
 	"hop/internal/store"
 )
 
-// The working-directory half of the VS Code binding, end to end against a real OpenSSH
-// server running real shells: connect the way a user does, let hop install its prompt
-// hook, cd somewhere, press the key. What VS Code is asked to open has to be where the
-// shell is standing.
-//
-// Only the launch is stubbed — there is no VS Code on a CI box, and the path handed to it
-// is the whole feature. Everything upstream is real.
+// The VS Code binding's working-directory half, end to end against real shells; only the
+// launch is stubbed.
 //
 //	HOP_DOCKER_E2E=1 go test ./internal/tui/ -run VSCodeE2E -v
-//
-// The fish account covers the other half: a shell hop cannot install the hook into is
-// left alone, and the binding falls back to the host's default directory.
 
 var (
 	shellHostOnce sync.Once
@@ -32,7 +24,6 @@ var (
 )
 
 // shellHostServer brings the shell host up on first use and shares it across this file.
-// Lazily, so a run of the two-factor tests does not pay for an image it will not use.
 func shellHostServer(t *testing.T) *dockerenv.ShellHost {
 	t.Helper()
 	if !dockerenv.Enabled() {
@@ -45,16 +36,13 @@ func shellHostServer(t *testing.T) *dockerenv.ShellHost {
 	return shellHost
 }
 
-// stopShellHost tears the container down, if it was ever brought up. Called from
-// TestMain.
 func stopShellHost() {
 	if shellHost != nil {
 		shellHost.Stop()
 	}
 }
 
-// bash and zsh: the hook installs, so the directory the shell is standing in is
-// the directory VS Code is asked to open — including one with a space in its name.
+// bash and zsh: the hook installs, so VS Code opens where the shell is standing.
 func TestVSCodeE2EOpensTheShellsDirectory(t *testing.T) {
 	for _, c := range []struct {
 		user string
@@ -67,15 +55,12 @@ func TestVSCodeE2EOpensTheShellsDirectory(t *testing.T) {
 		t.Run(c.user, func(t *testing.T) {
 			m, sh := connectShellHost(t, c.user)
 
-			// The hook lands a moment after the shell: hop probes the login shell over a
-			// second channel and waits for the shell to say something first.
+			// The hook lands a moment after the shell, over a second channel.
 			if dir := waitForPaneCwd(t, m, c.home); dir != c.home {
 				t.Fatalf("the shell reported %q on login, want %q\npane:\n%s", dir, c.home, sh.pane.View())
 			}
 
-			// And it leaves no trace: the line is taken back off the screen once it has
-			// run. That happens a moment after the report, since the prompt underneath
-			// has to be drawn before the rows can be counted.
+			// The typed line is taken back off the screen once it has run.
 			if view := waitForCleanPane(sh); strings.Contains(view, "hop_cwd") {
 				t.Fatalf("the hook hop typed is still on screen:\n%s", view)
 			}
@@ -85,8 +70,6 @@ func TestVSCodeE2EOpensTheShellsDirectory(t *testing.T) {
 				t.Fatalf("after cd: the shell reported %q, want %q\npane:\n%s", dir, c.cd, sh.pane.View())
 			}
 
-			// And the chord, from inside the pane, where the user is: ctrl+o out, ctrl+o
-			// again to open what that shell was standing in.
 			rec := stubVSCode(t, nil)
 			m.handleKey(key(t, "ctrl+o"))
 			m.handleKey(key(t, "ctrl+o"))
@@ -100,13 +83,11 @@ func TestVSCodeE2EOpensTheShellsDirectory(t *testing.T) {
 	}
 }
 
-// fish: the hook is not for it, so it is not sent one — and the binding falls back
-// to opening the host with no path, exactly as it did before any of this existed.
+// fish gets no hook, so the binding falls back to the host's default directory.
 func TestVSCodeE2EFallsBackOnAnUnhookableShell(t *testing.T) {
 	m, sh := connectShellHost(t, dockerenv.FishUser)
 
-	// Long enough for a hook to have arrived and a prompt to have been drawn: what
-	// is being checked is that neither happened.
+	// Long enough for a hook and a prompt to have shown up, had either happened.
 	time.Sleep(5 * time.Second)
 
 	if dir := m.shellCwd("shellhost"); dir != "" {
@@ -128,8 +109,6 @@ func TestVSCodeE2EFallsBackOnAnUnhookableShell(t *testing.T) {
 	}
 }
 
-// waitForCleanPane polls the pane until the line hop typed is gone from it, and
-// returns the last view it saw either way.
 func waitForCleanPane(sh *shellTab) string {
 	deadline := time.Now().Add(10 * time.Second)
 	view := sh.pane.View()
@@ -140,15 +119,12 @@ func waitForCleanPane(sh *shellTab) string {
 	return view
 }
 
-// connectShellHost connects to the shell host as user, the way a keypress does,
-// and returns the model with the landed shell focused.
 func connectShellHost(t *testing.T, user string) (*model, *shellTab) {
 	t.Helper()
 	return connectShellHostIn(t, user, "")
 }
 
-// connectShellHostIn is connectShellHost with a default directory set on the host,
-// which is what a session started there has to honour.
+// connectShellHostIn is connectShellHost with a default directory on the host.
 func connectShellHostIn(t *testing.T, user, defaultDir string) (*model, *shellTab) {
 	t.Helper()
 	srv := shellHostServer(t)
@@ -164,8 +140,7 @@ func connectShellHostIn(t *testing.T, user, defaultDir string) (*model, *shellTa
 	})
 	m.prompts = make(chan authPromptMsg, 1)
 	m.connecting = map[string]bool{}
-	// A pane with a real size, so what the shell draws into it is there to be
-	// looked at: the fish case reads the pane to prove the hook was never typed.
+	// A real pane size, so the fish case can read what the shell drew.
 	m.paneW, m.paneH = 100, 24
 
 	h, ok := m.hostByAlias("shellhost")
@@ -195,8 +170,7 @@ func connectShellHostIn(t *testing.T, user, defaultDir string) (*model, *shellTa
 	return m, s.shell()
 }
 
-// waitForShellHostConnect collects the connectedMsg the dial produces. The host
-// takes a public key, so nothing is asked interactively along the way.
+// waitForShellHostConnect collects the connectedMsg; the host takes a public key.
 func waitForShellHostConnect(t *testing.T, msgs chan tea.Msg) connectedMsg {
 	t.Helper()
 	deadline := time.After(30 * time.Second)
@@ -212,8 +186,6 @@ func waitForShellHostConnect(t *testing.T, msgs chan tea.Msg) connectedMsg {
 	}
 }
 
-// waitForPaneCwd polls the model for the shell's reported directory until it is
-// want, and returns whatever it ended up being.
 func waitForPaneCwd(t *testing.T, m *model, want string) string {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
@@ -226,8 +198,6 @@ func waitForPaneCwd(t *testing.T, m *model, want string) string {
 	return m.shellCwd("shellhost")
 }
 
-// typeLine types line into the focused shell pane, a key at a time, and presses
-// enter — the same path a user's keystrokes take.
 func typeLine(t *testing.T, m *model, line string) {
 	t.Helper()
 	for _, r := range line {

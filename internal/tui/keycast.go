@@ -1,12 +1,7 @@
 //go:build hopdemo
 
-// Keycast: the on-screen trail of keys that appears in hop's recorded demo.
-//
-// It is behind the `hopdemo` build tag, so a released binary carries none of it; every
-// other build gets the no-ops in keycast_off.go.
-//
-// Doing this inside hop rather than as a pass over the GIF is what makes it exact: the
-// pill appears on the frame the key was handled on, drawn by the View that handled it.
+// Keycast: the on-screen trail of keys that appears in hop's recorded demo. Every build
+// without the `hopdemo` tag gets the no-ops in keycast_off.go instead.
 
 package tui
 
@@ -16,29 +11,23 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// keycastLen is how many recent events stay on screen: enough to read the chord you just
-// pressed and the one before it, not so many that the strip becomes a transcript.
 const keycastLen = 5
 
-// keycastState is the trail itself, a field on the model in both builds: a named slice
-// here, an empty struct in the no-op build.
+// keycastState is the trail itself; an empty struct in the no-op build.
 type keycastState []keycastEvent
 
-// keycastEvent is one entry in the trail: a named key, or a run of typed text grouped so
-// typing a command is one pill rather than twenty.
+// keycastEvent is one entry: a named key, or a run of typed text grouped into one pill.
 type keycastEvent struct {
 	label string
 	typed bool // a run of printable runes, still open for more
 }
 
-// keycastRecord notes a keypress for the overlay: runes extend an open typing run,
-// anything else becomes its own pill.
+// keycastRecord notes a keypress: runes extend an open typing run, anything else is its own pill.
 func (m *model) keycastRecord(key string) {
 	if key == "" {
 		return
 	}
 
-	// A printable character extends or starts a typing run, the space included.
 	if len([]rune(key)) == 1 {
 		if n := len(m.keycast); n > 0 && m.keycast[n-1].typed {
 			m.keycast[n-1].label += key
@@ -54,8 +43,6 @@ func (m *model) keycastRecord(key string) {
 	}
 }
 
-// keycastDraw composites the key trail over the finished screen, bottom-right above the
-// footer, using the same overlay splice the modal cards use.
 func (m *model) keycastDraw(screen string) string {
 	if len(m.keycast) == 0 || m.width < 30 {
 		return screen

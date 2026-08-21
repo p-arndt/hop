@@ -9,16 +9,14 @@ import (
 	"hop/internal/store"
 )
 
-// unknownKeyErr wraps an *sshx.UnknownHostKeyError the way a real dial does, so
-// the model's errors.As detection is exercised through a realistic error chain.
+// unknownKeyErr wraps an *sshx.UnknownHostKeyError the way a real dial does.
 func unknownKeyErr(host, fp, keyType string) error {
 	return fmt.Errorf("sshx: dial %s: %w", host, &sshx.UnknownHostKeyError{
 		Hostname: host, Fingerprint: fp, KeyType: keyType,
 	})
 }
 
-// A first-contact host key opens the confirmation card (rather than a red error
-// status), clears the connecting spinner, and shows the fingerprint to compare.
+// An unknown host key opens the confirmation card rather than a red error status.
 func TestHostKeyCardOpensOnUnknownKey(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	m.connecting = map[string]bool{"web": true}
@@ -40,8 +38,7 @@ func TestHostKeyCardOpensOnUnknownKey(t *testing.T) {
 	}
 }
 
-// "n" trusts nothing: the card closes, no retry is dispatched, and the host is
-// not marked connecting.
+// "n" trusts nothing: no retry, and the host is not left connecting.
 func TestHostKeyCardCancel(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	m.shellLanded(connectedMsg{alias: "web", err: unknownKeyErr("h:22", "SHA256:zzz", "ssh-ed25519")})
@@ -58,7 +55,6 @@ func TestHostKeyCardCancel(t *testing.T) {
 	}
 }
 
-// "y" trusts the shown key: the card closes and a retry command is dispatched.
 func TestHostKeyCardAcceptRetries(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	m.connecting = map[string]bool{}

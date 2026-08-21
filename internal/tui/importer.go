@@ -11,17 +11,14 @@ import (
 	"hop/internal/pathx"
 )
 
-// importUI is the SSH-config import card's own state: which file to read, plus whether
-// the card came up on its own — an offer on an empty host list rather than a re-import.
+// importUI is the SSH-config import card's state.
 type importUI struct {
-	open bool
-	path string
-	// first is true when the card opened automatically on a first run.
+	open  bool
+	path  string
 	first bool
 }
 
-// openImport shows the card, pre-filled with ~/.ssh/config rather than empty: the common
-// answer is already known, so the whole interaction can be a single enter.
+// openImport shows the card, pre-filled with ~/.ssh/config.
 func (m *model) openImport(first bool) {
 	m.importer = importUI{open: true, path: defaultSSHConfigPath(), first: first}
 	m.status = ""
@@ -32,8 +29,7 @@ func (m *model) closeImport() {
 	m.importer = importUI{}
 }
 
-// defaultSSHConfigPath is where OpenSSH keeps its per-user config. A home directory hop
-// cannot locate yields "", leaving the field blank for the user to fill in.
+// defaultSSHConfigPath returns ~/.ssh/config, or "" if the home directory is unknown.
 func defaultSSHConfigPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -42,8 +38,7 @@ func defaultSSHConfigPath() string {
 	return filepath.Join(home, ".ssh", "config")
 }
 
-// haveSSHConfig reports whether there is a default OpenSSH config to import — what
-// decides whether a first run opens the card, rather than offering a dead end.
+// haveSSHConfig reports whether there is a default OpenSSH config to import.
 func haveSSHConfig() bool {
 	p := defaultSSHConfigPath()
 	if p == "" {
@@ -53,8 +48,7 @@ func haveSSHConfig() bool {
 	return err == nil && !fi.IsDir()
 }
 
-// handleImportKey routes a key while the card is up. The path field always has the
-// keyboard, and like every modal here it swallows everything.
+// handleImportKey routes a key while the card is up; it swallows every key.
 func (m *model) handleImportKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -80,13 +74,7 @@ func (m *model) handleImportKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// submitImport reads the config and merges what it finds into the store. A failure leaves
-// the card up so the path can be corrected rather than retyped; a success closes it and
-// reloads the list.
-//
-// Import is an upsert per host (see store.ImportSSHConfig), so running it twice refreshes
-// what the config knows and leaves hop's own hosts alone — which is what makes it safe to
-// offer as a re-import.
+// submitImport merges the config into the store; a failure leaves the card up so the path can be corrected.
 func (m *model) submitImport() {
 	path := strings.TrimSpace(m.importer.path)
 	if path == "" {
@@ -103,30 +91,25 @@ func (m *model) submitImport() {
 	m.reloadHosts()
 	m.closeImport()
 	if n == 0 {
-		// The file parsed but held nothing usable: every entry a wildcard, or no Host
-		// stanzas at all.
+		// The file parsed but held nothing usable: only wildcards, or no Host stanzas.
 		m.setStatus(statusWarn, "no hosts found in %s", path)
 		return
 	}
 	m.setStatus(statusOK, "imported %d %s from %s", n, plural(n, "host", "hosts"), path)
 }
 
-// Card geometry. One field and a line of explanation, so it is as wide as a path is long.
+// Card geometry.
 const (
 	importMaxW   = 56 // content width, borders and padding excluded
 	importFloorW = 20
 )
 
-// importInnerW is the width available to a rendered line: the box less its border and
-// padding, held to the window so the card never spills past the screen.
+// importInnerW is the width available inside the card's border and padding.
 func (m *model) importInnerW() int {
 	room := max(m.width-2*cardPadX-2, importFloorW)
 	return clamp(importMaxW, importFloorW, room)
 }
 
-// renderImport draws the card: a title, a line saying what is about to happen, the path
-// as a filled text input, and the two keys that end it. On a first run it also says that
-// skipping costs nothing.
 func (m *model) renderImport() string {
 	w := m.importInnerW()
 	var b strings.Builder
@@ -157,8 +140,6 @@ func (m *model) renderImport() string {
 	return cardBox.Width(w + 2*cardPadX).Render(b.String())
 }
 
-// renderImportPath draws the path row as a full-width text input with a caret at the end
-// — the host form's focused-field shape.
 func (m *model) renderImportPath(w int) string {
 	const indent = "    "
 	vw := w - lipgloss.Width(indent)
@@ -166,8 +147,7 @@ func (m *model) renderImportPath(w int) string {
 	return indent + inputStyle.Width(vw).Render(text)
 }
 
-// wrapDim lays out prose inside the card: words to a line of width w, each dimmed and cut
-// so nothing spills past the border.
+// wrapDim word-wraps prose to width w and dims each line.
 func wrapDim(s string, w int) string {
 	var lines []string
 	line := ""

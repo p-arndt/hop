@@ -2,8 +2,6 @@ package store
 
 import "testing"
 
-// The unpinned section is ordered by visits desc, so the host reached most often is the
-// one under the cursor when the list opens.
 func TestHostsOrderByVisitsDesc(t *testing.T) {
 	s := newStore(t)
 	for alias, visits := range map[string]int{"rare": 1, "often": 9, "sometimes": 4} {
@@ -16,8 +14,6 @@ func TestHostsOrderByVisitsDesc(t *testing.T) {
 	}
 }
 
-// Equal visit counts are broken by the most recent connection: two hosts used the same
-// number of times are not interchangeable, the one used today is the likelier target.
 func TestHostsBreakVisitTiesByLastConnect(t *testing.T) {
 	s := newStore(t)
 	for alias, last := range map[string]int64{"stale": 1_000, "fresh": 9_000, "older": 5_000} {
@@ -30,8 +26,6 @@ func TestHostsBreakVisitTiesByLastConnect(t *testing.T) {
 	}
 }
 
-// A never-connected host sorts below every visited one — including one visited a single
-// time — rather than riding at the top on a zero timestamp.
 func TestHostsPutNeverVisitedLast(t *testing.T) {
 	s := newStore(t)
 	if _, err := s.Upsert(Host{Alias: "new", HostName: "new.test"}); err != nil {
@@ -48,8 +42,7 @@ func TestHostsPutNeverVisitedLast(t *testing.T) {
 	}
 }
 
-// Touch is what moves a host up the list: enough connections and yesterday's third
-// choice leads it. It counts every call, not every distinct day.
+// Touch counts every call, not every distinct day.
 func TestTouchLiftsAHostPastTheOthers(t *testing.T) {
 	s := newStore(t)
 	seedFrecency(t, s) // a:30, b:20, c:10 — in that order
@@ -72,8 +65,7 @@ func TestTouchLiftsAHostPastTheOthers(t *testing.T) {
 	}
 }
 
-// Editing a host must not cost it its place: Upsert rewrites the connection details and
-// leaves the frecency Touch accumulated alone, even when the caller passes zeroes.
+// Upsert leaves the accumulated frecency alone, even when the caller passes zeroes.
 func TestUpsertKeepsFrecencyOnEdit(t *testing.T) {
 	s := newStore(t)
 	seedFrecency(t, s)
@@ -95,8 +87,6 @@ func TestUpsertKeepsFrecencyOnEdit(t *testing.T) {
 	}
 }
 
-// Touching an alias no host carries is not an error — a session can outlive the row it
-// was started from, and there is nothing for the caller to do about it.
 func TestTouchUnknownAliasIsANoOp(t *testing.T) {
 	s := newStore(t)
 	seedFrecency(t, s)

@@ -8,19 +8,14 @@ import (
 	"hop/internal/config"
 )
 
-// guidanceUI is the first-run question's state: which profile the cursor is on.
-//
-// It is asked once, on an install with no config file at all (see config.Exists), and
-// never again — a setting added later must not re-open a question for someone who has
-// been using hop for months. Everything it decides is reachable afterwards from the
-// settings popover, and it decides nothing about what the keys do.
+// guidanceUI is the first-run question's state. It is asked once, on an install with no
+// config file at all (config.Exists), and never again.
 type guidanceUI struct {
 	open   bool
 	cursor int
 }
 
-// openGuidance asks the question, standing on the profile in force — which on a first
-// run is the default, hybrid.
+// openGuidance asks the question, standing on the profile in force.
 func (m *model) openGuidance() {
 	m.guidance = guidanceUI{open: true, cursor: guidanceIndex(m.cfg.Guidance)}
 }
@@ -35,32 +30,23 @@ func guidanceIndex(value string) int {
 	return guidanceIndex(config.GuidanceHybrid)
 }
 
-// answerGuidance takes the profile under the cursor, saves it, and hands the first run
-// on to the import card when there is a config to read hosts from.
-//
-// It saves even when the answer is the default, and that is the point: the file existing
-// is what says the question was asked. An escape is an answer too — the middle profile,
-// which is what an unanswered hop would have done anyway.
+// answerGuidance saves the profile under the cursor and hands the first run on to the
+// import card. It saves even the default: the file existing is what records the answer.
 func (m *model) answerGuidance() {
 	m.cfg.Guidance = guidanceChoices[m.guidance.cursor].value
 	m.guidance = guidanceUI{}
-	// Saved quietly: "settings saved" is a reply to a settings card, and this one is the
-	// first thing hop ever showed. A failure is still worth saying, since the question
-	// would otherwise come back on the next start.
+	// Saved quietly; a failure is still worth saying, since the question would come back.
 	if err := m.cfg.Save(); err != nil {
 		m.setStatus(statusErr, "settings: %v", err)
 	}
 
-	// The one card hop opens by itself, now that this one is out of its way. Same
-	// condition as Run's: hosts hop has not got, in a config it can read.
+	// Same condition as Run's: no hosts, and a config hop can read.
 	if len(m.hosts) == 0 && haveSSHConfig() {
 		m.openImport(true)
 	}
 }
 
-// handleGuidanceKey routes a key while the question is up. Every key that is not a
-// motion answers it: this is a fork in a first run, and there is nothing behind it yet
-// to leak a keystroke into.
+// handleGuidanceKey routes a key while the question is up; anything but a motion answers it.
 func (m *model) handleGuidanceKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "left", "k", "h":
@@ -76,8 +62,7 @@ func (m *model) handleGuidanceKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// Card geometry: wide enough for a profile's line to stand on one row, since the three
-// are read against each other.
+// Card geometry.
 const (
 	guidanceMaxW   = 62
 	guidanceFloorW = 24
@@ -88,8 +73,6 @@ func (m *model) guidanceInnerW() int {
 	return clamp(guidanceMaxW, guidanceFloorW, room)
 }
 
-// renderGuidance draws the question: the three profiles with what each one shows, and
-// the promise that none of them takes a key away.
 func (m *model) renderGuidance() string {
 	w := m.guidanceInnerW()
 	var b strings.Builder

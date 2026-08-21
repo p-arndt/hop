@@ -274,8 +274,6 @@ func TestAddInsertsNewHost(t *testing.T) {
 	}
 }
 
-// Add must refuse a taken alias and, crucially, leave the existing row untouched —
-// this is the guarantee the in-memory duplicate check alone could not make.
 func TestAddRefusesDuplicateWithoutOverwriting(t *testing.T) {
 	s := newStore(t)
 
@@ -382,8 +380,7 @@ func aliases(t *testing.T, s *Store) []string {
 	return out
 }
 
-// seedFrecency adds three hosts whose visit counts put them in a known order:
-// a, b, c.
+// seedFrecency adds three hosts whose visit counts put them in the order a, b, c.
 func seedFrecency(t *testing.T, s *Store) {
 	t.Helper()
 	for i, alias := range []string{"a", "b", "c"} {
@@ -393,8 +390,7 @@ func seedFrecency(t *testing.T, s *Store) {
 	}
 }
 
-// A pinned host sorts above every unpinned one, whatever the visit counts say,
-// and unpinning puts it back where frecency had it.
+// Unpinning puts a host back where frecency had it.
 func TestSetPinnedOrdersAboveFrecency(t *testing.T) {
 	s := newStore(t)
 	seedFrecency(t, s)
@@ -424,8 +420,6 @@ func TestSetPinnedOrdersAboveFrecency(t *testing.T) {
 	}
 }
 
-// A new pin goes to the end of the section, so pinning one host never reshuffles
-// the order already set for the others.
 func TestSetPinnedAppendsToSection(t *testing.T) {
 	s := newStore(t)
 	seedFrecency(t, s)
@@ -440,8 +434,7 @@ func TestSetPinnedAppendsToSection(t *testing.T) {
 	}
 }
 
-// Pinning a host that is already pinned changes nothing — in particular it does
-// not move it to the end of its own section.
+// In particular, re-pinning does not move a host to the end of its own section.
 func TestSetPinnedTwiceIsANoOp(t *testing.T) {
 	s := newStore(t)
 	seedFrecency(t, s)
@@ -510,8 +503,6 @@ func TestMovePin(t *testing.T) {
 	}
 }
 
-// An unpinned host has no place in the section to move within, so MovePin leaves
-// the list alone rather than failing.
 func TestMovePinUnpinnedIsANoOp(t *testing.T) {
 	s := newStore(t)
 	seedFrecency(t, s)
@@ -531,8 +522,7 @@ func TestMovePinUnpinnedIsANoOp(t *testing.T) {
 	}
 }
 
-// Deleting or unpinning out of the middle of the section must not leave a hole
-// that later moves trip over: pin_order stays 1..n.
+// Removing from the middle of the section leaves no hole: pin_order stays 1..n.
 func TestPinOrderStaysDense(t *testing.T) {
 	s := newStore(t)
 	seedFrecency(t, s)
@@ -560,7 +550,6 @@ func TestPinOrderStaysDense(t *testing.T) {
 		want++
 	}
 
-	// And a move still lands where it should with the hole closed.
 	if _, err := s.MovePin("c", -1); err != nil {
 		t.Fatalf("MovePin: %v", err)
 	}
@@ -569,9 +558,7 @@ func TestPinOrderStaysDense(t *testing.T) {
 	}
 }
 
-// A database written before the pin columns existed still migrates: the reader fills the
-// missing columns with their zero values rather than failing, which is what an install
-// that predates pinning must see.
+// A pre-pin-columns database migrates, with the missing columns read as zero values.
 func TestOpenMigratesFirstSchema(t *testing.T) {
 	path := copyFixture(t, "legacy-hop-v1.db")
 
@@ -591,7 +578,6 @@ func TestOpenMigratesFirstSchema(t *testing.T) {
 	if h.DefaultDir != "" {
 		t.Fatalf("migrated host = %+v, want an empty DefaultDir", h)
 	}
-	// The columns that did exist came across intact.
 	if h.HostName != "old.test" || h.User != "me" || h.Visits != 3 || h.LastConnect != 1690000000 {
 		t.Fatalf("migrated host = %+v, want the old values preserved", h)
 	}
@@ -599,7 +585,6 @@ func TestOpenMigratesFirstSchema(t *testing.T) {
 		t.Fatalf("migrated host = %+v, want tags [legacy] and group team", h)
 	}
 
-	// And the store is fully usable afterwards.
 	if err := s.SetPinned("old", true); err != nil {
 		t.Fatalf("SetPinned after migrating: %v", err)
 	}
@@ -620,8 +605,7 @@ func equal(a, b []string) bool {
 	return true
 }
 
-// A host's default directory survives both write paths, and an edit through
-// Upsert can change it — including clearing it back to "wherever the shell lands".
+// Both write paths keep the default directory, and Upsert can change or clear it.
 func TestDefaultDirRoundTrips(t *testing.T) {
 	s := newStore(t)
 
@@ -676,15 +660,12 @@ Host plain
 	if got := findHost(t, s, "db01").ProxyJump; got != "bastion.example.com" {
 		t.Errorf("db01 ProxyJump = %q, want %q", got, "bastion.example.com")
 	}
-	// "none" is how ssh disables the directive; carrying it over would have hop try to
-	// run a program called "none".
+	// "none" disables the directive in ssh; carrying it over would run a program called "none".
 	if got := findHost(t, s, "plain").ProxyCommand; got != "" {
 		t.Errorf("plain ProxyCommand = %q, want empty", got)
 	}
 }
 
-// Re-importing a config refreshes the proxy directives of hosts already in the store,
-// which is what makes the feature reach hosts imported before it existed.
 func TestImportSSHConfigRefreshesProxyOnReimport(t *testing.T) {
 	s := newStore(t)
 	if _, err := s.Add(Host{Alias: "ssm", HostName: "old.example.com"}); err != nil {
@@ -719,7 +700,6 @@ func TestUpsertRoundTripsProxyFields(t *testing.T) {
 		t.Errorf("ProxyJump = %q, want %q", got, "jump@bastion:2222")
 	}
 
-	// An edit that clears the field must clear it in the row too, not leave the old one.
 	if _, err := s.Upsert(Host{Alias: "db01", HostName: "db01.internal"}); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
@@ -751,8 +731,7 @@ func TestHostByAlias(t *testing.T) {
 	}
 }
 
-// Add and Upsert share one INSERT; this pins that Add persists every optional field, so
-// a column added to only one of the two paths cannot pass unnoticed.
+// Add and Upsert share one INSERT, so a field reaching only one path must not pass unnoticed.
 func TestAddRoundTripsAllFields(t *testing.T) {
 	s := newStore(t)
 
@@ -784,8 +763,7 @@ func TestAddRoundTripsAllFields(t *testing.T) {
 	}
 }
 
-// copyFixture puts a checked-in legacy database in a temp dir, so the migration can move
-// it aside without touching the fixture in the repo.
+// copyFixture copies a checked-in legacy database into a temp dir.
 func copyFixture(t *testing.T, name string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", name))
@@ -799,9 +777,7 @@ func copyFixture(t *testing.T, name string) string {
 	return path
 }
 
-// The full legacy schema migrates with every field, forward and pin intact. This is the
-// database shape the last SQLite release of hop wrote, so it is the one real installs
-// are upgrading from.
+// The last SQLite release's schema migrates with every field, forward and pin intact.
 func TestMigrateFullLegacyDatabase(t *testing.T) {
 	path := copyFixture(t, "legacy-hop.db")
 
@@ -819,7 +795,6 @@ func TestMigrateFullLegacyDatabase(t *testing.T) {
 		t.Fatalf("got %d hosts, want 5", len(hosts))
 	}
 
-	// Pinned hosts keep their order, ahead of everything else.
 	if hosts[0].Alias != "web-prod" || hosts[1].Alias != "db-prod" {
 		t.Fatalf("order = %s, %s; want the pinned hosts first", hosts[0].Alias, hosts[1].Alias)
 	}
@@ -844,7 +819,6 @@ func TestMigrateFullLegacyDatabase(t *testing.T) {
 		t.Fatalf("web-prod forwards = %+v", web.Forwards)
 	}
 
-	// Both forward kinds survive, on the host that had one of each.
 	db := findHost(t, s, "db-prod")
 	if len(db.Forwards) != 2 {
 		t.Fatalf("db-prod forwards = %+v, want 2", db.Forwards)
@@ -862,7 +836,7 @@ func TestMigrateFullLegacyDatabase(t *testing.T) {
 		t.Fatalf("db-prod forwards = %+v, want one of each kind", db.Forwards)
 	}
 
-	// The overflow-page host: a ProxyCommand far longer than one SQLite page.
+	// A ProxyCommand far longer than one SQLite page.
 	broker := findHost(t, s, "via-broker")
 	if len(broker.ProxyCommand) < 9000 {
 		t.Fatalf("via-broker ProxyCommand = %d chars, want the full long value", len(broker.ProxyCommand))
@@ -872,8 +846,7 @@ func TestMigrateFullLegacyDatabase(t *testing.T) {
 	}
 }
 
-// Migration is one-way and keeps the original: the database moves aside under .bak rather
-// than being deleted, and a second open does not run again.
+// The database moves aside under .bak rather than being deleted, and runs once.
 func TestMigrateKeepsBackupAndRunsOnce(t *testing.T) {
 	path := copyFixture(t, "legacy-hop.db")
 
@@ -893,7 +866,7 @@ func TestMigrateKeepsBackupAndRunsOnce(t *testing.T) {
 		t.Fatal("the hosts file is still a SQLite database")
 	}
 
-	// Reopening reads the config file, not the backup, and keeps the later addition.
+	// Reopening reads the config file, not the backup.
 	again, err := OpenAt(path, "")
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
@@ -911,8 +884,7 @@ func TestMigrateKeepsBackupAndRunsOnce(t *testing.T) {
 	}
 }
 
-// The two files live in different directories in the real install: hosts where OpenSSH
-// reads them, metadata in hop's own config.json. Both halves have to survive that split.
+// Hosts live where OpenSSH reads them, metadata in hop's config.json; both must survive.
 func TestHostsAndMetadataSplitAcrossDirectories(t *testing.T) {
 	sshDir, cfgDir := t.TempDir(), t.TempDir()
 	hostsPath := filepath.Join(sshDir, "hop.config")
@@ -945,7 +917,6 @@ func TestHostsAndMetadataSplitAcrossDirectories(t *testing.T) {
 		t.Fatalf("the metadata was not written to its own directory: %v", err)
 	}
 
-	// And both halves come back on reopen.
 	again, err := OpenAt(hostsPath, metaPath)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
@@ -966,8 +937,7 @@ func TestHostsAndMetadataSplitAcrossDirectories(t *testing.T) {
 	}
 }
 
-// The hosts file is the truth about which hosts exist. A host added to it by hand shows
-// up in hop, with zero metadata rather than none at all.
+// A hand-added host shows up with zero metadata rather than none at all.
 func TestHandWrittenHostIsPickedUp(t *testing.T) {
 	dir := t.TempDir()
 	hostsPath := filepath.Join(dir, "hop.config")
@@ -1007,7 +977,6 @@ func TestHandWrittenHostIsPickedUp(t *testing.T) {
 	}
 }
 
-// Metadata for a host that no longer exists is dropped rather than accumulating forever.
 func TestSidecarIsPrunedOfDeletedHosts(t *testing.T) {
 	dir := t.TempDir()
 	hostsPath := filepath.Join(dir, "hop.config")
@@ -1034,8 +1003,7 @@ func TestSidecarIsPrunedOfDeletedHosts(t *testing.T) {
 	}
 }
 
-// The store shares config.json with the settings. Writing a host must merge into the
-// file, or saving a visit count would wipe every setting the user has chosen.
+// config.json is shared with the settings, so writing a host must merge into it.
 func TestPersistPreservesSettingsInSharedFile(t *testing.T) {
 	dir := t.TempDir()
 	hostsPath := filepath.Join(dir, "hop.config")
@@ -1074,8 +1042,6 @@ func TestPersistPreservesSettingsInSharedFile(t *testing.T) {
 	}
 }
 
-// A config.json full of settings but with no host metadata yet is the first run after the
-// upgrade: it must load as an empty store rather than an error.
 func TestLoadIgnoresConfigWithoutHostMetadata(t *testing.T) {
 	dir := t.TempDir()
 	metaPath := filepath.Join(dir, "config.json")

@@ -8,8 +8,7 @@ import (
 	"hop/internal/terminal"
 )
 
-// blinkModel is a model with two panes on one host and one on another, so a phase change
-// has to reach every pane and not only the focused one.
+// blinkModel has two panes on one host and one on another.
 func blinkModel(t *testing.T) (*model, []*terminal.Pane) {
 	t.Helper()
 	shell, editor, other := fakePane(), fakePane(), fakePane()
@@ -26,8 +25,6 @@ func blinkModel(t *testing.T) (*model, []*terminal.Pane) {
 // drawsCursor reports whether a pane is currently painting its cursor.
 func drawsCursor(p *terminal.Pane) bool { return strings.Contains(p.View(), "\x1b[7m") }
 
-// Blinking is off unless asked for: hop honours the shape and the hidden state without a
-// setting, but the blink is a clock it has to run itself.
 func TestCursorBlinkOffByDefault(t *testing.T) {
 	if config.Default().CursorBlink {
 		t.Fatal("the cursor blinks out of the box; it costs a repaint twice a second")
@@ -47,8 +44,6 @@ func TestCursorBlinkOffByDefault(t *testing.T) {
 	}
 }
 
-// A frame takes every cursor down together and the next brings them back, so switching
-// tabs never lands on a pane left mid-blink.
 func TestCursorBlinkPhasesEveryPane(t *testing.T) {
 	m, panes := blinkModel(t)
 	m.cfg.CursorBlink = true
@@ -75,8 +70,6 @@ func TestCursorBlinkPhasesEveryPane(t *testing.T) {
 	}
 }
 
-// Switching the setting off ends the chain and leaves every cursor up: a clock that has
-// stopped must not leave one down forever.
 func TestCursorBlinkStops(t *testing.T) {
 	m, panes := blinkModel(t)
 	m.cfg.CursorBlink = true
@@ -94,7 +87,6 @@ func TestCursorBlinkStops(t *testing.T) {
 		}
 	}
 
-	// The chain notices on its next frame and ends there.
 	if cmd := m.cursorBlinkTick(gen); cmd != nil {
 		t.Error("a frame arriving after the setting went off armed another")
 	}
@@ -103,8 +95,7 @@ func TestCursorBlinkStops(t *testing.T) {
 	}
 }
 
-// One clock, however often the setting is walked: a second chain would blink at half a
-// beat apart from the first.
+// A second chain would blink half a beat apart from the first.
 func TestCursorBlinkOneClock(t *testing.T) {
 	m, _ := blinkModel(t)
 	m.cfg.CursorBlink = true
@@ -118,14 +109,12 @@ func TestCursorBlinkOneClock(t *testing.T) {
 		t.Error("a second start renumbered the running chain")
 	}
 
-	// A frame from a chain that has been replaced is dropped rather than re-armed.
 	if cmd := m.cursorBlinkTick(gen - 1); cmd != nil {
 		t.Error("a stale frame armed another")
 	}
 }
 
-// The card carries the setting, and flipping it there starts the clock — the settings
-// path applies it like any other.
+// The card carries the setting, and flipping it there starts the clock.
 func TestSettingsCursorBlinkToggle(t *testing.T) {
 	m := settingsModel(t)
 	m.settings.cursor = fieldIndex(t, "Cursor blink")

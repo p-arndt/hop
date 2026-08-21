@@ -13,17 +13,8 @@ import (
 	"hop/internal/store"
 )
 
-// End-to-end authentication against a real OpenSSH server running a real
-// pam_google_authenticator stack, in Docker. The rest of this package's tests talk to an
-// in-process server that answers whatever we tell it to; these answer to Ubuntu's sshd
-// and PAM, so they are the ones that can say hop works on a box with 2FA turned on.
-//
-// Opt-in, since Docker is not on every machine:
-//
-//	HOP_DOCKER_E2E=1 go test ./internal/sshx/ -run TwoFactor -v
-//
-// The container serves four ports, one per shape of two-factor login: code alone,
-// publickey-then-code, password-then-code, and two methods as alternatives.
+// End-to-end authentication against a real sshd with pam_google_authenticator, in Docker.
+// Opt-in: HOP_DOCKER_E2E=1 go test ./internal/sshx/ -run TwoFactor -v
 
 var server *dockerenv.TwoFactor
 
@@ -47,8 +38,6 @@ func TestMain(m *testing.M) {
 
 // ---- the tests ----
 
-// The plain 2FA case, which is what the Ubuntu guides produce: the server asks for a
-// verification code and hop answers it.
 func TestTwoFactorCodeOnly(t *testing.T) {
 	requireDocker(t)
 	p := codePrompter()
@@ -69,9 +58,8 @@ func TestTwoFactorCodeOnly(t *testing.T) {
 	}
 }
 
-// The hardened setup, `AuthenticationMethods publickey,keyboard-interactive`: the key
-// gets a partial success and the server still demands the code. This breaks if hop stops
-// at the first method, and is why the code cannot live behind a "retry the dial" prompt.
+// Hardened `AuthenticationMethods publickey,keyboard-interactive`: hop must not stop at
+// the first method.
 func TestTwoFactorAfterPublicKey(t *testing.T) {
 	requireDocker(t)
 	p := codePrompter()
@@ -87,8 +75,7 @@ func TestTwoFactorAfterPublicKey(t *testing.T) {
 	}
 }
 
-// A PAM stack with both pam_unix and pam_google_authenticator asks two questions, so hop
-// has to go by the server's prompt text rather than by position.
+// Two questions in one round, so hop has to go by prompt text rather than by position.
 func TestTwoFactorPasswordThenCode(t *testing.T) {
 	requireDocker(t)
 	p := codePrompter()
@@ -114,8 +101,6 @@ func TestTwoFactorPasswordThenCode(t *testing.T) {
 	}
 }
 
-// Every question asking for a secret comes through with echo off, which is what the card
-// keys its masking off.
 func TestTwoFactorQuestionsAreNotEchoed(t *testing.T) {
 	requireDocker(t)
 	p := codePrompter()
@@ -132,8 +117,7 @@ func TestTwoFactorQuestionsAreNotEchoed(t *testing.T) {
 	}
 }
 
-// A mistyped code re-prompts on the same connection and the second attempt gets in —
-// ssh.RetryableAuthMethod doing its job, so the code being read off a phone stays valid.
+// The re-prompt happens on the same connection, so a code read off a phone stays valid.
 func TestTwoFactorWrongCodeRetriesInTheSameHandshake(t *testing.T) {
 	requireDocker(t)
 
@@ -158,8 +142,7 @@ func TestTwoFactorWrongCodeRetriesInTheSameHandshake(t *testing.T) {
 	}
 }
 
-// The negative control that gives the rest of this file its meaning: a wrong code does
-// not get in. Without it a PAM stack that accepted anything would pass every other test.
+// Negative control: without it a PAM stack that accepted anything would pass every test.
 func TestTwoFactorWrongCodeIsRefused(t *testing.T) {
 	requireDocker(t)
 	p := &recordingPrompter{answers: []string{"000000"}}
@@ -175,14 +158,12 @@ func TestTwoFactorWrongCodeIsRefused(t *testing.T) {
 	if errors.Is(err, ErrAuthCanceled) {
 		t.Fatalf("err = %v, want a rejection by the server, not a cancel", err)
 	}
-	// Three attempts, then it gives up: authRetries, which is also all the server's
-	// default rate limit would allow.
+	// Three attempts, then it gives up: authRetries.
 	if asked := p.challenges(); len(asked) != authRetries {
 		t.Fatalf("the user was asked %d times, want %d", len(asked), authRetries)
 	}
 }
 
-// A code from the wrong point in time is refused too: the window is small.
 func TestTwoFactorStaleCodeIsRefused(t *testing.T) {
 	requireDocker(t)
 	stale := dockerenv.TOTP(dockerenv.Secret, time.Now().Add(-10*time.Minute))
@@ -198,7 +179,6 @@ func TestTwoFactorStaleCodeIsRefused(t *testing.T) {
 	}
 }
 
-// Dismissing the prompt ends the dial.
 func TestTwoFactorCancelAbandonsTheDial(t *testing.T) {
 	requireDocker(t)
 	p := &recordingPrompter{err: ErrAuthCanceled}
@@ -216,9 +196,7 @@ func TestTwoFactorCancelAbandonsTheDial(t *testing.T) {
 	}
 }
 
-// One esc is the end of it, against a server offering both interactive methods — the
-// case stickyCancel exists for. Without it the password method would pick up where the
-// dismissed keyboard-interactive prompt left off and ask the same person again.
+// One esc is the end of it: without stickyCancel the password method would ask again.
 func TestTwoFactorCancelSkipsRemainingMethods(t *testing.T) {
 	requireDocker(t)
 	p := &recordingPrompter{err: ErrAuthCanceled}
@@ -239,16 +217,14 @@ func TestTwoFactorCancelSkipsRemainingMethods(t *testing.T) {
 	}
 }
 
-// The same server, answered rather than dismissed: proof it really does offer both
-// methods, so the test above is not passing for want of a second one.
+// The same server answered rather than dismissed: proof it really does offer both methods.
 func TestTwoFactorEitherPortOffersBothMethods(t *testing.T) {
 	requireDocker(t)
 
 	h := hostAt(server.EitherPort, "")
 	trust(t, h)
 
-	// A plain error rather than a cancel: it does not stick, so the client moves on and
-	// the password method asking is what shows the server offered it.
+	// A plain error does not stick, so the client moves on and the password method asks.
 	p := &recordingPrompter{}
 	p.answer = func(c Challenge) ([]string, error) {
 		if len(c.Questions) == 1 && strings.Contains(strings.ToLower(c.Questions[0].Text), "verification code") {
@@ -275,8 +251,7 @@ func TestTwoFactorEitherPortOffersBothMethods(t *testing.T) {
 	}
 }
 
-// An unknown host key stops the dial before anything is asked: a code handed over first
-// would be spent on a connection the user then declines.
+// Nothing is asked before the host key is settled: a code would be spent on a declined dial.
 func TestTwoFactorUnknownHostKeyAsksNothing(t *testing.T) {
 	requireDocker(t)
 	fakeHome(t)
@@ -294,8 +269,7 @@ func TestTwoFactorUnknownHostKeyAsksNothing(t *testing.T) {
 	}
 }
 
-// The connection that authenticated is the one everything else runs on: a second shell
-// and the SFTP browser are channels on it, so 2FA is paid once per host.
+// A second shell and the SFTP browser are channels on the authenticated connection.
 func TestTwoFactorOneCodeServesEveryChannel(t *testing.T) {
 	requireDocker(t)
 	p := codePrompter()
@@ -324,8 +298,7 @@ func requireDocker(t *testing.T) {
 	}
 }
 
-// codePrompter answers whatever the server asks — a TOTP code or the account password —
-// going by the prompt text, which is all a client has to go on.
+// codePrompter answers by prompt text — a TOTP code or the account password.
 func codePrompter() *recordingPrompter {
 	p := &recordingPrompter{}
 	p.answer = func(c Challenge) ([]string, error) {
@@ -342,7 +315,6 @@ func codePrompter() *recordingPrompter {
 	return p
 }
 
-// hostAt is the store.Host that reaches one of the container's ports.
 func hostAt(port int, identityFile string) store.Host {
 	return store.Host{
 		Alias:        "twofactor",
@@ -353,12 +325,7 @@ func hostAt(port int, identityFile string) store.Host {
 	}
 }
 
-// trust does the first-contact dance against a fresh ~/.ssh: dial once to be told the key
-// is unknown, then record it — the state a real user is in after approving the card.
-//
-// Both dials carry a prompter that cancels: one is needed at all, since with no keys and
-// no prompter authMethods fails before the host key is exchanged, and cancelling stops
-// the recording dial from spending a code it has no use for.
+// trust does the first-contact dance: dial once to be told the key is unknown, then record it.
 func trust(t *testing.T, h store.Host) {
 	t.Helper()
 	fakeHome(t)
@@ -377,7 +344,6 @@ func trust(t *testing.T, h store.Host) {
 	}
 }
 
-// trustAndConnect records the host key, then connects for real with p.
 func trustAndConnect(t *testing.T, h store.Host, p Prompter) *Client {
 	t.Helper()
 	trust(t, h)
@@ -389,8 +355,7 @@ func trustAndConnect(t *testing.T, h store.Host, p Prompter) *Client {
 	return cli
 }
 
-// run executes cmd on the far side and returns what it printed — how these tests prove
-// the session is real and not just a successful handshake.
+// run executes cmd on the far side and returns what it printed.
 func run(t *testing.T, cli *Client, cmd string) string {
 	t.Helper()
 	sess, err := cli.Command(cmd, 80, 24)

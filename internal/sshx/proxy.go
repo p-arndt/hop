@@ -1,5 +1,4 @@
-// Proxy dialling: ProxyCommand runs a local broker program, ProxyJump goes through a
-// bastion. Both end at ssh.NewClientConn, which takes any net.Conn.
+// Proxy dialling: ProxyCommand runs a local broker program, ProxyJump goes through a bastion.
 
 package sshx
 
@@ -20,20 +19,13 @@ import (
 	"hop/internal/store"
 )
 
-// proxyStderrLimit bounds the stderr kept for the error message, so a runaway program
-// cannot eat memory.
+// proxyStderrLimit caps retained stderr so a runaway program cannot eat memory.
 const proxyStderrLimit = 4 << 10
 
-// stderrDrainGrace is how long Read waits, once the proxy's stdout has ended, for the
-// copier to finish draining stderr. The two pipes close independently, so without the
-// wait the diagnosis is usually still in flight and the dial reports a bare EOF instead.
-// Bounded, because a forked grandchild can hold the write end open indefinitely.
+// stderrDrainGrace waits for stderr to drain after stdout ends; bounded, since a forked grandchild can hold the write end open.
 const stderrDrainGrace = 500 * time.Millisecond
 
-// proxyFirstByteTimeout stands in for ClientConfig.Timeout, which only ssh.Dial reads.
-// The first byte is the server's version banner, sent before authentication, so bounding
-// it does not cut short a user typing a 2FA code. Atomic so a test may shorten it while
-// an earlier watchdog still reads it.
+// proxyFirstByteTimeout stands in for ClientConfig.Timeout, which only ssh.Dial reads; the first byte is the pre-auth version banner.
 var proxyFirstByteTimeout = func() *atomic.Int64 {
 	v := new(atomic.Int64)
 	v.Store(int64(30 * time.Second))
@@ -42,15 +34,12 @@ var proxyFirstByteTimeout = func() *atomic.Int64 {
 
 func firstByteTimeout() time.Duration { return time.Duration(proxyFirstByteTimeout.Load()) }
 
-// proxyFirstByteTimeoutForTest shortens the watchdog and returns the restore func.
 func proxyFirstByteTimeoutForTest(d time.Duration) func() {
 	prev := proxyFirstByteTimeout.Swap(int64(d))
 	return func() { proxyFirstByteTimeout.Store(prev) }
 }
 
-// dialProxyCommand runs cmdline and returns its stdin/stdout as a net.Conn, which is
-// OpenSSH's ProxyCommand contract. Tokens: %h host, %p port, %r remote user, %n alias,
-// %% a literal percent; anything else is left alone.
+// dialProxyCommand runs cmdline and returns its stdin/stdout as a net.Conn, per OpenSSH's ProxyCommand contract.
 func dialProxyCommand(cmdline, host string, port int, user, alias string) (net.Conn, error) {
 	expanded := expandProxyTokens(cmdline, host, port, user, alias)
 
@@ -74,10 +63,7 @@ func dialProxyCommand(cmdline, host string, port int, user, alias string) (net.C
 	if err != nil {
 		return nil, fmt.Errorf("sshx: proxy stdout: %w", err)
 	}
-	// A broker that refuses explains itself on stderr; without it the dial fails as a bare
-	// EOF. The pipe is an *os.File hop owns, not a plain io.Writer: os/exec would then run
-	// its own copier and cmd.Wait would block on it for as long as a forked grandchild
-	// holds the pipe — which `aws ssm` (session-manager-plugin) does.
+	// An *os.File hop owns, not a plain io.Writer: os/exec's own copier makes cmd.Wait block on a forked grandchild (`aws ssm` does this).
 	errBuf := &boundedBuffer{limit: proxyStderrLimit}
 	errRead, errWrite, err := os.Pipe()
 	if err != nil {
@@ -114,8 +100,7 @@ func dialProxyCommand(cmdline, host string, port int, user, alias string) (net.C
 	return pc, nil
 }
 
-// expandProxyTokens substitutes ssh's ProxyCommand tokens. It walks the string once so a
-// literal %% cannot have its second percent read as the start of another token.
+// expandProxyTokens substitutes ssh's ProxyCommand tokens in one pass, so a literal %% cannot start another token.
 func expandProxyTokens(s, host string, port int, user, alias string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
@@ -135,8 +120,7 @@ func expandProxyTokens(s, host string, port int, user, alias string) string {
 		case '%':
 			b.WriteByte('%')
 		default:
-			// Unknown tokens pass through: inventing a value would change what the
-			// command means.
+			// Unknown tokens pass through: inventing a value would change what the command means.
 			b.WriteByte('%')
 			b.WriteByte(s[i+1])
 		}
@@ -145,20 +129,14 @@ func expandProxyTokens(s, host string, port int, user, alias string) string {
 	return b.String()
 }
 
-// shellMeta are control-flow and substitution characters. A command line containing one
-// is refused rather than handed to `sh -c`: a ProxyCommand can come from an imported
-// config, and that path must not run arbitrary shell.
-//
-// Characters a shell would merely expand (globs, `=`, `#`, `~`) are absent on purpose —
-// they occur unquoted in ordinary commands, `--parameters portNumber=%p` among them.
+// shellMeta gets a ProxyCommand refused rather than handed to `sh -c`: an imported config must not run arbitrary shell.
+// Merely-expanded characters (globs, `=`, `#`, `~`) are absent on purpose; they occur unquoted in ordinary commands.
 const shellMeta = "|&;<>()$`\n"
 
 // ErrProxyNeedsShell is returned for a ProxyCommand that only a shell could run.
 var ErrProxyNeedsShell = errors.New("sshx: proxy command needs a shell")
 
-// splitProxyCommand parses cmdline into argv: whitespace separates words, quotes group
-// them, backslash escapes per isEscapable. A pipe, redirect or variable is refused with
-// ErrProxyNeedsShell.
+// splitProxyCommand parses cmdline into argv, refusing a pipe, redirect or variable with ErrProxyNeedsShell.
 func splitProxyCommand(cmdline string) ([]string, error) {
 	var (
 		argv    []string
@@ -223,40 +201,33 @@ func splitProxyCommand(cmdline string) ([]string, error) {
 	return argv, nil
 }
 
-// isEscapable reports whether a backslash before c means "take c literally". Anywhere
-// else the backslash stands, so an unquoted Windows path keeps its separators.
+// isEscapable reports where a backslash escapes; elsewhere it stands, so an unquoted Windows path keeps its separators.
 func isEscapable(c byte) bool {
 	return c == '"' || c == '\'' || c == ' ' || c == '\t' || c == '\\'
 }
 
-// procConn adapts a running program's pipes to net.Conn. Only Read, Write and Close
-// carry meaning; the rest satisfies the interface.
+// procConn adapts a running program's pipes to net.Conn.
 type procConn struct {
 	cmd    *exec.Cmd
 	r      io.ReadCloser
 	w      io.WriteCloser
 	stderr *boundedBuffer
-	// errRead is hop's end of the stderr pipe. Close shuts it, so the copier stops even
-	// while a grandchild holds the write end.
-	errRead *os.File
-	// stderrDone is closed once the copier has drained the pipe, so Read can wait for the
-	// diagnosis instead of racing it.
+	// errRead is hop's end: closing it stops the copier even while a grandchild holds the write end.
+	errRead    *os.File
 	stderrDone chan struct{}
 	name       string
 	// alive is closed by the first successful read, stopping the watchdog.
 	alive     chan struct{}
 	aliveOnce sync.Once
 	timedOut  atomic.Bool
-	silentFor atomic.Int64 // the window that elapsed, for the message
-	// target is what RemoteAddr reports. It must be the host:port, not the program: the
-	// host-key check reads it to pick the known_hosts entry.
+	silentFor atomic.Int64
+	// target must be the host:port, not the program: the host-key check reads it to pick the known_hosts entry.
 	target tcpAddr
 
 	once sync.Once
 }
 
-// watchFirstByte closes the connection if the proxy says nothing in time, which unblocks
-// the read parked in the handshake.
+// watchFirstByte closes the connection if the proxy says nothing in time, unblocking the read parked in the handshake.
 func (p *procConn) watchFirstByte() {
 	go func() {
 		window := firstByteTimeout()
@@ -284,8 +255,7 @@ func (p *procConn) Read(b []byte) (int, error) {
 		return n, err
 	}
 	if err == io.EOF && n == 0 {
-		// The proxy hung up; its stderr is the only account of why, and it travels on a
-		// pipe of its own that has not necessarily drained yet.
+		// The proxy's stderr is the only account of why, and it may not have drained yet.
 		p.waitStderr()
 		if msg := p.stderr.String(); msg != "" {
 			return 0, fmt.Errorf("sshx: proxy %s exited: %s", p.name, msg)
@@ -294,7 +264,6 @@ func (p *procConn) Read(b []byte) (int, error) {
 	return n, err
 }
 
-// waitStderr gives the copier a bounded moment to finish before its buffer is read.
 func (p *procConn) waitStderr() {
 	if p.stderrDone == nil {
 		return
@@ -309,8 +278,7 @@ func (p *procConn) waitStderr() {
 
 func (p *procConn) Write(b []byte) (int, error) { return p.w.Write(b) }
 
-// Close shuts the pipes and kills the program; the wait reaps it, or a failed dial would
-// leave the broker running. It cannot hang on a grandchild — see the stderr pipe above.
+// Close kills and reaps the program, or a failed dial would leave the broker running.
 func (p *procConn) Close() error {
 	var err error
 	p.once.Do(func() {
@@ -343,14 +311,12 @@ type proxyAddr string
 func (a proxyAddr) Network() string { return "proxycommand" }
 func (a proxyAddr) String() string  { return string(a) }
 
-// tcpAddr is a host:port the SSH machinery can parse. A string rather than a
-// *net.TCPAddr, because the proxy may resolve a name hop never does.
+// tcpAddr is a string rather than a *net.TCPAddr, because the proxy may resolve a name hop never does.
 type tcpAddr string
 
 func (a tcpAddr) Network() string { return "tcp" }
 func (a tcpAddr) String() string  { return string(a) }
 
-// boundedBuffer keeps at most limit bytes and drops the rest.
 type boundedBuffer struct {
 	limit int
 	mu    sync.Mutex
@@ -377,13 +343,12 @@ func (b *boundedBuffer) String() string {
 
 // JumpHost is a bastion parsed out of a ProxyJump directive.
 type JumpHost struct {
-	User string // empty means: whatever the jump's own store entry or the OS user says
+	User string
 	Host string
 	Port int // 0 means 22
 }
 
-// parseJump reads one ProxyJump value: [user@]host[:port]. ssh accepts a comma-separated
-// chain; hop takes the first and ignores the rest.
+// parseJump reads one ProxyJump value [user@]host[:port]; ssh accepts a chain, hop takes only the first.
 func parseJump(v string) (JumpHost, error) {
 	v = strings.TrimSpace(v)
 	if i := strings.IndexByte(v, ','); i >= 0 {
@@ -429,12 +394,10 @@ func parseJump(v string) (JumpHost, error) {
 	return j, nil
 }
 
-// JumpResolver looks a ProxyJump name up as a hop alias, so the bastion's own key, port
-// and user apply. ok=false leaves parseJump's bare host to stand on its own.
+// JumpResolver looks a ProxyJump name up as a hop alias; ok=false leaves parseJump's bare host to stand.
 type JumpResolver func(name string) (store.Host, bool)
 
-// jumpTarget builds the bastion to dial. An explicit user or port in the directive wins
-// over the resolved entry's, being what the user wrote at the point of use.
+// jumpTarget builds the bastion to dial; an explicit user or port in the directive wins over the resolved entry's.
 func jumpTarget(j JumpHost, resolve JumpResolver) store.Host {
 	var h store.Host
 	if resolve != nil {

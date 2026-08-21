@@ -9,17 +9,13 @@ import (
 	"hop/internal/keys"
 )
 
-// helpModel is a model with hop's default keyboard and the vim keys on, which is the
-// keyboard these tests are about: the card renders whatever the model's map says.
+// helpModel is a model with hop's default keyboard and the vim keys on.
 func helpModel() *model {
 	m := &model{binds: keys.Defaults()}
 	m.cfg.VimKeys = true
 	return m
 }
 
-// The card opens on the mode you were in: its section is lifted to the top of the left
-// column and marked. This is what the short footer leans on — the row names two or three
-// keys and points here, which only helps if "here" starts where you are.
 func TestHelpOpensOnTheModeYouAreIn(t *testing.T) {
 	cases := []struct {
 		mode paneMode
@@ -45,8 +41,7 @@ func TestHelpOpensOnTheModeYouAreIn(t *testing.T) {
 	}
 }
 
-// Lifting a section moves it, never copies it: a card listing SHELL twice would be a card
-// you cannot trust to be a complete table.
+// Lifting a section moves it, never copies it.
 func TestHelpKeepsEverySectionOnce(t *testing.T) {
 	before, beforeRight, _ := helpModel().helpFor(modeList)
 	all := append(titles(before), titles(beforeRight)...)
@@ -72,8 +67,7 @@ func TestHelpKeepsEverySectionOnce(t *testing.T) {
 	}
 }
 
-// The card names the key that opened it, in the form that mode actually takes — the SHELL
-// section the chord, the ones hop owns the plain key.
+// The card names the key that opened it, in the form that mode takes.
 func TestHelpNamesItsOwnKey(t *testing.T) {
 	left, right, _ := helpModel().helpFor(modeList)
 	for _, sec := range append(left, right...) {
@@ -98,7 +92,6 @@ func TestHelpNamesItsOwnKey(t *testing.T) {
 	}
 }
 
-// The marked section is visible as such on the rendered card, not merely first.
 func TestHelpMarksWhereYouAre(t *testing.T) {
 	m, _ := statusModel(t, 120, 34)
 	m.mode = modeBrowser
@@ -121,8 +114,6 @@ func titles(secs []helpSection) []string {
 	return out
 }
 
-// A window too short for the whole card gets a card that ends inside it: the box has a
-// bottom edge on screen, which is what makes the hint under it readable at all.
 func TestHelpFitsAShortWindow(t *testing.T) {
 	for _, h := range []int{10, 18, 24, 40} {
 		m, _ := statusModel(t, 120, h)
@@ -135,8 +126,6 @@ func TestHelpFitsAShortWindow(t *testing.T) {
 	}
 }
 
-// And what the short window cut off is reachable rather than gone: this is the whole
-// point of the card, so the lines it could not show must be a scroll away.
 func TestHelpScrollsToWhatDoesNotFit(t *testing.T) {
 	m, _ := statusModel(t, 120, 20)
 	m.mode = modeBrowser
@@ -168,8 +157,7 @@ func TestHelpScrollsToWhatDoesNotFit(t *testing.T) {
 	}
 }
 
-// fitHelp windows the body rather than cutting it: every line is on some page, in order,
-// and the last page ends on the last line.
+// fitHelp windows the body rather than cutting it: every line is on some page, in order.
 func TestHelpBodyWindows(t *testing.T) {
 	body := make([]string, 60)
 	for i := range body {
@@ -194,15 +182,13 @@ func TestHelpBodyWindows(t *testing.T) {
 		t.Fatalf("last page is %q, want %q", shown, want)
 	}
 
-	// A window with room for all of it scrolls nowhere and says so.
 	m.height = 100 + helpChrome
 	if shown, more := m.fitHelp(strings.Join(body, "\n")); more || shown != strings.Join(body, "\n") {
 		t.Fatalf("a body that fits was cut (more=%v)", more)
 	}
 }
 
-// The scroll is clamped to what is actually hidden: it cannot run off either end, and a
-// window that grew back to holding the whole card is not left scrolled past it.
+// The scroll is clamped to what is actually hidden.
 func TestHelpScrollStaysOnTheCard(t *testing.T) {
 	m, _ := statusModel(t, 120, 20)
 	m.mode = modeShell

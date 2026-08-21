@@ -9,9 +9,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// A scratch copy handed to `open` must carry com.apple.quarantine so
-// Gatekeeper adjudicates the launch; hop's plain os.Create download does not
-// pick the attribute up on its own.
+// A scratch copy handed to `open` must carry com.apple.quarantine so Gatekeeper sees it.
 func TestQuarantineSetsXattr(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "remote.bin")
 	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {

@@ -12,8 +12,7 @@ import (
 	"hop/internal/store"
 )
 
-// challenge builds a one-question, non-echoing challenge — what a host running
-// pam_google_authenticator asks.
+// challenge builds a one-question, non-echoing challenge.
 func challenge(text string) sshx.Challenge {
 	return sshx.Challenge{
 		Instruction: "Two-factor authentication",
@@ -21,16 +20,13 @@ func challenge(text string) sshx.Challenge {
 	}
 }
 
-// promptFor arms the card for alias and hands back the reply channel the waiting
-// dial would be parked on, buffered so the model can answer without a reader.
+// promptFor arms the card for alias and returns the buffered reply channel.
 func promptFor(m *model, alias string, ch sshx.Challenge) chan authReply {
 	reply := make(chan authReply, 1)
 	m.openAuthPrompt(authPromptMsg{alias: alias, ch: ch, reply: reply})
 	return reply
 }
 
-// A challenge opens the card, shows the server's own prompt text, and masks what is
-// typed: a screen recording of hop must not carry a verification code.
 func TestAuthCardOpensAndMasksTheAnswer(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	promptFor(m, "web", challenge("Verification code: "))
@@ -55,7 +51,6 @@ func TestAuthCardOpensAndMasksTheAnswer(t *testing.T) {
 	}
 }
 
-// enter releases the dial with what was typed and takes the card down.
 func TestAuthCardSubmitAnswersTheDial(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	reply := promptFor(m, "web", challenge("Verification code: "))
@@ -75,8 +70,6 @@ func TestAuthCardSubmitAnswersTheDial(t *testing.T) {
 	}
 }
 
-// esc ends the attempt rather than leaving the dial parked forever: a card with
-// no way out would hang the connect in the handshake.
 func TestAuthCardCancelReleasesTheDial(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	reply := promptFor(m, "web", challenge("Verification code: "))
@@ -95,8 +88,7 @@ func TestAuthCardCancelReleasesTheDial(t *testing.T) {
 	}
 }
 
-// A multi-question round (a PAM stack asking for password and code together)
-// walks field by field on enter and submits both answers at the end, in order.
+// Both answers are submitted at the end of the round, in order.
 func TestAuthCardWalksMultipleQuestions(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	reply := promptFor(m, "web", sshx.Challenge{Questions: []sshx.Question{
@@ -118,8 +110,6 @@ func TestAuthCardWalksMultipleQuestions(t *testing.T) {
 	}
 }
 
-// Two hosts dialing at once each get their turn: the second challenge waits behind the
-// first, whose dial is blocked until it is answered.
 func TestAuthCardQueuesASecondChallenge(t *testing.T) {
 	m := hostMgmtModel(t,
 		store.Host{Alias: "web", HostName: "h", Port: 22},
@@ -158,8 +148,6 @@ func TestAuthCardQueuesASecondChallenge(t *testing.T) {
 	}
 }
 
-// The card takes every key while it is up. A stray "d" must not reach the list
-// behind it and open a delete confirmation over a half-typed code.
 func TestAuthCardSwallowsOtherKeys(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	promptFor(m, "web", challenge("Verification code: "))
@@ -174,9 +162,6 @@ func TestAuthCardSwallowsOtherKeys(t *testing.T) {
 	}
 }
 
-// The card outranks the help card: '?' is bound in navigation mode and a dial takes long
-// enough to press it, so a help card opened while connecting would hide the challenge
-// that arrives next.
 func TestAuthCardOutranksHelp(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	m.help = true
@@ -195,8 +180,6 @@ func TestAuthCardOutranksHelp(t *testing.T) {
 	}
 }
 
-// Answering one host while another is queued leaves the second card on screen
-// with its own status, not a line about the host that was just answered.
 func TestAuthStatusNamesTheHostOnScreen(t *testing.T) {
 	m := hostMgmtModel(t,
 		store.Host{Alias: "web", HostName: "h", Port: 22},
@@ -216,8 +199,7 @@ func TestAuthStatusNamesTheHostOnScreen(t *testing.T) {
 	}
 }
 
-// A long answer keeps its end in view, so typing past the width of the field
-// still looks like typing. With the text masked there is no other feedback.
+// A long answer keeps its end in view; masked text has no other feedback.
 func TestAuthFieldFollowsTheCaret(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	promptFor(m, "web", challenge("Password: "))
@@ -235,7 +217,6 @@ func TestAuthFieldFollowsTheCaret(t *testing.T) {
 	}
 }
 
-// A dial the user cancelled reports nothing further: the card already said so.
 func TestCanceledAuthIsNotReportedAsFailure(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	m.connecting = map[string]bool{"web": true}
@@ -251,8 +232,6 @@ func TestCanceledAuthIsNotReportedAsFailure(t *testing.T) {
 	}
 }
 
-// The round trip a real dial makes: the prompter blocks in the handshake, the
-// model receives the challenge over the channel, and the answer comes back.
 func TestPrompterRoundTrip(t *testing.T) {
 	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
 	m.prompts = make(chan authPromptMsg)
@@ -268,8 +247,7 @@ func TestPrompterRoundTrip(t *testing.T) {
 		got <- answers
 	}()
 
-	// Stand in for the command Init arms: take the challenge off the channel and
-	// give it to the model the way Update does.
+	// Stand in for the command Init arms.
 	select {
 	case msg := <-m.prompts:
 		m.openAuthPrompt(msg)

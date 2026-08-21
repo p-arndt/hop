@@ -1,68 +1,41 @@
 package tui
 
-// Selecting text in a pane with the pointer.
-//
-// hop reports the mouse, so the terminal's own click-and-drag selection never happens and
-// the drag arrives here instead. The rules are a terminal's:
-//
-//   - a drag selects from where the button went down to where the pointer is, flowing
-//     over row ends rather than covering a rectangle (see terminal.Span);
-//   - releasing copies;
-//   - the wheel scrolls the view without ending the drag, and a drag held against the top
-//     or bottom row of the pane keeps going by itself — either way the selection is not
-//     limited to what was on screen when the button went down (see wheelShell and
-//     dragAutoScroll);
-//   - a selection rides the text it was made on while the view scrolls under it, so the
-//     highlight stays over the words it covers (see shiftSelection);
-//   - anything else clears it — a keystroke, a click elsewhere — since a stale highlight
-//     over a screen that has moved on is worse than no highlight.
-//
-// A remote program that asked for the mouse keeps it and does its own selecting, so hop
-// does not select over the top of it. See mouseShell.
-
 import (
 	"strings"
 
 	"hop/internal/terminal"
 )
 
-// selection is the drag in progress, or the one just made. anchor is where the button
-// went down and head where the pointer last was, both in the pane's content coordinates.
-//
-// dragging separates a live drag from the selection it leaves behind: the highlight
-// outlives the button, but only a live drag moves the head.
+// selection is the drag in progress, or the one just made; anchor and head are in the
+// pane's content coordinates.
 type selection struct {
 	active   bool
 	dragging bool
 	anchor   terminal.Cell
 	head     terminal.Cell
-	// edge is which way a drag held against a pane edge is scrolling the view: -1 for
-	// up, +1 for down, 0 while the pointer is somewhere in the middle. It is what says
-	// a repeat is already armed, so motion does not start a second clock.
+	// edge is which way a drag held against a pane edge is scrolling: it also says a
+	// repeat is already armed, so motion does not start a second clock.
 	edge int
 
-	// box is which box of the content area the drag started in. A name, not a width: the
-	// width is looked up on the current frame, so a resize mid-drag still measures against
-	// the box the pane is drawn in now. Known gap: a split arriving mid-drag leaves this
-	// naming the whole area, which then measures too wide.
+	// box is which box of the content area the drag started in. A name, not a width, so a
+	// resize mid-drag still measures against the box the pane is drawn in now. Known gap:
+	// a split arriving mid-drag leaves this naming the whole area.
 	box selBox
 }
 
-// selBox names one of the boxes the content area is drawn as, which is all a selection
-// needs to keep of the layout to find its width again later. See selection.box.
+// selBox names one of the boxes the content area is drawn as.
 type selBox uint8
 
 const (
-	// selContent is the area as one box, and the zero value: with no layout behind it a
-	// selection measures against the whole area.
+	// selContent is the zero value: with no layout behind it a selection measures against
+	// the whole area.
 	selContent selBox = iota
 	selLeft
 	selRight
 )
 
-// namedBox reads a content box of the current frame back as its name, so startSelection
-// can store something that survives the layout moving. The halves are only told apart
-// while there are two: unsplit, frame.left is frame.content.
+// namedBox reads a content box of the current frame back as its name. The halves are only
+// told apart while there are two: unsplit, frame.left is frame.content.
 func (m *model) namedBox(box rect) selBox {
 	if m.frame.right.empty() {
 		return selContent
@@ -76,8 +49,8 @@ func (m *model) namedBox(box rect) selBox {
 	return selContent
 }
 
-// selWidth is the inner width of the box the selection is being drawn in: where a fully
-// covered row stops, and where the last row's end column is clamped to.
+// selWidth is the inner width of the box the selection is drawn in: where a fully covered
+// row stops, and where the last row's end column is clamped to.
 func (m *model) selWidth() int {
 	switch m.sel.box {
 	case selLeft:
@@ -101,8 +74,7 @@ func (m *model) startSelection(c terminal.Cell, box rect) {
 	m.sel = selection{active: true, dragging: true, anchor: c, head: c, box: m.namedBox(box)}
 }
 
-// dragSelection moves the head of a drag in progress. A motion event with no drag behind
-// it is the pointer merely crossing the pane.
+// dragSelection moves the head of a drag in progress.
 func (m *model) dragSelection(c terminal.Cell) {
 	if !m.sel.dragging {
 		return
@@ -110,11 +82,8 @@ func (m *model) dragSelection(c terminal.Cell) {
 	m.sel.head = c
 }
 
-// endSelection finishes a drag and puts what it covers on the clipboard. The highlight
-// stays up until the next key or scroll.
-//
-// A selection of nothing is dropped rather than copied: it would clear the clipboard on a
-// click, losing what somebody was about to paste.
+// endSelection finishes a drag and copies what it covers; an empty selection is dropped
+// rather than copied, which would clear the clipboard on a click.
 func (m *model) endSelection(view string) {
 	if !m.sel.dragging {
 		return
@@ -140,14 +109,9 @@ func (m *model) endSelection(view string) {
 	m.setStatus(statusOK, "copied %d %s", countLines(text), plural(countLines(text), "line", "lines"))
 }
 
-// shiftSelection moves the selection dy rows down the screen, which is what a view that
-// has scrolled dy lines has done to the text under it. Nothing else about the selection
-// changes: the same words stay covered.
-//
-// The head of a live drag is left where it is — it belongs to the pointer, which did not
-// move, so the caller places it. A drag scrolled far enough carries its anchor off the
-// screen; that is a selection wider than a screenful, and the span simply covers every
-// row between, painting the ones that are visible.
+// shiftSelection moves the selection dy rows down, which is what a view scrolled dy lines
+// has done to the text under it. The head of a live drag belongs to the pointer, which did
+// not move, so the caller places it.
 func (m *model) shiftSelection(dy int) {
 	if !m.sel.active || dy == 0 {
 		return
@@ -159,9 +123,8 @@ func (m *model) shiftSelection(dy int) {
 }
 
 // shellSpanView renders exactly the rows a span covers out of the focused shell's pane,
-// reaching above the window into scrollback and below it toward the live screen, and
-// reports the row the rendering starts at. It declines for anything that is not a shell:
-// an editor pane keeps no history here, so its screen is all there is to copy.
+// reaching into scrollback, and reports the row it starts at. It declines for anything
+// that is not a shell, since an editor pane keeps no history here.
 func (m *model) shellSpanView(s terminal.Span) (string, int, bool) {
 	if !m.focused() && !m.scrolling() {
 		return "", 0, false
@@ -173,16 +136,14 @@ func (m *model) shellSpanView(s terminal.Span) (string, int, bool) {
 	return sess.shell().pane.ViewRows(s.From.Y, s.To.Y), s.From.Y, true
 }
 
-// shiftSpan renumbers a span's rows against a view that starts at row top — what turns
-// pane-view coordinates into coordinates over the rows shellSpanView handed back.
+// shiftSpan renumbers a span's rows against a view that starts at row top.
 func shiftSpan(s terminal.Span, top int) terminal.Span {
 	s.From.Y -= top
 	s.To.Y -= top
 	return s
 }
 
-// clearSelection takes the highlight down, reporting whether there was one. Every caller
-// is somewhere the screen underneath is about to change.
+// clearSelection takes the highlight down, reporting whether there was one.
 func (m *model) clearSelection() bool {
 	if !m.sel.active {
 		return false
@@ -191,8 +152,7 @@ func (m *model) clearSelection() bool {
 	return true
 }
 
-// selectedView is a pane's rendered content with the selection painted onto it, a no-op
-// when nothing is selected.
+// selectedView is a pane's rendered content with the selection painted onto it.
 func (m *model) selectedView(content string) string {
 	if !m.sel.active {
 		return content
@@ -200,5 +160,4 @@ func (m *model) selectedView(content string) string {
 	return terminal.Highlight(content, m.sel.span(), m.selWidth())
 }
 
-// countLines is how many lines a copied string spans, for the status line.
 func countLines(s string) int { return strings.Count(s, "\n") + 1 }

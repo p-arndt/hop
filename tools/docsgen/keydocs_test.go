@@ -10,38 +10,25 @@ import (
 	"hop/internal/keys"
 )
 
-// The docs are prose about the keyboard, and internal/keys is the keyboard. Nothing can
-// generate one from the other — a row of the reference says more than a label ever will,
-// and half the keys it mentions belong to a card or to the remote program rather than to
-// hop. What can be checked is that the prose still covers the keyboard: every key hop
-// ships bound is named somewhere in docs/, in whatever spelling the docs use for it.
-//
-// This is the drift test the generated files already have, aimed one level further back:
-// `just docs` keeps README.md and KEYBINDINGS.md in step with docs/*.md, and this keeps
-// docs/*.md in step with the code.
+// Guards docs/*.md drifting from the key registry: every bound key must be named in docs/.
 
 // keyToken matches the docs' keycap markup, [[ctrl+o]].
 var keyToken = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 
-// docSpelling maps the docs' spelling of a key to the registry's. The docs draw the
-// arrows and print "pgdn", because they are read by a person; bubbletea names them "up"
-// and "pgdown", because they are read by a switch.
+// docSpelling maps the docs' spelling of a key to the registry's.
 var docSpelling = strings.NewReplacer(
 	"↑", "up", "↓", "down", "←", "left", "→", "right",
 	"pgdn", "pgdown", "gg", "g g",
 )
 
-// rangeKeys are documented as a range ("[[1]] … [[9]]") rather than one key each, and are
-// not in the registry at all — a digit addresses a tab by its number, which is not
-// something a config could rebind to still mean "the third one".
+// rangeKeys are documented as a range ("[[1]] … [[9]]") and are not in the registry.
 var rangeKeys = map[string]bool{
 	"2": true, "3": true, "4": true, "5": true, "6": true, "7": true, "8": true,
 	"alt+2": true, "alt+3": true, "alt+4": true, "alt+5": true,
 	"alt+6": true, "alt+7": true, "alt+8": true,
 }
 
-// allDocumented reports whether every keystroke of a key or sequence is named in the
-// docs, treating the digit ranges as named.
+// allDocumented reports whether every keystroke of a key or sequence is named in the docs.
 func allDocumented(documented map[string]bool, key string) bool {
 	for _, k := range strings.Split(key, " ") {
 		if !documented[k] && !rangeKeys[k] {
@@ -73,9 +60,6 @@ func documentedKeys(t *testing.T) map[string]bool {
 	return out
 }
 
-// A key hop binds but never mentions is a key nobody can find: the docs are the only
-// place the whole keyboard is written out in prose, and the help card is read from inside
-// hop by someone who already got that far.
 func TestEveryBoundKeyIsDocumented(t *testing.T) {
 	documented := documentedKeys(t)
 
@@ -86,13 +70,11 @@ func TestEveryBoundKeyIsDocumented(t *testing.T) {
 	for _, l := range layers {
 		for _, b := range keys.Defaults().Layer(l, true) {
 			for _, k := range b.Keys {
-				// A sequence is documented by its keys: "esc esc" is written [[esc]]
-				// [[esc]], because that is what the hand does.
+				// A sequence is documented by its keys: "esc esc" is written [[esc]] [[esc]].
 				if allDocumented(documented, k) {
 					continue
 				}
-				// The symbol the card draws counts as the key being named: the docs write
-				// "shift+k" where the registry says "K".
+				// The docs write "shift+k" where the registry says "K".
 				if b.Show != "" && documented[keys.Normalize(b.Show)] {
 					continue
 				}

@@ -7,15 +7,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// overlay composites fg on top of bg with its top-left corner at cell (x, y),
-// leaving the rest of bg visible around it — a floating window, not a screen
-// swap.
-//
-// Splicing a styled line at a column is the whole difficulty: cutting a string
-// that carries ANSI escapes at an arbitrary cell can orphan a colour that was
-// opened before the cut and closed after it. ansi.Truncate and ansi.TruncateLeft
-// handle exactly that, re-emitting the styles in force at the seam, so the
-// background keeps its colours on both sides of the box.
+// overlay composites fg on top of bg with its top-left corner at cell (x, y). ansi.Truncate
+// and ansi.TruncateLeft re-emit the styles in force at each seam, so cutting a line mid-ANSI
+// does not orphan a colour the background had opened.
 func overlay(bg, fg string, x, y int) string {
 	if fg == "" {
 		return bg
@@ -44,7 +38,6 @@ func overlay(bg, fg string, x, y int) string {
 		if gap := x - lipgloss.Width(left); gap > 0 {
 			left += strings.Repeat(" ", gap)
 		}
-		// Right slice: everything the box does not cover.
 		right := ansi.TruncateLeft(bgLine, x+fgW, "")
 
 		bgLines[row] = left + fgLine + right
@@ -53,8 +46,7 @@ func overlay(bg, fg string, x, y int) string {
 	return strings.Join(bgLines, "\n")
 }
 
-// centered returns the top-left cell at which a w x h box is centred in a
-// bw x bh area, clamped so it never starts off-screen.
+// centered returns the top-left cell at which a w x h box is centred in a bw x bh area.
 func centered(bw, bh, w, h int) (int, int) {
 	x, y := (bw-w)/2, (bh-h)/2
 	if x < 0 {

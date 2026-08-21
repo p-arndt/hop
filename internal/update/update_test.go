@@ -22,17 +22,9 @@ import (
 	"github.com/p-arndt/selfupdate"
 )
 
-// The mechanics of downloading, verifying and swapping the binary belong to
-// github.com/p-arndt/selfupdate and are tested there. What is hop's to get wrong
-// is the wiring: that the asset names the release workflow writes are the ones
-// the updater looks for, and that the user-facing strings still name hop's own
-// subcommand and opt-out variable. That is what this file covers, offline,
-// through the three Config seams.
+// Covers hop's wiring around selfupdate — asset names and user-facing strings — offline.
 
-// assetNames mirrors .github/workflows/release.yml verbatim: the archive it
-// builds for this platform and the checksums file it writes beside it. If either
-// side of that contract moves, these tests fail rather than a user's `hop
-// self-update`.
+// assetNames mirrors .github/workflows/release.yml verbatim.
 func assetNames(version string) (archive, binary, checksums string) {
 	archive = fmt.Sprintf("hop_%s_%s_%s.tar.gz", version, runtime.GOOS, runtime.GOARCH)
 	binary = "hop"
@@ -43,9 +35,7 @@ func assetNames(version string) (archive, binary, checksums string) {
 	return archive, binary, fmt.Sprintf("hop_%s_checksums.txt", version)
 }
 
-// fakeRelease serves a complete GitHub release — the metadata and every asset —
-// from one loopback server, and returns its base URL. Loopback is the one host
-// the updater will talk to over plain http, precisely so this works.
+// fakeRelease serves a whole GitHub release from one loopback server and returns its base URL.
 func fakeRelease(t *testing.T, tag string, assets map[string][]byte) string {
 	t.Helper()
 
@@ -77,8 +67,7 @@ func fakeRelease(t *testing.T, tag string, assets map[string][]byte) string {
 	return srv.URL
 }
 
-// releaseAssets builds what the release job uploads: the platform archive with
-// the binary inside, and sha256 over the archive — not over the binary in it.
+// releaseAssets builds what the release job uploads; the sha256 is over the archive.
 func releaseAssets(t *testing.T, version string, binary []byte) map[string][]byte {
 	t.Helper()
 	archiveName, binName, checksumsName := assetNames(version)
@@ -132,9 +121,7 @@ func tarGz(t *testing.T, name string, content []byte) []byte {
 	return buf.Bytes()
 }
 
-// testUpdater wires all three seams: a fake release, a throwaway binary to
-// install over instead of the test binary, and a cache in a temp dir so the
-// user's real one is never touched. It returns the stand-in binary's path.
+// testUpdater wires a fake release, a throwaway install target and a temp cache.
 func testUpdater(t *testing.T, apiBase string) (*selfupdate.Updater, string) {
 	t.Helper()
 
@@ -158,8 +145,7 @@ func testUpdater(t *testing.T, apiBase string) (*selfupdate.Updater, string) {
 	return up, exe
 }
 
-// The whole path against the workflow's own asset names: check, download,
-// verify, swap.
+// The whole path against the workflow's asset names: check, download, verify, swap.
 func TestSelfUpdateInstallsNewerRelease(t *testing.T) {
 	up, exe := testUpdater(t, fakeRelease(t, "v1.2.0", releaseAssets(t, "1.2.0", []byte("the new binary"))))
 
@@ -175,7 +161,6 @@ func TestSelfUpdateInstallsNewerRelease(t *testing.T) {
 	}
 }
 
-// `hop check-update` reports what it found and writes nothing.
 func TestCheckOnlyDoesNotInstall(t *testing.T) {
 	up, exe := testUpdater(t, fakeRelease(t, "v1.2.0", releaseAssets(t, "1.2.0", []byte("the new binary"))))
 
@@ -194,8 +179,6 @@ func TestCheckOnlyDoesNotInstall(t *testing.T) {
 	}
 }
 
-// A `go build` of the working tree is usually ahead of the last tag, so it is
-// never updated over — a `go run .` must not install a release on top of itself.
 func TestDevBuildIsRefused(t *testing.T) {
 	up, exe := testUpdater(t, fakeRelease(t, "v1.2.0", releaseAssets(t, "1.2.0", []byte("the new binary"))))
 
@@ -207,8 +190,6 @@ func TestDevBuildIsRefused(t *testing.T) {
 	}
 }
 
-// Only a strictly newer release counts, so a re-published or rolled-back tag
-// cannot walk a user backwards.
 func TestSameVersionIsNotAnUpdate(t *testing.T) {
 	up, _ := testUpdater(t, fakeRelease(t, "v1.0.0", releaseAssets(t, "1.0.0", []byte("the same binary"))))
 
@@ -221,8 +202,7 @@ func TestSameVersionIsNotAnUpdate(t *testing.T) {
 	}
 }
 
-// noticeUpdater points the notice at a cache seeded with a check that just
-// happened, so nothing goes near the network.
+// noticeUpdater seeds the cache with a fresh check so nothing goes near the network.
 func noticeUpdater(t *testing.T, latest string) *selfupdate.Updater {
 	t.Helper()
 
@@ -248,8 +228,7 @@ func noticeUpdater(t *testing.T, latest string) *selfupdate.Updater {
 	return up
 }
 
-// The hint has to name hop's subcommand — the library's derived default would
-// say `hop update`, which hop does not have.
+// The library's derived default would say `hop update`, which hop does not have.
 func TestNoticeNamesHopSelfUpdate(t *testing.T) {
 	var out bytes.Buffer
 	noticeUpdater(t, "1.2.0").NotifyIfAvailable(&out, "1.0.0")
@@ -260,7 +239,6 @@ func TestNoticeNamesHopSelfUpdate(t *testing.T) {
 	}
 }
 
-// The opt-out users were told about keeps working.
 func TestNoticeRespectsHopOptOut(t *testing.T) {
 	t.Setenv("HOP_NO_UPDATE_CHECK", "1")
 
@@ -279,7 +257,7 @@ func TestNoticeRespectsHopOptOut(t *testing.T) {
 	}
 }
 
-// The TUI's startup check reports the newer version, and nothing when current.
+// Reports nothing when already current.
 func TestRefreshReportsNewerVersion(t *testing.T) {
 	if got := noticeUpdater(t, "1.2.0").Refresh("1.0.0"); got != "1.2.0" {
 		t.Errorf("Refresh = %q, want 1.2.0", got)

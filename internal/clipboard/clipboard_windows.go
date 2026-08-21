@@ -1,15 +1,7 @@
 package clipboard
 
-// The Windows clipboard is an OS service rather than a program, so this is the one
-// platform doing the work in-process. The obvious helper, clip.exe, reads its input in
-// the console's code page, so anything outside ASCII arrives as mojibake — and text
-// copied off a remote host is exactly where a UTF-8 character turns up.
-//
-// The sequence is the documented one: open the clipboard, empty it, hand it a moveable
-// global allocation holding UTF-16, close it. Two details matter: ownership of the
-// allocation passes to the system on a successful SetClipboardData, so it must be freed
-// on every path that does not reach one; and the clipboard is owned by a thread, which is
-// why the goroutine is pinned to one.
+// Done in-process because clip.exe would mangle non-ASCII through the console code page.
+// The allocation must be freed on every path that does not reach a successful SetClipboardData.
 
 import (
 	"fmt"
@@ -40,22 +32,18 @@ const (
 	gmemMoveable  = 0x0002 // GMEM_MOVEABLE, which is what the clipboard requires
 )
 
-// openAttempts and openDelay are how hard hop tries to take the clipboard. Only one
-// process may hold it at a time, and something else holding it for a moment is ordinary,
-// so a refusal is retried briefly before it is reported.
+// Only one process may hold the clipboard, so a brief refusal is retried.
 const (
 	openAttempts = 5
 	openDelay    = 20 * time.Millisecond
 )
 
 func write(text string) error {
-	// The clipboard belongs to whichever thread opened it, and a goroutine can move
-	// between threads at any suspension point.
+	// The clipboard belongs to whichever thread opened it.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	// UTF16FromString refuses a string containing a NUL. The caller has already dropped
-	// the control characters, so this is a guard rather than a live case.
+	// UTF16FromString refuses a NUL; the caller has already dropped control characters.
 	utf16, err := windows.UTF16FromString(text)
 	if err != nil {
 		return fmt.Errorf("clipboard: encode: %w", err)
@@ -86,7 +74,7 @@ func write(text string) error {
 	return nil
 }
 
-// openClipboard takes the clipboard, retrying a refusal as far as openAttempts allows.
+// openClipboard takes the clipboard, retrying a refusal up to openAttempts times.
 func openClipboard() error {
 	var lastErr error
 	for i := 0; i < openAttempts; i++ {
@@ -100,13 +88,8 @@ func openClipboard() error {
 	return fmt.Errorf("clipboard: open: %w", lastErr)
 }
 
-// allocGlobal copies the encoded text into a moveable global allocation, the form
-// SetClipboardData takes. The returned handle is the caller's to free until the clipboard
-// has accepted it.
-//
-// The copy goes through RtlMoveMemory rather than a Go slice over the locked address:
-// building that slice means converting a returned uintptr back into a pointer, which the
-// garbage collector makes no promises about and `go vet` reports.
+// allocGlobal copies the text into the moveable global allocation SetClipboardData takes.
+// RtlMoveMemory avoids turning the locked uintptr back into a pointer, which `go vet` reports.
 func allocGlobal(utf16 []uint16) (uintptr, error) {
 	size := uintptr(len(utf16)) * unsafe.Sizeof(utf16[0])
 

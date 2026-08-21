@@ -7,9 +7,7 @@ import (
 	"testing"
 )
 
-// isolate points os.UserConfigDir at a throwaway directory and returns where the config
-// file will land, so the tests never touch the real one. Each platform reads a different
-// variable, so all three are redirected and the directory comes from Path().
+// isolate points os.UserConfigDir at a throwaway directory and returns the config path.
 func isolate(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -24,7 +22,6 @@ func isolate(t *testing.T) string {
 	return filepath.Dir(path)
 }
 
-// A round trip through the file must return exactly what was saved.
 func TestSaveLoadRoundTrip(t *testing.T) {
 	isolate(t)
 
@@ -44,7 +41,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
-// First run: no file at all. Defaults, and no error surfaced to the caller.
+// First run: no file at all, so defaults and no error.
 func TestLoadMissingFileYieldsDefaults(t *testing.T) {
 	isolate(t)
 
@@ -60,8 +57,6 @@ func TestLoadMissingFileYieldsDefaults(t *testing.T) {
 	}
 }
 
-// A corrupt file must not keep hop from starting: it loads as defaults. Losing a
-// setting is recoverable; being locked out of your hosts is not.
 func TestLoadCorruptFileYieldsDefaults(t *testing.T) {
 	dir := isolate(t)
 	path := filepath.Join(dir, "config.json")
@@ -77,8 +72,6 @@ func TestLoadCorruptFileYieldsDefaults(t *testing.T) {
 	}
 }
 
-// A file that sets only one key keeps sane values for the rest, rather than
-// inheriting Go's zero values (an empty accent would render as no colour at all).
 func TestLoadPartialFileFillsDefaults(t *testing.T) {
 	dir := isolate(t)
 	path := filepath.Join(dir, "config.json")
@@ -101,7 +94,6 @@ func TestLoadPartialFileFillsDefaults(t *testing.T) {
 	}
 }
 
-// Save must not leave its temp file lying next to the config.
 func TestSaveLeavesNoTempFile(t *testing.T) {
 	dir := isolate(t)
 
@@ -120,9 +112,7 @@ func TestSaveLeavesNoTempFile(t *testing.T) {
 	}
 }
 
-// Mouse is the one field whose default is not its zero value, which is safe because Load
-// starts from Default() and unmarshals over it: a file that omits the key comes back with
-// the mouse on, and only one that says otherwise switches it off.
+// Load unmarshals over Default(), so an omitted key keeps the non-zero default.
 func TestLoadMouseDefaultsOn(t *testing.T) {
 	dir := isolate(t)
 	path := filepath.Join(dir, "config.json")
@@ -145,8 +135,6 @@ func TestLoadMouseDefaultsOn(t *testing.T) {
 	}
 }
 
-// The remote clipboard is the other field of that kind: a config omitting the key must
-// not come back with it off, nor must a file that switched it off be ignored.
 func TestLoadClipboardDefaultsOn(t *testing.T) {
 	dir := isolate(t)
 	path := filepath.Join(dir, "config.json")
@@ -169,9 +157,7 @@ func TestLoadClipboardDefaultsOn(t *testing.T) {
 	}
 }
 
-// The guidance profile is the one field whose value is checked rather than merely
-// carried: an unknown word is the middle profile, not a broken screen. And a file that
-// predates the setting entirely leaves its owner on hybrid rather than on the zero value.
+// An unknown or missing guidance value falls back to hybrid rather than the zero value.
 func TestGuidanceIsNormalized(t *testing.T) {
 	isolate(t)
 
@@ -198,8 +184,7 @@ func TestGuidanceIsNormalized(t *testing.T) {
 	}
 }
 
-// Exists is what tells a first run from a later one, so it must answer for the file
-// itself and not for the settings in it.
+// Exists answers for the file itself, not for the settings in it.
 func TestExists(t *testing.T) {
 	isolate(t)
 
@@ -214,9 +199,7 @@ func TestExists(t *testing.T) {
 	}
 }
 
-// The config file is shared with internal/store, which keeps host metadata under its own
-// key. Saving settings must merge into the file rather than replace it, or changing the
-// accent colour would silently drop every pin and visit count.
+// The file is shared with internal/store, so Save must merge rather than replace.
 func TestSavePreservesForeignKeys(t *testing.T) {
 	isolate(t)
 	path, err := Path()
@@ -247,7 +230,6 @@ func TestSavePreservesForeignKeys(t *testing.T) {
 		t.Fatalf("the saved file does not parse: %v\n%s", err, data)
 	}
 
-	// The store's key survived untouched...
 	hosts, ok := doc["hosts"].(map[string]any)
 	if !ok {
 		t.Fatalf("the host metadata was dropped: %s", data)
@@ -260,7 +242,6 @@ func TestSavePreservesForeignKeys(t *testing.T) {
 		t.Fatalf("nextId = %v, want 7: %s", hosts["nextId"], data)
 	}
 
-	// ...and the setting actually changed.
 	if got, _ := doc["accent"].(string); got != "212" {
 		t.Fatalf("accent = %v, want 212", doc["accent"])
 	}
@@ -269,8 +250,6 @@ func TestSavePreservesForeignKeys(t *testing.T) {
 	}
 }
 
-// A file that does not parse is replaced rather than propagated, matching Load's own
-// treatment of it: the settings UI has to remain able to fix a broken file.
 func TestSaveOverwritesCorruptFile(t *testing.T) {
 	isolate(t)
 	path, err := Path()

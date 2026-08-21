@@ -1,18 +1,9 @@
-// Package fbtest provides a stand-in for filebrowser.Client, so a test that needs a
-// browser but does not care what the server does can say only the part it cares about.
-//
-// It exists because filebrowser.Client is wide — it mirrors most of sftpx.Client — while
-// the tests that build a browser are usually testing something else entirely: how a click
-// maps to a row, or what a reconnect restores. Without it every such test carries the
-// whole interface as filler, and every method added to Client has to be added to each of
-// them again.
+// Package fbtest provides a stand-in for filebrowser.Client.
 package fbtest
 
 import "hop/internal/sftpx"
 
-// Stub implements filebrowser.Client and does nothing on purpose. Embed it and override
-// what the test is actually about; the func fields cover the two calls a browser makes
-// before it can show anything.
+// Stub implements filebrowser.Client and does nothing on purpose; embed and override.
 type Stub struct {
 	// Dir is what Home reports, and Entries what every listing returns.
 	Dir     string

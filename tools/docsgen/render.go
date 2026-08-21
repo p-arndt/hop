@@ -8,13 +8,9 @@ import (
 	"strings"
 )
 
-// The templates hold what is chrome rather than documentation: the site's head
-// and stylesheet, the README's centred header and badges. Each pulls sections
-// in by id.
 var placeholderRe = regexp.MustCompile(`(?m)^[ \t]*<!--\s*docs:([a-z0-9-]+)((?:\s+[a-z]+=(?:"[^"]*"|\S+))*)\s*-->[ \t]*$`)
 
-// RenderSite assembles index.html: the sidebar, every section, and the search
-// index the page searches offline.
+// RenderSite assembles index.html: sidebar, sections and the search index.
 func RenderSite(tmpl string, docs []*Doc) (string, error) {
 	rendered := map[string]string{}
 	var sections, nav strings.Builder
@@ -70,10 +66,8 @@ func indent(s, with string) string {
 	return strings.Join(lines, "\n")
 }
 
-// RenderMarkdownFile fills a markdown template's <!-- docs:id --> placeholders
-// with the lowered sections. fallback is the file a cross-reference points at
-// when this one has no heading to link to; target names this file for the
-// directives that render in some outputs and not others.
+// RenderMarkdownFile fills a template's <!-- docs:id --> placeholders; fallback
+// is the file a cross-reference points at when this one has no heading for it.
 func RenderMarkdownFile(tmpl string, docs []*Doc, fallback, target string) (string, error) {
 	byID := map[string]*Doc{}
 	for _, d := range docs {
@@ -114,8 +108,8 @@ func RenderMarkdownFile(tmpl string, docs []*Doc, fallback, target string) (stri
 	return retargetLinks(collapseBlanks(out), byID, local, fallback), firstErr
 }
 
-// headingIDs collects the sections this file renders under a heading of their
-// own — the only ones a "#id" link inside it can reach.
+// headingIDs collects the sections this file gives a heading of their own —
+// the only ones a "#id" link inside it can reach.
 func headingIDs(tmpl string, byID map[string]*Doc) map[string]bool {
 	ids := map[string]bool{}
 	for _, m := range placeholderRe.FindAllStringSubmatch(tmpl, -1) {
@@ -133,10 +127,8 @@ func headingIDs(tmpl string, byID map[string]*Doc) map[string]bool {
 	return ids
 }
 
-// retargetLinks rewrites the "#id" anchors the sections link each other by.
-// On the website an id is the anchor; in a markdown file the anchor is
-// whatever GitHub made of the heading, and a section this file does not show
-// has to be linked in the file that does.
+// retargetLinks rewrites "#id" anchors: in markdown the anchor is GitHub's
+// heading slug, and a section this file omits must be linked in the one that has it.
 func retargetLinks(in string, byID map[string]*Doc, local map[string]bool, fallback string) string {
 	return anchorRe.ReplaceAllStringFunc(in, func(m string) string {
 		id := anchorRe.FindStringSubmatch(m)[1]
@@ -160,14 +152,11 @@ var (
 	blankRe  = regexp.MustCompile(`\n{3,}`)
 )
 
-// slug is GitHub's heading anchor: lowercase, punctuation dropped, spaces to
-// dashes.
+// slug is GitHub's heading anchor: lowercase, punctuation dropped, spaces to dashes.
 func slug(title string) string {
 	s := strings.ToLower(lowerKbd(title))
 	s = slugDrop.ReplaceAllString(s, "")
 	return strings.ReplaceAll(s, " ", "-")
 }
 
-// collapseBlanks keeps the generated markdown as tidy as hand-written markdown:
-// splicing sections in leaves runs of blank lines behind.
 func collapseBlanks(in string) string { return blankRe.ReplaceAllString(in, "\n\n") }
