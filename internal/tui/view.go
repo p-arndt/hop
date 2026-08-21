@@ -180,9 +180,41 @@ func columnStyle(active bool) lipgloss.Style {
 
 // ---- the content area ----
 
+// contentIsSplit reports whether the content area is drawn as TWO boxes. It is
+// renderRight's switch asked as a question, and must be kept in step with it; the frame
+// and every hit-test through it read this rather than splitOn, which answers about the
+// session and is true even when a focused shell is showing one full-width box.
+func (m *model) contentIsSplit() bool {
+	s := m.sessions[m.active]
+	// splitOn takes a nil session, and is the floor: a window too narrow to hold two
+	// halves shows one whatever the session wants.
+	if !m.splitOn(s) {
+		return false
+	}
+	// The arms of renderRight that reach a box before the editors do. Each draws a single
+	// box at the full width of the content area, so any of them being on screen means the
+	// content is not split however split the session is. In the same order, since the
+	// order is what decides which one wins.
+	switch {
+	case s.dead && m.active != "":
+		return false
+	case m.treeInline() && m.browsing() && s.browser != nil:
+		return false
+	case m.focused() && s.shell() != nil:
+		return false
+	}
+	// And the editor arm itself, which is the only one that halves. The arm below it is a
+	// shell, and it is unreachable while there is an editor to draw.
+	return s.editor() != nil
+}
+
 // renderRight draws whatever the active session is showing in the content area — the
 // files open in it, a shell, the browser on a window too narrow for a column — and the
 // details card when it is showing nothing.
+//
+// Every arm that draws one full-width box, and the one that may draw two, are mirrored in
+// contentIsSplit; an arm added or reordered here has to be added or reordered there too,
+// or the frame stops describing this screen.
 func (m *model) renderRight(h int) string {
 	innerH := max(h-2, 1)
 	s := m.sessions[m.active]
@@ -258,9 +290,12 @@ func (m *model) renderShellPane(s *session, innerH int) string {
 // while it is split. Each half is its own tab strip over its own editor, both drawn from
 // the one tab list, and only the half the keyboard is in wears the accent.
 func (m *model) renderEditorPanes(s *session, innerH int) string {
-	if !m.splitOn(s) {
+	if !m.contentIsSplit() {
 		// Unsplit, or split on a window that has since become too narrow to hold two
-		// halves: either way there is one box, showing the half the keyboard is in.
+		// halves: either way there is one box, showing the half the keyboard is in. Asked
+		// of contentIsSplit rather than splitOn so that this box and the frame's idea of
+		// it are one decision — here the two agree, since reaching this arm is most of
+		// what contentIsSplit tests, but agreeing by construction is the point.
 		half := s.focusedHalf()
 		ed := s.editorAt(half)
 		return m.contentBox(m.editing(), m.paneW, innerH,
@@ -343,6 +378,13 @@ func (m *model) updateHint() string {
 // sidebarHint is the footer's sidebar entry. It names the outcome rather than the toggle,
 // so the legend does not leave you guessing which way the key goes.
 func (m *model) sidebarHint() string {
+	// A window too narrow to pay for the list has no toggle to name. Neither word is true
+	// there — there is nothing to hide, and ctrl+b cannot show it — so the row closes over
+	// the gap as it does for any unbound key, rather than offering a key that declines.
+	// toggleSidebar declines for the same reason; the two are the same rule seen twice.
+	if !m.sidebarFits() {
+		return ""
+	}
 	if m.sidebarHidden {
 		return m.hint(keys.Global, keys.Sidebar, "show hosts")
 	}
@@ -792,8 +834,10 @@ func (m *model) footerHints() (core, extra []string, help string) {
 	}
 
 	// Collapsed, the way back to the hosts outranks the mode's own keys: nothing else on
-	// screen says the sidebar is still there.
-	if m.sidebarHidden {
+	// screen says the sidebar is still there. Asked of sidebarOn rather than of the flag,
+	// so a window that cannot pay for the list is treated as the collapsed screen it is —
+	// where sidebarHint then contributes nothing and compact drops it.
+	if !m.sidebarOn() {
 		core = append([]string{m.sidebarHint()}, core...)
 	}
 

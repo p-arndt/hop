@@ -341,7 +341,9 @@ func (m *model) mousePane(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// A click in the half that does not hold the keyboard moves the keyboard there first.
 	// The halves are two panes and the pointer picks between them, exactly as it picks
 	// between the columns.
-	if m.splitOn(s) && right != s.focusedHalf() &&
+	//
+	// contentIsSplit, not splitOn: with one box on screen there is no other half to pick.
+	if m.contentIsSplit() && right != s.focusedHalf() &&
 		msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
 		m.clearSelection()
 		s.splitRight = right
@@ -399,7 +401,8 @@ func (m *model) clickIntoPane(s *session, right bool) {
 	m.chords.click = time.Time{}
 	switch {
 	case s.editorAt(right) != nil:
-		if m.splitOn(s) {
+		// Only when there are two halves to choose between.
+		if m.contentIsSplit() {
 			s.splitRight = right
 		}
 		m.mode = modeEditor
@@ -451,6 +454,7 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 
 	if m.scrolling() {
 		// Anything else over the history is a drag over text that is not going anywhere.
+		// frame.content, never a half: a shell is always drawn at the full content width.
 		return m.mouseSelect(msg, x, y, p.ViewScrollback(), m.frame.content)
 	}
 

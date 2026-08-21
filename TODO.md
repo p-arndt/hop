@@ -105,6 +105,8 @@ file tracks *what*, not *why*.
 - [x] **`model` is grouped, not flat**: `layout` (window size, derived sizes, the frame, the two collapse flags) and `focus` (active session, mode, selection, drag chain, chords) are embedded structs, so `m.width` and `m.active` still read as they did. 60 named fields down to 47. Ten methods that never needed a model moved onto them — `bodyHeight`, `listWidth`, `splitHalf`, `splitFits`, `buildFrame` on `*layout`; the five mode predicates on `*focus` — which is the part that makes the grouping more than cosmetic. `buildFrame` takes `split bool` because whether the content is halved is the session's answer, not the layout's.
 - [x] **`ctrl+\` closes the split**, keeping whichever file the focused half was showing. With nothing split it falls through to the remote editor rather than being swallowed. Chosen as `\` plus a modifier so open-beside and close-the-split read as one gesture, and ctrl-based because `alt+…` is only ever an alias here.
 
+- [ ] **The host list answers keys it cannot show.** Below the sidebar threshold `sidebarOn()` is false and no list is drawn, but `enter` in `modeList` still acts on the invisible selection. The gating belongs in `keys.go`/`list.go` and is now a one-line question to ask.
+
 ## 🧪 Testing
 
 - [x] `tui` host management (`hostmgmt_test.go`) and navigation keys (`keys_test.go`).

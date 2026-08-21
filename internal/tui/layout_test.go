@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -85,6 +86,26 @@ func withEditors(t *testing.T, m *model, tree, split bool) {
 	m.relayout()
 }
 
+// withSplitShell: a session holding a shell AND two split editor tabs, keyboard in the
+// shell. renderRight answers the shell first, so the session is split but the screen is not.
+func withSplitShell(t *testing.T, m *model) {
+	t.Helper()
+	s := &session{
+		shells: []*shellTab{{id: 1, pane: fakePane()}},
+		editors: []*editorTab{
+			{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()},
+			{id: 2, name: "b.conf", path: "/etc/b.conf", pane: fakePane()},
+		},
+	}
+	t.Cleanup(s.closeShells)
+	t.Cleanup(s.closeEditors)
+	s.openSplit()
+	s.splitEd = 1
+	m.sessions["web1"] = s
+	m.active, m.mode = "web1", modeShell
+	m.relayout()
+}
+
 // treeThreshold is the window width at which three columns first fit with the host list
 // open: the two constants plus the sidebar the test is measured against. Cases sit one
 // column below it, exactly on it and one above, since that is where treeWidth flips
@@ -139,6 +160,11 @@ func layoutCases() []layoutCase {
 		// the right-hand edge, which is a cell the pointer can still land on.
 		{"split, odd content width", 201, 60, editors(true, true)},
 		{"unsplit editors", 200, 60, editors(true, false)},
+		// A split session showing something that is not the editors. The content area is
+		// one box, because the arm of renderRight that drew it is one of the ones above
+		// the editors, and the frame has to say so.
+		{"shell focused in a split session", 200, 20, withSplitShell},
+		{"shell focused in a split session, sidebar collapsed", 200, 20, hide(withSplitShell)},
 
 		// The split threshold, from both sides and exactly on it. The host list is
 		// collapsed and there is no browser, so the window is the content area plus its
@@ -211,7 +237,8 @@ func wantBoxes(m *model) []box {
 		boxes = append(boxes, box{lo: base, hi: base + tw - 1, z: zoneTree})
 		base += tw
 	}
-	if s := m.sessions[m.active]; m.splitOn(s) {
+	// contentIsSplit, not splitOn: what is drawn is what the renderer's switch decides.
+	if m.contentIsSplit() {
 		w := m.splitHalf()
 		return append(boxes,
 			box{lo: base, hi: base + w + 1, z: zonePane},
@@ -495,5 +522,59 @@ func TestSplitDividerBelongsToNeitherHalf(t *testing.T) {
 	}
 	if right, _, _, ok := m.contentLocal(base+w+3, 3); !ok || !right {
 		t.Fatalf("the column after the divider is (%v, %v), want the right half", right, ok)
+	}
+}
+
+// Below the width that can pay for the host list, hop must behave as though it were
+// collapsed, not merely draw it at zero width — otherwise the footer offers "hide hosts"
+// for a list that is not there. 24 and 27 columns straddle the threshold.
+func TestTooNarrowForTheSidebarReadsAsCollapsed(t *testing.T) {
+	for _, w := range []int{24, 27} {
+		m := viewModel(w, 12)
+		withShell(t, m)
+
+		if m.sidebarOn() {
+			t.Fatalf("at %d columns the sidebar reports itself on screen", w)
+		}
+		screen := ansi.Strip(m.View())
+		if strings.Contains(screen, "HOSTS") {
+			t.Fatalf("at %d columns the host list is drawn after all", w)
+		}
+		// Asked of the hint, not the rendered row: a footer this narrow has no room to
+		// print it, so a screen check would pass for the wrong reason.
+		if got := m.sidebarHint(); got != "" {
+			t.Fatalf("at %d columns the footer offers %q for a list that cannot come back", w, got)
+		}
+		// The toggle agrees with the footer's silence, so the user's choice survives.
+		before := m.sidebarHidden
+		m.handleKey(toggleKey())
+		if m.sidebarHidden != before {
+			t.Fatalf("at %d columns ctrl+b flipped sidebarHidden with nothing to show for it", w)
+		}
+		if got := m.listWidth(); got != 0 {
+			t.Fatalf("at %d columns the list is %d columns wide, want 0", w, got)
+		}
+	}
+}
+
+// The threshold is a threshold, not a slope: one column over it the list is back, open or
+// collapsed exactly as the user left it.
+func TestTheSidebarComesBackWhenTheWindowCanPayForIt(t *testing.T) {
+	m := viewModel(24, 12)
+	withShell(t, m)
+	if m.sidebarOn() {
+		t.Fatal("24 columns cannot pay for the sidebar")
+	}
+
+	m.update(tea.WindowSizeMsg{Width: 28, Height: 12})
+
+	if !m.sidebarOn() {
+		t.Fatal("28 columns can pay for the sidebar and it did not come back")
+	}
+	if got := m.listWidth(); got != 16 {
+		t.Fatalf("the restored list is %d columns wide, want its floor of 16", got)
+	}
+	if !strings.Contains(ansi.Strip(m.View()), "HOSTS") {
+		t.Fatal("the restored list is not on screen")
 	}
 }

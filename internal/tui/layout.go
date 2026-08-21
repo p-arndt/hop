@@ -118,9 +118,9 @@ func (m *model) recomputeLayout() {
 	// and listWidth has already given up the sidebar to keep this from going small.
 	m.paneW = max(m.width-lw-tw-2, 1)
 	m.paneH = max(m.bodyHeight()-2, 3)
-	// Whether the content is halved is the session's answer, not the layout's, so it is
-	// decided here and handed down: everything below this line is arithmetic on widths.
-	m.frame = m.layout.buildFrame(lw, tw, m.splitOn(m.sessions[m.active]))
+	// contentIsSplit, not splitOn: the frame has to say what is on SCREEN, and a split
+	// session showing its shell shows one full-width box.
+	m.frame = m.layout.buildFrame(lw, tw, m.contentIsSplit())
 }
 
 // buildFrame places the boxes of the body along the row. The columns are laid left to
@@ -161,26 +161,35 @@ func (l *layout) bodyHeight() int {
 	return max(l.height-chromeRows, 3)
 }
 
+// sidebarPref is the width the host list would like: its preference, held to a floor of
+// 16 and to half the window, before the window has had its say about whether it can be
+// afforded at all. See sidebarFits.
+func (l *layout) sidebarPref() int {
+	return clamp(sidebarWidth, 16, max(l.width/2, 16))
+}
+
+// sidebarFits reports whether the window can pay for the host list and still leave a
+// content area worth drawing. The 16-column floor is a preference, not a promise: below
+// this the list yields entirely rather than push the frame past the terminal's edge.
+func (l *layout) sidebarFits() bool {
+	return l.width-l.sidebarPref() >= minPaneWidth+2
+}
+
+// sidebarOn is the one question anything asks about the host list: is it on screen. The
+// two ways to answer no — collapsed by the user, or unaffordable — must not be told apart
+// anywhere else, or the footer offers to hide a list that is not drawn.
+func (l *layout) sidebarOn() bool {
+	return !l.sidebarHidden && l.sidebarFits()
+}
+
 // listWidth is the outer width of the host list, borders included, or 0 while the sidebar
-// is collapsed — which is the whole of what collapsing means, since every other size here
-// derives from it.
+// is not on screen — which is the whole of what collapsing means, since every other size
+// here derives from it.
 func (l *layout) listWidth() int {
-	if l.sidebarHidden {
+	if !l.sidebarOn() {
 		return 0
 	}
-	w := clamp(sidebarWidth, 16, max(l.width/2, 16))
-	// The floor of 16 is a preference, not a promise. It is independent of the window, so
-	// on a terminal narrower than that floor plus a content box the two together used to
-	// come to more cells than there were — and the frame was drawn wider than the
-	// terminal, which scrolls hop's own header off the top of itself.
-	//
-	// So the list yields entirely, on the same terms as the tree column: a column too
-	// narrow to work in is worse than no column, and of the two the content area is the
-	// one that cannot be given up.
-	if l.width-w < minPaneWidth+2 {
-		return 0
-	}
-	return w
+	return l.sidebarPref()
 }
 
 // treeWidth is the outer width of the SFTP column, borders included, or 0 when there is
@@ -223,6 +232,12 @@ func (m *model) treeInline() bool { return m.hasTree() && m.treeWidth() == 0 }
 // The remote programs are told their new size here rather than on the next window event,
 // so a full-screen editor reflows the moment the columns arrive.
 func (m *model) toggleSidebar() {
+	// A window that cannot pay for the list has no toggle to offer: flipping would change
+	// nothing on screen and would discard the preference the user last set, which is what
+	// the window growing back is supposed to restore. sidebarHint stays silent to match.
+	if !m.sidebarFits() {
+		return
+	}
 	m.sidebarHidden = !m.sidebarHidden
 	m.relayout()
 }

@@ -619,3 +619,37 @@ func TestSelectionInAShellIsMeasuredAtTheFullWidth(t *testing.T) {
 			copied(), want)
 	}
 }
+
+// A window resized while the button is still down: the release must be read out at the
+// width the pane is drawn at now. box used to be a rect snapshot, so a covered row came
+// back cut at the pre-resize column — text the highlight never covered.
+func TestSelectionResizedMidDragIsMeasuredAtTheNewWidth(t *testing.T) {
+	screen, marker, line := wideLine()
+	m, s, copied := splitSelModel(t, screen, marker)
+
+	// The button goes down in the half the keyboard is in, at the width the window has.
+	was := m.splitHalf()
+	m.startSelection(terminal.Cell{X: 0, Y: 0}, m.frame.half(s.focusedHalf()))
+	m.dragSelection(terminal.Cell{X: 4, Y: 1})
+
+	// ...and the window is dragged wider before it comes up. relayout re-lays the columns
+	// and hands every pane its new size, so the half the drag is in is a different width
+	// from the one it started in.
+	m.Update(tea.WindowSizeMsg{Width: 240, Height: 20})
+
+	if m.splitHalf() == was {
+		t.Fatalf("the resize left the half at %d columns, so nothing here is being tested", was)
+	}
+	if len(line) <= m.splitHalf() {
+		t.Fatalf("the row is %d columns, not past the new half's %d — the two widths cannot disagree on it",
+			len(line), m.splitHalf())
+	}
+
+	m.endSelection(s.editor().pane.View())
+
+	want := line[:m.splitHalf()] + "\nhello"
+	if copied() != want {
+		t.Fatalf("clipboard = %q, want %q — the row was measured at the width the half had before the resize",
+			copied(), want)
+	}
+}

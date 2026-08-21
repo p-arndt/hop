@@ -41,12 +41,51 @@ type selection struct {
 	// a repeat is already armed, so motion does not start a second clock.
 	edge int
 
-	// box is the content box the drag was started in, kept because a selection only means
-	// anything against the rows it was measured in. Reading the width back off the layout
-	// later cannot answer it: the content area may be one box or two, and which one this
-	// selection belongs to is a fact about where the pointer went down, not about what the
-	// screen looks like now. It also survives a resize mid-drag.
-	box rect
+	// box is which box of the content area the drag started in. A name, not a width: the
+	// width is looked up on the current frame, so a resize mid-drag still measures against
+	// the box the pane is drawn in now. Known gap: a split arriving mid-drag leaves this
+	// naming the whole area, which then measures too wide.
+	box selBox
+}
+
+// selBox names one of the boxes the content area is drawn as, which is all a selection
+// needs to keep of the layout to find its width again later. See selection.box.
+type selBox uint8
+
+const (
+	// selContent is the area as one box, and the zero value: with no layout behind it a
+	// selection measures against the whole area.
+	selContent selBox = iota
+	selLeft
+	selRight
+)
+
+// namedBox reads a content box of the current frame back as its name, so startSelection
+// can store something that survives the layout moving. The halves are only told apart
+// while there are two: unsplit, frame.left is frame.content.
+func (m *model) namedBox(box rect) selBox {
+	if m.frame.right.empty() {
+		return selContent
+	}
+	switch box {
+	case m.frame.right:
+		return selRight
+	case m.frame.left:
+		return selLeft
+	}
+	return selContent
+}
+
+// selWidth is the inner width of the box the selection is being drawn in: where a fully
+// covered row stops, and where the last row's end column is clamped to.
+func (m *model) selWidth() int {
+	switch m.sel.box {
+	case selLeft:
+		return m.frame.half(false).innerW()
+	case selRight:
+		return m.frame.half(true).innerW()
+	}
+	return m.frame.content.innerW()
 }
 
 // span is the selection as an ordered span, or the empty span when there is none.
@@ -59,7 +98,7 @@ func (s selection) span() terminal.Span {
 
 // startSelection begins a drag at the pane cell the button went down on.
 func (m *model) startSelection(c terminal.Cell, box rect) {
-	m.sel = selection{active: true, dragging: true, anchor: c, head: c, box: box}
+	m.sel = selection{active: true, dragging: true, anchor: c, head: c, box: m.namedBox(box)}
 }
 
 // dragSelection moves the head of a drag in progress. A motion event with no drag behind
@@ -89,7 +128,7 @@ func (m *model) endSelection(view string) {
 	if rows, top, ok := m.shellSpanView(span); ok {
 		view, span = rows, shiftSpan(span, top)
 	}
-	text := terminal.PlainText(view, span, m.sel.box.innerW())
+	text := terminal.PlainText(view, span, m.selWidth())
 	if strings.TrimSpace(text) == "" {
 		m.sel = selection{}
 		return
@@ -152,33 +191,13 @@ func (m *model) clearSelection() bool {
 	return true
 }
 
-// selectionW is how wide a row of the content the selection was made over is — the inner
-// width of the box that content was rendered in, not of the content area as a whole.
-// Both operations need it: it is where a fully covered row stops, and where the last
-// row's end column is clamped to.
-//
-// It was m.paneW until the content area learned to hold two editors side by side, at
-// which point one number stopped answering for every pane on screen. The cases here are
-// renderContent's, in the same order, because the selection is painted onto exactly what
-// that switch decided to draw:
-//
-//   - a shell pane is never one of two boxes — the split belongs to the files the tree
-//     column opens — so it is always the whole content area, even while the session it
-//     belongs to has a split of editors sitting behind it. That is why this cannot simply
-//     ask contentW: contentW answers for the session, and a session with s.split set
-//     still draws its shell full width.
-//   - an editor is contentW's question exactly: one box, or half of one.
-//
-// Anything else — the details pane, a dead session's last screen, the browser in the
-// narrow-window fallback — is drawn at m.paneW and never has a highlight painted on it
-// anyway, so the fallback is the whole content area.
 // selectedView is a pane's rendered content with the selection painted onto it, a no-op
 // when nothing is selected.
 func (m *model) selectedView(content string) string {
 	if !m.sel.active {
 		return content
 	}
-	return terminal.Highlight(content, m.sel.span(), m.sel.box.innerW())
+	return terminal.Highlight(content, m.sel.span(), m.selWidth())
 }
 
 // countLines is how many lines a copied string spans, for the status line.

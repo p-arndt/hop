@@ -811,3 +811,50 @@ func TestLayoutKeysDoNotEscapeAnOpenQuestion(t *testing.T) {
 		})
 	}
 }
+
+// The pointer resolves against the box the renderer drew: a split session focused on its
+// shell shows ONE full-width box, so a cell on its right is the left half, there being no
+// other, measured from that box's border rather than a divider nobody drew.
+func TestShellInASplitSessionIsPointedAtAsOneBox(t *testing.T) {
+	m := viewModel(200, 20)
+	withSplitShell(t, m)
+
+	// Two thirds across the content area: well past where a divider would have been.
+	x := m.frame.content.x + m.frame.content.w*2/3
+	right, lx, _, ok := m.contentLocal(x, 5)
+	if !ok {
+		t.Fatalf("contentLocal(%d, 5) declined a cell inside the shell", x)
+	}
+	if right {
+		t.Fatal("a cell in the full-width shell resolved to a right half that was never drawn")
+	}
+	if want := x - m.frame.content.x - 1; lx != want {
+		t.Fatalf("local column = %d, want %d — measured against the wrong box", lx, want)
+	}
+	// Every column inside the box answers: a phantom divider is two dead columns.
+	for cx := m.frame.content.x + 1; cx < m.frame.content.x+m.frame.content.w-1; cx++ {
+		if _, _, _, ok := m.contentLocal(cx, 5); !ok {
+			t.Fatalf("column %d of the shell declines the pointer", cx)
+		}
+	}
+	// A drag off the edge clamps into the box its anchor was measured in.
+	if cx, _ := m.clampToPane(m.width+10, 5); cx != m.frame.content.innerW()-1 {
+		t.Fatalf("a drag off the edge clamps to column %d, want %d", cx, m.frame.content.innerW()-1)
+	}
+}
+
+// A click in a full-width shell must not move the editors' focus to "the other half".
+func TestClickInAFullWidthShellKeepsTheEditorHalf(t *testing.T) {
+	m := viewModel(200, 20)
+	withSplitShell(t, m)
+	s := m.sessions["web1"]
+	before := s.splitRight
+
+	// A third of the way across, which is the left phantom half — the session's editors
+	// are focused on the right one, so a flip is visible.
+	m.handleMouse(click(m.frame.content.x+m.frame.content.w/3, 5))
+
+	if s.splitRight != before {
+		t.Fatalf("clicking the shell set splitRight to %v, want it left at %v", s.splitRight, before)
+	}
+}
