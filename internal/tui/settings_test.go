@@ -20,14 +20,7 @@ func settingsModel(t *testing.T) *model {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("HOME", dir)
 
-	m := &model{
-		sessions: map[string]*session{},
-		notify:   make(chan struct{}, 1),
-		cfg:      config.Default(),
-		width:    100,
-		height:   30,
-		settings: settingsUI{open: true},
-	}
+	m := &model{sessions: map[string]*session{}, notify: make(chan struct{}, 1), cfg: config.Default(), settings: settingsUI{open: true}, layout: layout{width: 100, height: 30}}
 	return m
 }
 
@@ -360,7 +353,7 @@ func TestSettingsCardFitsTheWindow(t *testing.T) {
 		t.Fatalf("the packed card needs %d rows; it must fit a standard 24-row terminal", settingsMinH())
 	}
 	for h := settingsMinH(); h <= settingsFullH()+8; h++ {
-		m := &model{height: h, width: 100, cfg: config.Default()}
+		m := &model{cfg: config.Default(), layout: layout{height: h, width: 100}}
 		m.openSettings()
 		if got := lipgloss.Height(m.renderSettings()); got > h {
 			t.Errorf("a %d-row window got a %d-line card", h, got)
@@ -372,7 +365,7 @@ func TestSettingsCardFitsTheWindow(t *testing.T) {
 // A scrolling list that can hide the selection is worse than a truncated card: the keys
 // still work, on a field nobody can see.
 func TestSettingsCardScrollsToTheCursor(t *testing.T) {
-	m := &model{height: settingsMinH(), width: 100, cfg: config.Default()}
+	m := &model{cfg: config.Default(), layout: layout{height: settingsMinH(), width: 100}}
 	m.openSettings()
 
 	for i := range settingsFields {

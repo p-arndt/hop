@@ -45,14 +45,7 @@ func editorModel(t *testing.T, names ...string) (*model, *session) {
 			id: i + 1, name: n, path: "/etc/" + n, pane: fakePane(),
 		})
 	}
-	m := &model{
-		sessions: map[string]*session{"web": s},
-		notify:   make(chan struct{}, 1),
-		active:   "web",
-		mode:     modeEditor,
-		paneW:    40,
-		paneH:    12,
-	}
+	m := &model{sessions: map[string]*session{"web": s}, notify: make(chan struct{}, 1), layout: layout{paneW: 40, paneH: 12}, focus: focus{active: "web", mode: modeEditor}}
 	t.Cleanup(s.closeEditors)
 	return m, s
 }

@@ -12,19 +12,11 @@ import (
 
 // viewModel builds a laid-out model with a handful of hosts, ready to render.
 func viewModel(w, h int) *model {
-	m := &model{
-		hosts: []store.Host{
-			{Alias: "web1", HostName: "web1.example.com", User: "deploy", Port: 22, Visits: 3},
-			{Alias: "raspberrypi", HostName: "pi", User: "parndt", IdentityFile: "~/.ssh/id_ed25519"},
-			{Alias: "db-primary", HostName: "10.0.0.9", User: "root", Port: 2222, Group: "prod"},
-		},
-		sessions:   map[string]*session{},
-		connecting: map[string]bool{},
-		highlights: map[int][]int{},
-		width:      w,
-		height:     h,
-		ready:      true,
-	}
+	m := &model{hosts: []store.Host{
+		{Alias: "web1", HostName: "web1.example.com", User: "deploy", Port: 22, Visits: 3},
+		{Alias: "raspberrypi", HostName: "pi", User: "parndt", IdentityFile: "~/.ssh/id_ed25519"},
+		{Alias: "db-primary", HostName: "10.0.0.9", User: "root", Port: 2222, Group: "prod"},
+	}, sessions: map[string]*session{}, connecting: map[string]bool{}, highlights: map[int][]int{}, layout: layout{width: w, height: h, ready: true}}
 	m.applyFilter()
 	m.recomputeLayout()
 	return m
@@ -145,8 +137,8 @@ func TestPanesFillTheWidth(t *testing.T) {
 	m := viewModel(120, 34)
 	m.cursor = 0
 
-	body := strings.Split(m.renderList(m.fr.list.w, m.fr.list.h), "\n")[0] +
-		strings.Split(m.renderRight(m.fr.content.h), "\n")[0]
+	body := strings.Split(m.renderList(m.frame.list.w, m.frame.list.h), "\n")[0] +
+		strings.Split(m.renderRight(m.frame.content.h), "\n")[0]
 
 	if got := lipgloss.Width(body); got != 120 {
 		t.Fatalf("the two panes are %d cells wide, want the full window (120)", got)
@@ -158,9 +150,9 @@ func TestPanesFillTheWidth(t *testing.T) {
 func TestThreeColumnsFillTheWidth(t *testing.T) {
 	m, _ := columnModel(t, 200, 34)
 
-	body := strings.Split(m.renderList(m.fr.list.w, m.fr.list.h), "\n")[0] +
-		strings.Split(m.renderTree(m.fr.tree), "\n")[0] +
-		strings.Split(m.renderRight(m.fr.content.h), "\n")[0]
+	body := strings.Split(m.renderList(m.frame.list.w, m.frame.list.h), "\n")[0] +
+		strings.Split(m.renderTree(m.frame.tree), "\n")[0] +
+		strings.Split(m.renderRight(m.frame.content.h), "\n")[0]
 
 	if got := lipgloss.Width(body); got != 200 {
 		t.Fatalf("the three columns are %d cells wide, want the full window (200)", got)

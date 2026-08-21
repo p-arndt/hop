@@ -32,15 +32,7 @@ func hostMgmtModel(t *testing.T, seed ...store.Host) *model {
 		t.Fatalf("load hosts: %v", err)
 	}
 
-	m := &model{
-		st:       st,
-		hosts:    hosts,
-		sessions: map[string]*session{},
-		notify:   make(chan struct{}, 1),
-		cfg:      config.Default(),
-		width:    100,
-		height:   30,
-	}
+	m := &model{st: st, hosts: hosts, sessions: map[string]*session{}, notify: make(chan struct{}, 1), cfg: config.Default(), layout: layout{width: 100, height: 30}}
 	m.applyFilter()
 	return m
 }

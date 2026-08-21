@@ -16,15 +16,7 @@ func TestRenderStripsControlSequencesFromHostFields(t *testing.T) {
 		User:     "de\x1bploy",
 	}
 
-	m := &model{
-		hosts:      []store.Host{evil},
-		sessions:   map[string]*session{},
-		connecting: map[string]bool{},
-		highlights: map[int][]int{},
-		width:      120,
-		height:     34,
-		ready:      true,
-	}
+	m := &model{hosts: []store.Host{evil}, sessions: map[string]*session{}, connecting: map[string]bool{}, highlights: map[int][]int{}, layout: layout{width: 120, height: 34, ready: true}}
 	m.applyFilter()
 	m.recomputeLayout()
 

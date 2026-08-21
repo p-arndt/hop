@@ -80,7 +80,7 @@ func newNavModel(n int) *model {
 	for i := range hosts {
 		hosts[i] = store.Host{Alias: fmt.Sprintf("h%d", i), HostName: "example.test"}
 	}
-	m := &model{hosts: hosts, height: 20, cfg: config.Config{VimKeys: true}}
+	m := &model{hosts: hosts, cfg: config.Config{VimKeys: true}, layout: layout{height: 20}}
 	// applyFilter is what fills the filtered list *and* the drawn rows the paging
 	// arithmetic is measured in; with no filter it is every host, in order.
 	m.applyFilter()
@@ -266,12 +266,7 @@ func TestNavForwardKeysOnEmptyList(t *testing.T) {
 // newPaneModel builds a model focused on a terminal pane. The session map is
 // empty, so key forwarding is a no-op and we can assert purely on mode changes.
 func newPaneModel() *model {
-	return &model{
-		active:   "web1",
-		mode:     modeShell,
-		sessions: map[string]*session{},
-		height:   20,
-	}
+	return &model{sessions: map[string]*session{}, layout: layout{height: 20}, focus: focus{active: "web1", mode: modeShell}}
 }
 
 func TestPaneDoubleEscLeaves(t *testing.T) {
@@ -404,7 +399,7 @@ func TestBrowsingCtrlOLeaves(t *testing.T) {
 // newBrowseModel builds a model in browsing mode with no live session, so keys
 // that would reach the browser are simply dropped.
 func newBrowseModel() *model {
-	return &model{active: "web1", mode: modeBrowser, sessions: map[string]*session{}, height: 20}
+	return &model{sessions: map[string]*session{}, layout: layout{height: 20}, focus: focus{active: "web1", mode: modeBrowser}}
 }
 
 // A letter typed into the filter is literal text: the filter owns every rune while

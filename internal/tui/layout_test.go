@@ -318,10 +318,10 @@ func TestTheSidebarYieldsBeforeTheFrameOverruns(t *testing.T) {
 		m := viewModel(c.w, 12)
 		withShell(t, m)
 		m.recomputeLayout()
-		if got := m.fr.list.w; got != c.wantList {
+		if got := m.frame.list.w; got != c.wantList {
 			t.Errorf("at %d columns the list is %d wide, want %d", c.w, got, c.wantList)
 		}
-		if got := m.fr.content.x + m.fr.content.w; got != c.w {
+		if got := m.frame.content.x + m.frame.content.w; got != c.w {
 			t.Errorf("at %d columns the content box ends at %d, want the window edge", c.w, got)
 		}
 	}

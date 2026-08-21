@@ -152,7 +152,7 @@ func (m *model) hostBadge(h store.Host) string {
 	case m.sessions[h.Alias] != nil:
 		return connectedDot + " " + greenText.Render("connected")
 	case m.connecting[h.Alias]:
-		return spinner(m.frame) + " " + yellowText.Render("connecting…")
+		return spinner(m.spinFrame) + " " + yellowText.Render("connecting…")
 	default:
 		return idleDot + " " + dimStyle.Render("idle")
 	}

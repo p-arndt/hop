@@ -28,16 +28,7 @@ func newMouseModel(n int) *model {
 		hosts[i] = store.Host{Alias: "h" + string(rune('a'+i%26)), HostName: "example.test"}
 		filtered[i] = i
 	}
-	m := &model{
-		hosts:      hosts,
-		filtered:   filtered,
-		sessions:   map[string]*session{},
-		connecting: map[string]bool{},
-		width:      100,
-		height:     20,
-		ready:      true,
-		cfg:        config.Default(),
-	}
+	m := &model{hosts: hosts, filtered: filtered, sessions: map[string]*session{}, connecting: map[string]bool{}, cfg: config.Default(), layout: layout{width: 100, height: 20, ready: true}}
 	m.recomputeLayout()
 	// applyFilter is what builds the drawn rows the click arithmetic runs backwards;
 	// with an empty filter it hands back the same filtered list built above.

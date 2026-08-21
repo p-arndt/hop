@@ -13,19 +13,13 @@ import (
 func blinkModel(t *testing.T) (*model, []*terminal.Pane) {
 	t.Helper()
 	shell, editor, other := fakePane(), fakePane(), fakePane()
-	m := &model{
-		sessions: map[string]*session{
-			"web": {
-				shells:  []*shellTab{{id: 1, pane: shell}},
-				editors: []*editorTab{{id: 1, name: "hosts", path: "/etc/hosts", pane: editor}},
-			},
-			"db": {shells: []*shellTab{{id: 1, pane: other}}},
+	m := &model{sessions: map[string]*session{
+		"web": {
+			shells:  []*shellTab{{id: 1, pane: shell}},
+			editors: []*editorTab{{id: 1, name: "hosts", path: "/etc/hosts", pane: editor}},
 		},
-		notify: make(chan struct{}, 1),
-		cfg:    config.Default(),
-		width:  100,
-		height: 30,
-	}
+		"db": {shells: []*shellTab{{id: 1, pane: other}}},
+	}, notify: make(chan struct{}, 1), cfg: config.Default(), layout: layout{width: 100, height: 30}}
 	return m, []*terminal.Pane{shell, editor, other}
 }
 

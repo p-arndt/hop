@@ -27,11 +27,11 @@ func (m *model) View() string {
 	// The columns are drawn right to left into the boxes the frame placed them in. A
 	// collapsed column is not drawn at all — an empty rect, rather than a zero-width box,
 	// which would still cost the two columns its border takes.
-	body := m.renderRight(m.fr.content.h)
-	if r := m.fr.tree; !r.empty() {
+	body := m.renderRight(m.frame.content.h)
+	if r := m.frame.tree; !r.empty() {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderTree(r), body)
 	}
-	if r := m.fr.list; !r.empty() {
+	if r := m.frame.list; !r.empty() {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderList(r.w, r.h), body)
 	}
 
@@ -230,7 +230,7 @@ func (m *model) contentBox(active bool, w, innerH int, content string) string {
 	switch {
 	case active:
 		style = paneBorderActive
-	case !m.fr.tree.empty():
+	case !m.frame.tree.empty():
 		style = paneBorderIdle
 	}
 	return style.Width(w).Height(innerH).Render(clampLines(fitLines(content, innerH), w))
@@ -267,7 +267,7 @@ func (m *model) renderEditorPanes(s *session, innerH int) string {
 			m.renderEditorTabs(s, half)+"\n"+m.selectedView(ed.pane.View()))
 	}
 
-	w := m.fr.left.innerW()
+	w := m.frame.left.innerW()
 	half := func(right bool) string {
 		focused := m.editing() && s.splitRight == right
 		ed := s.editorAt(right)

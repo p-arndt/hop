@@ -118,28 +118,30 @@ func (m *model) recomputeLayout() {
 	// and listWidth has already given up the sidebar to keep this from going small.
 	m.paneW = max(m.width-lw-tw-2, 1)
 	m.paneH = max(m.bodyHeight()-2, 3)
-	m.fr = m.buildFrame(lw, tw)
+	// Whether the content is halved is the session's answer, not the layout's, so it is
+	// decided here and handed down: everything below this line is arithmetic on widths.
+	m.frame = m.layout.buildFrame(lw, tw, m.splitOn(m.sessions[m.active]))
 }
 
 // buildFrame places the boxes of the body along the row. The columns are laid left to
 // right from widths that are already settled, so the frame cannot disagree with them —
 // which is the whole point of deriving it in one place.
-func (m *model) buildFrame(lw, tw int) frame {
-	bodyH := m.bodyHeight()
+func (l *layout) buildFrame(lw, tw int, split bool) frame {
+	bodyH := l.bodyHeight()
 	f := frame{
 		list:    rect{x: 0, y: 1, w: lw, h: bodyH},
 		tree:    rect{x: lw, y: 1, w: tw, h: bodyH},
-		content: rect{x: lw + tw, y: 1, w: m.paneW + 2, h: bodyH},
+		content: rect{x: lw + tw, y: 1, w: l.paneW + 2, h: bodyH},
 	}
 
-	if !m.splitOn(m.sessions[m.active]) {
+	if !split {
 		f.left = f.content
 		return f
 	}
 	// Two boxes inside the columns the one box had. Both halves are the same width, so
 	// the odd column an odd-width content area leaves over stays blank at the right-hand
 	// edge — it belongs to no box, and the pointer is told so.
-	hw := m.splitHalf() + 2
+	hw := l.splitHalf() + 2
 	f.left = rect{x: f.content.x, y: 1, w: hw, h: bodyH}
 	f.right = rect{x: f.content.x + hw, y: 1, w: hw, h: bodyH}
 	return f
@@ -155,18 +157,18 @@ func (m *model) relayout() {
 }
 
 // bodyHeight is the rows left for the columns once the header and footer have theirs.
-func (m *model) bodyHeight() int {
-	return max(m.height-chromeRows, 3)
+func (l *layout) bodyHeight() int {
+	return max(l.height-chromeRows, 3)
 }
 
 // listWidth is the outer width of the host list, borders included, or 0 while the sidebar
 // is collapsed — which is the whole of what collapsing means, since every other size here
 // derives from it.
-func (m *model) listWidth() int {
-	if m.sidebarHidden {
+func (l *layout) listWidth() int {
+	if l.sidebarHidden {
 		return 0
 	}
-	w := clamp(sidebarWidth, 16, max(m.width/2, 16))
+	w := clamp(sidebarWidth, 16, max(l.width/2, 16))
 	// The floor of 16 is a preference, not a promise. It is independent of the window, so
 	// on a terminal narrower than that floor plus a content box the two together used to
 	// come to more cells than there were — and the frame was drawn wider than the
@@ -175,7 +177,7 @@ func (m *model) listWidth() int {
 	// So the list yields entirely, on the same terms as the tree column: a column too
 	// narrow to work in is worse than no column, and of the two the content area is the
 	// one that cannot be given up.
-	if m.width-w < minPaneWidth+2 {
+	if l.width-w < minPaneWidth+2 {
 		return 0
 	}
 	return w
@@ -260,14 +262,14 @@ func (m *model) contentW(s *session) int {
 // once: a tab switched into either half is already laid out for it. The odd column an
 // odd-width content area leaves over stays blank at the right-hand edge rather than
 // making one half wider than the other for the sake of it.
-func (m *model) splitHalf() int {
-	return max((m.paneW-2)/2, 10)
+func (l *layout) splitHalf() int {
+	return max((l.paneW-2)/2, 10)
 }
 
 // splitFits reports whether the content area can be halved and leave two halves worth
 // reading. Below it the split key opens an ordinary tab and says so.
-func (m *model) splitFits() bool {
-	return m.paneW+2 >= 2*minSplitHalf
+func (l *layout) splitFits() bool {
+	return l.paneW+2 >= 2*minSplitHalf
 }
 
 // editorSize is the terminal size an editor pane gets: its content box less the tab

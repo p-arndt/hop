@@ -543,7 +543,7 @@ func splitSelModel(t *testing.T, screen, marker string) (*model, *session, func(
 	if !m.splitOn(s) {
 		t.Fatal("the content area is not split, so nothing here is being tested")
 	}
-	if m.fr.right.empty() {
+	if m.frame.right.empty() {
 		t.Fatal("the frame has no right half, so nothing here is being tested")
 	}
 	return m, s, func() string {
@@ -569,7 +569,7 @@ func TestSelectionInASplitHalfIsMeasuredAtTheHalfWidth(t *testing.T) {
 	screen, marker, line := wideLine()
 	m, s, copied := splitSelModel(t, screen, marker)
 
-	box := m.fr.half(s.focusedHalf())
+	box := m.frame.half(s.focusedHalf())
 	if box.innerW() != m.splitHalf() {
 		t.Fatalf("the half is %d wide, want %d and not the content area's %d",
 			box.innerW(), m.splitHalf(), m.paneW)
@@ -603,7 +603,7 @@ func TestSelectionInAShellIsMeasuredAtTheFullWidth(t *testing.T) {
 
 	// A shell is drawn in the content box entire, which is the box mouseShell hands to
 	// mouseSelect however the session behind it is split.
-	box := m.fr.content
+	box := m.frame.content
 	if box.innerW() != m.paneW {
 		t.Fatalf("the content box is %d wide, want %d: a shell is never split",
 			box.innerW(), m.paneW)

@@ -54,9 +54,9 @@ func (m *model) zoneAt(x, y int) zone {
 		return zoneFooter
 	}
 	switch {
-	case m.fr.list.contains(x, y):
+	case m.frame.list.contains(x, y):
 		return zoneList
-	case m.fr.tree.contains(x, y):
+	case m.frame.tree.contains(x, y):
 		return zoneTree
 	}
 	// Everything else on a body row is the content area, including the blank column an
@@ -294,7 +294,7 @@ func (m *model) mouseTree(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 // RowAt and Select are measured from its own top-left corner, so the column's border and
 // the screen header have to come off the coordinate before it is asked anything — which
 // is the whole of what "translate per column" means here.
-func (m *model) treeLocal(x, y int) (int, int, bool) { return m.fr.tree.inner(x, y) }
+func (m *model) treeLocal(x, y int) (int, int, bool) { return m.frame.tree.inner(x, y) }
 
 // ---- the content area ----
 
@@ -364,10 +364,10 @@ func (m *model) mousePane(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 // always false. Split, the two boxes sit side by side inside the same columns the one box
 // had, and the divider they share belongs to neither.
 func (m *model) contentLocal(x, y int) (bool, int, int, bool) {
-	if lx, ly, ok := m.fr.left.inner(x, y); ok {
+	if lx, ly, ok := m.frame.left.inner(x, y); ok {
 		return false, lx, ly, true
 	}
-	if lx, ly, ok := m.fr.right.inner(x, y); ok {
+	if lx, ly, ok := m.frame.right.inner(x, y); ok {
 		return true, lx, ly, true
 	}
 	return false, 0, 0, false
@@ -386,7 +386,7 @@ func (m *model) paneLocal(x, y int) (int, int, bool) {
 // lands.
 func (m *model) clampToPane(x, y int) (int, int) {
 	s := m.sessions[m.active]
-	return m.fr.half(s != nil && s.splitRight).clamp(x, y)
+	return m.frame.half(s != nil && s.splitRight).clamp(x, y)
 }
 
 // clickIntoPane gives the keyboard to what the content area is showing: the editor tab in
@@ -451,7 +451,7 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 
 	if m.scrolling() {
 		// Anything else over the history is a drag over text that is not going anywhere.
-		return m.mouseSelect(msg, x, y, p.ViewScrollback(), m.fr.content)
+		return m.mouseSelect(msg, x, y, p.ViewScrollback(), m.frame.content)
 	}
 
 	// A remote program that asked for the mouse keeps it, selection included: it has its
@@ -460,7 +460,7 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 		p.SendMouse(msg, x, y)
 		return m, nil
 	}
-	return m.mouseSelect(msg, x, y, p.View(), m.fr.content)
+	return m.mouseSelect(msg, x, y, p.View(), m.frame.content)
 }
 
 // wheelDir reads a wheel notch as the direction it wants the view moved: -1 back into
@@ -665,14 +665,14 @@ func (m *model) mouseEditor(s *session, msg tea.MouseMsg, x, y int) (tea.Model, 
 		return m, nil
 	}
 	// An editor that has not asked is a screen full of text like any other.
-	return m.mouseSelect(msg, x, y-1, p.View(), m.fr.half(right))
+	return m.mouseSelect(msg, x, y-1, p.View(), m.frame.half(right))
 }
 
 // browserZone is the region the listing is drawn in — its own column, or the content area
 // on a window with no room for one. It is what the double-click chord is keyed to, so that
 // a click in the tree and a click in the file beside it can never pair up into a double.
 func (m *model) browserZone() zone {
-	if !m.fr.tree.empty() {
+	if !m.frame.tree.empty() {
 		return zoneTree
 	}
 	return zonePane

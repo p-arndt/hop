@@ -24,12 +24,7 @@ func pastePane() (*terminal.Pane, *syncBuf) {
 // pasteModel is a model focused on a shell pane, which is where a paste goes.
 func pasteModel() (*model, *syncBuf) {
 	pane, stdin := pastePane()
-	m := &model{
-		sessions:      map[string]*session{"web": {shells: []*shellTab{{id: 1, pane: pane}}}},
-		active:        "web",
-		mode:          modeShell,
-		pasteCoalesce: true,
-	}
+	m := &model{sessions: map[string]*session{"web": {shells: []*shellTab{{id: 1, pane: pane}}}}, pasteCoalesce: true, focus: focus{active: "web", mode: modeShell}}
 	return m, stdin
 }
 
@@ -89,11 +84,7 @@ func TestMarkedPasteGoesToTheShell(t *testing.T) {
 // for, and the editor handler binds letters of its own the paste must not hit.
 func TestMarkedPasteGoesToTheEditor(t *testing.T) {
 	pane, stdin := pastePane()
-	m := &model{
-		sessions: map[string]*session{"web": {editors: []*editorTab{{id: 1, name: "f", pane: pane}}}},
-		active:   "web",
-		mode:     modeEditor,
-	}
+	m := &model{sessions: map[string]*session{"web": {editors: []*editorTab{{id: 1, name: "f", pane: pane}}}}, focus: focus{active: "web", mode: modeEditor}}
 	m.handleKey(pasted("line one\nline two"))
 
 	flushPanes(m)

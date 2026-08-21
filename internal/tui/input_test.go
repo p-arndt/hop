@@ -39,12 +39,7 @@ var _ io.WriteCloser = (*stalledStdin)(nil)
 func TestDroppedInputIsReported(t *testing.T) {
 	sess := &sshx.Session{Stdin: newStalledStdin(), Stdout: strings.NewReader("")}
 	pane := terminal.New(sess, 20, 5, nil)
-	m := &model{
-		sessions:      map[string]*session{"web": {shells: []*shellTab{{id: 1, pane: pane}}}},
-		active:        "web",
-		mode:          modeShell,
-		pasteCoalesce: true,
-	}
+	m := &model{sessions: map[string]*session{"web": {shells: []*shellTab{{id: 1, pane: pane}}}}, pasteCoalesce: true, focus: focus{active: "web", mode: modeShell}}
 	clk := newTestClock(m)
 
 	for i := 0; i < 20000 && m.status == ""; i++ {

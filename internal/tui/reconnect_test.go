@@ -50,23 +50,7 @@ func deadModel(t *testing.T, n int, browser bool) (*model, *session, *sshx.Clien
 	if _, err := st.Add(host); err != nil {
 		t.Fatalf("add host: %v", err)
 	}
-	m := &model{
-		st:         st,
-		hosts:      []store.Host{host},
-		filtered:   []int{0},
-		highlights: map[int][]int{},
-		sessions:   map[string]*session{"web": s},
-		connecting: map[string]bool{},
-		pending:    map[string]reconnectPlan{},
-		notify:     make(chan struct{}, 1),
-		active:     "web",
-		mode:       paneModeIf(n > 0, modeShell),
-		width:      100,
-		height:     30,
-		paneW:      60,
-		paneH:      20,
-		ready:      true,
-	}
+	m := &model{st: st, hosts: []store.Host{host}, filtered: []int{0}, highlights: map[int][]int{}, sessions: map[string]*session{"web": s}, connecting: map[string]bool{}, pending: map[string]reconnectPlan{}, notify: make(chan struct{}, 1), layout: layout{width: 100, height: 30, paneW: 60, paneH: 20, ready: true}, focus: focus{active: "web", mode: paneModeIf(n > 0, modeShell)}}
 	m.recomputeLayout()
 	t.Cleanup(func() {
 		if s, live := m.sessions["web"]; live {

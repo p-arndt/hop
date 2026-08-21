@@ -218,7 +218,7 @@ func (m *model) dotFor(alias string) string {
 		return connectedDot
 	}
 	if m.connecting[alias] {
-		return spinner(m.frame)
+		return spinner(m.spinFrame)
 	}
 	return idleDot
 }

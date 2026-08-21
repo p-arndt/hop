@@ -70,17 +70,7 @@ func vscodeModel(t *testing.T, shells int, dir string) (*model, io.Writer) {
 		}
 		s.shells = append(s.shells, &shellTab{id: i + 1, pane: pane})
 	}
-	return &model{
-		hosts:      []store.Host{{Alias: "web"}},
-		filtered:   []int{0},
-		sessions:   map[string]*session{"web": s},
-		connecting: map[string]bool{},
-		notify:     make(chan struct{}, 1),
-		active:     "web",
-		paneW:      40,
-		paneH:      12,
-		height:     20,
-	}, remote
+	return &model{hosts: []store.Host{{Alias: "web"}}, filtered: []int{0}, sessions: map[string]*session{"web": s}, connecting: map[string]bool{}, notify: make(chan struct{}, 1), layout: layout{paneW: 40, paneH: 12, height: 20}, focus: focus{active: "web"}}, remote
 }
 
 // The feature: 'o' in the host list opens VS Code on the directory the host's

@@ -59,24 +59,80 @@ const (
 // alone; what is drawn is asked of the session (see hasTree, session.editor).
 
 // focused reports whether a shell pane holds the keyboard, live or in scrollback.
-func (m *model) focused() bool { return m.mode == modeShell || m.mode == modeScrollback }
+func (f *focus) focused() bool { return f.mode == modeShell || f.mode == modeScrollback }
 
 // scrolling reports whether the focused shell is paused in its history.
-func (m *model) scrolling() bool { return m.mode == modeScrollback }
+func (f *focus) scrolling() bool { return f.mode == modeScrollback }
 
 // browsing reports whether the SFTP column holds the keyboard. It no longer implies the
 // browser is what is on screen — it always is, when the session has one — only that the
 // keys are going to it.
-func (m *model) browsing() bool { return m.mode == modeBrowser }
+func (f *focus) browsing() bool { return f.mode == modeBrowser }
 
 // editing reports whether an editor tab holds the keyboard. As with browsing, the tabs
 // are drawn whether or not this is true.
-func (m *model) editing() bool { return m.mode == modeEditor }
+func (f *focus) editing() bool { return f.mode == modeEditor }
 
 // inPane reports whether any column holds the keyboard, i.e. the host list does not.
-func (m *model) inPane() bool { return m.mode != modeList }
+func (f *focus) inPane() bool { return f.mode != modeList }
+
+// layout is the size and shape of the screen: what hop was told the window is, what it
+// derived from that, and which of the collapsible columns are down. It is grouped because
+// these move together and only together — every one of them is written by a resize or by a
+// column being toggled, and nothing else has any business setting them.
+//
+// It is embedded rather than named, so m.width and m.paneW still read as they always did.
+// The value is in having somewhere for the geometry to live, and something for the pure
+// geometry methods to hang off, not in making every call site say so.
+type layout struct {
+	// fr is where every box of the body is for the frame being drawn: derived in
+	// recomputeLayout, read by the renderer and the pointer alike so the two cannot
+	// disagree. It is state only in the sense that a cache is — nothing writes to it but
+	// recomputeLayout, and View re-derives it before measuring anything. See frame.
+	frame frame
+	// sidebarHidden is true while the host list is collapsed (ctrl+b). Session-only and
+	// not a setting: hop opens on its host list, which is where you start from.
+	sidebarHidden bool
+	// treeHidden is the same for the SFTP column. Also session-only, and for the stronger
+	// reason: the column only exists while a session has a browser open, so there is
+	// nothing about it worth remembering across runs. See toggleTree.
+	treeHidden bool
+	width      int
+	height     int
+	// paneW/paneH are the last computed inner dimensions of the right pane.
+	paneW int
+	paneH int
+	ready bool
+}
+
+// focus is where the keyboard is and what the pointer is holding. Also embedded: m.active
+// and m.mode are read in nearly a hundred places and gain nothing from a longer name.
+//
+// The four of them are one fact in four parts — which session, which column of it, what is
+// selected in that column, and which drag chain owns the autoscroll — and a change to any
+// of them is a change to where the next keystroke goes.
+type focus struct {
+	// chords is every half-typed key sequence hop is holding. See chordState.
+	chords chordState
+	// sel is the text selection made with the pointer over a pane. hop reports the mouse,
+	// so the terminal's own selection never happens and this stands in for it. See
+	// selection.go.
+	sel selection
+	// dragGen numbers the autoscroll chains a drag starts, so a tick armed for an edge
+	// the pointer has since left is dropped. See dragAutoScroll.
+	dragGen int
+	// active is the alias of the session shown/focused in the right pane
+	// ("" means navigation/details mode).
+	active string
+	// mode is where the keystrokes are going — one value rather than four bools that
+	// were never independent and had to be cleared by hand. See paneMode.
+	mode paneMode
+}
 
 type model struct {
+	layout
+	focus
+
 	st    *store.Store
 	hosts []store.Host
 
@@ -103,18 +159,6 @@ type model struct {
 	// — a "gg" in the browser, the first esc of a double. One per model: two readers on
 	// one layer would each hold half a chord.
 	reader keys.Reader
-
-	// chords is every half-typed key sequence hop is holding. See chordState.
-	chords chordState
-
-	// sel is the text selection made with the pointer over a pane. hop reports the mouse,
-	// so the terminal's own selection never happens and this stands in for it. See
-	// selection.go.
-	sel selection
-
-	// dragGen numbers the autoscroll chains a drag starts, so a tick armed for an edge
-	// the pointer has since left is dropped. See dragAutoScroll.
-	dragGen int
 
 	// filter input state.
 	filtering bool
@@ -152,29 +196,6 @@ type model struct {
 	// keycast is the on-screen trail of recent keys used when recording the demo. It
 	// holds and draws nothing unless built with `-tags hopdemo`.
 	keycast keycastState
-
-	// active is the alias of the session shown/focused in the right pane
-	// ("" means navigation/details mode).
-	active string
-
-	// mode is where the keystrokes are going — one value rather than four bools that
-	// were never independent and had to be cleared by hand. See paneMode.
-	mode paneMode
-
-	// fr is where every box of the body is for the frame being drawn: derived in
-	// recomputeLayout, read by the renderer and the pointer alike so the two cannot
-	// disagree. It is state only in the sense that a cache is — nothing writes to it but
-	// recomputeLayout, and View re-derives it before measuring anything. See frame.
-	fr frame
-
-	// sidebarHidden is true while the host list is collapsed (ctrl+b). Session-only and
-	// not a setting: hop opens on its host list, which is where you start from.
-	sidebarHidden bool
-
-	// treeHidden is the same for the SFTP column. Also session-only, and for the stronger
-	// reason: the column only exists while a session has a browser open, so there is
-	// nothing about it worth remembering across runs. See toggleTree.
-	treeHidden bool
 
 	// help is true while the keybinding card is up.
 	help bool
@@ -242,8 +263,8 @@ type model struct {
 
 	// frame advances the connect spinner; ticking says its ticker is already running, so
 	// a second connect does not start a second one.
-	frame   int
-	ticking bool
+	spinFrame int
+	ticking   bool
 
 	// cursorUp is the frame hop's cursor blink is on, blinking says its clock is running,
 	// and blinkGen numbers the chain — so a setting switched off and on again cannot end
@@ -252,15 +273,6 @@ type model struct {
 	cursorUp bool
 	blinking bool
 	blinkGen int
-
-	width  int
-	height int
-
-	// paneW/paneH are the last computed inner dimensions of the right pane.
-	paneW int
-	paneH int
-
-	ready bool
 }
 
 // Run builds the model, loads hosts, and runs the Bubble Tea program.
@@ -352,7 +364,7 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForOutput(m.notify)
 
 	case tickMsg:
-		m.frame++
+		m.spinFrame++
 		if len(m.connecting) == 0 {
 			// Nothing is dialing: stop the only clock hop runs.
 			m.ticking = false
