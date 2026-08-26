@@ -3,7 +3,7 @@ package tui
 import (
 	"strconv"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/filebrowser"
 	"hop/internal/sshx"
