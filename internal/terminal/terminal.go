@@ -51,9 +51,10 @@ type Pane struct {
 	// Bubble Tea's Update and View share one goroutine.
 	scrollOffset int
 
-	mouse  mouseState
-	paste  pasteState
-	cursor cursorState
+	mouse      mouseState
+	paste      pasteState
+	cursor     cursorState
+	cursorKeys cursorKeysState
 
 	// clipMu guards clipSink: installed from the UI goroutine, read by the output pump.
 	clipSink  func(string)
@@ -96,10 +97,12 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 		EnableMode: func(mode ansi.Mode) {
 			p.mouse.setMode(mode, true)
 			p.paste.setMode(mode, true)
+			p.cursorKeys.setMode(mode, true)
 		},
 		DisableMode: func(mode ansi.Mode) {
 			p.mouse.setMode(mode, false)
 			p.paste.setMode(mode, false)
+			p.cursorKeys.setMode(mode, false)
 		},
 		// Cursor callbacks rather than modes: DECTCEM is only half of it and DECSCUSR is
 		// not a mode at all.
@@ -118,6 +121,7 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 			p.mouse.clear()
 			p.paste.clear()
 			p.cursor.clear()
+			p.cursorKeys.clear()
 		},
 	})
 
@@ -139,6 +143,7 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 					p.mouse.clear()
 					p.paste.clear()
 					p.cursor.clear()
+					p.cursorKeys.clear()
 				}
 				if text, ok := p.osc.tookClipboard(); ok {
 					p.copyOut(text)
@@ -205,14 +210,15 @@ func runeWidth(r rune) int {
 
 // SendKey queues a Bubble Tea key event for the far end, reporting whether it was taken.
 func (p *Pane) SendKey(msg tea.KeyPressMsg) bool {
-	return p.send(keyToBytes(msg))
+	return p.send(keyToBytes(msg, p.cursorKeys.enabled()))
 }
 
 // SendKeys queues a run of key events as one queue item.
 func (p *Pane) SendKeys(msgs []tea.KeyPressMsg) bool {
 	var b []byte
+	appCursor := p.cursorKeys.enabled()
 	for _, msg := range msgs {
-		b = append(b, keyToBytes(msg)...)
+		b = append(b, keyToBytes(msg, appCursor)...)
 	}
 	return p.send(b)
 }
@@ -284,14 +290,15 @@ func (p *Pane) Close() error {
 
 // keyToBytes maps a Bubble Tea key event to the bytes a terminal application expects
 // on stdin.
-func keyToBytes(msg tea.KeyPressMsg) []byte {
+func keyToBytes(msg tea.KeyPressMsg, appCursor bool) []byte {
 	// xterm puts the modifier inside the sequence (ESC[1;5D for ctrl+left), so a modified
-	// cursor key is handled before the meta prefix below.
+	// cursor key is handled before the meta prefix below — and before DECCKM, which xterm
+	// applies only to the unmodified form.
 	if b, ok := modifiedKeyBytes(msg); ok {
 		return b
 	}
 
-	b := keyBytes(msg)
+	b := keyBytes(msg, appCursor)
 	// alt+<key> is that key's bytes behind an ESC.
 	if msg.Mod.Contains(tea.ModAlt) && len(b) > 0 && msg.Code != tea.KeyEscape {
 		return append([]byte{0x1b}, b...)
@@ -300,14 +307,18 @@ func keyToBytes(msg tea.KeyPressMsg) []byte {
 }
 
 // cursorFinal and tildeParam are the keys xterm reports with the modifier inside the
-// sequence: CSI 1 ; <mod> <final>, and CSI <n> ; <mod> ~ for the tilde keys.
+// sequence: CSI 1 ; <mod> <final>, and CSI <n> ; <mod> ~ for the tilde keys. F1-F4 share
+// the first form, which is why they sit among the cursor keys.
 var (
 	cursorFinal = map[rune]byte{
 		tea.KeyUp: 'A', tea.KeyDown: 'B', tea.KeyRight: 'C', tea.KeyLeft: 'D',
 		tea.KeyHome: 'H', tea.KeyEnd: 'F',
+		tea.KeyF1: 'P', tea.KeyF2: 'Q', tea.KeyF3: 'R', tea.KeyF4: 'S',
 	}
 	tildeParam = map[rune]int{
 		tea.KeyInsert: 2, tea.KeyDelete: 3, tea.KeyPgUp: 5, tea.KeyPgDown: 6,
+		tea.KeyF5: 15, tea.KeyF6: 17, tea.KeyF7: 18, tea.KeyF8: 19,
+		tea.KeyF9: 20, tea.KeyF10: 21, tea.KeyF11: 23, tea.KeyF12: 24,
 	}
 )
 
@@ -316,7 +327,7 @@ var (
 func modifiedKeyBytes(msg tea.KeyPressMsg) ([]byte, bool) {
 	mods := int(msg.Mod & (tea.ModShift | tea.ModAlt | tea.ModCtrl | tea.ModMeta))
 	// A bare alt keeps the ESC prefix instead: xterm would send CSI 1;3D, but every remote
-	// program hop has ever fed reads the meta form, so the migration does not change it.
+	// program hop has ever fed reads the meta form, so this does not change it.
 	if mods == 0 || msg.Mod&(tea.ModShift|tea.ModCtrl) == 0 {
 		return nil, false
 	}
@@ -330,12 +341,25 @@ func modifiedKeyBytes(msg tea.KeyPressMsg) ([]byte, bool) {
 }
 
 // keyBytes is keyToBytes without the meta prefix: the bytes for the key itself.
-func keyBytes(msg tea.KeyPressMsg) []byte {
+func keyBytes(msg tea.KeyPressMsg, appCursor bool) []byte {
 	// Before the printable branches: ctrl+space is NUL, not a space. See ctrlByte.
 	if msg.Mod.Contains(tea.ModCtrl) {
 		if b, ok := ctrlByte(msg.Code); ok {
 			return []byte{b}
 		}
+	}
+
+	// The cursor keys, whose introducer DECCKM picks: CSI normally, SS3 once a full-screen
+	// program has asked. F1-F4 are SS3 either way.
+	if final, ok := cursorFinal[msg.Code]; ok {
+		if appCursor || msg.Code == tea.KeyF1 || msg.Code == tea.KeyF2 ||
+			msg.Code == tea.KeyF3 || msg.Code == tea.KeyF4 {
+			return []byte{0x1b, 'O', final}
+		}
+		return []byte{0x1b, '[', final}
+	}
+	if tilde, ok := tildeParam[msg.Code]; ok {
+		return fmt.Appendf(nil, "\x1b[%d~", tilde)
 	}
 
 	switch msg.Code {
@@ -351,26 +375,6 @@ func keyBytes(msg tea.KeyPressMsg) []byte {
 		return []byte("\x7f")
 	case tea.KeyEscape:
 		return []byte("\x1b")
-	case tea.KeyUp:
-		return []byte("\x1b[A")
-	case tea.KeyDown:
-		return []byte("\x1b[B")
-	case tea.KeyRight:
-		return []byte("\x1b[C")
-	case tea.KeyLeft:
-		return []byte("\x1b[D")
-	case tea.KeyHome:
-		return []byte("\x1b[H")
-	case tea.KeyEnd:
-		return []byte("\x1b[F")
-	case tea.KeyDelete:
-		return []byte("\x1b[3~")
-	case tea.KeyPgUp:
-		return []byte("\x1b[5~")
-	case tea.KeyPgDown:
-		return []byte("\x1b[6~")
-	case tea.KeyInsert:
-		return []byte("\x1b[2~")
 	}
 
 	// Text is what the key actually typed, which is what a composed character carries.

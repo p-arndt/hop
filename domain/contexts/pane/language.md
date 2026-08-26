@@ -63,6 +63,17 @@ typed, when the program has asked for that.
 
 **In code:** `internal/terminal/paste.go` — `pasteState`.
 
+### Application cursor keys
+
+**Is:** DECCKM (DECSET 1). A full-screen program asks for its cursor keys as SS3
+(`ESC O A`) rather than CSI (`ESC [ A`); vim, less and mc all do. A *modified* cursor key
+is unaffected — xterm sends `CSI 1;<mod>A` either way.
+
+**Rule:** the mode belongs to the program that asked, so leaving the alternate screen drops
+it, like [[mouse-tracking]] and [[bracketed-paste]].
+
+**In code:** `internal/terminal/cursorkeys.go` — `cursorKeysState`, read by `keyBytes`.
+
 ### OSC 7 / cwd
 
 **Is:** the remote shell reporting its working directory, and the directory hop

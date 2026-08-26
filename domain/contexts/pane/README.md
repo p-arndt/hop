@@ -96,6 +96,10 @@ The terms live in [`language.md`](language.md).
   window fills; the UI update loop must never block on it.
 - **Scrollback is a view, not a mode of the remote.** Scrolling back never sends
   anything to the far end.
+- **A key's bytes are the remote's decision, not hop's.** The same arrow is `ESC [ A` or
+  `ESC O A` depending on whether the program asked for application cursor keys, exactly as
+  a paste is bracketed only when asked for. Every such mode is dropped when the program
+  that set it leaves the alternate screen.
 
 ## Aggregates
 

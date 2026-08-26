@@ -57,7 +57,7 @@ func TestKeyToBytesPrefixesAltWithEsc(t *testing.T) {
 		{"esc stays one esc", tea.KeyPressMsg{Code: tea.KeyEscape, Mod: tea.ModAlt}, "\x1b"},
 	}
 	for _, c := range cases {
-		if got := string(keyToBytes(c.msg)); got != c.want {
+		if got := string(keyToBytes(c.msg, false)); got != c.want {
 			t.Errorf("%s: keyToBytes = %q, want %q", c.name, got, c.want)
 		}
 	}
@@ -97,7 +97,7 @@ func TestKeyToBytesModifiedCursorKeys(t *testing.T) {
 		{"insert", tea.KeyPressMsg{Code: tea.KeyInsert}, "\x1b[2~"},
 	}
 	for _, c := range cases {
-		if got := string(keyToBytes(c.msg)); got != c.want {
+		if got := string(keyToBytes(c.msg, false)); got != c.want {
 			t.Errorf("%s: keyToBytes = %q, want %q", c.name, got, c.want)
 		}
 	}

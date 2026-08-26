@@ -37,7 +37,7 @@ func TestKeyToBytesTable(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := string(keyToBytes(c.msg)); got != c.want {
+			if got := string(keyToBytes(c.msg, false)); got != c.want {
 				t.Fatalf("keyToBytes = %q, want %q", got, c.want)
 			}
 		})
@@ -48,7 +48,7 @@ func TestKeyToBytesTable(t *testing.T) {
 func TestKeyToBytesCtrlLetters(t *testing.T) {
 	for letter := byte('a'); letter <= 'z'; letter++ {
 		t.Run(fmt.Sprintf("ctrl+%c", letter), func(t *testing.T) {
-			got := keyToBytes(tea.KeyPressMsg{Code: rune(letter), Mod: tea.ModCtrl})
+			got := keyToBytes(tea.KeyPressMsg{Code: rune(letter), Mod: tea.ModCtrl}, false)
 			want := letter - 'a' + 1
 			if len(got) != 1 || got[0] != want {
 				t.Fatalf("keyToBytes(ctrl+%c) = %q, want %#x", letter, got, want)
@@ -75,7 +75,7 @@ func TestKeyToBytesCtrlSymbols(t *testing.T) {
 	for _, c := range cases {
 		msg := tea.KeyPressMsg{Code: c.code, Mod: tea.ModCtrl}
 		t.Run(msg.String(), func(t *testing.T) {
-			got := keyToBytes(msg)
+			got := keyToBytes(msg, false)
 			if len(got) != 1 || got[0] != c.want {
 				t.Fatalf("keyToBytes(%s) = %q, want %#x", msg, got, c.want)
 			}
@@ -83,14 +83,46 @@ func TestKeyToBytesCtrlSymbols(t *testing.T) {
 	}
 }
 
+// The function keys, which hop did not send at all until DECCKM was taught to it: F1-F4
+// are SS3, the rest are tilde sequences with xterm's gapped numbering.
+func TestKeyToBytesFunctionKeys(t *testing.T) {
+	cases := []struct {
+		code rune
+		want string
+	}{
+		{tea.KeyF1, "OP"},
+		{tea.KeyF2, "OQ"},
+		{tea.KeyF3, "OR"},
+		{tea.KeyF4, "OS"},
+		{tea.KeyF5, "[15~"},
+		{tea.KeyF6, "[17~"},
+		{tea.KeyF7, "[18~"},
+		{tea.KeyF8, "[19~"},
+		{tea.KeyF9, "[20~"},
+		{tea.KeyF10, "[21~"},
+		{tea.KeyF11, "[23~"},
+		{tea.KeyF12, "[24~"},
+	}
+	for _, c := range cases {
+		msg := tea.KeyPressMsg{Code: c.code}
+		t.Run(msg.String(), func(t *testing.T) {
+			if got := string(keyToBytes(msg, false)); got != c.want {
+				t.Fatalf("keyToBytes(%s) = %q, want %q", msg, got, c.want)
+			}
+		})
+	}
+
+	// A modified function key carries the modifier inside the sequence, like a cursor key.
+	if got := string(keyToBytes(tea.KeyPressMsg{Code: tea.KeyF1, Mod: tea.ModCtrl}, false)); got != "[1;5P" {
+		t.Fatalf("ctrl+f1 = %q, want %q", got, "[1;5P")
+	}
+	if got := string(keyToBytes(tea.KeyPressMsg{Code: tea.KeyF5, Mod: tea.ModShift}, false)); got != "[15;2~" {
+		t.Fatalf("shift+f5 = %q, want %q", got, "[15;2~")
+	}
+}
+
 func TestKeyToBytesUnmappedKeysProduceNothing(t *testing.T) {
-	for _, msg := range []tea.KeyPressMsg{
-		{Code: tea.KeyF1},
-		{Code: tea.KeyF12},
-		{},
-	} {
-		if got := keyToBytes(msg); len(got) != 0 {
-			t.Fatalf("keyToBytes(%s) = %q, want no bytes", msg, got)
-		}
+	if got := keyToBytes(tea.KeyPressMsg{}, false); len(got) != 0 {
+		t.Fatalf("an empty key produced %q, want no bytes", got)
 	}
 }
