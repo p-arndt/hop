@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/keys"
@@ -196,7 +196,7 @@ func (b *Browser) load(dir string) bool {
 }
 
 // Handle applies a key message.
-func (b *Browser) Handle(msg tea.KeyMsg) tea.Cmd {
+func (b *Browser) Handle(msg tea.KeyPressMsg) tea.Cmd {
 	// An open question first: while one is up every key is its answer.
 	if cmd, handled := b.overlayKey(msg); handled {
 		return cmd

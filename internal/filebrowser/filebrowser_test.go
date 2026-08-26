@@ -9,40 +9,40 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/sftpx"
 )
 
-// key builds the tea.KeyMsg whose String() is name, for the keys the browser binds.
-func key(t *testing.T, name string) tea.KeyMsg {
+// key builds the tea.KeyPressMsg whose String() is name, for the keys the browser binds.
+func key(t *testing.T, name string) tea.KeyPressMsg {
 	t.Helper()
 	switch name {
 	case "enter":
-		return tea.KeyMsg{Type: tea.KeyEnter}
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "left":
-		return tea.KeyMsg{Type: tea.KeyLeft}
+		return tea.KeyPressMsg{Code: tea.KeyLeft}
 	case "backspace":
-		return tea.KeyMsg{Type: tea.KeyBackspace}
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	case "esc":
-		return tea.KeyMsg{Type: tea.KeyEscape}
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "up":
-		return tea.KeyMsg{Type: tea.KeyUp}
+		return tea.KeyPressMsg{Code: tea.KeyUp}
 	case "down":
-		return tea.KeyMsg{Type: tea.KeyDown}
+		return tea.KeyPressMsg{Code: tea.KeyDown}
 	case "ctrl+d":
-		return tea.KeyMsg{Type: tea.KeyCtrlD}
+		return tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}
 	case "ctrl+u":
-		return tea.KeyMsg{Type: tea.KeyCtrlU}
+		return tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}
 	case "ctrl+f":
-		return tea.KeyMsg{Type: tea.KeyCtrlF}
+		return tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl}
 	case "ctrl+b":
-		return tea.KeyMsg{Type: tea.KeyCtrlB}
+		return tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl}
 	default:
 		if len([]rune(name)) != 1 {
 			t.Fatalf("key: unsupported name %q", name)
 		}
-		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(name)}
+		return tea.KeyPressMsg{Code: []rune(name)[0], Text: name}
 	}
 }
 
