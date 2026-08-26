@@ -52,8 +52,8 @@ github.com/muesli/cancelreader v0.2.2 h1:3I4Kt4BQjOR54NavqnDogx/MIoWBFa0StPA8ELU
 github.com/muesli/cancelreader v0.2.2/go.mod h1:3XuTXfFS2VjM+HTLZY9Ak0l6eUKfijIfMUZ4EgX0QYo=
 github.com/muesli/termenv v0.16.0 h1:S5AlUN9dENB57rsbnkPyfdGuWIlkmzJjbFf0Tf5FWUc=
 github.com/muesli/termenv v0.16.0/go.mod h1:ZRfOIKPFDYQoDFF4Olj7/QJbW60Ol/kL1pU3VfY/Cnk=
-github.com/p-arndt/selfupdate v0.1.0 h1:kG56zaP3mQa8kr1VmmPrsnMT7cT4TQo0UbJs9C5lOeI=
-github.com/p-arndt/selfupdate v0.1.0/go.mod h1:BVxg6O8zqmneJptlLf0JA4FGveRE4PwNCkjLg9bS4Ik=
+github.com/p-arndt/selfupdate v0.2.0 h1:m5rC+FD/9uvB7LTjVhst5FdaHRsfLNtJ7zyTT466GSQ=
+github.com/p-arndt/selfupdate v0.2.0/go.mod h1:BVxg6O8zqmneJptlLf0JA4FGveRE4PwNCkjLg9bS4Ik=
 github.com/pkg/sftp v1.13.11 h1:0N92SLTB8JqASJB14ZLHHzFnBV8mG9zw4K7jghEFWuE=
 github.com/pkg/sftp v1.13.11/go.mod h1:uNkH9roSXglNJqM+glJJi+TQXQUm0fXFWqCFmT8hsN0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
