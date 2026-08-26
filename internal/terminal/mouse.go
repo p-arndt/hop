@@ -3,7 +3,7 @@ package terminal
 import (
 	"sync"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -94,12 +94,21 @@ func (p *Pane) MouseEnabled() bool {
 	return level != trackNone
 }
 
-func (p *Pane) SendMouse(msg tea.MouseMsg, x, y int) bool {
+// MouseEvent is a report on its way to the remote program: the fields the encoder needs,
+// decoupled from Bubble Tea's four mouse message types.
+type MouseEvent struct {
+	Button  tea.MouseButton
+	Mod     tea.KeyMod
+	Motion  bool
+	Release bool
+}
+
+func (p *Pane) SendMouse(ev MouseEvent, x, y int) bool {
 	if p.isClosed() {
 		return false
 	}
 	level, sgr := p.mouse.state()
-	b := mouseBytes(msg, x, y, level, sgr)
+	b := mouseBytes(ev, x, y, level, sgr)
 	if len(b) == 0 {
 		return false
 	}
@@ -108,21 +117,23 @@ func (p *Pane) SendMouse(msg tea.MouseMsg, x, y int) bool {
 }
 
 // mouseBytes encodes a mouse report, or nil when the tracking level does not cover it.
-func mouseBytes(msg tea.MouseMsg, x, y int, level tracking, sgr bool) []byte {
+func mouseBytes(ev MouseEvent, x, y int, level tracking, sgr bool) []byte {
 	if level == trackNone || x < 0 || y < 0 {
 		return nil
 	}
 
-	button, ok := ansiButton(msg.Button)
+	button, ok := ansiButton(ev.Button)
 	if !ok {
 		return nil
 	}
 
-	motion := msg.Action == tea.MouseActionMotion
-	release := msg.Action == tea.MouseActionRelease
+	motion, release := ev.Motion, ev.Release
+	shift := ev.Mod.Contains(tea.ModShift)
+	alt := ev.Mod.Contains(tea.ModAlt)
+	ctrl := ev.Mod.Contains(tea.ModCtrl)
 
 	switch {
-	case isWheel(msg.Button):
+	case isWheel(ev.Button):
 		// The wheel is reported by every tracking level.
 	case motion && button == ansi.MouseNone:
 		// Motion with no button down is 1003's alone.
@@ -141,7 +152,7 @@ func mouseBytes(msg tea.MouseMsg, x, y int, level tracking, sgr bool) []byte {
 
 	if sgr {
 		return []byte(ansi.MouseSgr(
-			ansi.EncodeMouseButton(button, motion, msg.Shift, msg.Alt, msg.Ctrl),
+			ansi.EncodeMouseButton(button, motion, shift, alt, ctrl),
 			x, y, release,
 		))
 	}
@@ -155,7 +166,7 @@ func mouseBytes(msg tea.MouseMsg, x, y int, level tracking, sgr bool) []byte {
 		// X10 has no button field on a release: it is reported as button 3.
 		button = ansi.MouseNone
 	}
-	b := ansi.EncodeMouseButton(button, motion, msg.Shift, msg.Alt, msg.Ctrl)
+	b := ansi.EncodeMouseButton(button, motion, shift, alt, ctrl)
 	// The button field carries the modifier bits, so a wheel event with all of them set
 	// overflows the last byte a report may carry.
 	if int(b)+x10Offset > x10Last {
@@ -174,35 +185,35 @@ const (
 	x10Max    = x10Last - x10Offset - 1
 )
 
-// isWheel: MouseMsg does not inherit Bubble Tea's wheel-check method.
+// isWheel: the encoder needs the check before it knows the tracking level.
 func isWheel(b tea.MouseButton) bool {
-	return b == tea.MouseButtonWheelUp || b == tea.MouseButtonWheelDown ||
-		b == tea.MouseButtonWheelLeft || b == tea.MouseButtonWheelRight
+	return b == tea.MouseWheelUp || b == tea.MouseWheelDown ||
+		b == tea.MouseWheelLeft || b == tea.MouseWheelRight
 }
 
 // ansiButton translates a Bubble Tea mouse button into the ansi package's. Written out
 // rather than cast: a reordering in either would silently report the wrong button.
 func ansiButton(b tea.MouseButton) (ansi.MouseButton, bool) {
 	switch b {
-	case tea.MouseButtonNone:
+	case tea.MouseNone:
 		return ansi.MouseNone, true
-	case tea.MouseButtonLeft:
+	case tea.MouseLeft:
 		return ansi.MouseLeft, true
-	case tea.MouseButtonMiddle:
+	case tea.MouseMiddle:
 		return ansi.MouseMiddle, true
-	case tea.MouseButtonRight:
+	case tea.MouseRight:
 		return ansi.MouseRight, true
-	case tea.MouseButtonWheelUp:
+	case tea.MouseWheelUp:
 		return ansi.MouseWheelUp, true
-	case tea.MouseButtonWheelDown:
+	case tea.MouseWheelDown:
 		return ansi.MouseWheelDown, true
-	case tea.MouseButtonWheelLeft:
+	case tea.MouseWheelLeft:
 		return ansi.MouseWheelLeft, true
-	case tea.MouseButtonWheelRight:
+	case tea.MouseWheelRight:
 		return ansi.MouseWheelRight, true
-	case tea.MouseButtonBackward:
+	case tea.MouseBackward:
 		return ansi.MouseBackward, true
-	case tea.MouseButtonForward:
+	case tea.MouseForward:
 		return ansi.MouseForward, true
 	case tea.MouseButton10:
 		return ansi.MouseButton10, true

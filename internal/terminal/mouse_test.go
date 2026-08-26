@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"hop/internal/sshx"
@@ -40,8 +40,8 @@ func (s *syncBuf) String() string {
 }
 
 // press builds the mouse event a left click at (x, y) arrives as.
-func press(x, y int) tea.MouseMsg {
-	return tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}
+func press(x, y int) MouseEvent {
+	return MouseEvent{Button: tea.MouseLeft, Motion: false, Release: false}
 }
 
 func TestMouseEnabledFollowsTheRemote(t *testing.T) {
@@ -80,20 +80,18 @@ func TestMouseEnabledFollowsTheRemote(t *testing.T) {
 
 // The encoding, and the tracking level that decides whether an event is reported.
 func TestMouseBytes(t *testing.T) {
-	wheel := tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}
-	release := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease}
-	drag := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionMotion}
-	hover := tea.MouseMsg{Button: tea.MouseButtonNone, Action: tea.MouseActionMotion}
-	ctrlClick := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Ctrl: true}
+	wheel := MouseEvent{Button: tea.MouseWheelUp, Motion: false, Release: false}
+	release := MouseEvent{Button: tea.MouseLeft, Motion: false, Release: true}
+	drag := MouseEvent{Button: tea.MouseLeft, Motion: true, Release: false}
+	hover := MouseEvent{Button: tea.MouseNone, Motion: true, Release: false}
+	ctrlClick := MouseEvent{Button: tea.MouseLeft, Mod: tea.ModCtrl}
 	// The one shape whose button field alone runs past what an ASCII byte holds.
-	wheelAllMods := tea.MouseMsg{
-		Button: tea.MouseButtonWheelDown, Action: tea.MouseActionMotion,
-		Shift: true, Alt: true, Ctrl: true,
-	}
+	wheelAllMods := MouseEvent{Button: tea.MouseWheelDown, Motion: true,
+		Mod: tea.ModShift | tea.ModAlt | tea.ModCtrl}
 
 	cases := []struct {
 		name  string
-		msg   tea.MouseMsg
+		msg   MouseEvent
 		x, y  int
 		level tracking
 		sgr   bool

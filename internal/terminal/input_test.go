@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/sshx"
 )
@@ -50,7 +50,7 @@ func TestSendKeyDoesNotWaitForTheWire(t *testing.T) {
 	typed := make(chan struct{})
 	go func() {
 		for i := 0; i < 50; i++ {
-			p.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+			p.SendKey(tea.KeyPressMsg{Code: 'x', Text: "x"})
 		}
 		close(typed)
 	}()
@@ -75,10 +75,10 @@ func TestQueuedInputKeepsItsOrder(t *testing.T) {
 	p := New(&sshx.Session{Stdin: stdin, Stdout: strings.NewReader("")}, 80, 24, nil)
 	defer p.Close()
 
-	p.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	p.SendKey(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	p.writeString("bc")
 	p.SendPaste("d")
-	p.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	p.SendKey(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	p.Flush()
 
 	if got := stdin.String(); got != "abcde" {
@@ -90,7 +90,7 @@ func TestFlushReturnsOnAClosedPane(t *testing.T) {
 	w := newStalledWriter()
 	p := New(&sshx.Session{Stdin: w, Stdout: strings.NewReader("")}, 80, 24, nil)
 
-	p.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	p.SendKey(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	_ = p.Close()
 
 	done := make(chan struct{})
@@ -112,11 +112,11 @@ func TestAFailedWriteDoesNotStopTheQueue(t *testing.T) {
 	defer p.Close()
 
 	w.fail(true)
-	p.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	p.SendKey(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	p.Flush()
 
 	w.fail(false)
-	p.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	p.SendKey(tea.KeyPressMsg{Code: 'b', Text: "b"})
 	p.Flush()
 
 	if got := w.String(); got != "ab" {
@@ -161,7 +161,7 @@ func TestAFullQueueRefusesInput(t *testing.T) {
 	p := New(&sshx.Session{Stdin: w, Stdout: strings.NewReader("")}, 80, 24, nil)
 	defer p.Close()
 
-	key := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	key := tea.KeyPressMsg{Code: 'x', Text: "x"}
 	taken := 0
 	for i := 0; i < inQueue*2; i++ {
 		if !p.SendKey(key) {

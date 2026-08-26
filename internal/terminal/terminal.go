@@ -7,8 +7,9 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"unicode"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
@@ -203,12 +204,12 @@ func runeWidth(r rune) int {
 }
 
 // SendKey queues a Bubble Tea key event for the far end, reporting whether it was taken.
-func (p *Pane) SendKey(msg tea.KeyMsg) bool {
+func (p *Pane) SendKey(msg tea.KeyPressMsg) bool {
 	return p.send(keyToBytes(msg))
 }
 
 // SendKeys queues a run of key events as one queue item.
-func (p *Pane) SendKeys(msgs []tea.KeyMsg) bool {
+func (p *Pane) SendKeys(msgs []tea.KeyPressMsg) bool {
 	var b []byte
 	for _, msg := range msgs {
 		b = append(b, keyToBytes(msg)...)
@@ -283,7 +284,7 @@ func (p *Pane) Close() error {
 
 // keyToBytes maps a Bubble Tea key event to the bytes a terminal application expects
 // on stdin.
-func keyToBytes(msg tea.KeyMsg) []byte {
+func keyToBytes(msg tea.KeyPressMsg) []byte {
 	// xterm puts the modifier inside the sequence (ESC[1;5D for ctrl+left), so a modified
 	// cursor key is handled before the meta prefix below.
 	if b, ok := modifiedKeyBytes(msg); ok {
@@ -292,89 +293,63 @@ func keyToBytes(msg tea.KeyMsg) []byte {
 
 	b := keyBytes(msg)
 	// alt+<key> is that key's bytes behind an ESC.
-	if msg.Alt && len(b) > 0 && msg.Type != tea.KeyEsc {
+	if msg.Mod.Contains(tea.ModAlt) && len(b) > 0 && msg.Code != tea.KeyEscape {
 		return append([]byte{0x1b}, b...)
 	}
 	return b
 }
 
-// modifiedKeyBytes maps a ctrl/shift-modified cursor key to its xterm sequence:
-// CSI 1 ; <mod> <final> for arrows and home/end, CSI <n> ; <mod> ~ for the tilde keys.
-func modifiedKeyBytes(msg tea.KeyMsg) ([]byte, bool) {
-	var final byte // 'A'/'B'/'C'/'D'/'H'/'F', or 0 for a tilde key
-	var tilde int  // the CSI parameter of a tilde key (5 pgup, 6 pgdown)
-	var mods int   // shift 1, alt 2, ctrl 4
+// cursorFinal and tildeParam are the keys xterm reports with the modifier inside the
+// sequence: CSI 1 ; <mod> <final>, and CSI <n> ; <mod> ~ for the tilde keys.
+var (
+	cursorFinal = map[rune]byte{
+		tea.KeyUp: 'A', tea.KeyDown: 'B', tea.KeyRight: 'C', tea.KeyLeft: 'D',
+		tea.KeyHome: 'H', tea.KeyEnd: 'F',
+	}
+	tildeParam = map[rune]int{
+		tea.KeyInsert: 2, tea.KeyDelete: 3, tea.KeyPgUp: 5, tea.KeyPgDown: 6,
+	}
+)
 
-	switch msg.Type {
-	case tea.KeyCtrlUp:
-		final, mods = 'A', 4
-	case tea.KeyCtrlDown:
-		final, mods = 'B', 4
-	case tea.KeyCtrlRight:
-		final, mods = 'C', 4
-	case tea.KeyCtrlLeft:
-		final, mods = 'D', 4
-	case tea.KeyCtrlHome:
-		final, mods = 'H', 4
-	case tea.KeyCtrlEnd:
-		final, mods = 'F', 4
-	case tea.KeyShiftUp:
-		final, mods = 'A', 1
-	case tea.KeyShiftDown:
-		final, mods = 'B', 1
-	case tea.KeyShiftRight:
-		final, mods = 'C', 1
-	case tea.KeyShiftLeft:
-		final, mods = 'D', 1
-	case tea.KeyShiftHome:
-		final, mods = 'H', 1
-	case tea.KeyShiftEnd:
-		final, mods = 'F', 1
-	case tea.KeyCtrlShiftUp:
-		final, mods = 'A', 5
-	case tea.KeyCtrlShiftDown:
-		final, mods = 'B', 5
-	case tea.KeyCtrlShiftRight:
-		final, mods = 'C', 5
-	case tea.KeyCtrlShiftLeft:
-		final, mods = 'D', 5
-	case tea.KeyCtrlShiftHome:
-		final, mods = 'H', 5
-	case tea.KeyCtrlShiftEnd:
-		final, mods = 'F', 5
-	case tea.KeyCtrlPgUp:
-		tilde, mods = 5, 4
-	case tea.KeyCtrlPgDown:
-		tilde, mods = 6, 4
-	default:
+// modifiedKeyBytes builds that sequence. KeyMod's low bits are already xterm's modifier
+// encoding (shift 1, alt 2, ctrl 4), so the parameter is a plain cast.
+func modifiedKeyBytes(msg tea.KeyPressMsg) ([]byte, bool) {
+	mods := int(msg.Mod & (tea.ModShift | tea.ModAlt | tea.ModCtrl | tea.ModMeta))
+	// A bare alt keeps the ESC prefix instead: xterm would send CSI 1;3D, but every remote
+	// program hop has ever fed reads the meta form, so the migration does not change it.
+	if mods == 0 || msg.Mod&(tea.ModShift|tea.ModCtrl) == 0 {
 		return nil, false
 	}
-
-	// alt is another bit in the parameter here, not the ESC prefix a plain alt+key gets.
-	if msg.Alt {
-		mods |= 2
-	}
-
-	if final != 0 {
+	if final, ok := cursorFinal[msg.Code]; ok {
 		return fmt.Appendf(nil, "\x1b[1;%d%c", mods+1, final), true
 	}
-	return fmt.Appendf(nil, "\x1b[%d;%d~", tilde, mods+1), true
+	if tilde, ok := tildeParam[msg.Code]; ok {
+		return fmt.Appendf(nil, "\x1b[%d;%d~", tilde, mods+1), true
+	}
+	return nil, false
 }
 
 // keyBytes is keyToBytes without the meta prefix: the bytes for the key itself.
-func keyBytes(msg tea.KeyMsg) []byte {
-	switch msg.Type {
-	case tea.KeyRunes:
-		return []byte(string(msg.Runes))
-	case tea.KeySpace:
-		return []byte(" ")
+func keyBytes(msg tea.KeyPressMsg) []byte {
+	// Before the printable branches: ctrl+space is NUL, not a space. See ctrlByte.
+	if msg.Mod.Contains(tea.ModCtrl) {
+		if b, ok := ctrlByte(msg.Code); ok {
+			return []byte{b}
+		}
+	}
+
+	switch msg.Code {
 	case tea.KeyEnter:
 		return []byte("\r")
 	case tea.KeyTab:
+		// CSI Z (back-tab) is shift+tab's own sequence, not a modified tab.
+		if msg.Mod.Contains(tea.ModShift) {
+			return []byte("\x1b[Z")
+		}
 		return []byte("\t")
 	case tea.KeyBackspace:
 		return []byte("\x7f")
-	case tea.KeyEsc:
+	case tea.KeyEscape:
 		return []byte("\x1b")
 	case tea.KeyUp:
 		return []byte("\x1b[A")
@@ -394,32 +369,33 @@ func keyBytes(msg tea.KeyMsg) []byte {
 		return []byte("\x1b[5~")
 	case tea.KeyPgDown:
 		return []byte("\x1b[6~")
-	case tea.KeyShiftTab:
-		// CSI Z (back-tab); its String() matches no branch below, so it would be dropped.
-		return []byte("\x1b[Z")
 	case tea.KeyInsert:
 		return []byte("\x1b[2~")
 	}
 
-	// The control byte for ctrl+<letter> is the letter with its top three bits cleared.
-	s := msg.String()
-	if rest, ok := strings.CutPrefix(s, "ctrl+"); ok && len(rest) == 1 {
-		c := rest[0]
-		switch {
-		case c >= 'a' && c <= 'z':
-			return []byte{c - 'a' + 1}
-		case c >= 'A' && c <= 'Z':
-			return []byte{c - 'A' + 1}
-		default:
-			// ctrl+@, ctrl+[, ctrl+\, ctrl+], ctrl+^, ctrl+_ etc.
-			return []byte{c & 0x1f}
-		}
+	// Text is what the key actually typed, which is what a composed character carries.
+	if msg.Text != "" {
+		return []byte(msg.Text)
 	}
-
-	if len(msg.Runes) > 0 {
-		return []byte(string(msg.Runes))
+	if msg.Code > 0 && msg.Code <= unicode.MaxRune {
+		return []byte(string(msg.Code))
 	}
 	return nil
+}
+
+// ctrlByte is the control byte a ctrl chord sends: the key with its top three bits
+// cleared. ctrl+space and ctrl+@ are both NUL, which is the same arithmetic.
+func ctrlByte(code rune) (byte, bool) {
+	switch {
+	case code >= 'a' && code <= 'z':
+		return byte(code) - 'a' + 1, true
+	case code >= 'A' && code <= 'Z':
+		return byte(code) - 'A' + 1, true
+	case code == ' ' || code == '@' || code == '[' || code == '\\' ||
+		code == ']' || code == '^' || code == '_':
+		return byte(code) & 0x1f, true
+	}
+	return 0, false
 }
 
 // clampOffset pulls scrollOffset back into [0, ScrollbackLen()] and returns it; the
