@@ -5,6 +5,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"hop/internal/store"
 )
 
 // withAltGrKeyboard runs the Windows branch of normalizeAltGr on any host.
@@ -119,5 +121,80 @@ func TestAltDigitStillSwitchesTabs(t *testing.T) {
 	}
 	if m.sessions["web"].activeSh != 0 {
 		t.Fatalf("alt+1 left the session on tab %d, want the first", m.sessions["web"].activeSh)
+	}
+}
+
+// altGrAtSequence is what the Windows console delivers for AltGr+q: the ctrl and alt
+// key-downs of the composition itself, each carrying NUL, and then the character.
+func altGrAtSequence() []tea.KeyMsg {
+	return []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune{0}},
+		{Type: tea.KeyRunes, Runes: []rune{0}, Alt: true},
+		{Type: tea.KeyRunes, Runes: []rune{'@'}, Alt: true},
+	}
+}
+
+func TestPhantomModifierKeysAreDropped(t *testing.T) {
+	withAltGrKeyboard(t, true)
+
+	for _, in := range []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune{0}},
+		{Type: tea.KeyRunes, Runes: []rune{0}, Alt: true},
+		{Type: tea.KeyRunes, Runes: []rune{0, 0}},
+	} {
+		if !phantomModifier(in) {
+			t.Fatalf("a modifier's own key-down was taken for a key: %v", in)
+		}
+	}
+
+	for _, in := range []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune{'@'}, Alt: true},
+		{Type: tea.KeyRunes, Runes: []rune{' '}},
+		{Type: tea.KeyRunes, Runes: []rune{0, 'a'}},
+		{Type: tea.KeyRunes},
+		{Type: tea.KeyRunes, Runes: []rune{0}, Paste: true},
+		{Type: tea.KeyCtrlAt},
+		{Type: tea.KeyEnter},
+	} {
+		if phantomModifier(in) {
+			t.Fatalf("a real key was dropped as a modifier: %v", in)
+		}
+	}
+
+	withAltGrKeyboard(t, false)
+	if phantomModifier(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{0}}) {
+		t.Fatal("a NUL rune was dropped off Windows, where no console reports modifiers")
+	}
+}
+
+// The password prompt reads every byte hop sends, so the composition must reach it as the
+// character alone — not behind the NUL and ESC NUL of its own modifiers.
+func TestAltGrSendsOnlyTheCharacterToTheRemoteProgram(t *testing.T) {
+	withAltGrKeyboard(t, true)
+	m, stdin := pasteModel()
+	clk := newTestClock(m)
+
+	for _, k := range altGrAtSequence() {
+		clk.advance(time.Second) // typed, not pasted: delivered on the spot
+		m.Update(k)
+	}
+	flushPanes(m)
+
+	if got := stdin.String(); got != "@" {
+		t.Fatalf("the remote program received %q, want %q", got, "@")
+	}
+}
+
+func TestAltGrTypesOneCharacterIntoTheAuthCard(t *testing.T) {
+	withAltGrKeyboard(t, true)
+	m := hostMgmtModel(t, store.Host{Alias: "web", HostName: "h", Port: 22})
+	promptFor(m, "web", challenge("Password:"))
+
+	for _, k := range altGrAtSequence() {
+		m.Update(k)
+	}
+
+	if got := m.auth.answers[0]; got != "@" {
+		t.Fatalf("the answer holds %q, want %q", got, "@")
 	}
 }

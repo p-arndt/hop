@@ -331,7 +331,11 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// Before anything reads the key's name: on Windows an AltGr composition arrives as an alt chord.
+		// Before anything reads the key's name: on Windows an AltGr composition arrives as an alt
+		// chord, and the modifier's own key-down arrives ahead of it as a key nothing may see.
+		if phantomModifier(msg) {
+			return m, nil
+		}
 		msg = normalizeAltGr(msg)
 		m.keycastRecord(msg.String())
 		return m.handleKey(msg)

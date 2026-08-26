@@ -90,3 +90,14 @@ agree (`space` being the notable case).
 available to users.
 
 **In code:** `internal/tui/keycast.go` (and the build-tag-off variant).
+
+### Phantom key
+
+**Is:** a key event the Windows console produces for a modifier's own key-down — AltGr,
+ctrl and alt each arrive as a record whose character is NUL, ahead of the character they
+compose.
+
+**Is not:** a key the user pressed *for its own sake*. Nothing may see one: forwarded, it
+reaches the remote program as NUL, or as ESC NUL when alt is held.
+
+**In code:** `internal/tui/altgr.go` — `phantomModifier`, dropped in `model.Update`.

@@ -80,6 +80,13 @@ these words, appear in this context's code, tests, APIs, commits and prompts.**
 - **A binding must work on the terminals users actually have.** On macOS, `alt+<key>`
   never reaches the application, so hop's own keys are `ctrl` chords or leader
   sequences — see [[hop-keybindings-must-work-on-default-macos-terminals]].
+- **A modifier is not a key.** The Windows console reports AltGr, ctrl and alt key-downs
+  as NUL-charactered key events; hop drops those *phantom keys* outright. A shell's line
+  editor ignores them, but a password prompt reads every byte it is sent, so forwarding
+  them corrupted the secret behind every AltGr character. The price is the NUL byte itself:
+  ctrl+space and ctrl+2 are reported the same way, so hop can send no NUL to a remote
+  program at all, and the drop is silent — the phantom fires on every ctrl press, so a
+  status per dropped key would be noise.
 - **Everything else belongs to the remote program.** hop holds the smallest set of
   keys it can.
 

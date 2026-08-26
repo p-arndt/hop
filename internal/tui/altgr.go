@@ -50,3 +50,21 @@ func composedRunes(runes []rune) bool {
 	}
 	return true
 }
+
+// phantomModifier reports whether a key event is the Windows console reporting a modifier's
+// own key-down as a key: AltGr, ctrl and alt each arrive as a NUL-charactered record before
+// the composed character does. A shell's line editor ignores the NUL (and the ESC NUL an alt
+// adds), so it went unnoticed; a password prompt reads every byte, so it broke the secret.
+// The cost is the NUL byte itself: ctrl+space and ctrl+2 are reported the same way, so hop
+// can no longer send one to a remote program. It binds neither key.
+func phantomModifier(msg tea.KeyMsg) bool {
+	if !altGrKeyboard || msg.Paste || msg.Type != tea.KeyRunes || len(msg.Runes) == 0 {
+		return false
+	}
+	for _, r := range msg.Runes {
+		if r != 0 {
+			return false
+		}
+	}
+	return true
+}
