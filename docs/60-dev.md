@@ -8,6 +8,7 @@ group: Project
 just            # list recipes
 just run list   # go run . list
 just build      # dev binary
+just install    # build from source onto your PATH (scripts/install.sh|.ps1)
 just test       # go test ./...
 just test-e2e   # + the Docker 2FA end-to-end tests (needs Docker)
 just vet

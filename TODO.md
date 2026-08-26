@@ -93,7 +93,7 @@ file tracks *what*, not *why*.
 - [x] **Release/CI:** windows/ubuntu/macos matrix, six cross-compiled targets.
 - [x] **Universal `justfile`:** runs under `sh` and PowerShell (just >= 1.39).
 - [ ] Config file: keybindings and default user (the rest is done).
-- [ ] Put `hop` on PATH; ship a build/install script.
+- [x] **Install scripts:** `scripts/install.sh` / `install.ps1` fetch the release for the host's OS+arch, verify the SHA-256, install onto the `PATH` (unix prints the line to add; Windows appends to the user `PATH`), and with `--from-source` build the checkout instead — which is what `just install` runs.
 - [ ] Cross-platform follow-ups: `action.NewTab` is Windows-only and unused; `filebrowser`'s executable-open guard is Windows-shaped; `ci.yml` skips `fmt-check`.
 
 ## 🏗️ Architecture / debt

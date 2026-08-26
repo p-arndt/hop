@@ -541,24 +541,40 @@
 
     <section id="install">
       <h2>Install</h2>
-      <p>Grab the archive for your platform from the
-      <a href="https://github.com/p-arndt/hop/releases/latest">latest release</a> and put <code>hop</code> somewhere on
-      your <code>PATH</code>.</p>
-      <pre><code class="language-bash"># macOS / Linux
-      tar -xzf hop_*_darwin_arm64.tar.gz
-      sudo mv hop /usr/local/bin/
+      <p>One line, either platform. The script picks the archive for your OS and CPU, verifies its
+      checksum, drops <code>hop</code> on your <code>PATH</code> and prints where it went.</p>
+      <pre><code class="language-bash"># macOS / Linux -&gt; /usr/local/bin, or ~/.local/bin when that is not writable
+      curl -fsSL https://raw.githubusercontent.com/p-arndt/hop/main/scripts/install.sh | sh
       </code></pre>
-      <pre><code class="language-powershell"># Windows
-      Expand-Archive hop_*_windows_amd64.zip -DestinationPath .
-      <span class="c"># then move hop.exe onto your PATH</span>
+      <pre><code class="language-powershell"># Windows -&gt; %LOCALAPPDATA%\Programs\hop, added to your user PATH
+      irm https://raw.githubusercontent.com/p-arndt/hop/main/scripts/install.ps1 | iex
       </code></pre>
-      <p>Every release ships a <code>hop_&lt;version&gt;_checksums.txt</code>, so you can verify with <code>sha256sum -c</code>.</p>
+      <p>Both take the same options — a specific release, a directory of your own:</p>
+      <pre><code class="language-bash">sh scripts/install.sh --version 0.11.0 --dir ~/bin
+      </code></pre>
+      <pre><code class="language-powershell">.\scripts\install.ps1 -Version 0.11.0 -Dir C:\tools\bin -NoModifyPath
+      </code></pre>
+      <p><code>$HOP_INSTALL_DIR</code> / <code>$env:HOP_INSTALL_DIR</code> sets the directory too. On unix the script never
+      edits a shell profile: if the directory is not on your <code>PATH</code> it prints the one line to add.
+      On Windows it appends to the user <code>PATH</code> in the registry unless you pass <code>-NoModifyPath</code>, so
+      a new terminal has <code>hop</code>.</p>
+      <p>Prefer to do it by hand? Grab the archive from the
+      <a href="https://github.com/p-arndt/hop/releases/latest">latest release</a>, unpack it and move the
+      binary onto your <code>PATH</code>. Every release ships a <code>hop_&lt;version&gt;_checksums.txt</code> for
+      <code>sha256sum -c</code>.</p>
       <h3 id="from-source">From source</h3>
       <p>Needs <a href="https://go.dev/dl/">Go 1.26+</a> and optionally <a href="https://github.com/casey/just"><code>just</code></a> ≥ 1.39.</p>
       <pre><code class="language-bash">git clone https://github.com/p-arndt/hop.git &amp;&amp; cd hop
       just build          <span class="c"># -&gt; ./hop   (or: go build -o hop .)</span>
       just build-release  <span class="c"># stripped + version-stamped</span>
+      just install        <span class="c"># build it, then put it on your PATH</span>
       </code></pre>
+      <p><code>just install</code> is the same installer with <code>--from-source</code> / <code>-FromSource</code>: it builds the
+      checkout, stamps it with <code>VERSION</code> and the current commit, and installs it exactly where the
+      downloading path would have.</p>
+      <h3 id="updating">Updating</h3>
+      <p><code>hop self-update</code> replaces the binary in place, wherever the installer put it — see
+      <a href="#update">Update</a>.</p>
     </section>
 
     <section id="update">
@@ -1973,6 +1989,7 @@
       <pre><code class="language-bash">just            <span class="c"># list recipes</span>
       just run list   <span class="c"># go run . list</span>
       just build      <span class="c"># dev binary</span>
+      just install    <span class="c"># build from source onto your PATH (scripts/install.sh|.ps1)</span>
       just test       <span class="c"># go test ./...</span>
       just test-e2e   <span class="c"># + the Docker 2FA end-to-end tests (needs Docker)</span>
       just vet
@@ -2203,10 +2220,15 @@
 {"s":"Features","h":"⌨️ Opt-in vim keys","a":"#features","t":"OSC 7. hop installs the prompt hook into bash/zsh itself — one line typed at the first prompt, then wiped from the pane, so the session looks untouched. Nothing is typed into a shell that already emits OSC 7, or while a full-screen program owns the screen. Where no directory can be learned, the key still opens the host in its default directory and says so."},
 {"s":"Features","h":"⌨️ Opt-in vim keys","a":"#features","t":"Reconnect. Drops are found with keepalive probes rather than silence, so a suspended laptop or a dead VPN does not leave a pane quietly frozen."},
 {"s":"Install","h":"","a":"#install","t":"Install"},
-{"s":"Install","h":"","a":"#install","t":"Grab the archive for your platform from the latest release and put hop somewhere on your PATH."},
-{"s":"Install","h":"","a":"#install","t":"# macOS / Linux tar -xzf hop_*_darwin_arm64.tar.gz sudo mv hop /usr/local/bin/ # Windows Expand-Archive hop_*_windows_amd64.zip -DestinationPath . # then move hop.exe onto your PATH Every release ships a hop_\u003cversion\u003e_checksums.txt, so you can verify with sha256sum -c."},
+{"s":"Install","h":"","a":"#install","t":"One line, either platform. The script picks the archive for your OS and CPU, verifies its checksum, drops hop on your PATH and prints where it went."},
+{"s":"Install","h":"","a":"#install","t":"# macOS / Linux -\u003e /usr/local/bin, or ~/.local/bin when that is not writable curl -fsSL https://raw.githubusercontent.com/p-arndt/hop/main/scripts/install.sh | sh # Windows -\u003e %LOCALAPPDATA%\\Programs\\hop, added to your user PATH irm https://raw.githubusercontent.com/p-arndt/hop/main/scripts/install.ps1 | iex Both take the same options — a specific release, a directory of your own:"},
+{"s":"Install","h":"","a":"#install","t":"sh scripts/install.sh --version 0.11.0 --dir ~/bin .\\scripts\\install.ps1 -Version 0.11.0 -Dir C:\\tools\\bin -NoModifyPath $HOP_INSTALL_DIR / $env:HOP_INSTALL_DIR sets the directory too. On unix the script never edits a shell profile: if the directory is not on your PATH it prints the one line to add. On Windows it appends to the user PATH in the registry unless you pass -NoModifyPath, so a new terminal has hop."},
+{"s":"Install","h":"","a":"#install","t":"Prefer to do it by hand? Grab the archive from the latest release, unpack it and move the binary onto your PATH. Every release ships a hop_\u003cversion\u003e_checksums.txt for sha256sum -c."},
 {"s":"Install","h":"From source","a":"#from-source","t":"From source"},
 {"s":"Install","h":"From source","a":"#from-source","t":"Needs Go 1.26+ and optionally just ≥ 1.39."},
+{"s":"Install","h":"From source","a":"#from-source","t":"git clone https://github.com/p-arndt/hop.git \u0026\u0026 cd hop just build # -\u003e ./hop (or: go build -o hop .) just build-release # stripped + version-stamped just install # build it, then put it on your PATH just install is the same installer with --from-source / -FromSource: it builds the checkout, stamps it with VERSION and the current commit, and installs it exactly where the downloading path would have."},
+{"s":"Install","h":"Updating","a":"#updating","t":"Updating"},
+{"s":"Install","h":"Updating","a":"#updating","t":"hop self-update replaces the binary in place, wherever the installer put it — see Update."},
 {"s":"Staying current","h":"","a":"#update","t":"Staying current"},
 {"s":"Staying current","h":"","a":"#update","t":"hop check-update # is there a newer release? hop self-update # download it, verify its checksum, swap this binary self-update fetches the archive for your platform from the latest GitHub release, checks its SHA-256 against that release’s checksums.txt, and replaces the running binary atomically. On Windows the old hop.exe is renamed aside and swept up the next time hop starts. Source builds (version = dev) are refused: there is nothing to compare them against."},
 {"s":"Staying current","h":"","a":"#update","t":"hop also checks once a day in the background and mentions a newer version in the footer and on the CLI. HOP_NO_UPDATE_CHECK=1 turns that off; the two commands above still work."},
@@ -2563,7 +2585,7 @@
 {"s":"The cards","h":"","a":"#cards","t":"? reaches it from every mode hop owns the keyboard in. In a shell or an editor a bare ? is a question mark the remote is owed, so there it is ctrl+o ? — the same key, one level in."},
 {"s":"The cards","h":"","a":"#cards","t":"The host form carries more than an address: a group, a default directory every session on that host starts in, an identity file, and ProxyCommand / ProxyJump for hosts you reach through a bastion. Renaming the alias keeps the host’s visit history, so it does not lose its place in the frecency order."},
 {"s":"Development","h":"","a":"#dev","t":"Development"},
-{"s":"Development","h":"","a":"#dev","t":"just # list recipes just run list # go run . list just build # dev binary just test # go test ./... just test-e2e # + the Docker 2FA end-to-end tests (needs Docker) just vet just fmt # gofmt -w . just ci # fmt-check + vet + test (what CI runs) just docs # regenerate index.html, README.md and KEYBINDINGS.md from docs/ just demo # re-record assets/demo.gif + the stills (needs vhs) How the docs, the demo, the tests and the release are put together"},
+{"s":"Development","h":"","a":"#dev","t":"just # list recipes just run list # go run . list just build # dev binary just install # build from source onto your PATH (scripts/install.sh|.ps1) just test # go test ./... just test-e2e # + the Docker 2FA end-to-end tests (needs Docker) just vet just fmt # gofmt -w . just ci # fmt-check + vet + test (what CI runs) just docs # regenerate index.html, README.md and KEYBINDINGS.md from docs/ just demo # re-record assets/demo.gif + the stills (needs vhs) How the docs, the demo, the tests and the release are put together"},
 {"s":"Development","h":"","a":"#dev","t":"The docs. docs/*.md is the only source for the website, the README and the keybinding reference; tools/docsgen renders all three, and just ci fails if a generated file is out of date. Sections carry frontmatter saying where they belong, and a handful of fenced directives (:::cards, :::why, :::figure) cover the layouts markdown has no syntax for — each with a plain-markdown lowering, so the same section reads well on GitHub."},
 {"s":"Development","h":"","a":"#dev","t":"The justfile is deliberately universal: recipe bodies are plain commands that run under both sh and PowerShell, and the two that need real shell logic (fmt-check, clean) are split with [unix] / [windows] attributes."},
 {"s":"Development","h":"","a":"#dev","t":"The demo. just demo records the GIF and the stills on this page. scripts/demo.mjs builds hop, points HOME at a throwaway directory with a seeded host database, and starts tools/demoserver — a loopback-only SSH server that invents everything on screen: a fake shell with a table of canned command output, an in-memory filesystem over SFTP, and a fake vi. The keypress overlay in the corner is hop’s own, compiled in only under -tags hopdemo (internal/tui/keycast.go), so a released binary does not carry it."},

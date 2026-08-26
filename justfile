@@ -70,6 +70,20 @@ build:
 build-release:
     go build -trimpath -ldflags "{{_LDFLAGS}}" -o {{BIN}} .
 
+# Build this checkout and put it on the PATH: /usr/local/bin when writable and
+# ~/.local/bin otherwise (or $HOP_INSTALL_DIR) on unix, %LOCALAPPDATA%\Programs\hop
+# on Windows, where the installer also adds that directory to the user PATH. The
+# same scripts, run without --from-source, install a released binary instead.
+
+# Install hop from source onto your PATH.
+[unix]
+install:
+    sh scripts/install.sh --from-source
+
+[windows]
+install:
+    pwsh.exe -NoLogo -NoProfile -File scripts/install.ps1 -FromSource
+
 # ---------------------------------------------------------------------------
 # Quality
 # ---------------------------------------------------------------------------
