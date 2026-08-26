@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/keys"
@@ -37,7 +37,7 @@ func (m *model) openHostMenu() {
 func (m *model) closeMenu() { m.menu = menuUI{} }
 
 // handleMenuKey swallows every key: the keys underneath act on a host.
-func (m *model) handleMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleMenuKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Dialog-convention keys are not in the registry (see internal/keys).
 	switch key := msg.String(); {
 	case key == "esc" || key == "q" ||

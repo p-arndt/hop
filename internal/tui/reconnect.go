@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/keys"
 
@@ -260,7 +260,7 @@ func (m *model) activeDead() bool {
 }
 
 // handleDeadPaneKey is the whole keyboard of a dead pane; nothing is forwarded.
-func (m *model) handleDeadPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleDeadPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.binds.Action(keys.DeadPane, msg.String(), m.cfg.VimKeys) {
 	case keys.DeadReconnect:
 		h, ok := m.hostByAlias(m.active)

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/keys"
@@ -214,7 +214,7 @@ func TestActionRowsCarryTheirKey(t *testing.T) {
 func TestRightClickOpensTheMenu(t *testing.T) {
 	m := newMouseModel(4)
 
-	m.handleMouse(tea.MouseMsg{X: 4, Y: 5, Button: tea.MouseButtonRight, Action: tea.MouseActionPress})
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 4, Y: 5, Button: tea.MouseRight}, action: actPress})
 	if !m.menu.open {
 		t.Fatal("right-click did not open the menu")
 	}

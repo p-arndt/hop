@@ -3,27 +3,27 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
-// shiftKey builds the tea.KeyMsg whose String() is "shift+<name>".
-func shiftKey(name string) tea.KeyMsg {
+// shiftKey builds the tea.KeyPressMsg whose String() is "shift+<name>".
+func shiftKey(name string) tea.KeyPressMsg {
 	switch name {
 	case "left":
-		return tea.KeyMsg{Type: tea.KeyShiftLeft}
+		return tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModShift}
 	case "right":
-		return tea.KeyMsg{Type: tea.KeyShiftRight}
+		return tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModShift}
 	}
 	panic("shiftKey: " + name)
 }
 
 // runeKey builds a plain character key.
-func runeKey(r rune) tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
+func runeKey(r rune) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: r, Text: string(r)}
 }
 
 // ctrlO is hop's leader key.
-func ctrlO() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyCtrlO} }
+func ctrlO() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl} }
 
 // Wraps at both ends; the binding that works where alt never arrives.
 func TestShellTabCyclingWithShift(t *testing.T) {

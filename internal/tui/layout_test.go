@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -139,7 +139,7 @@ func layoutCases() []layoutCase {
 
 // frameOf renders the model and hands back the screen with the styling stripped.
 func frameOf(m *model) []string {
-	lines := strings.Split(m.View(), "\n")
+	lines := strings.Split(m.View().Content, "\n")
 	for i, ln := range lines {
 		lines[i] = ansi.Strip(ln)
 	}
@@ -226,7 +226,7 @@ func TestFrameIsExactlyTheWindow(t *testing.T) {
 			m := viewModel(c.w, c.h)
 			c.setup(t, m)
 
-			lines := strings.Split(m.View(), "\n")
+			lines := strings.Split(m.View().Content, "\n")
 			if len(lines) != c.h {
 				t.Fatalf("%dx%d: the screen is %d lines, want %d", c.w, c.h, len(lines), c.h)
 			}
@@ -247,7 +247,7 @@ func TestVeryNarrowWindowsStillFitTheirTerminal(t *testing.T) {
 		m := viewModel(w, 12)
 		withShell(t, m)
 
-		for i, ln := range strings.Split(m.View(), "\n") {
+		for i, ln := range strings.Split(m.View().Content, "\n") {
 			if got := lipgloss.Width(ln); got != w {
 				t.Fatalf("a %d-column window renders line %d at %d cells, want %d", w, i, got, w)
 			}
@@ -437,7 +437,7 @@ func TestTooNarrowForTheSidebarReadsAsCollapsed(t *testing.T) {
 		if m.sidebarOn() {
 			t.Fatalf("at %d columns the sidebar reports itself on screen", w)
 		}
-		screen := ansi.Strip(m.View())
+		screen := ansi.Strip(m.View().Content)
 		if strings.Contains(screen, "HOSTS") {
 			t.Fatalf("at %d columns the host list is drawn after all", w)
 		}
@@ -472,7 +472,7 @@ func TestTheSidebarComesBackWhenTheWindowCanPayForIt(t *testing.T) {
 	if got := m.listWidth(); got != 16 {
 		t.Fatalf("the restored list is %d columns wide, want its floor of 16", got)
 	}
-	if !strings.Contains(ansi.Strip(m.View()), "HOSTS") {
+	if !strings.Contains(ansi.Strip(m.View().Content), "HOSTS") {
 		t.Fatal("the restored list is not on screen")
 	}
 }

@@ -5,71 +5,62 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/config"
 	"hop/internal/keys"
 	"hop/internal/store"
 )
 
-// key builds the tea.KeyMsg whose String() is name.
-func key(t *testing.T, name string) tea.KeyMsg {
+// namedKeys are the keys whose name is not the character they type.
+var namedKeys = map[string]rune{
+	"enter": tea.KeyEnter, "esc": tea.KeyEscape, "tab": tea.KeyTab,
+	"backspace": tea.KeyBackspace, "space": tea.KeySpace, "delete": tea.KeyDelete,
+	"up": tea.KeyUp, "down": tea.KeyDown, "left": tea.KeyLeft, "right": tea.KeyRight,
+	"home": tea.KeyHome, "end": tea.KeyEnd, "pgup": tea.KeyPgUp, "pgdown": tea.KeyPgDown,
+	"insert": tea.KeyInsert,
+}
+
+// key builds the tea.KeyPressMsg whose String() is name.
+func key(t *testing.T, name string) tea.KeyPressMsg {
 	t.Helper()
-	switch name {
-	case "ctrl+o":
-		return tea.KeyMsg{Type: tea.KeyCtrlO}
-	case "ctrl+d":
-		return tea.KeyMsg{Type: tea.KeyCtrlD}
-	case "ctrl+u":
-		return tea.KeyMsg{Type: tea.KeyCtrlU}
-	case "ctrl+f":
-		return tea.KeyMsg{Type: tea.KeyCtrlF}
-	case "ctrl+b":
-		return tea.KeyMsg{Type: tea.KeyCtrlB}
-	case "ctrl+k":
-		return tea.KeyMsg{Type: tea.KeyCtrlK}
-	case "ctrl+t":
-		return tea.KeyMsg{Type: tea.KeyCtrlT}
-	case `ctrl+\`:
-		return tea.KeyMsg{Type: tea.KeyCtrlBackslash}
-	case "space":
-		return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
-	case "up":
-		return tea.KeyMsg{Type: tea.KeyUp}
-	case "down":
-		return tea.KeyMsg{Type: tea.KeyDown}
-	case "shift+up":
-		return tea.KeyMsg{Type: tea.KeyShiftUp}
-	case "shift+down":
-		return tea.KeyMsg{Type: tea.KeyShiftDown}
-	case "left":
-		return tea.KeyMsg{Type: tea.KeyLeft}
-	case "right":
-		return tea.KeyMsg{Type: tea.KeyRight}
-	case "home":
-		return tea.KeyMsg{Type: tea.KeyHome}
-	case "end":
-		return tea.KeyMsg{Type: tea.KeyEnd}
-	case "pgup":
-		return tea.KeyMsg{Type: tea.KeyPgUp}
-	case "pgdown":
-		return tea.KeyMsg{Type: tea.KeyPgDown}
-	case "enter":
-		return tea.KeyMsg{Type: tea.KeyEnter}
-	case "esc":
-		return tea.KeyMsg{Type: tea.KeyEsc}
-	case "tab":
-		return tea.KeyMsg{Type: tea.KeyTab}
-	case "backspace":
-		return tea.KeyMsg{Type: tea.KeyBackspace}
-	case "ctrl+c":
-		return tea.KeyMsg{Type: tea.KeyCtrlC}
-	default:
-		if len([]rune(name)) != 1 {
-			t.Fatalf("key: unsupported name %q", name)
+
+	var msg tea.KeyPressMsg
+	rest := name
+	for {
+		mod, prefix := tea.ModCtrl, "ctrl+"
+		switch {
+		case strings.HasPrefix(rest, "ctrl+"):
+		case strings.HasPrefix(rest, "alt+"):
+			mod, prefix = tea.ModAlt, "alt+"
+		case strings.HasPrefix(rest, "shift+"):
+			mod, prefix = tea.ModShift, "shift+"
+		default:
+			prefix = ""
 		}
-		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(name)}
+		if prefix == "" {
+			break
+		}
+		msg.Mod |= mod
+		rest = strings.TrimPrefix(rest, prefix)
 	}
+
+	if code, ok := namedKeys[rest]; ok {
+		msg.Code = code
+		// Text is what the key types, which a modifier replaces with a command.
+		if msg.Mod == 0 && rest == "space" {
+			msg.Text = " "
+		}
+		return msg
+	}
+	if len([]rune(rest)) != 1 {
+		t.Fatalf("key: unsupported name %q", name)
+	}
+	msg.Code = []rune(rest)[0]
+	if msg.Mod == 0 {
+		msg.Text = rest
+	}
+	return msg
 }
 
 // newNavModel builds a navigation-mode model with n hosts, listRows() == 15 and vim keys on.

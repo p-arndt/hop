@@ -9,7 +9,6 @@ code:
   - internal/keys/**
   - internal/tui/keycast.go
   - internal/tui/keycast_off.go
-  - internal/tui/altgr.go
 relationships: []
 ---
 
@@ -80,13 +79,13 @@ these words, appear in this context's code, tests, APIs, commits and prompts.**
 - **A binding must work on the terminals users actually have.** On macOS, `alt+<key>`
   never reaches the application, so hop's own keys are `ctrl` chords or leader
   sequences — see [[hop-keybindings-must-work-on-default-macos-terminals]].
-- **A modifier is not a key.** The Windows console reports AltGr, ctrl and alt key-downs
-  as NUL-charactered key events; hop drops those *phantom keys* outright. A shell's line
-  editor ignores them, but a password prompt reads every byte it is sent, so forwarding
-  them corrupted the secret behind every AltGr character. The price is the NUL byte itself:
-  ctrl+space and ctrl+2 are reported the same way, so hop can send no NUL to a remote
-  program at all, and the drop is silent — the phantom fires on every ctrl press, so a
-  status per dropped key would be noise.
+- **The keyboard is read as VT, not as console records.** Bubble Tea v2 puts the Windows
+  console into `ENABLE_VIRTUAL_TERMINAL_INPUT` and lets the console compose the character,
+  so a modifier press produces no event of its own and an AltGr character arrives as
+  itself. That removed both Windows keyboard hacks hop carried — the AltGr shape guess and
+  the *phantom key* drop — and with them the NUL byte hop could not send. hop reads
+  `tea.KeyPressMsg`, never `tea.KeyMsg`: the latter is an interface a key *release*
+  satisfies too.
 - **Everything else belongs to the remote program.** hop holds the smallest set of
   keys it can.
 
@@ -101,8 +100,8 @@ these words, appear in this context's code, tests, APIs, commits and prompts.**
 - `internal/keys` is treated as its own context rather than part of [[workspace]]
   because it has a second consumer (`tools/docsgen`) and a published vocabulary. That
   second consumer is the whole justification — if it went away, this should merge.
-- The keycast (showing keys as they are pressed) and AltGr handling are anchored here;
-  they are arguably presentation and belong to workspace.
+- The keycast (showing keys as they are pressed) is anchored here; it is arguably
+  presentation and belongs to workspace.
 
 ## Verification metrics
 

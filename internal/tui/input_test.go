@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/sshx"
 	"hop/internal/terminal"
@@ -40,7 +40,7 @@ func TestDroppedInputIsReported(t *testing.T) {
 
 	for i := 0; i < 20000 && m.status == ""; i++ {
 		clk.advance(80 * time.Millisecond) // typed, so every key goes straight out
-		m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+		m.handleKey(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	}
 
 	if m.status == "" {

@@ -1,177 +1,103 @@
-# Migrating hop to Bubble Tea v2
+# Bubble Tea v2 migration
 
-**Status:** not started. This is a plan, not a record — nothing below has been done.
+**Status:** code migrated, `just ci` green (fmt, vet, 14 packages). **Not yet run against a
+real terminal** — the manual list at the bottom is what remains.
 
-Measured against `bubbletea v1.3.10` (current) and `bubbletea/v2 v2.0.9` (checked 2026-08-26).
-Counts exclude test files unless said otherwise. This file lives outside `docs/NN-id.md`, so
-`tools/docsgen` does not read it and the published site is unaffected.
+Migrated from `bubbletea v1.3.10` to `charm.land/bubbletea/v2 v2.0.9` (note the module path
+moved off `github.com/`). This file was written as a plan and is kept as the record; the
+manual verification is the open half. It lives outside `docs/NN-id.md`, so `tools/docsgen`
+does not read it and the published site is unaffected.
 
-## Why
+## Why, corrected
 
-hop's Windows keyboard has two hacks in it, and both exist because v1 throws away the
-console's `ControlKeyState` and virtual key code before hop ever sees the key:
+The plan said v2 keeps the Windows console's `ControlKeyState` and virtual key code, so
+`ultraviolet` can name the modifiers and detect AltGr outright. **That is dead code on the
+path v2 actually uses.** `ultraviolet/cancelreader_windows.go:52-58` and
+`bubbletea/v2/tty_windows.go:19-32` put the console into `ENABLE_VIRTUAL_TERMINAL_INPUT`;
+`terminal_reader_windows.go:89-107` then forwards only each key-down's *character*, and the
+win32-record decoder at `decoder.go:1837-2054` is never reached.
 
-- `normalizeAltGr` — an AltGr composition arrives as an alt chord, recognised by the *shape*
-  of its runes rather than by the modifier state that actually distinguishes it.
-- `phantomModifier` — the console reports a modifier's own key-down as a NUL-charactered key.
-  Indistinguishable from a real ctrl+space in a v1 `KeyMsg`, so hop drops both. See the
-  ledger entry `20260826-200440-altgr-no-longer-corrupts-remote-password-prompts`.
+The outcome is the same and the mechanism is simpler: the console composes the character, a
+modifier press produces no event at all, and hop's two Windows keyboard hacks were both
+deleted. What did **not** survive contact: ctrl+space and ctrl+2 are still indistinguishable
+(both decode to `{Code: KeySpace, Mod: ModCtrl}`, `decoder.go:1128-1132`) — which does not
+matter, since both mean NUL and hop can now send it.
 
-v2 reads input through `ultraviolet`, which keeps that information:
+Resize still works: `ENABLE_WINDOW_INPUT` records are re-encoded as `CSI 8;h;w t`
+(`terminal_reader_windows.go:174-187`) and decoded into `WindowSizeMsg`.
 
-| Fact | Where |
+## What changed
+
+| Area | Change |
 |---|---|
-| Modifier key-downs become named keys (`KeyLeftCtrl`, `KeyRightAlt`), not NUL runes | `ultraviolet/decoder.go:1884-1905` |
-| AltGr is detected as `LEFT_CTRL\|RIGHT_ALT`, explicitly | `ultraviolet/decoder.go:2024-2028` |
-| `Key.Text` carries the printable characters; `Key.Code`/`Key.Mod` carry the key | `ultraviolet/key.go:267` |
-| `Key.BaseCode` is the US-layout key — what `alt+1..9` tab switching actually wants | `ultraviolet/key.go:291` |
+| `internal/tui/altgr.go` | **deleted** — `normalizeAltGr` and `phantomModifier` both obsolete |
+| `internal/terminal/terminal.go` | key encoder rewritten against `Code`+`Mod`; the 30-case type switch is now two lookup maps, and ctrl chords are arithmetic on `Code` instead of a `String()` round-trip |
+| `internal/terminal/mouse.go` | new `terminal.MouseEvent` — the encoder no longer takes a Bubble Tea message type |
+| `internal/tui/mouse.go` | `mouseEvt` adapter flattens v2's four mouse messages back into button+action, so the ~15 routing functions kept their shape |
+| `internal/tui/view.go` | `View() tea.View`; carries `AltScreen` and `MouseMode` on **every** return — the renderer diffs against the last frame, so an omission switches the mode off |
+| `internal/tui/settings.go` | `applyMouse` is no longer a `tea.Cmd`; the mouse is view state |
+| `internal/tui/model.go` | switches on `tea.KeyPressMsg`; `tea.PasteMsg` handled directly; `WithAltScreen()` gone, `WithFPS(120)` kept |
+| input fields (7 sites) | `msg.Runes` → `Key.Text`, which is also correct for composed characters |
+| `internal/keys` | untouched — v2 spells every bound key identically |
 
-**The payoff:** delete `internal/tui/altgr.go` entirely, get ctrl+space and ctrl+2 sendable
-again, and replace hop's rune-shape guessing with the modifier state.
+### Deliberate parity decisions
 
-Do this as its own piece of work, not as a bugfix. The blast radius is the whole keyboard,
-the mouse and the renderer, on every platform.
+- **A bare alt keeps the ESC prefix.** v2 would let `modifiedKeyBytes` emit `CSI 1;3D` for
+  alt+left; v1 sent `ESC ESC [ D`. Kept the v1 form (`terminal.go`, the `ModShift|ModCtrl`
+  guard) — a migration is the wrong place to change what remote programs receive.
+- **The paste burst heuristic stays.** v2 emits `PasteStartMsg`/`PasteMsg`/`PasteEndMsg`
+  only where the host brackets the paste (DECSET 2004). Legacy conhost right-click paste is
+  still unmarked and `ultraviolet` has no fallback (`decoder.go:558-563` is the only
+  producer), so `paste.go` keeps detecting bursts.
+- **lipgloss stayed at v1.1.0.** See the open risk below.
 
-## Prerequisites
+### Silent-breakage sites fixed
 
-- [ ] Confirm `bubbletea/v2` is still the current major and re-read its changelog from v2.0.9.
-- [ ] hop has **no `bubbles` dependency** — verified in `go.mod`. Nothing to migrate there.
-- [ ] Decide on lipgloss. v1.1.0 only produces ANSI strings and can likely stay; the risk is
-      colour-profile detection, which v2 owns via `colorprofile` (`tea.WithColorProfile`).
-      Check truecolor and 256-colour output on legacy conhost before committing to the mix.
+v1 named the space bar `" "`, v2 names it `"space"`. Three sites compared the old spelling
+without going through `keys.Normalize` and would have stopped matching with no compile
+error: `tui/keys.go:687`, `tui/tunnels.go:108`, `tui/tunnels.go:160`. `keys.Normalize` keeps
+translating `" "` so config files written under v1 still work.
 
-## API deltas
+## Open risks
 
-| v1 | v2 | Note |
-|---|---|---|
-| `tea.KeyMsg` (struct) | `tea.KeyPressMsg` / `tea.KeyReleaseMsg` | `tea.KeyMsg` is now an **interface** matching both — see trap 1 |
-| `msg.Type` + `tea.KeyCtrlX` consts | `Key.Code` + `Key.Mod` | the big rewrite, concentrated in `terminal.go` |
-| `msg.Runes` | `Key.Text` (printable) / `Key.Code` | cleaner for hop's input fields |
-| `msg.Alt` | `Mod & ModAlt` | |
-| `msg.Paste` | `PasteMsg`, `PasteStartMsg` | `bubbletea/v2/paste.go:5` |
-| `View() string` | `View() tea.View`, via `tea.NewView(s)` | `bubbletea/v2/tea.go:53-65` |
-| `tea.WithAltScreen()` | `View.AltScreen = true` | `bubbletea/v2/tea.go:161` |
-| `tea.EnableMouseCellMotion` / `tea.DisableMouse` (commands) | `View.MouseMode` | mouse becomes *view state*, not a command |
-| `tea.MouseMsg` | `MouseClickMsg` / `MouseReleaseMsg` / `MouseMotionMsg` / `MouseWheelMsg` | |
-| `Init() Cmd`, `Update(Msg) (Model, Cmd)` | unchanged | |
+1. **lipgloss v1 with bubbletea v2 is undocumented.** The upgrade guide only notes the move
+   to `charm.land/lipgloss/v2`. Two independent colour-profile detectors now exist (lipgloss
+   against real stdout, v2 against `p.output`) and the more pessimistic wins; v2 cannot
+   restore colour lipgloss already stripped. If colours look wrong, force
+   `tea.WithColorProfile(colorprofile.TrueColor)` and pin lipgloss to match.
+2. **`View.Content` is parsed, not blitted.** `uv.NewStyledString(...)` decodes the frame
+   into cells and "normalizes newlines to emulate a raw terminal output"
+   (`cursed_renderer.go:301,345`). hop's frame is ANSI-heavy pane content from `x/vt` inside
+   lipgloss boxes, so it is now *interpreted*. Nothing in the suite covers how that renders.
+3. **Not tested on a real terminal at all.** Everything below is untried.
 
-## Work list
+## Manual verification — the open half
 
-### The concentrated part
+On **Windows (conhost *and* Windows Terminal)**, macOS and Linux:
 
-- [ ] `internal/terminal/terminal.go` — **43** `tea.Key*` references. `keyBytes`,
-      `keyToBytes` and `modifiedKeyBytes` encode a key back into VT bytes for the remote pty.
-      Rewrite against `Code`+`Mod`. **First check whether `ultraviolet` or `x/ansi` already
-      ships a key encoder** — if it does, most of this file goes away and gains
-      modifyOtherKeys support for free.
-- [ ] `internal/tui/paste.go` — **13** references. `pastable`, `pasteString`, `takeKey`,
-      `handlePaste`. See trap 4: the Windows burst heuristic **stays**.
-- [ ] `internal/tui/keys.go` — **9** references, the routing table in `handleKey`.
-- [ ] `internal/tui/mouse.go` (**37** `tea.Mouse*`) and `internal/terminal/mouse.go` (**20**).
-- [ ] `internal/tui/altgr.go` — **delete**, together with the guard at `model.go:333` and its
-      42 test references. Keep two regression tests, rewritten: AltGr+q types exactly `@`,
-      and ctrl+space reaches the pane as a single NUL.
-
-### Signature-only files
-
-One `tea.KeyMsg` each, in the handler signature. Mechanical:
-
-- [ ] `internal/tui/`: `authprompt.go`, `confirm.go`, `guidance.go`, `hostform.go`,
-      `hostkey.go`, `importer.go`, `menu.go`, `palette.go`, `reconnect.go`, `settings.go`,
-      `tunnels.go`, `model.go`
-- [ ] `internal/filebrowser/`: `filebrowser.go`, `prompt.go`
-
-### Field-level
-
-- [ ] The **33** uses of `msg.Alt` / `msg.Runes` / `msg.Paste` across 12 files:
-      `filebrowser/prompt.go`, `terminal/mouse.go`, `terminal/terminal.go`, `tui/altgr.go`,
-      `tui/authprompt.go`, `tui/hostform.go`, `tui/importer.go`, `tui/keys.go`,
-      `tui/palette.go`, `tui/paste.go`, `tui/settings.go`, `tui/tunnels.go`.
-      The seven `if len(msg.Runes) > 0 { field += string(msg.Runes) }` sites all become
-      `Key.Text` and get *better* (composed characters, IME).
-
-### Program level
-
-- [ ] `internal/tui/model.go:211` — `tea.NewProgram(m, tea.WithAltScreen(), tea.WithFPS(120))`:
-      drop `WithAltScreen`, set it on the View.
-- [ ] `internal/tui/view.go:14` — `View() string` → `View() tea.View`. This is also where
-      `AltScreen` and `MouseMode` now live.
-- [ ] `internal/tui/settings.go` — the live mouse toggle currently returns
-      `tea.EnableMouseCellMotion` / `tea.DisableMouse`; it becomes state the View reads.
-- [ ] Decide on the cursor: hop draws and blinks its own (`cursorBlinkMsg`), v2 has
-      `View.Cursor`. Pick one, do not mix.
-
-### The keyboard registry — config compatibility
-
-`internal/keys` publishes key **name strings** (`ctrl+u`, `shift+tab`, `space`) as the
-config file's vocabulary. They are an API; a rename needs a migration.
-
-- [ ] Verify v2's `String()` spells every bound key exactly as `keys.Defaults()` does.
-- [ ] If any differ, translate in `keys.Normalize` — **not** in the bindings table, so
-      existing `config.json` overrides keep working.
-- [ ] `tools/docsgen/keydocs_test.go` guards `docs/*.md` against the registry; it must stay
-      green without editing the docs.
-
-### Tests
-
-- [ ] `internal/tui/keys_test.go:16` — the `key(t, name)` helper. **331 call sites go through
-      it**, so rewriting this one function carries most of the suite. Do it first.
-- [ ] Raw construction sites, in order of size: `tui/altgr_test.go` (42),
-      `terminal/keys_test.go` (42), `terminal/cursor_test.go` (30), `tui/paste_test.go` (20),
-      `filebrowser/filebrowser_test.go` (13), `tui/tabkeys_test.go` (7),
-      `terminal/input_test.go` (7), `tui/mouse_test.go` (6), `tui/editor_test.go` (5),
-      `tui/view_test.go` (3), `tui/selection_test.go` (3).
-
-## Traps
-
-1. **`tea.KeyMsg` is an interface in v2** and matches both press and release. `model.update`'s
-   `case tea.KeyMsg:` would then fire on key-up too and every keystroke would double. Switch on
-   `tea.KeyPressMsg` explicitly. Related: the Windows console delivers key-up records natively
-   and `ultraviolet` turns them into `KeyReleaseEvent`. **Verify whether v2 suppresses release
-   events unless `View.KeyboardEnhancements.ReportEventTypes` is requested** — this is the
-   single most likely way to break everything at once.
-2. **The phantom-key drop must be removed in the same commit.** With v2, ctrl+space and ctrl+2
-   arrive as distinct `Code`+`Mod`; leaving `phantomModifier` in place would keep eating them
-   for no reason.
-3. **Mouse is view state now.** The settings toggle has to cause a re-render to take effect,
-   which is a different failure mode than a command not firing.
-4. **The Windows paste heuristic stays.** `ultraviolet` only decodes bracketed paste on the
-   ANSI path (`decoder.go:559`); the Windows console still delivers a paste as synthesised
-   keystrokes. Do not assume `PasteMsg` covers Windows — verify before deleting anything in
-   `paste.go`.
-5. **Colour.** If lipgloss v1 stays, confirm the profile hop renders with matches what v2's
-   renderer emits, on conhost and on Windows Terminal.
-
-## Verification
-
-Automated:
-
-- [ ] `go build ./...`, `go vet ./...`, `go test ./...`
-- [ ] `tools/docsgen` drift test green without touching `docs/`
-
-Manual, on **Windows (conhost *and* Windows Terminal)**, macOS and Linux:
-
-- [ ] AltGr characters — `@ [ ] { } | ~ €` — into: remote shell, hop's AUTHENTICATION card,
-      the filter, the host form, the palette
+- [ ] The frame renders correctly at all: borders, colours, the sidebar, a split
+- [ ] AltGr characters — `@ [ ] { } | ~ €` — into: remote shell, AUTHENTICATION card,
+      filter, host form, palette
 - [ ] **A password containing `@` at a real `sudo` prompt**, byte-exact. This is the bug the
-      whole exercise pays off; test it against a live prompt, not a unit test
-- [ ] ctrl+space and ctrl+2 reach the remote program as a single NUL
-- [ ] `alt+1..9` still switches tabs (use `BaseCode` if the layout gets in the way)
-- [ ] Double-esc and `ctrl+o` — the escape hatch survives, per the keyboard context's rule
+      whole exercise pays off
+- [ ] ctrl+space reaches the remote program as a single NUL (tmux prefix, emacs set-mark)
+- [ ] `alt+1..9` switches tabs; `alt+left`/`alt+right` still reach the editor
+- [ ] Double-esc and `ctrl+o` — the escape hatch survives
 - [ ] Leader chords and `gg`-style sequences
 - [ ] Paste: bracketed on Unix, burst-detected on Windows; multi-line into shell, editor and
       single-line fields
-- [ ] Mouse: click, drag-select, wheel, the settings toggle, dragging a split
+- [ ] Mouse: click, drag-select, wheel, `ctrl+g` toggle, dragging a split
 - [ ] Resize while a pane, a split and the browser are open
-- [ ] Scrollback, editor tabs and browser keys
+- [ ] Scrollback, editor tabs, browser keys
+- [ ] Cursor: shape and blink in a focused pane (hop still paints its own; `View.Cursor` is
+      unused and could replace the 530ms blink timer for the focused pane later)
 
-## Rollback
+## Left undone on purpose
 
-One commit, so `git revert` is the exit. If release events or the colour profile cannot be
-resolved on Windows, abort and stay on v1 — the current `phantomModifier` drop remains a
-correct fix, it just costs the NUL byte.
-
-## Effort
-
-1–2 days of code, plus a manual pass per platform. The mechanical share is large and the
-risky share is small and named above.
+- **F-keys still reach no remote program.** `keyBytes` has no `KeyF1..F12` case — true in v1
+  too, so parity was kept. Real gap for vim/mc/htop; separate change.
+- **DECCKM is ignored.** hop always sends `ESC[A` for arrows; `x/vt` respects application
+  cursor mode and would send `ESC OA`. Latent bug for full-screen remote apps, predates this
+  work.
+- **`View.Cursor`** is left nil; hop keeps its own per-pane blink, which is the only way
+  unfocused panes can show a cursor.

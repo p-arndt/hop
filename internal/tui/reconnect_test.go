@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/filebrowser"
 	"hop/internal/filebrowser/fbtest"
@@ -278,7 +278,7 @@ func TestDeadSessionOnScreen(t *testing.T) {
 	m, _, cli := deadModel(t, 1, false)
 	m.Update(sessionLostMsg{alias: "web", client: cli, err: errors.New("EOF")})
 
-	view := m.View()
+	view := m.View().Content
 	for _, want := range []string{"connection lost", "disconnected", "reconnect"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("the screen never says %q:\n%s", want, view)

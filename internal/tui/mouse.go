@@ -3,7 +3,7 @@ package tui
 import (
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/terminal"
 )
@@ -50,23 +50,66 @@ func (m *model) zoneAt(x, y int) zone {
 }
 
 // handleMouse routes a mouse event to whichever region it landed in.
-func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+// mouseAction is which of v2's four mouse messages arrived. v1 delivered button and action
+// in one struct and hop's routing tree reads both at every level, so it is flattened back
+// here rather than type-switched fifteen times.
+type mouseAction int
+
+const (
+	actPress mouseAction = iota
+	actRelease
+	actMotion
+	actWheel
+)
+
+type mouseEvt struct {
+	tea.Mouse
+	action mouseAction
+}
+
+func toMouseEvt(msg tea.MouseMsg) mouseEvt {
+	e := mouseEvt{Mouse: msg.Mouse()}
+	switch msg.(type) {
+	case tea.MouseClickMsg:
+		e.action = actPress
+	case tea.MouseReleaseMsg:
+		e.action = actRelease
+	case tea.MouseMotionMsg:
+		e.action = actMotion
+	case tea.MouseWheelMsg:
+		e.action = actWheel
+	}
+	return e
+}
+
+// report is the event on its way to a remote program, which needs neither the coordinates
+// (the pane supplies its own) nor the distinction between a click and a wheel.
+func (e mouseEvt) report() terminal.MouseEvent {
+	return terminal.MouseEvent{
+		Button:  e.Button,
+		Mod:     e.Mod,
+		Motion:  e.action == actMotion,
+		Release: e.action == actRelease,
+	}
+}
+
+func (m *model) handleMouse(msg mouseEvt) (tea.Model, tea.Cmd) {
 	model, cmd := m.routeMouse(msg)
 
 	// A release ends the drag wherever it lands, or a gesture that ran off the pane would
 	// leave a drag live for the next release to finish.
-	if msg.Action == tea.MouseActionRelease && m.sel.dragging {
+	if msg.action == actRelease && m.sel.dragging {
 		m.endSelection(m.dragView())
 	}
 	return model, cmd
 }
 
-func (m *model) routeMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+func (m *model) routeMouse(msg mouseEvt) (tea.Model, tea.Cmd) {
 	if m.help {
 		switch msg.Button {
-		case tea.MouseButtonWheelUp:
+		case tea.MouseWheelUp:
 			m.helpScroll--
-		case tea.MouseButtonWheelDown:
+		case tea.MouseWheelDown:
 			m.helpScroll++
 		}
 		return m, nil
@@ -119,26 +162,26 @@ func (m *model) clickChord(z zone, id int) bool {
 
 // ---- the host list ----
 
-func (m *model) mouseList(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+func (m *model) mouseList(msg mouseEvt) (tea.Model, tea.Cmd) {
 	switch msg.Button {
-	case tea.MouseButtonWheelUp:
+	case tea.MouseWheelUp:
 		m.clearSelection()
 		m.cursor--
 		m.clampCursor()
 
-	case tea.MouseButtonWheelDown:
+	case tea.MouseWheelDown:
 		m.clearSelection()
 		m.cursor++
 		m.clampCursor()
 
-	case tea.MouseButtonLeft:
-		if msg.Action != tea.MouseActionPress {
+	case tea.MouseLeft:
+		if msg.action != actPress {
 			return m, nil
 		}
 		return m.clickList(msg)
 
-	case tea.MouseButtonRight:
-		if msg.Action != tea.MouseActionPress {
+	case tea.MouseRight:
+		if msg.action != actPress {
 			return m, nil
 		}
 		return m.rightClickList(msg)
@@ -147,7 +190,7 @@ func (m *model) mouseList(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 // clickList stands the cursor on the clicked host, connecting on a double-click.
-func (m *model) clickList(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+func (m *model) clickList(msg mouseEvt) (tea.Model, tea.Cmd) {
 	m.clearSelection()
 	m.backToList()
 
@@ -169,7 +212,7 @@ func (m *model) clickList(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 // rightClickList opens the context menu on the clicked host, standing the cursor on it
 // first since the menu acts on the selected host.
-func (m *model) rightClickList(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+func (m *model) rightClickList(msg mouseEvt) (tea.Model, tea.Cmd) {
 	m.clearSelection()
 	m.backToList()
 
@@ -224,7 +267,7 @@ func (m *model) backToList() {
 
 // ---- the tree column ----
 
-func (m *model) mouseTree(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+func (m *model) mouseTree(msg mouseEvt) (tea.Model, tea.Cmd) {
 	s := m.sessions[m.active]
 	if s == nil || s.browser == nil || s.dead {
 		return m, nil
@@ -233,7 +276,7 @@ func (m *model) mouseTree(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if !m.browsing() {
 		// A click is the way in; the wheel is not, or a notch aimed at the file you are
 		// reading would move the keyboard out of it.
-		if msg.Button != tea.MouseButtonLeft || msg.Action != tea.MouseActionPress {
+		if msg.Button != tea.MouseLeft || msg.action != actPress {
 			return m, nil
 		}
 		m.clearSelection()
@@ -254,7 +297,7 @@ func (m *model) treeLocal(x, y int) (int, int, bool) { return m.frame.tree.inner
 
 // ---- the content area ----
 
-func (m *model) mousePane(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+func (m *model) mousePane(msg mouseEvt) (tea.Model, tea.Cmd) {
 	s := m.sessions[m.active]
 	if m.active == "" || s == nil || s.dead {
 		return m, nil
@@ -279,7 +322,7 @@ func (m *model) mousePane(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.listHasFocus() || m.browsing() {
-		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
+		if msg.Button == tea.MouseLeft && msg.action == actPress {
 			m.clickIntoPane(s, right)
 		}
 		return m, nil
@@ -287,7 +330,7 @@ func (m *model) mousePane(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// contentIsSplit, not splitOn: with one box on screen there is no other half to pick.
 	if m.contentIsSplit() && right != s.focusedHalf() &&
-		msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
+		msg.Button == tea.MouseLeft && msg.action == actPress {
 		m.clearSelection()
 		s.splitRight = right
 	}
@@ -345,12 +388,12 @@ func (m *model) clickIntoPane(s *session, right bool) {
 }
 
 // mouseShell is the pointer over a focused shell pane.
-func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, tea.Cmd) {
+func (m *model) mouseShell(s *session, msg mouseEvt, x, y int) (tea.Model, tea.Cmd) {
 	h := m.paneH
 	if len(s.shells) > 1 {
 		// A drag passing over the strip is still a drag.
 		if y == 0 && !m.sel.dragging {
-			if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
+			if msg.Button == tea.MouseLeft && msg.action == actPress {
 				if i, ok := m.tabAt(shellTabNames(s), s.activeSh, x, m.paneW); ok {
 					m.clearSelection()
 					s.activeSh = i
@@ -364,7 +407,7 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 	p := s.shell().pane
 
 	// A drag held against the top or bottom row scrolls the view under it.
-	if m.sel.dragging && msg.Action == tea.MouseActionMotion {
+	if m.sel.dragging && msg.action == actMotion {
 		y = clamp(y, 0, max(h-1, 0))
 		if cmd := m.dragAutoScroll(s, dragEdge(y, h)); cmd != nil {
 			m.dragSelection(terminal.Cell{X: x, Y: y})
@@ -386,7 +429,7 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 	// A remote program that asked for the mouse keeps it, selection included: two
 	// selections for one drag is worse than either.
 	if p.MouseEnabled() {
-		p.SendMouse(msg, x, y)
+		p.SendMouse(msg.report(), x, y)
 		return m, nil
 	}
 	return m.mouseSelect(msg, x, y, p.View(), m.frame.content)
@@ -396,9 +439,9 @@ func (m *model) mouseShell(s *session, msg tea.MouseMsg, x, y int) (tea.Model, t
 // anything that is not a vertical wheel.
 func wheelDir(b tea.MouseButton) int {
 	switch b {
-	case tea.MouseButtonWheelUp:
+	case tea.MouseWheelUp:
 		return -1
-	case tea.MouseButtonWheelDown:
+	case tea.MouseWheelDown:
 		return 1
 	}
 	return 0
@@ -426,12 +469,12 @@ func (m *model) wheelShell(s *session, dir, x, y, h int) (tea.Model, tea.Cmd) {
 }
 
 // wheelKeys is one wheel notch as the arrow keys a full-screen program understands.
-func wheelKeys(dir int) []tea.KeyMsg {
-	key := tea.KeyMsg{Type: tea.KeyUp}
+func wheelKeys(dir int) []tea.KeyPressMsg {
+	key := tea.KeyPressMsg{Code: tea.KeyUp}
 	if dir > 0 {
-		key = tea.KeyMsg{Type: tea.KeyDown}
+		key = tea.KeyPressMsg{Code: tea.KeyDown}
 	}
-	msgs := make([]tea.KeyMsg, wheelStep)
+	msgs := make([]tea.KeyPressMsg, wheelStep)
 	for i := range msgs {
 		msgs[i] = key
 	}
@@ -518,22 +561,22 @@ func (m *model) scrollShellBy(s *session, dir, n int) int {
 // mouseSelect is the pointer over a pane's text: press anchors, motion drags, release
 // copies. box is the content box the view was drawn in, which the selection keeps so its
 // rows stay measured against the same width.
-func (m *model) mouseSelect(msg tea.MouseMsg, x, y int, view string, box rect) (tea.Model, tea.Cmd) {
+func (m *model) mouseSelect(msg mouseEvt, x, y int, view string, box rect) (tea.Model, tea.Cmd) {
 	c := terminal.Cell{X: x, Y: y}
 	// A release ends the drag whatever button it names: not every terminal says which one
 	// came up, and a drag that never ends never copies.
-	if msg.Action == tea.MouseActionRelease && m.sel.dragging {
+	if msg.action == actRelease && m.sel.dragging {
 		m.dragSelection(c)
 		m.endSelection(view)
 		return m, nil
 	}
-	if msg.Button != tea.MouseButtonLeft {
+	if msg.Button != tea.MouseLeft {
 		return m, nil
 	}
-	switch msg.Action {
-	case tea.MouseActionPress:
+	switch msg.action {
+	case actPress:
 		m.startSelection(c, box)
-	case tea.MouseActionMotion:
+	case actMotion:
 		m.dragSelection(c)
 	}
 	return m, nil
@@ -541,12 +584,12 @@ func (m *model) mouseSelect(msg tea.MouseMsg, x, y int, view string, box rect) (
 
 // mouseEditor is the pointer over an editor tab. hop keeps no history for it, so an editor
 // that has not asked for the mouse is not scrolled.
-func (m *model) mouseEditor(s *session, msg tea.MouseMsg, x, y int) (tea.Model, tea.Cmd) {
+func (m *model) mouseEditor(s *session, msg mouseEvt, x, y int) (tea.Model, tea.Cmd) {
 	// Both halves draw the same names against a different open tab, so the strip has to be
 	// measured for the half being pointed at.
 	right := s.focusedHalf()
 	if y == 0 {
-		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
+		if msg.Button == tea.MouseLeft && msg.action == actPress {
 			if i, ok := m.tabAt(editorTabNames(s), s.editorIndex(right), x, m.contentW(s)); ok {
 				m.clearSelection()
 				s.setEditor(i)
@@ -556,7 +599,7 @@ func (m *model) mouseEditor(s *session, msg tea.MouseMsg, x, y int) (tea.Model, 
 	}
 	p := s.editor().pane
 	if p.MouseEnabled() {
-		p.SendMouse(msg, x, y-1)
+		p.SendMouse(msg.report(), x, y-1)
 		return m, nil
 	}
 	return m.mouseSelect(msg, x, y-1, p.View(), m.frame.half(right))
@@ -573,17 +616,17 @@ func (m *model) browserZone() zone {
 
 // mouseBrowser expects coordinates already translated into the browser's own space by
 // treeLocal or contentLocal.
-func (m *model) mouseBrowser(s *session, msg tea.MouseMsg, _, y int) (tea.Model, tea.Cmd) {
+func (m *model) mouseBrowser(s *session, msg mouseEvt, _, y int) (tea.Model, tea.Cmd) {
 	b := s.browser
 	switch msg.Button {
-	case tea.MouseButtonWheelUp:
+	case tea.MouseWheelUp:
 		b.Scroll(-wheelStep)
 
-	case tea.MouseButtonWheelDown:
+	case tea.MouseWheelDown:
 		b.Scroll(wheelStep)
 
-	case tea.MouseButtonLeft:
-		if msg.Action != tea.MouseActionPress {
+	case tea.MouseLeft:
+		if msg.action != actPress {
 			return m, nil
 		}
 		i, ok := b.RowAt(y)

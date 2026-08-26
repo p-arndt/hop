@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"hop/internal/sshx"
 	"hop/internal/store"
 )
@@ -72,12 +70,12 @@ func TestPasteGoesOnlyToEditableTunnelFields(t *testing.T) {
 	m.openTunnels(m.hosts[0])
 	m.handleKey(key(t, "a"))
 	m.tunnels.field = tfTargetHost
-	m.handlePaste(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("db.internal"), Paste: true})
+	m.handlePaste("db.internal")
 	if m.tunnels.buf[tfTargetHost] != "db.internal" {
 		t.Fatalf("pasted target = %q", m.tunnels.buf[tfTargetHost])
 	}
 	m.tunnels.field = tfKind
-	m.handlePaste(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("remote"), Paste: true})
+	m.handlePaste("remote")
 	if m.tunnels.buf[tfKind] != string(store.ForwardLocal) {
 		t.Fatal("paste overwrote the direction picker")
 	}
