@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/sshx"
@@ -81,7 +81,7 @@ func (m *model) closeAuth() {
 }
 
 // handleAuthKey swallows every key: a stray one must not reach the list behind the card.
-func (m *model) handleAuthKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleAuthKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "ctrl+c":
 		m.cancelAuth()
@@ -110,8 +110,8 @@ func (m *model) handleAuthKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setAuthAnswer("")
 
 	default:
-		if len(msg.Runes) > 0 {
-			m.setAuthAnswer(m.authAnswer() + string(msg.Runes))
+		if msg.Text != "" {
+			m.setAuthAnswer(m.authAnswer() + msg.Text)
 		}
 	}
 	return m, nil

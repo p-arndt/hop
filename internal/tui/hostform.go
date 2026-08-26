@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/store"
@@ -97,7 +97,7 @@ func (m *model) closeHostForm() {
 }
 
 // handleHostFormKey routes a key while the card is up, swallowing everything.
-func (m *model) handleHostFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleHostFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.closeHostForm()
@@ -122,8 +122,8 @@ func (m *model) handleHostFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	default:
 		// All text goes to the focused field, so vim motions are never gated here.
-		if len(msg.Runes) > 0 {
-			m.hostForm.buf[m.hostForm.cursor] += string(msg.Runes)
+		if msg.Text != "" {
+			m.hostForm.buf[m.hostForm.cursor] += msg.Text
 		}
 	}
 	return m, nil

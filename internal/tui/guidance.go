@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/config"
 )
@@ -47,7 +47,7 @@ func (m *model) answerGuidance() {
 }
 
 // handleGuidanceKey routes a key while the question is up; anything but a motion answers it.
-func (m *model) handleGuidanceKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleGuidanceKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "left", "k", "h":
 		m.guidance.cursor = clamp(m.guidance.cursor-1, 0, len(guidanceChoices)-1)

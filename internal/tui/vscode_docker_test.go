@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/dockerenv"
 	"hop/internal/store"
@@ -201,7 +201,7 @@ func waitForPaneCwd(t *testing.T, m *model, want string) string {
 func typeLine(t *testing.T, m *model, line string) {
 	t.Helper()
 	for _, r := range line {
-		m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m.handleKey(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
-	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 }

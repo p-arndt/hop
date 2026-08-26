@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/sahilm/fuzzy"
 
@@ -62,7 +62,7 @@ func (m *model) paletteKey(key string) bool {
 
 // handlePaletteKey routes a key while the palette is up. It swallows everything, or a key
 // would act on the host underneath while you were typing its name.
-func (m *model) handlePaletteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handlePaletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key := msg.String(); {
 	case key == "esc" || m.paletteKey(key):
 		m.closePalette()
@@ -95,8 +95,8 @@ func (m *model) handlePaletteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filterPalette()
 
 	default:
-		if len(msg.Runes) > 0 {
-			m.palette.query += string(msg.Runes)
+		if msg.Text != "" {
+			m.palette.query += msg.Text
 			m.filterPalette()
 		}
 	}

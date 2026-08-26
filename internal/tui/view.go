@@ -4,16 +4,22 @@ import (
 	"fmt"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/config"
 	"hop/internal/keys"
 )
 
-// View composes the screen and overlays the context menu and any modal card.
-func (m *model) View() string {
+// View composes the screen and overlays the context menu and any modal card. Every return
+// carries the alt screen and the mouse mode: the renderer diffs this view against the last,
+// so a frame that omits one switches it off.
+func (m *model) View() tea.View {
+	v := tea.NewView("loading hop…")
+	v.AltScreen = true
+	v.MouseMode = m.mouseMode()
 	if !m.ready {
-		return "loading hop…"
+		return v
 	}
 
 	// Widths follow the active session, so measure this frame rather than the last.
@@ -42,7 +48,17 @@ func (m *model) View() string {
 		screen = overlay(screen, card, x, y)
 	}
 	// Last, so the key trail floats over the cards too.
-	return m.keycastDraw(screen)
+	v.SetContent(m.keycastDraw(screen))
+	return v
+}
+
+// mouseMode is the mouse the frame asks for; switching it off is a different view, not a
+// command. See settings.toggleMouse.
+func (m *model) mouseMode() tea.MouseMode {
+	if m.cfg.Mouse {
+		return tea.MouseModeCellMotion
+	}
+	return tea.MouseModeNone
 }
 
 // capturing reports whether a modal card, the context menu or a browser prompt owns the input.

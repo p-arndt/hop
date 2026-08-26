@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/sshx"
@@ -55,7 +55,7 @@ func (m *model) closeHostKey() {
 
 // handleHostKeyKey routes a key while the card is up, swallowing everything: a stray key
 // must not connect on a fingerprint the user never approved.
-func (m *model) handleHostKeyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleHostKeyKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "enter":
 		hk := m.hostKey

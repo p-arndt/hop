@@ -3,7 +3,7 @@ package filebrowser
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -50,7 +50,7 @@ func (b *Browser) closeOverlay() { b.overlay = overlay{} }
 
 // overlayKey applies a key to the open question and consumes every key while one is open.
 // It reads msg.Runes, not String(): key names are not text, and a paste arrives several runes at a time.
-func (b *Browser) overlayKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+func (b *Browser) overlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	if !b.overlay.active() {
 		return nil, false
 	}
@@ -88,9 +88,9 @@ func (b *Browser) overlayKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		b.overlay.value = ""
 
 	default:
-		// Typed text only: a chord or named key carries no runes, so "ctrl+d" cannot end up in a filename.
-		if len(msg.Runes) > 0 {
-			b.overlay.value += string(msg.Runes)
+		// Typed text only: a chord or named key carries no text, so "ctrl+d" cannot end up in a filename.
+		if msg.Text != "" {
+			b.overlay.value += msg.Text
 		}
 	}
 	return nil, true

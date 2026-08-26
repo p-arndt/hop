@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/config"
@@ -170,7 +170,7 @@ func (m *model) closeSettings() {
 }
 
 // handleSettingsKey routes a key while the popover is up, swallowing everything.
-func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleSettingsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	f := settingsFields[m.settings.cursor]
 	key := msg.String()
 
@@ -192,8 +192,8 @@ func (m *model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "ctrl+u":
 			m.settings.buf = ""
 		default:
-			if len(msg.Runes) > 0 {
-				m.settings.buf += string(msg.Runes)
+			if msg.Text != "" {
+				m.settings.buf += msg.Text
 			}
 		}
 		return m, nil
@@ -312,35 +312,33 @@ func (m *model) applySettings() tea.Cmd {
 		}
 	}
 	m.applyClipboard()
-	return tea.Batch(m.applyMouse(), m.applyCursorBlink())
+	m.applyMouse()
+	return m.applyCursorBlink()
 }
 
-// applyMouse syncs terminal mouse reporting; mouseOn is what hop last asked for, so an edit
+// mouseOn is what the last frame asked for, so an edit
 // elsewhere sends no sequence.
-func (m *model) applyMouse() tea.Cmd {
+// applyMouse settles what changed around the setting; the mode itself is view state the
+// next frame carries. See model.mouseMode.
+func (m *model) applyMouse() {
 	if m.cfg.Mouse == m.mouseOn {
-		return nil
+		return
 	}
 	// A pointer hop no longer reads cannot finish its drag, leaving a lying highlight.
 	m.clearSelection()
 	m.mouseOn = m.cfg.Mouse
-	if m.mouseOn {
-		// Cell motion, not all motion: drag is reported, a pointer merely crossing is not.
-		return tea.EnableMouseCellMotion
-	}
-	return tea.DisableMouse
 }
 
 // toggleMouse (ctrl+g) moves the same setting the card edits but deliberately does not save it.
 func (m *model) toggleMouse() tea.Cmd {
 	m.cfg.Mouse = !m.cfg.Mouse
-	cmd := m.applyMouse()
+	m.applyMouse()
 	if m.cfg.Mouse {
 		m.setStatus(statusOK, "mouse on — hop has the pointer")
 	} else {
 		m.setStatus(statusOK, "mouse off — your terminal has the pointer (%s to take it back)", m.binds.Keycap(keys.Mouse))
 	}
-	return cmd
+	return nil
 }
 
 func (m *model) browserOptions() filebrowser.Options {

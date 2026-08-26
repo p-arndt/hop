@@ -4,14 +4,14 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/keys"
 )
 
 // toggleKey is the sidebar chord as the terminal delivers it: a control byte.
-func toggleKey() tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyCtrlB}
+func toggleKey() tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl}
 }
 
 func TestSidebarToggleKey(t *testing.T) {
@@ -52,16 +52,16 @@ func TestSidebarToggleGivesColumnsToThePane(t *testing.T) {
 
 func TestSidebarCollapsedRendersNoHostList(t *testing.T) {
 	m := viewModel(120, 34)
-	if !strings.Contains(m.View(), "HOSTS") {
+	if !strings.Contains(m.View().Content, "HOSTS") {
 		t.Fatal("the open sidebar does not render its HOSTS title; the test is not looking at the right thing")
 	}
 
 	m.handleKey(toggleKey())
 
-	if strings.Contains(m.View(), "HOSTS") {
+	if strings.Contains(m.View().Content, "HOSTS") {
 		t.Fatal("the collapsed sidebar is still on screen")
 	}
-	if !strings.Contains(m.View(), "show hosts") {
+	if !strings.Contains(m.View().Content, "show hosts") {
 		t.Fatal("the footer does not say how to bring the sidebar back")
 	}
 }

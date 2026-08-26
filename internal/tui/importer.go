@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/pathx"
@@ -49,7 +49,7 @@ func haveSSHConfig() bool {
 }
 
 // handleImportKey routes a key while the card is up; it swallows every key.
-func (m *model) handleImportKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleImportKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.closeImport()
@@ -67,8 +67,8 @@ func (m *model) handleImportKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.importer.path = ""
 
 	default:
-		if len(msg.Runes) > 0 {
-			m.importer.path += string(msg.Runes)
+		if msg.Text != "" {
+			m.importer.path += msg.Text
 		}
 	}
 	return m, nil

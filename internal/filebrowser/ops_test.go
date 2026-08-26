@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/keys"
 	"hop/internal/sftpx"
@@ -231,7 +231,7 @@ func TestRenameEscapeCancels(t *testing.T) {
 	b.Handle(key(t, "R"))
 	b.Handle(key(t, "ctrl+u"))
 	typeText(t, b, "b.txt")
-	b.Handle(tea.KeyMsg{Type: tea.KeyEscape})
+	b.Handle(tea.KeyPressMsg{Code: tea.KeyEscape})
 
 	if len(c.renames) != 0 {
 		t.Fatalf("renames = %v, want esc to have cancelled", c.renames)

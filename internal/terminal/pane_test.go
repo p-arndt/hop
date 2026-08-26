@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"golang.org/x/crypto/ssh"
 
 	"hop/internal/sshx"
@@ -181,7 +181,7 @@ func TestEmbeddedRoundTrip(t *testing.T) {
 		t.Fatalf("banner never appeared in emulator; view:\n%s", term.View())
 	}
 
-	term.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'Z'}})
+	term.SendKey(tea.KeyPressMsg{Code: 'Z', Text: "Z"})
 
 	if !waitForView(term, "Z", 3*time.Second) {
 		t.Fatalf("echoed keystroke 'Z' never appeared in emulator; view:\n%s", term.View())
@@ -218,7 +218,7 @@ func TestCloseStopsThePumps(t *testing.T) {
 		t.Fatalf("the shell never came up; view:\n%s", term.View())
 	}
 	// A round-trip proves both pumps are live before the Close.
-	term.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'Z'}})
+	term.SendKey(tea.KeyPressMsg{Code: 'Z', Text: "Z"})
 	if !waitForView(term, "Z", 3*time.Second) {
 		t.Fatalf("the pane is not pumping; view:\n%s", term.View())
 	}
@@ -270,7 +270,7 @@ func TestCommandPaneRoundTrip(t *testing.T) {
 		t.Fatalf("exec'd command never surfaced in emulator; view:\n%s", term.View())
 	}
 
-	term.SendKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	term.SendKey(tea.KeyPressMsg{Code: 'i', Text: "i"})
 	if !waitForView(term, "i", 3*time.Second) {
 		t.Fatalf("keystroke never reached the exec'd program; view:\n%s", term.View())
 	}

@@ -42,10 +42,10 @@ func TestKeycastKeepsOnlyTheRecentEvents(t *testing.T) {
 // The trail composites into existing rows and never shifts hop's layout.
 func TestKeycastDrawKeepsTheScreenShape(t *testing.T) {
 	m := viewModel(120, 34)
-	before := m.View()
+	before := m.View().Content
 
 	m.keycastRecord("ctrl+o")
-	after := m.View()
+	after := m.View().Content
 
 	if bl, al := strings.Count(before, "\n"), strings.Count(after, "\n"); bl != al {
 		t.Errorf("view went from %d to %d lines with the keycast up", bl+1, al+1)

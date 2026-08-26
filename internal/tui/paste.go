@@ -11,15 +11,14 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/terminal"
 )
 
-// handlePaste routes a paste to whichever mode owns the keyboard, ahead of handleKey:
-// every handler reads a key's name, and a paste's name is the whole clipboard.
-func (m *model) handlePaste(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	text := string(msg.Runes)
+// handlePaste routes a paste to whichever mode owns the keyboard: a clipboard is text, not
+// a key, and no handler below reads it as one.
+func (m *model) handlePaste(text string) (tea.Model, tea.Cmd) {
 	s := m.sessions[m.active]
 
 	switch {
@@ -97,7 +96,7 @@ type pasteFlushMsg struct{ seq int }
 // pasteBuf is the burst being collected; pane is captured when the burst starts, so the keys
 // land there whatever the focus does later.
 type pasteBuf struct {
-	keys []tea.KeyMsg
+	keys []tea.KeyPressMsg
 	pane *terminal.Pane
 	seq  int
 	// lastAt is when the previous pastable key was offered — see burstGap.
@@ -109,7 +108,7 @@ func coalescePastes() bool { return runtime.GOOS == "windows" }
 
 // takeKey offers a key to the paste buffer; a taken key is handled nowhere else, and the
 // caller arms the flush. An open leader counts as elsewhere: a buffered chord never lands.
-func (m *model) takeKey(msg tea.KeyMsg) bool {
+func (m *model) takeKey(msg tea.KeyPressMsg) bool {
 	if !m.pasteCoalesce || !pastable(msg) || m.cardOpen() || m.leaderArmed() || !m.forwardingPane() {
 		return false
 	}
@@ -123,7 +122,7 @@ func (m *model) takeKey(msg tea.KeyMsg) bool {
 	now := m.now()
 	gap := now.Sub(m.paste.lastAt)
 	m.paste.lastAt = now
-	if len(m.paste.keys) == 0 && gap > burstGap && msg.Type != tea.KeyEnter {
+	if len(m.paste.keys) == 0 && gap > burstGap && msg.Code != tea.KeyEnter {
 		return false
 	}
 	// A burst belongs to one pane; focus can only move on a key this does not take, so this
@@ -138,15 +137,12 @@ func (m *model) takeKey(msg tea.KeyMsg) bool {
 }
 
 // pastable reports whether a key is one a paste can be made of; a modified key is a command.
-func pastable(msg tea.KeyMsg) bool {
-	if msg.Alt || msg.Paste {
+func pastable(msg tea.KeyPressMsg) bool {
+	if msg.Mod != 0 {
 		return false
 	}
-	switch msg.Type {
-	case tea.KeyRunes, tea.KeySpace, tea.KeyTab, tea.KeyEnter:
-		return true
-	}
-	return false
+	// Text covers every printable character, the space among them.
+	return msg.Text != "" || msg.Code == tea.KeyTab || msg.Code == tea.KeyEnter
 }
 
 // cardOpen guards the buffer: a card that opens by itself while you type into another host's
@@ -211,13 +207,13 @@ func (m *model) flushPaste() {
 
 // looksPasted reports whether a burst is a paste. A lone key never is: readline inserts a
 // bracketed one-newline paste rather than executing it, leaving the terminal looking dead.
-func looksPasted(keys []tea.KeyMsg) bool {
+func looksPasted(keys []tea.KeyPressMsg) bool {
 	if len(keys) < 2 {
 		return false
 	}
 	distinct := make(map[string]struct{}, len(keys))
 	for _, k := range keys {
-		if k.Type == tea.KeyEnter {
+		if k.Code == tea.KeyEnter {
 			return true
 		}
 		distinct[k.String()] = struct{}{}
@@ -231,18 +227,17 @@ const pasteRun = 4
 
 // pasteString assembles the buffered keys into text; Enter becomes a newline, since
 // SendPaste normalises line endings for the pty.
-func pasteString(keys []tea.KeyMsg) string {
+func pasteString(keys []tea.KeyPressMsg) string {
 	var b strings.Builder
 	for _, k := range keys {
-		switch k.Type {
-		case tea.KeyRunes:
-			b.WriteString(string(k.Runes))
-		case tea.KeySpace:
-			b.WriteByte(' ')
+		switch k.Code {
 		case tea.KeyTab:
 			b.WriteByte('\t')
 		case tea.KeyEnter:
 			b.WriteByte('\n')
+		default:
+			// Text covers every printable character, the space among them.
+			b.WriteString(k.Text)
 		}
 	}
 	return b.String()

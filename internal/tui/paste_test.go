@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/sshx"
 	"hop/internal/terminal"
@@ -53,19 +53,19 @@ func flushPanes(m *model) {
 }
 
 // pasted is the marked, single-event paste a bracketed-paste terminal delivers.
-func pasted(text string) tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text), Paste: true}
+func pasted(text string) tea.PasteMsg {
+	return tea.PasteMsg{Content: text}
 }
 
-// runes is one typed (or synthesised) character.
-func typed(r rune) tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
+// typed is one typed (or synthesised) character.
+func typed(r rune) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: r, Text: string(r)}
 }
 
 // A marked paste reaches the pane as text, not as the bindings its characters spell.
 func TestMarkedPasteGoesToTheShell(t *testing.T) {
 	m, stdin := pasteModel()
-	m.handleKey(pasted("echo hi\n"))
+	m.Update(pasted("echo hi\n"))
 
 	flushPanes(m)
 	if got := stdin.String(); got != "echo hi\r" {
@@ -77,7 +77,7 @@ func TestMarkedPasteGoesToTheShell(t *testing.T) {
 func TestMarkedPasteGoesToTheEditor(t *testing.T) {
 	pane, stdin := pastePane()
 	m := &model{sessions: map[string]*session{"web": {editors: []*editorTab{{id: 1, name: "f", pane: pane}}}}, focus: focus{active: "web", mode: modeEditor}}
-	m.handleKey(pasted("line one\nline two"))
+	m.Update(pasted("line one\nline two"))
 
 	flushPanes(m)
 	if got := stdin.String(); got != "line one\rline two" {
@@ -89,7 +89,7 @@ func TestPasteFromScrollbackReturnsLiveFirst(t *testing.T) {
 	m, stdin := pasteModel()
 	m.mode = modeScrollback
 
-	m.handleKey(pasted("ls"))
+	m.Update(pasted("ls"))
 	if m.scrolling() {
 		t.Fatal("a paste left the shell in scrollback")
 	}
@@ -104,7 +104,7 @@ func TestBurstWithANewlineIsAPaste(t *testing.T) {
 	m, stdin := pasteModel()
 	newTestClock(m) // frozen: every key after the first is inside burstGap, as a paste is
 
-	for i, k := range []tea.KeyMsg{typed('a'), {Type: tea.KeyEnter}, typed('b')} {
+	for i, k := range []tea.KeyPressMsg{typed('a'), {Code: tea.KeyEnter}, typed('b')} {
 		_, cmd := m.handleKey(k)
 		if i > 0 && cmd == nil {
 			t.Fatal("a bufferable key did not arm the flush")
@@ -127,11 +127,11 @@ func TestALoneEnterIsAKeystrokeNotAPaste(t *testing.T) {
 	m, stdin := pasteModel()
 	newTestClock(m) // frozen: every key after the first is inside burstGap, as a paste is
 
-	if looksPasted([]tea.KeyMsg{{Type: tea.KeyEnter}}) {
+	if looksPasted([]tea.KeyPressMsg{{Code: tea.KeyEnter}}) {
 		t.Fatal("a lone Enter was taken for a paste")
 	}
 
-	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m.flushPaste()
 	flushPanes(m)
 	if got := stdin.String(); got != "\r" {
@@ -153,7 +153,7 @@ func TestRepeatedKeyIsNotAPaste(t *testing.T) {
 	if got := stdin.String(); got != "jjj" {
 		t.Fatalf("the pane received %q, want three keystrokes", got)
 	}
-	if looksPasted([]tea.KeyMsg{typed('j'), typed('j'), typed('j')}) {
+	if looksPasted([]tea.KeyPressMsg{typed('j'), typed('j'), typed('j')}) {
 		t.Fatal("a repeating key was taken for a paste")
 	}
 }
@@ -164,8 +164,8 @@ func TestAnUnbufferableKeyFlushesFirst(t *testing.T) {
 
 	m.handleKey(typed('h'))
 	m.handleKey(typed('i'))
-	m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlO})
-	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	m.handleKey(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	m.handleKey(tea.KeyPressMsg{Code: 'o', Text: "o"})
 
 	flushPanes(m)
 	if got := stdin.String(); got != "hi" {
@@ -188,7 +188,7 @@ func TestNavigationKeysAreNeverBuffered(t *testing.T) {
 		t.Fatal("a key in scrollback was held back")
 	}
 	m.mode = modeShell
-	if m.takeKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}, Alt: true}) {
+	if m.takeKey(tea.KeyPressMsg{Code: '0', Mod: tea.ModAlt}) {
 		t.Fatal("alt+0 was held back: a modified key is a command, not a character")
 	}
 }
@@ -235,7 +235,7 @@ func TestKeysAreNotBufferedUnderACard(t *testing.T) {
 
 func TestPasteInTheHostListIsDropped(t *testing.T) {
 	m := &model{sessions: map[string]*session{}, highlights: map[int][]int{}}
-	if _, cmd := m.handleKey(pasted("q")); cmd != nil {
+	if _, cmd := m.Update(pasted("q")); cmd != nil {
 		t.Fatal("a pasted \"q\" in the host list quit hop")
 	}
 }
@@ -243,7 +243,7 @@ func TestPasteInTheHostListIsDropped(t *testing.T) {
 // A password copied with its newline must not submit the field.
 func TestPasteIntoACardTakesOneLine(t *testing.T) {
 	m := &model{auth: authUI{open: true, answers: []string{""}}}
-	m.handleKey(pasted("hunter2\nsecond line"))
+	m.Update(pasted("hunter2\nsecond line"))
 
 	if got := m.auth.answers[0]; got != "hunter2" {
 		t.Fatalf("the field holds %q, want just the first line", got)
@@ -252,14 +252,14 @@ func TestPasteIntoACardTakesOneLine(t *testing.T) {
 
 func TestPasteIntoTextFieldsIsText(t *testing.T) {
 	m := &model{hosts: nil, highlights: map[int][]int{}, filtering: true}
-	m.handleKey(pasted("esc"))
+	m.Update(pasted("esc"))
 	if m.filter != "esc" || !m.filtering {
 		t.Fatalf("filter = %q, filtering = %v — want the pasted text kept", m.filter, m.filtering)
 	}
 
 	m2 := &model{}
 	m2.openHostFormAdd()
-	m2.handleKey(pasted("esc"))
+	m2.Update(pasted("esc"))
 	if !m2.hostForm.open {
 		t.Fatal("a pasted \"esc\" closed the host form")
 	}
@@ -270,9 +270,9 @@ func TestPasteIntoTextFieldsIsText(t *testing.T) {
 
 // What the buffered keys spell.
 func TestPasteString(t *testing.T) {
-	keys := []tea.KeyMsg{
-		typed('a'), {Type: tea.KeySpace}, typed('b'),
-		{Type: tea.KeyEnter}, {Type: tea.KeyTab}, typed('c'),
+	keys := []tea.KeyPressMsg{
+		typed('a'), {Code: tea.KeySpace, Text: " "}, typed('b'),
+		{Code: tea.KeyEnter}, {Code: tea.KeyTab}, typed('c'),
 	}
 	if got := pasteString(keys); got != "a b\n\tc" {
 		t.Fatalf("pasteString = %q, want %q", got, "a b\n\tc")
@@ -281,16 +281,16 @@ func TestPasteString(t *testing.T) {
 
 // Without a newline a burst needs a run of differing keys before it reads as a paste.
 func TestABurstWithNoNewlineNeedsARun(t *testing.T) {
-	if looksPasted([]tea.KeyMsg{typed('d'), typed('w')}) {
+	if looksPasted([]tea.KeyPressMsg{typed('d'), typed('w')}) {
 		t.Fatal("a fast digraph was taken for a paste")
 	}
-	if looksPasted([]tea.KeyMsg{typed('l')}) {
+	if looksPasted([]tea.KeyPressMsg{typed('l')}) {
 		t.Fatal("a single keystroke was taken for a paste")
 	}
-	if looksPasted([]tea.KeyMsg{typed('j'), typed('j'), typed('j'), typed('j'), typed('j')}) {
+	if looksPasted([]tea.KeyPressMsg{typed('j'), typed('j'), typed('j'), typed('j'), typed('j')}) {
 		t.Fatal("a key held down until it repeated was taken for a paste")
 	}
-	if !looksPasted([]tea.KeyMsg{typed('l'), typed('s'), typed(' '), typed('-'), typed('l')}) {
+	if !looksPasted([]tea.KeyPressMsg{typed('l'), typed('s'), typed(' '), typed('-'), typed('l')}) {
 		t.Fatal("a pasted command line was not taken for a paste")
 	}
 }
@@ -298,7 +298,7 @@ func TestABurstWithNoNewlineNeedsARun(t *testing.T) {
 func TestFlushWithoutAPaneIsANoOp(t *testing.T) {
 	m := &model{sessions: map[string]*session{}, pasteCoalesce: true}
 	m.flushPaste() // nothing buffered
-	m.paste.keys = []tea.KeyMsg{typed('a')}
+	m.paste.keys = []tea.KeyPressMsg{typed('a')}
 	m.flushPaste() // buffered, but no pane was ever captured
 	if m.paste.keys != nil {
 		t.Fatal("the buffer survived a flush")
@@ -374,7 +374,7 @@ func TestEnterIsBufferedEvenAfterAPause(t *testing.T) {
 	clk := newTestClock(m)
 
 	clk.advance(time.Second) // nothing was typed for a second
-	_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("Enter did not arm a flush: it went out unbuffered")
 	}

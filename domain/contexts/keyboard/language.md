@@ -93,11 +93,10 @@ available to users.
 
 ### Phantom key
 
-**Is:** a key event the Windows console produces for a modifier's own key-down — AltGr,
-ctrl and alt each arrive as a record whose character is NUL, ahead of the character they
-compose.
+**Is:** a key event the Windows console produces for a modifier's own key-down, carrying
+NUL as its character. Forwarded, it reached the remote program as NUL — invisible to a
+shell's line editor, part of the secret at a password prompt.
 
-**Is not:** a key the user pressed *for its own sake*. Nothing may see one: forwarded, it
-reaches the remote program as NUL, or as ESC NUL when alt is held.
-
-**In code:** `internal/tui/altgr.go` — `phantomModifier`, dropped in `model.Update`.
+**Is not:** anything hop still sees. Reading the console as VT (Bubble Tea v2) means a
+modifier press produces no event at all. The word is kept because it names why hop briefly
+could not send a NUL byte at all; nothing in the code carries it now.

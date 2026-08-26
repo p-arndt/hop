@@ -340,8 +340,9 @@ type Map struct {
 	prefixes map[string]bool
 }
 
-// Normalize is the one spelling of a keystroke hop uses. Bubble Tea names the space bar
-// " ", which cannot be told from the separator between the keys of a sequence.
+// Normalize is the one spelling of a keystroke hop uses. Bubble Tea v2 already names the
+// space bar "space"; " " stays here for the config files written when v1 did not, where it
+// could not be told from the separator between the keys of a sequence.
 func Normalize(key string) string {
 	if key == " " {
 		return "space"

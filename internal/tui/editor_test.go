@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/filebrowser"
 	"hop/internal/keys"
@@ -48,15 +48,15 @@ func editorModel(t *testing.T, names ...string) (*model, *session) {
 	return m, s
 }
 
-// altKey builds the tea.KeyMsg whose String() is "alt+<name>".
-func altKey(name string) tea.KeyMsg {
+// altKey builds the tea.KeyPressMsg whose String() is "alt+<name>".
+func altKey(name string) tea.KeyPressMsg {
 	switch name {
 	case "left":
-		return tea.KeyMsg{Type: tea.KeyLeft, Alt: true}
+		return tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt}
 	case "right":
-		return tea.KeyMsg{Type: tea.KeyRight, Alt: true}
+		return tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModAlt}
 	default:
-		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(name), Alt: true}
+		return tea.KeyPressMsg{Code: []rune(name)[0], Mod: tea.ModAlt}
 	}
 }
 
@@ -261,7 +261,7 @@ func TestSplitOpenAndClose(t *testing.T) {
 		t.Fatalf("the keyboard is in %v, want the half just opened", got)
 	}
 
-	screen := m.View()
+	screen := m.View().Content
 	if !strings.Contains(screen, "a.conf") || !strings.Contains(screen, "b.conf") {
 		t.Fatalf("the split does not show both files:\n%s", screen)
 	}

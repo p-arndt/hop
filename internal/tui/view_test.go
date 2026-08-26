@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/store"
@@ -79,7 +79,7 @@ func TestViewFitsTheWindow(t *testing.T) {
 				m := viewModel(sz.w, sz.h)
 				setup(m)
 
-				lines := strings.Split(m.View(), "\n")
+				lines := strings.Split(m.View().Content, "\n")
 				if len(lines) != sz.h {
 					t.Fatalf("%dx%d: view is %d lines, want %d", sz.w, sz.h, len(lines), sz.h)
 				}
@@ -105,7 +105,7 @@ func TestPaneContentWiderThanTheBoxDoesNotGrowTheScreen(t *testing.T) {
 	pane := fakePaneWith(t, m.paneW*2, m.paneH, wide+"\r\n"+wide, wide)
 	m.sessions["web1"] = &session{shells: []*shellTab{{id: 1, pane: pane}}}
 
-	lines := strings.Split(m.View(), "\n")
+	lines := strings.Split(m.View().Content, "\n")
 	if len(lines) != 20 {
 		t.Fatalf("view is %d lines, want 20 — the over-wide rows wrapped and grew the pane", len(lines))
 	}
@@ -244,13 +244,13 @@ func TestNewShellFromAFocusedPane(t *testing.T) {
 	if foot := m.renderFooter(); !strings.Contains(foot, "leader") {
 		t.Fatalf("the focused pane's footer does not name the leader:\n%s", foot)
 	}
-	m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m.handleKey(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	if foot := m.renderFooter(); !strings.Contains(foot, "new shell") {
 		t.Fatalf("the open leader's footer does not name the new-shell key:\n%s", foot)
 	}
-	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}}) // close it again
+	m.handleKey(tea.KeyPressMsg{Code: 'z', Text: "z"}) // close it again
 
-	altZero := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("0"), Alt: true}
+	altZero := tea.KeyPressMsg{Code: '0', Mod: tea.ModAlt}
 	_, cmd := m.Update(altZero)
 	if cmd == nil {
 		t.Fatal("alt+0 in a focused pane started no shell")

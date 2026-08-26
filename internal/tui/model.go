@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/config"
 	"hop/internal/filebrowser"
@@ -208,14 +208,15 @@ func Run(st *store.Store) error {
 		m.setStatus(statusWarn, "hosts saved, but ~/.ssh/config was not updated: %v", err)
 	}
 	// 120fps: the default 60 puts up to 16ms between a keystroke's echo arriving and the screen showing it.
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithFPS(120))
+	// The alt screen is a property of the view in v2; only the frame rate is an option.
+	p := tea.NewProgram(m, tea.WithFPS(120))
 	_, err = p.Run()
 	return err
 }
 
 func (m *model) Init() tea.Cmd {
-	// The mouse is switched on here rather than as a program option, so applyMouse is the only path deciding it.
-	return tea.Batch(waitForOutput(m.notify), waitAuthPrompt(m.prompts), updateCheckCmd(), m.applyMouse(), m.applyCursorBlink())
+	// The mouse is view state in v2, so View is the only path deciding it.
+	return tea.Batch(waitForOutput(m.notify), waitAuthPrompt(m.prompts), updateCheckCmd(), m.applyCursorBlink())
 }
 
 // Update dispatches the message, then arms the expiry timer for any status line it put up.
@@ -330,20 +331,21 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyMsg:
-		// Before anything reads the key's name: on Windows an AltGr composition arrives as an alt
-		// chord, and the modifier's own key-down arrives ahead of it as a key nothing may see.
-		if phantomModifier(msg) {
-			return m, nil
-		}
-		msg = normalizeAltGr(msg)
+	// Presses only: tea.KeyMsg is an interface in v2 and a release satisfies it too.
+	case tea.KeyPressMsg:
 		m.keycastRecord(msg.String())
 		return m.handleKey(msg)
+
+	// A terminal that brackets its pastes says so; the Windows console does not, which is
+	// what the burst detection in paste.go is for.
+	case tea.PasteMsg:
+		m.flushPaste()
+		return m.handlePaste(msg.Content)
 
 	case tea.MouseMsg:
 		// The pointer moving ends the burst: whatever it does next must land after the keys that preceded it.
 		m.flushPaste()
-		return m.handleMouse(msg)
+		return m.handleMouse(toMouseEvt(msg))
 	}
 
 	return m, nil

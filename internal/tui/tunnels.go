@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/sshx"
 	"hop/internal/store"
@@ -59,7 +59,7 @@ func (m *model) selectedForward() (store.Forward, bool) {
 	return h.Forwards[m.tunnels.cursor], true
 }
 
-func (m *model) handleTunnelsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleTunnelsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.tunnels.editing {
 		return m.handleTunnelEditKey(msg)
 	}
@@ -105,7 +105,7 @@ func (m *model) handleTunnelsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.tunnels.cursor = clamp(m.tunnels.cursor, 0, max(len(h.Forwards)-2, 0))
 			m.setStatus(statusOK, "deleted tunnel")
 		}
-	case "enter", " ":
+	case "enter", "space":
 		if f, ok := m.selectedForward(); ok {
 			return m, m.toggleTunnel(h, f)
 		}
@@ -128,7 +128,7 @@ func (m *model) editForward(f store.Forward) {
 	m.tunnels.buf[tfTargetPort] = strconv.Itoa(f.TargetPort)
 }
 
-func (m *model) handleTunnelEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleTunnelEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.tunnels.editing = false
@@ -157,11 +157,11 @@ func (m *model) handleTunnelEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	default:
 		if m.tunnels.field == tfKind {
-			if msg.String() == " " {
+			if msg.String() == "space" {
 				m.flipTunnelKind()
 			}
-		} else if len(msg.Runes) > 0 {
-			m.tunnels.buf[m.tunnels.field] += string(msg.Runes)
+		} else if msg.Text != "" {
+			m.tunnels.buf[m.tunnels.field] += msg.Text
 		}
 	}
 	return m, nil

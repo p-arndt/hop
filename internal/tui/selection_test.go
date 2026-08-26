@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/sshx"
 	"hop/internal/terminal"
@@ -54,13 +54,13 @@ func selModel(t *testing.T, screen, marker string) (*model, func() string) {
 }
 
 // dragEvents builds the three events one drag arrives as: press, motion, release.
-func dragEvents(x1, y1, x2, y2 int) []tea.MouseMsg {
+func dragEvents(x1, y1, x2, y2 int) []mouseEvt {
 	// The sidebar's outer width plus the borders - the inverse of paneLocal.
 	const dx, dy = 33, 2
-	return []tea.MouseMsg{
-		{X: x1 + dx, Y: y1 + dy, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress},
-		{X: x2 + dx, Y: y2 + dy, Button: tea.MouseButtonLeft, Action: tea.MouseActionMotion},
-		{X: x2 + dx, Y: y2 + dy, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease},
+	return []mouseEvt{
+		{Mouse: tea.Mouse{X: x1 + dx, Y: y1 + dy, Button: tea.MouseLeft}, action: actPress},
+		{Mouse: tea.Mouse{X: x2 + dx, Y: y2 + dy, Button: tea.MouseLeft}, action: actMotion},
+		{Mouse: tea.Mouse{X: x2 + dx, Y: y2 + dy, Button: tea.MouseLeft}, action: actRelease},
 	}
 }
 
@@ -80,7 +80,7 @@ func TestDragOverShellSelectsAndCopies(t *testing.T) {
 	if m.sel.dragging {
 		t.Fatal("the drag is still live after the release")
 	}
-	if !strings.Contains(m.View(), "\x1b[7m") {
+	if !strings.Contains(m.View().Content, "\x1b[7m") {
 		t.Fatal("the selection is not painted on the pane")
 	}
 }
@@ -88,8 +88,8 @@ func TestDragOverShellSelectsAndCopies(t *testing.T) {
 func TestClickWithoutDragCopiesNothing(t *testing.T) {
 	m, copied := selModel(t, "sudo apt update\r\n", "sudo apt update")
 
-	m.handleMouse(tea.MouseMsg{X: 40, Y: 6, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
-	m.handleMouse(tea.MouseMsg{X: 40, Y: 6, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 40, Y: 6, Button: tea.MouseLeft}, action: actPress})
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 40, Y: 6, Button: tea.MouseLeft}, action: actRelease})
 
 	if copied() != "" {
 		t.Fatalf("a click copied %q", copied())
@@ -109,7 +109,7 @@ func TestAnyKeyClearsTheSelection(t *testing.T) {
 		t.Fatal("the drag left no selection to clear")
 	}
 
-	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m.handleKey(tea.KeyPressMsg{Code: 'x', Text: "x"})
 
 	if m.sel.active {
 		t.Fatal("a keystroke left the highlight up over a screen that has moved")
@@ -164,7 +164,7 @@ func TestWheelDuringDragExtendsTheSelection(t *testing.T) {
 		t.Fatalf("head row = %d, want 5 — the pointer did not move", m.sel.head.Y)
 	}
 
-	m.handleMouse(tea.MouseMsg{X: 33 + 6, Y: 2 + 5, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 33 + 6, Y: 2 + 5, Button: tea.MouseLeft}, action: actRelease})
 	if got := countLines(copied()); got != wheelStep+1 {
 		t.Fatalf("copied %d lines (%q), want %d", got, copied(), wheelStep+1)
 	}
@@ -198,20 +198,20 @@ func TestToggleMouseKeyHandsThePointerOver(t *testing.T) {
 	m := newMouseModel(3)
 	m.mouseOn = true
 
-	_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlG})
-	if cmd == nil {
-		t.Fatal("ctrl+g sent nothing to the terminal")
-	}
+	m.handleKey(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
 	if m.cfg.Mouse || m.mouseOn {
 		t.Fatal("ctrl+g left hop still reporting the mouse")
 	}
-
-	_, cmd = m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlG})
-	if cmd == nil {
-		t.Fatal("ctrl+g did not take the mouse back")
+	if got := m.mouseMode(); got != tea.MouseModeNone {
+		t.Fatalf("the next frame still asks for %v after ctrl+g", got)
 	}
+
+	m.handleKey(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
 	if !m.cfg.Mouse || !m.mouseOn {
-		t.Fatal("ctrl+g twice did not leave the mouse where it started")
+		t.Fatal("ctrl+g did not take the pointer back")
+	}
+	if got := m.mouseMode(); got != tea.MouseModeCellMotion {
+		t.Fatalf("the frame asks for %v after taking the pointer back", got)
 	}
 }
 
@@ -239,7 +239,7 @@ func TestReleaseWithoutAButtonStillCopies(t *testing.T) {
 	m.handleMouse(events[0])
 	m.handleMouse(events[1])
 	blind := events[2]
-	blind.Button = tea.MouseButtonNone
+	blind.Button = tea.MouseNone
 	m.handleMouse(blind)
 
 	if copied() != "sudo apt update" {
@@ -258,7 +258,7 @@ func TestDragReleasedOutsideThePaneEnds(t *testing.T) {
 	m.handleMouse(events[0])
 	m.handleMouse(events[1])
 	// ...and the button comes up over the sidebar.
-	m.handleMouse(tea.MouseMsg{X: 4, Y: 5, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 4, Y: 5, Button: tea.MouseLeft}, action: actRelease})
 
 	if m.sel.dragging {
 		t.Fatal("a drag released outside the pane is still live")
@@ -273,7 +273,7 @@ func TestDragReleasedOutsideThePaneEnds(t *testing.T) {
 		t.Fatalf("a release with no press behind it copied %q", text)
 		return nil
 	}
-	m.handleMouse(tea.MouseMsg{X: 40, Y: 6, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 40, Y: 6, Button: tea.MouseLeft}, action: actRelease})
 }
 
 // ---- autoscroll: a drag held against a pane edge ----
@@ -288,9 +288,9 @@ func longScreen(n int) (string, string) {
 }
 
 // motion builds the event a drag in progress arrives as, in pane-content coordinates.
-func motion(x, y int) tea.MouseMsg {
+func motion(x, y int) mouseEvt {
 	const dx, dy = 33, 2
-	return tea.MouseMsg{X: x + dx, Y: y + dy, Button: tea.MouseButtonLeft, Action: tea.MouseActionMotion}
+	return mouseEvt{Mouse: tea.Mouse{X: x + dx, Y: y + dy, Button: tea.MouseLeft}, action: actMotion}
 }
 
 // Regression: a drag reaching the top row used to stop there instead of scrolling into history.
@@ -343,7 +343,7 @@ func TestDragScrollTickRepeats(t *testing.T) {
 		t.Fatalf("scroll offset = %d, want the stale tick to have moved nothing", p.ScrollOffset())
 	}
 
-	m.handleMouse(tea.MouseMsg{X: 33, Y: 2, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 33, Y: 2, Button: tea.MouseLeft}, action: actRelease})
 	if cmd := m.dragScrollTick(m.dragGen); cmd != nil {
 		t.Fatal("autoscroll outlived the button that was driving it")
 	}
@@ -422,7 +422,7 @@ func TestDragOverSidebarKeepsSelection(t *testing.T) {
 	m, _ := selModel(t, "sudo apt update\r\n", "sudo apt update")
 
 	m.handleMouse(dragEvents(0, 0, 0, 0)[0])
-	m.handleMouse(tea.MouseMsg{X: 4, Y: 4, Button: tea.MouseButtonLeft, Action: tea.MouseActionMotion})
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 4, Y: 4, Button: tea.MouseLeft}, action: actMotion})
 
 	if !m.sel.active || !m.sel.dragging {
 		t.Fatal("crossing the sidebar cleared the drag")
@@ -440,7 +440,7 @@ func TestSelectionTallerThanThePaneCopiesEveryRow(t *testing.T) {
 	m.handleMouse(dragEvents(0, m.paneH-1, 0, m.paneH-1)[0])
 	m.handleMouse(wheel(33, 2+m.paneH-1, true))
 	m.handleMouse(wheel(33, 2+m.paneH-1, true))
-	m.handleMouse(tea.MouseMsg{X: 33, Y: 2, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 33, Y: 2, Button: tea.MouseLeft}, action: actRelease})
 
 	want := m.paneH + 2*wheelStep
 	if got := countLines(copied()); got != want {

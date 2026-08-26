@@ -5,7 +5,7 @@ import (
 	"path"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // SFTP has no server-side copy, and a move across filesystems falls back to one, so both go through the transfer machinery.

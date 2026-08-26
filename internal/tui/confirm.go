@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/store"
 )
@@ -26,7 +26,7 @@ func (m *model) closeConfirm() {
 
 // handleConfirmKey routes a key while the card is up, swallowing everything: a key falling
 // through could act on a host you never confirmed.
-func (m *model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "enter":
 		m.confirmDelete()

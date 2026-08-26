@@ -178,7 +178,7 @@ func TestBothColumnsAreDrawn(t *testing.T) {
 
 	for _, mode := range []paneMode{modeBrowser, modeEditor} {
 		m.mode = mode
-		screen := m.View()
+		screen := m.View().Content
 		if !strings.Contains(screen, "/srv") {
 			t.Fatalf("in %s the tree column is not on screen:\n%s", modeName(mode), screen)
 		}

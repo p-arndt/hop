@@ -5,13 +5,13 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"hop/internal/keys"
 )
 
 // handleKey routes a key to whichever mode owns the keyboard, most modal first.
-func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// On Windows a paste arrives as a burst of plain keystrokes; a key that cannot be part
 	// of one ends the burst here, before delivery. See paste.go.
 	if m.pasteCoalesce {
@@ -19,11 +19,6 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.pasteFlushCmd()
 		}
 		m.flushPaste()
-	}
-
-	// The modes below read the key's name, and a paste's name is the whole clipboard.
-	if msg.Paste {
-		return m.handlePaste(msg)
 	}
 
 	switch {
@@ -97,7 +92,7 @@ func (m *model) doGlobal(a keys.Action) (tea.Model, tea.Cmd) {
 
 // ---- navigation ----
 
-func (m *model) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleNavKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	// A range rather than a binding, so it is read before the keyboard registry.
@@ -302,7 +297,7 @@ func (m *model) leaveDetails() {
 
 // ---- filter entry ----
 
-func (m *model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.filtering = false
@@ -333,8 +328,8 @@ func (m *model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.applyFilter()
 
 	default:
-		if len(msg.Runes) > 0 {
-			m.filter += string(msg.Runes)
+		if msg.Text != "" {
+			m.filter += msg.Text
 			m.applyFilter()
 		}
 	}
@@ -344,7 +339,7 @@ func (m *model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ---- browser ----
 
 // handleBrowserKey forwards everything to the file browser except the exits and cards.
-func (m *model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleBrowserKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// A browser waiting on an answer owns every key, including the ones hop keeps here.
 	s := m.sessions[m.active]
 	if s != nil && s.browser != nil && s.browser.Prompting() {
@@ -403,7 +398,7 @@ func (m *model) doBrowser(a keys.Action) (tea.Model, tea.Cmd) {
 
 // handleShellKey routes a key while a shell pane is focused; anything hop does not
 // reserve is forwarded verbatim, arrows included.
-func (m *model) handleShellKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleShellKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	s := m.sessions[m.active]
 	key := msg.String()
 
@@ -492,7 +487,7 @@ func (m *model) enterScrollback(s *session) bool {
 
 // handleScrollbackKey drives the history viewport; an unused key snaps back to the live
 // bottom and hands the keyboard to the shell.
-func (m *model) handleScrollbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleScrollbackKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	s := m.sessions[m.active]
 	if s == nil || s.shell() == nil {
 		m.mode = modeShell
@@ -568,7 +563,7 @@ func (m *model) exitScrollback() {
 // ---- editor pane ----
 
 // handleEditorKey routes a key while an editor tab is shown.
-func (m *model) handleEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleEditorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	s := m.sessions[m.active]
 	if s == nil || s.editor() == nil {
 		m.mode = modeList
@@ -679,7 +674,7 @@ func (m *model) openHelp() {
 }
 
 // handleHelpKey keeps the help card modal, swallowing every key.
-func (m *model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q", "?", "ctrl+o", "enter":
 		m.help = false
@@ -689,7 +684,7 @@ func (m *model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.helpScroll++
 	case "pgup":
 		m.helpScroll -= m.helpPage()
-	case "pgdown", " ":
+	case "pgdown", "space":
 		m.helpScroll += m.helpPage()
 	case "home", "g":
 		m.helpScroll = 0
@@ -726,7 +721,7 @@ func (m *model) disarmLeader() string {
 }
 
 // handleLeader answers the key after the leader; an unknown one is swallowed, not sent on.
-func (m *model) handleLeader(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleLeader(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	alias := m.disarmLeader()
 	editing := m.editing()
 	key := msg.String()

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/config"
@@ -34,17 +34,17 @@ func newMouseModel(n int) *model {
 }
 
 // click builds the event a left press at (x, y) arrives as.
-func click(x, y int) tea.MouseMsg {
-	return tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}
+func click(x, y int) mouseEvt {
+	return mouseEvt{Mouse: tea.Mouse{X: x, Y: y, Button: tea.MouseLeft}, action: actPress}
 }
 
 // wheel builds a wheel event at (x, y). up picks the direction.
-func wheel(x, y int, up bool) tea.MouseMsg {
-	b := tea.MouseButtonWheelDown
+func wheel(x, y int, up bool) mouseEvt {
+	b := tea.MouseWheelDown
 	if up {
-		b = tea.MouseButtonWheelUp
+		b = tea.MouseWheelUp
 	}
-	return tea.MouseMsg{X: x, Y: y, Button: b, Action: tea.MouseActionPress}
+	return mouseEvt{Mouse: tea.Mouse{X: x, Y: y, Button: b}, action: actWheel}
 }
 
 // The whole of hop's hit-testing: which of the four regions a cell belongs to.
@@ -362,7 +362,7 @@ func TestPointerIsIgnoredWhileTheBrowserIsAsking(t *testing.T) {
 	m.sessions["ha"] = &session{browser: br}
 
 	// "m" opens the "new directory:" question.
-	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m.handleKey(tea.KeyPressMsg{Code: 'm', Text: "m"})
 	if !br.Prompting() {
 		t.Fatal("m did not open a question, so this test proves nothing")
 	}
@@ -427,24 +427,21 @@ func TestWheelOverShellDrivesScrollback(t *testing.T) {
 	}
 }
 
-func TestApplyMouseOnlySpeaksWhenItChanges(t *testing.T) {
+func TestMouseModeFollowsTheSetting(t *testing.T) {
 	m := newMouseModel(1)
-	m.mouseOn = true // as Init left it, the setting being on by default
+	m.mouseOn = true // as the first frame left it, the setting being on by default
 
-	if cmd := m.applyMouse(); cmd != nil {
-		t.Fatal("applyMouse spoke to the terminal with nothing changed")
+	if got := m.mouseMode(); got != tea.MouseModeCellMotion {
+		t.Fatalf("the frame asks for %v with the mouse on, want cell motion", got)
 	}
 
 	m.cfg.Mouse = false
-	cmd := m.applyMouse()
-	if cmd == nil {
-		t.Fatal("switching the mouse off sent nothing to the terminal")
-	}
+	m.applyMouse()
 	if m.mouseOn {
 		t.Fatal("mouseOn still says the mouse is reported after switching it off")
 	}
-	if cmd := m.applyMouse(); cmd != nil {
-		t.Fatal("applyMouse spoke twice for one change")
+	if got := m.mouseMode(); got != tea.MouseModeNone {
+		t.Fatalf("the frame still asks for %v with the mouse off", got)
 	}
 }
 
@@ -714,10 +711,10 @@ func TestClickOnASplitHalfsTabStrip(t *testing.T) {
 
 // Regression, as the settings "," once did: layout keys must not escape an open browser question.
 func TestLayoutKeysDoNotEscapeAnOpenQuestion(t *testing.T) {
-	for _, k := range []tea.KeyMsg{
-		{Type: tea.KeyTab},
-		{Type: tea.KeyCtrlT},
-		{Type: tea.KeyRunes, Runes: []rune("\\")},
+	for _, k := range []tea.KeyPressMsg{
+		{Code: tea.KeyTab},
+		{Code: 't', Mod: tea.ModCtrl},
+		{Code: '\\', Text: "\\"},
 	} {
 		t.Run(k.String(), func(t *testing.T) {
 			br, err := filebrowser.New(
@@ -732,7 +729,7 @@ func TestLayoutKeysDoNotEscapeAnOpenQuestion(t *testing.T) {
 			m.mode = modeBrowser
 			m.sessions["ha"] = &session{browser: br}
 
-			m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+			m.handleKey(tea.KeyPressMsg{Code: 'm', Text: "m"})
 			if !br.Prompting() {
 				t.Fatal("m did not open a question, so this test proves nothing")
 			}
