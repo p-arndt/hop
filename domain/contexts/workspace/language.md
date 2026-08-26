@@ -123,4 +123,4 @@ prompt.
 **Is:** the narrow column hop shows when there is room for it, toggled by a key that is
 reserved in **every** mode.
 
-**In code:** `layout.sidebarOn`, `toggleSidebar`.
+**In code:** `layout.sidebarOn`, `toggleSidebar`, `revealSidebar`.

@@ -268,3 +268,71 @@ func TestSplitRefusesANarrowContentArea(t *testing.T) {
 		t.Fatalf("a %d-column content area claims to fit two halves of %d", m.paneW, minSplitHalf)
 	}
 }
+
+// A collapsed list holds no selection: the keys that would need one go quiet rather than
+// act on a cursor nobody can see.
+func TestCollapsedListIgnoresSelectionKeys(t *testing.T) {
+	m := viewModel(120, 34)
+	m.cursor = 1
+	m.handleKey(toggleKey())
+
+	for _, k := range []string{"j", "down", "enter", "e", "/"} {
+		m.handleKey(key(t, k))
+	}
+
+	if m.cursor != 1 {
+		t.Fatalf("cursor = %d after keys pressed at a collapsed list, want 1", m.cursor)
+	}
+	if m.active != "" || m.filtering || m.hostForm.open {
+		t.Fatalf("a collapsed list acted on its hidden selection: active=%q filtering=%v form=%v",
+			m.active, m.filtering, m.hostForm.open)
+	}
+}
+
+// Leaving a pane hands the keyboard to the host list, so the list has to be on screen.
+func TestLeavingAPaneRevealsTheSidebar(t *testing.T) {
+	leaves := map[string]func(m *model){
+		"pane":    (*model).leavePane,
+		"browser": (*model).leaveBrowser,
+		"details": (*model).leaveDetails,
+		"all":     (*model).leaveAll,
+	}
+	for name, leave := range leaves {
+		t.Run(name, func(t *testing.T) {
+			m := viewModel(120, 34)
+			m.active, m.mode = "web1", modeShell
+			m.handleKey(toggleKey())
+
+			leave(m)
+
+			if m.mode != modeList {
+				t.Fatalf("leave %s left mode %v, want modeList", name, m.mode)
+			}
+			if !m.sidebarOn() {
+				t.Fatalf("leave %s handed the keyboard to a list that is not on screen", name)
+			}
+		})
+	}
+}
+
+// Too narrow to hold the list there is nothing to reveal, and the keys stay quiet.
+func TestNarrowWindowLeavesTheSidebarOff(t *testing.T) {
+	m := viewModel(24, 24)
+	if m.sidebarFits() {
+		t.Fatal("a 24-column window fits the sidebar, so this test proves nothing")
+	}
+	m.active, m.mode = "web1", modeShell
+
+	m.leavePane()
+
+	if m.sidebarOn() || m.sidebarHidden {
+		t.Fatalf("sidebarOn=%v sidebarHidden=%v, want the list off with the preference untouched",
+			m.sidebarOn(), m.sidebarHidden)
+	}
+	m.cursor = 1
+	m.handleKey(key(t, "e"))
+	m.handleKey(key(t, "down"))
+	if m.hostForm.open || m.cursor != 1 {
+		t.Fatalf("form=%v cursor=%d, want no key to reach the off-screen list", m.hostForm.open, m.cursor)
+	}
+}

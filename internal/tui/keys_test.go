@@ -69,7 +69,7 @@ func newNavModel(n int) *model {
 	for i := range hosts {
 		hosts[i] = store.Host{Alias: fmt.Sprintf("h%d", i), HostName: "example.test"}
 	}
-	m := &model{hosts: hosts, cfg: config.Config{VimKeys: true}, layout: layout{height: 20}}
+	m := &model{hosts: hosts, cfg: config.Config{VimKeys: true}, layout: layout{width: 100, height: 20}}
 	// applyFilter fills the filtered list and the drawn rows paging is measured in.
 	m.applyFilter()
 	return m
@@ -239,7 +239,7 @@ func TestNavForwardKeysOnEmptyList(t *testing.T) {
 
 // newPaneModel focuses a terminal pane with no live session, so only mode changes show.
 func newPaneModel() *model {
-	return &model{sessions: map[string]*session{}, layout: layout{height: 20}, focus: focus{active: "web1", mode: modeShell}}
+	return &model{sessions: map[string]*session{}, layout: layout{width: 100, height: 20}, focus: focus{active: "web1", mode: modeShell}}
 }
 
 func TestPaneDoubleEscLeaves(t *testing.T) {
@@ -365,7 +365,7 @@ func TestBrowsingCtrlOLeaves(t *testing.T) {
 
 // newBrowseModel browses with no live session, so browser-bound keys are dropped.
 func newBrowseModel() *model {
-	return &model{sessions: map[string]*session{}, layout: layout{height: 20}, focus: focus{active: "web1", mode: modeBrowser}}
+	return &model{sessions: map[string]*session{}, layout: layout{width: 100, height: 20}, focus: focus{active: "web1", mode: modeBrowser}}
 }
 
 func TestFilterSwallowsMotionLetters(t *testing.T) {

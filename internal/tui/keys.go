@@ -96,7 +96,7 @@ func (m *model) handleNavKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	// A range rather than a binding, so it is read before the keyboard registry.
-	if i, ok := listDigit(key); ok {
+	if i, ok := listDigit(key); ok && m.sidebarOn() {
 		h, ok := m.selectedHost()
 		if !ok {
 			return m, nil
@@ -109,6 +109,12 @@ func (m *model) handleNavKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // doList runs one host-list action, split from the key so the palette and menu can run it.
 func (m *model) doList(a keys.Action) (tea.Model, tea.Cmd) {
+	// An off-screen list holds no selection to act on. Quitting and the help card belong
+	// to the window, not to the list, so they still answer; ctrl+b is a global above.
+	if !m.sidebarOn() && a != keys.Quit && a != keys.Help {
+		return m, nil
+	}
+
 	switch a {
 	case keys.Up, keys.Down, keys.PageUp, keys.PageDown, keys.In, keys.Out:
 		return m.move(a)
@@ -292,6 +298,7 @@ func (m *model) leaveDetails() {
 	m.active = ""
 	m.mode = modeList
 	m.clearStatus()
+	m.revealSidebar()
 	m.relayout() // no active session means no tree column, so the columns move
 }
 
@@ -703,6 +710,7 @@ func (m *model) leavePane() {
 	m.mode = modeList
 	m.clearStatus()
 	m.reader.Reset()
+	m.revealSidebar()
 }
 
 // armLeader opens the leader on the pane the keyboard is in. No timer starts.
@@ -815,6 +823,7 @@ func (m *model) leaveBrowser() {
 	m.mode = modeList
 	m.clearStatus()
 	m.reader.Reset()
+	m.revealSidebar()
 }
 
 // leaveEditor hands the keyboard to the tree column, or the host list if it is gone.
@@ -824,13 +833,16 @@ func (m *model) leaveEditor() {
 	m.reader.Reset()
 	if s := m.sessions[m.active]; s != nil && s.browser != nil {
 		m.mode = modeBrowser
+		return
 	}
+	m.revealSidebar()
 }
 
 // leaveAll drops every pane mode, handing the keyboard back to the host list.
 func (m *model) leaveAll() {
 	m.active = ""
 	m.mode = modeList
+	m.revealSidebar()
 	m.relayout()
 }
 

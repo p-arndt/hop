@@ -160,6 +160,17 @@ func (m *model) hasTree() bool {
 // treeInline is the narrow-window fallback; see treeWidth for the threshold.
 func (m *model) treeInline() bool { return m.hasTree() && m.treeWidth() == 0 }
 
+// revealSidebar puts the host list back on screen before the keyboard is handed to it:
+// a cursor nobody can see is not a selection. A window too narrow to hold the list has
+// nothing to reveal.
+func (m *model) revealSidebar() {
+	if !m.sidebarHidden || !m.sidebarFits() {
+		return
+	}
+	m.sidebarHidden = false
+	m.relayout()
+}
+
 func (m *model) toggleSidebar() {
 	// Flipping here would change nothing on screen and would discard the preference the
 	// window growing back is supposed to restore. sidebarHint stays silent to match.

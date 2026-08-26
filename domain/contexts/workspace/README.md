@@ -114,6 +114,9 @@ The terms live in [`language.md`](language.md).
 - **Layout degrades, it does not break.** Below the width a column needs, the browser
   falls back to a full pane; the sidebar hides; the split refuses to open. hop never
   renders a broken screen because the terminal is small.
+- **A column that is not on screen does not take keys.** The host list off screen —
+  collapsed, or the window too narrow — holds no selection, so its keys go quiet; and
+  anything that hands the keyboard back to it reveals it first when the window allows.
 - **The cursor rides its entry** across a sort, a refresh or a tree collapse. The user's
   place is not lost by hop's own bookkeeping.
 - **Every remote-derived string is stripped of control characters** before it reaches a
