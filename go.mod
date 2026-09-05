@@ -12,7 +12,7 @@ require (
 	github.com/p-arndt/selfupdate v0.2.0
 	github.com/pkg/sftp v1.13.11
 	github.com/sahilm/fuzzy v0.1.3
-	github.com/skeema/knownhosts v1.3.2
+	github.com/skeema/knownhosts v1.3.3
 	github.com/yuin/goldmark v1.8.5
 	golang.org/x/crypto v0.55.0
 	golang.org/x/sys v0.47.0
