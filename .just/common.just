@@ -1,4 +1,4 @@
-# common.just — shared by every project. Synced from ~/coding/just-common;
+# common.just — shared by every project. Synced from github.com/p-arndt/just-common;
 # edit it there, then run `just sync-common` in each project.
 #
 # Import this first, then the stack modules the project needs:
@@ -10,24 +10,20 @@
 # both shells; the few that need real shell logic come as [unix]/[windows] pairs.
 set windows-shell := ["pwsh.exe", "-NoLogo", "-NoProfile", "-Command"]
 
-# Where `sync-common` copies the modules from.
-JUST_COMMON := env("JUST_COMMON", home_directory() / "coding" / "just-common")
-
-# [default] is needed because just otherwise runs the first recipe of the
-# importing justfile, not of this file.
-[default]
-[doc('Show the recipe list.')]
-default:
-    @just --list
+# Where `sync-common` gets the modules: GitHub by default, so it works on any
+# machine without a checkout. Set JUST_COMMON to a local just-common checkout to
+# test unpublished changes, or JUST_COMMON_REF to pin a branch or tag.
+JUST_COMMON := env("JUST_COMMON", "")
+_JUST_COMMON_URL := "https://raw.githubusercontent.com/p-arndt/just-common/" + env("JUST_COMMON_REF", "main")
 
 # Only modules the project already has are updated, so a project opts in by
 # copying a file once.
 [unix]
-[doc('Refresh the modules in .just/ from the just-common checkout.')]
+[doc('Refresh the modules in .just/ from just-common (GitHub, or $JUST_COMMON).')]
 sync-common:
-    @for f in .just/*.just; do cp "{{JUST_COMMON}}/$(basename "$f")" "$f" && echo "synced $f"; done
+    @for f in .just/*.just; do n="$(basename "$f")"; if [ -n "{{JUST_COMMON}}" ]; then cp "{{JUST_COMMON}}/$n" "$f.tmp"; else curl -fsSL "{{_JUST_COMMON_URL}}/$n" -o "$f.tmp"; fi && mv "$f.tmp" "$f" && echo "synced $f" || { rm -f "$f.tmp"; echo "failed $f" >&2; exit 1; }; done
 
 [windows]
-[doc('Refresh the modules in .just/ from the just-common checkout.')]
+[doc('Refresh the modules in .just/ from just-common (GitHub, or $env:JUST_COMMON).')]
 sync-common:
-    @Get-ChildItem .just -Filter *.just | ForEach-Object { Copy-Item (Join-Path "{{JUST_COMMON}}" $_.Name) $_.FullName -Force; "synced .just/$($_.Name)" }
+    @$ErrorActionPreference = "Stop"; Get-ChildItem .just -Filter *.just | ForEach-Object { $tmp = "$($_.FullName).tmp"; if ("{{JUST_COMMON}}") { Copy-Item (Join-Path "{{JUST_COMMON}}" $_.Name) $tmp -Force } else { Invoke-WebRequest -UseBasicParsing -Uri "{{_JUST_COMMON_URL}}/$($_.Name)" -OutFile $tmp }; Move-Item $tmp $_.FullName -Force; "synced .just/$($_.Name)" }

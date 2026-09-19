@@ -1,4 +1,4 @@
-# release.just — versioning and releases through stamp. Synced from ~/coding/just-common.
+# release.just — versioning and releases through stamp. Synced from github.com/p-arndt/just-common.
 #
 # Needs `stamp` on PATH (https://github.com/p-arndt/stamp). stamp owns the
 # version files, the release commit and the tag; never edit them by hand.

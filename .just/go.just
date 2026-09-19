@@ -1,4 +1,4 @@
-# go.just — Go CLI recipes. Synced from ~/coding/just-common.
+# go.just — Go CLI recipes. Synced from github.com/p-arndt/just-common.
 #
 # The importing justfile sets:
 #   BIN_NAME      := "hop"                        (required) binary name
