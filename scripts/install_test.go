@@ -28,12 +28,16 @@ func contains(t *testing.T, path, haystack, needle, why string) {
 
 // The installers download by name, so they have to agree with the workflow that
 // uploads those names: hop_<version>_<os>_<arch>.{zip,tar.gz} plus one checksums file.
+// The shared go-release workflow owns that naming (<binary>_<version>_<os>_<arch>,
+// zip on windows, tar.gz elsewhere, <binary>_<version>_checksums.txt) in archive
+// style, so here we pin the inputs that select it.
 func TestInstallersMatchReleaseAssetNames(t *testing.T) {
 	wf := read(t, "../.github/workflows/release.yml")
-	contains(t, "release.yml", wf, `name="hop_${VERSION}_${GOOS}_${GOARCH}"`, "archive name the installers rebuild")
-	contains(t, "release.yml", wf, `hop_${VERSION}_checksums.txt`, "checksums name the installers rebuild")
-	contains(t, "release.yml", wf, `zip -q "../dist/$name.zip"`, "windows archives are zips")
-	contains(t, "release.yml", wf, `tar -czf "dist/$name.tar.gz"`, "unix archives are tarballs")
+	contains(t, "release.yml", wf, "uses: p-arndt/.github/.github/workflows/go-release.yml@v1", "the shared workflow defines the asset names")
+	contains(t, "release.yml", wf, "binary: hop", "asset names are prefixed with the binary name")
+	if strings.Contains(wf, "artifact-style: raw") {
+		t.Error("release.yml sets artifact-style: raw; the installers expect archives")
+	}
 
 	sh := read(t, "install.sh")
 	contains(t, "install.sh", sh, `archive="hop_${VERSION}_${os}_${arch}.tar.gz"`, "must match the workflow's tarball name")
