@@ -13,7 +13,9 @@ set windows-shell := ["pwsh.exe", "-NoLogo", "-NoProfile", "-Command"]
 # Where `sync-common` copies the modules from.
 JUST_COMMON := env("JUST_COMMON", home_directory() / "coding" / "just-common")
 
-# Default: show the recipe list.
+# Default: show the recipe list. [default] is needed because just otherwise runs
+# the first recipe of the importing justfile, not of this file.
+[default]
 default:
     @just --list
 
