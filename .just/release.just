@@ -8,8 +8,8 @@
 version:
     @stamp current
 
-# Write a version without committing (patch|minor|major|x.y.z). A correction tool;
-# use `just release` to cut a release.
+# A correction tool; use `just release` to cut a release.
+[doc('Write a version without committing (patch|minor|major|x.y.z).')]
 set-version BUMP="patch":
     stamp set {{BUMP}}
 

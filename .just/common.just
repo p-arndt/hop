@@ -13,18 +13,21 @@ set windows-shell := ["pwsh.exe", "-NoLogo", "-NoProfile", "-Command"]
 # Where `sync-common` copies the modules from.
 JUST_COMMON := env("JUST_COMMON", home_directory() / "coding" / "just-common")
 
-# Default: show the recipe list. [default] is needed because just otherwise runs
-# the first recipe of the importing justfile, not of this file.
+# [default] is needed because just otherwise runs the first recipe of the
+# importing justfile, not of this file.
 [default]
+[doc('Show the recipe list.')]
 default:
     @just --list
 
-# Refresh every module in .just/ from the just-common checkout. Only modules the
-# project already has are updated, so a project opts in by copying a file once.
+# Only modules the project already has are updated, so a project opts in by
+# copying a file once.
 [unix]
+[doc('Refresh the modules in .just/ from the just-common checkout.')]
 sync-common:
     @for f in .just/*.just; do cp "{{JUST_COMMON}}/$(basename "$f")" "$f" && echo "synced $f"; done
 
 [windows]
+[doc('Refresh the modules in .just/ from the just-common checkout.')]
 sync-common:
     @Get-ChildItem .just -Filter *.just | ForEach-Object { Copy-Item (Join-Path "{{JUST_COMMON}}" $_.Name) $_.FullName -Force; "synced .just/$($_.Name)" }
