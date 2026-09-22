@@ -458,6 +458,7 @@ var footerCardArms = []footerArm{
 				m.hint(keys.Leader, keys.LeaderOut, "out"),
 				keyHint("1-9", "tab"),
 				m.hint(keys.Leader, keys.LeaderShell, "new shell"),
+				m.hint(keys.Leader, keys.LeaderBrowser, "browse here"),
 			}
 			// Named only where it would work: without a cwd the chord opens the host's default.
 			if m.shellCwd(m.chords.leaderAlias) != "" {
@@ -518,6 +519,7 @@ var footerModeArms = []footerArm{
 				m.hint(keys.Browser, keys.BrowserDownload, "download"),
 				m.hint(keys.Browser, keys.BrowserFocusPane, "focus file"),
 				m.hint(keys.Browser, keys.BrowserSplit, "open beside"),
+				m.hint(keys.Browser, keys.BrowserShell, "shell here"),
 				// A copy is three keys nobody guesses, so the selection and target are named.
 				m.hint(keys.Browser, keys.BrowserMark, "mark"),
 				m.hint(keys.Browser, keys.BrowserTarget, "target"),
@@ -579,6 +581,7 @@ func (m *model) shellHints() (core, extra []string) {
 		core = append(core, m.hint(keys.Pane, keys.PaneNextTab, "shell"))
 		extra = append(extra, m.leaderRange("jump"))
 	}
+	extra = append(extra, m.chordHint(keys.LeaderBrowser, "browse here"))
 	// The same conditions the chords check, so a wide window never names a key that declines.
 	if m.shellCwd(m.active) != "" {
 		extra = append(extra, m.chordHint(keys.LeaderVSCode, "vs code here"))

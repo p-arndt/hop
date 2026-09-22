@@ -126,6 +126,11 @@ The terms live in [`language.md`](language.md).
   status line, a tab or a card.
 - **A status has a generation.** A timer in flight can never fire against a newer
   status — clearing bumps the generation too.
+- **A shell and the browser on one host follow each other.** `ctrl+o f` shows the host's
+  browser at the shell's cwd — the open browser moves there rather than a second one
+  opening — and `S` in the browser opens a shell tab in the cursor directory. Either way
+  the keyboard goes with it. With no reported cwd the browser still comes up, where it
+  was or at the default dir, and the status line says why it is not where the shell is.
 - **Closing the split keeps the file you were reading**, rather than closing the half
   that happened to be focused.
 - **hop reserves the fewest keys it can**, and the ones it reserves work in every mode.

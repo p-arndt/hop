@@ -29,7 +29,7 @@ var browserHelpActions = []keys.Action{
 	keys.BrowserMark, keys.BrowserMarkAll, keys.BrowserTarget,
 	keys.BrowserCopy, keys.BrowserMoveTo,
 	keys.BrowserRename, keys.BrowserDelete, keys.BrowserMkdir, keys.BrowserSort,
-	keys.BrowserRefresh, keys.BrowserFocusPane, keys.BrowserSplit, keys.BrowserTree,
+	keys.BrowserRefresh, keys.BrowserFocusPane, keys.BrowserSplit, keys.BrowserShell, keys.BrowserTree,
 	keys.BrowserPalette, keys.BrowserHelp, keys.BrowserLeave, keys.BrowserClose,
 }
 
@@ -106,6 +106,7 @@ func (m *model) helpRight() []helpSection {
 	shell = append(shell, m.helpRows(keys.Pane, keys.PaneLeave, keys.PaneNextTab)...)
 	shell = append(shell, m.chordRange("straight to that shell")...)
 	shell = append(shell, m.chord(keys.LeaderShell)...)
+	shell = append(shell, m.chord(keys.LeaderBrowser)...)
 	shell = append(shell, m.chord(keys.LeaderVSCode)...)
 	shell = append(shell, m.chord(keys.LeaderPalette)...)
 	shell = append(shell, m.chord(keys.LeaderHelp)...)

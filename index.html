@@ -1032,6 +1032,10 @@
       <td>another shell on this host</td>
       </tr>
       <tr>
+      <td><kbd>f</kbd></td>
+      <td>this directory in the <a href="#browser">file browser</a> — the open one moves there</td>
+      </tr>
+      <tr>
       <td><kbd>c</kbd></td>
       <td>this directory in VS Code Remote</td>
       </tr>
@@ -1049,6 +1053,9 @@
       </tr>
       </tbody>
       </table></div>
+      <p><kbd>f</kbd> and <kbd>c</kbd> follow the directory the shell reports as you <code>cd</code>. A shell that has not
+      reported one (a login shell hop could not hook, or one still starting) leaves <kbd>f</kbd> opening
+      the browser where it would anyway, and the status line says so.</p>
       <p>A key that names no chord is <strong>swallowed</strong>, not passed to the remote: while the leader is
       open hop has the keyboard, and a program that received the tail of an abandoned chord would
       act on a key you were not typing at it. The leader also outranks <kbd>ctrl+b</kbd> and <kbd>ctrl+g</kbd>,
@@ -1244,6 +1251,10 @@
       <tr>
       <td><kbd>\</kbd></td>
       <td>open the file beside the current one, not as another tab (<kbd>ctrl+\</kbd> closes the split again)</td>
+      </tr>
+      <tr>
+      <td><kbd>S</kbd></td>
+      <td>a new shell tab on this host, standing in the directory under the cursor (a file&rsquo;s own directory)</td>
       </tr>
       <tr>
       <td><kbd>←</kbd> <kbd>backspace</kbd></td>
@@ -2358,10 +2369,12 @@
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"o · out — back to hop"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"1 … 9 · that tab, selected in place"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"0 · another shell on this host"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"f · this directory in the file browser — the open one moves there"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"c · this directory in VS Code Remote"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"ctrl+k · the palette — this pane’s chords, searchable"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"? · the key card"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"anything else · closes the leader and does nothing"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"f and c follow the directory the shell reports as you cd. A shell that has not reported one (a login shell hop could not hook, or one still starting) leaves f opening the browser where it would anyway, and the status line says so."},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"A key that names no chord is swallowed, not passed to the remote: while the leader is open hop has the keyboard, and a program that received the tail of an abandoned chord would act on a key you were not typing at it. The leader also outranks ctrl+b and ctrl+g, which are otherwise held in every mode."},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"Why the leader does nothing on its own"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"This is the tmux and wezterm arrangement, and the reason for it is worth stating: a leader that also acts forces a timeout, and every value for that timeout is wrong — too short and the chords are unreachable, too long and leaving feels broken. Earlier versions of hop tried both and neither worked. Paying one extra keystroke for out buys back all of the timing."},
@@ -2410,6 +2423,7 @@
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"v · move what is marked into the target"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"tab · focus the content pane"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"\\ · open the file beside the current one, not as another tab (ctrl+\\ closes the split again)"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"S · a new shell tab on this host, standing in the directory under the cursor (a file’s own directory)"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"← backspace · collapse, or step out to the parent"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"r · refresh the listing"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+k · the palette: everything the browser can do, searchable"},

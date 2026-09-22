@@ -83,6 +83,17 @@ happened to be focused.
 
 **Is:** another shell on an already-connected host — a new channel, no new handshake.
 
+### Start dir
+
+**Is:** the directory a new shell tab or browser is started in. By default the host's
+[[fleet]] default dir; a reconnect's restored directory; the shell's cwd for `ctrl+o f`;
+the browser's cursor directory for `S`.
+
+**Rule:** a shell tab is started in one the same way whichever of those chose it — as the
+default dir, typed as the startup line's `cd`. There is no second mechanism.
+
+**In code:** the `startDir` of `shellCmd` / `openBrowserCmd`; `openShellIn`, `openBrowserAt`.
+
 ### Editor tab
 
 **Is:** `${EDITOR:-vi}` running on a remote pty against one remote file. Nothing was

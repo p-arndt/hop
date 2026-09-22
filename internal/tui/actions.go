@@ -96,6 +96,7 @@ var browserSpecs = []spec{
 	{id: keys.BrowserRefresh},
 	{id: keys.BrowserFocusPane},
 	{id: keys.BrowserSplit},
+	{id: keys.BrowserShell},
 	{id: keys.BrowserTree},
 	{id: keys.BrowserLeave},
 	{id: keys.BrowserClose},
@@ -108,6 +109,7 @@ func (m *model) paneSpecs() []spec {
 	ss := []spec{
 		{id: keys.LeaderOut, leader: true},
 		{id: keys.LeaderShell, leader: true},
+		{id: keys.LeaderBrowser, leader: true},
 		{id: keys.PaneNextTab},
 		{id: keys.PanePrevTab},
 	}

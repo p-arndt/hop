@@ -46,6 +46,26 @@ index**, not an entry index. That is what keeps mouse handling simple.
 
 **In code:** `internal/filebrowser/tree.go` — `node`, `rows`.
 
+### Cursor directory
+
+**Is:** the directory the cursor entry names — the entry itself when it is a directory,
+open or not, else the directory holding it. What `S` starts a shell in.
+
+**Is not:** `Path()`, the directory the cursor is *inside*, which is a closed directory's
+parent.
+
+**In code:** `Browser.CursorDir()`.
+
+### Re-root
+
+**Is:** listing a directory and making it the tree's root, as `backspace` does one level
+up and `GoTo` does anywhere — how the browser is sent to a shell's cwd.
+
+**Rule:** a directory that will not list leaves the tree where it was, with the error on
+its note.
+
+**In code:** `Browser.load`, `Browser.GoTo`.
+
 ### Mark
 
 **Is:** a file or directory the user has selected with `space`/`a`, keyed by absolute

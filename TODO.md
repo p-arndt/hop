@@ -38,6 +38,7 @@ file tracks *what*, not *why*.
 - [x] **Copy/move to a target** (`t`, `c`, `v`) via `sftpx.Copy`/`Move`, recursive, symlinks recreated rather than followed. A move onto an existing name is refused, not silently overwritten.
 - [x] **The browser is a column** (`internal/tui/layout.go`): tree and file on screen together, `tab`/`alt+t` for the keyboard, `ctrl+t` to collapse, full-pane fallback below 96 columns.
 - [x] **Two files side by side** (`\`): the content area splits into two halves with their own tab strips.
+- [x] **Shell ↔ browser on the same host:** `ctrl+o f` shows the browser at the shell's cwd (the open one moves there); `S` in the browser opens a shell tab in the directory under the cursor.
 - [ ] Recursive upload/download of a *local* directory tree; more than one transfer at a time.
 - [ ] Cancel a transfer in flight (needs `context.Context` in `sftpx`).
 - [ ] Server-side copy: `pkg/sftp` has no `copy-data@openssh.com`, so `c` pays double the wire cost of a download. Needs the extension, or `ssh cp` as a fast path.

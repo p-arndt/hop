@@ -145,6 +145,8 @@ func (m *model) browserLanded(msg browserOpenedMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeBrowser
 		if msg.client != nil && msg.client.NewHostKey != "" {
 			m.setStatus(statusWarn, "%s: new host key trusted (%s)", msg.alias, msg.client.NewHostKey)
+		} else if msg.note != "" {
+			m.setStatus(statusWarn, "%s", msg.note)
 		} else {
 			m.setStatus(statusOK, "sftp %s", msg.alias)
 		}

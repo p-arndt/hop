@@ -62,7 +62,9 @@ type browserOpenedMsg struct {
 	client  *sshx.Client
 	// restore marks a browser put back after a reconnect: it does not take the keyboard.
 	restore bool
-	err     error
+	// note is a warning the opener wants on the status line in place of the usual one.
+	note string
+	err  error
 }
 
 // sessionLostMsg says an SSH connection has gone; client says which, as it can arrive

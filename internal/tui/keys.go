@@ -397,6 +397,14 @@ func (m *model) doBrowser(a keys.Action) (tea.Model, tea.Cmd) {
 	case keys.BrowserTree:
 		m.toggleTree()
 		return m, nil
+
+	case keys.BrowserShell:
+		s := m.sessions[m.active]
+		h, ok := m.hostByAlias(m.active)
+		if s == nil || s.browser == nil || !ok {
+			return m, nil
+		}
+		return m, m.openShellIn(h, s.browser.CursorDir())
 	}
 
 	if s := m.sessions[m.active]; s != nil && s.browser != nil {
@@ -766,6 +774,17 @@ func (m *model) doLeader(a keys.Action, alias string, editing bool) (tea.Model, 
 		m.leavePane()
 		m.openVSCodeAt(alias)
 		return m, nil
+
+	case keys.LeaderBrowser:
+		// An editor already stands beside its browser; the tree is one key away there.
+		if editing {
+			break
+		}
+		h, ok := m.hostByAlias(alias)
+		if !ok {
+			return m, nil
+		}
+		return m, m.browseShellCwd(h)
 
 	case keys.LeaderPalette:
 		m.openPalette()

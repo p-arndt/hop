@@ -79,8 +79,8 @@ it, like [[mouse-tracking]] and [[bracketed-paste]].
 **Is:** the remote shell reporting its working directory, and the directory hop
 therefore believes the user is in.
 
-**Is why:** `ctrl+o ctrl+o` can open VS Code in the right place and the browser can
-start in the right directory.
+**Is why:** `ctrl+o c` can open VS Code in the right place and `ctrl+o f` can show the
+browser in the right directory.
 
 **In code:** `internal/terminal/cwd.go`, `oscScanner`; read under `cwdMu`.
 

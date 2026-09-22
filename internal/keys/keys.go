@@ -111,6 +111,7 @@ const (
 	BrowserFocusPane Action = "browser.focus-pane"
 	BrowserTree      Action = "browser.tree-column"
 	BrowserSplit     Action = "browser.split"
+	BrowserShell     Action = "browser.shell-here"
 
 	// Pane. LeaderKey and PaneLeave are the two exits escapeHatch insists on keeping.
 	LeaderKey    Action = "pane.leader"
@@ -147,6 +148,7 @@ const (
 	LeaderPalette Action = "leader.palette"
 	LeaderHelp    Action = "leader.help"
 	LeaderShell   Action = "leader.new-shell"
+	LeaderBrowser Action = "leader.browser-here"
 
 	// DeadPane.
 	DeadReconnect Action = "dead.reconnect"
@@ -259,6 +261,7 @@ var defaults = []Binding{
 	{Action: BrowserFocusPane, Layer: Browser, Keys: []string{"tab"}, Label: "focus the content pane"},
 	{Action: BrowserTree, Layer: Browser, Keys: []string{"ctrl+t"}, Label: "hide / show the tree column"},
 	{Action: BrowserSplit, Layer: Browser, Keys: []string{"\\"}, Label: "open beside the current file"},
+	{Action: BrowserShell, Layer: Browser, Keys: []string{"S"}, Show: "shift+s", Label: "new shell in this directory"},
 	{Action: BrowserRefresh, Layer: Browser, Keys: []string{"r"}, Label: "refresh the listing"},
 	{Action: BrowserClose, Layer: Browser, Keys: []string{"q"}, Label: "close the browser"},
 	{Action: BrowserLeave, Layer: Browser, Keys: []string{"ctrl+o", "esc esc"}, Window: doubleEscWindow, Label: "back to the host list"},
@@ -307,6 +310,7 @@ var defaults = []Binding{
 	{Action: LeaderOut, Layer: Leader, Keys: []string{"o"}, Label: "back to hop"},
 	{Action: LeaderShell, Layer: Leader, Keys: []string{"0"}, Label: "another shell on this host"},
 	{Action: LeaderVSCode, Layer: Leader, Keys: []string{"c"}, Label: "open this directory in VS Code"},
+	{Action: LeaderBrowser, Layer: Leader, Keys: []string{"f"}, Label: "browse this directory in sftp"},
 	{Action: LeaderPalette, Layer: Leader, Keys: []string{"ctrl+k"}, Label: "search every action"},
 	{Action: LeaderHelp, Layer: Leader, Keys: []string{"?"}, Label: "all the keys"},
 

@@ -234,6 +234,10 @@ func (s *session) summary() []string {
 
 // ---- model-level session actions ----
 
+// extraShellCmd is shellCmd behind a variable so a test can see which directory a shell on
+// a live connection is asked to start in, without opening a channel.
+var extraShellCmd = shellCmd
+
 // openShell focuses the host's current shell, or starts one; extra always starts another.
 func (m *model) openShell(h store.Host, extra bool) tea.Cmd {
 	// A connect is already in flight; a second dial would race an orphaned client in.
@@ -258,7 +262,7 @@ func (m *model) openShell(h store.Host, extra bool) tea.Cmd {
 
 	if s != nil && s.client != nil {
 		cols, rows := m.shellSize(len(s.shells) + 1)
-		return m.withSpinner(shellCmd(h.Alias, h.DefaultDir, s.client, m.nextShID, cols, rows, m.notify, false))
+		return m.withSpinner(extraShellCmd(h.Alias, h.DefaultDir, s.client, m.nextShID, cols, rows, m.notify, false))
 	}
 	cols, rows := m.shellSize(1)
 	return m.withSpinner(connectCmd(h, "", m.prompter(h.Alias), extra, m.nextShID, cols, rows, m.notify))
@@ -289,7 +293,11 @@ func (m *model) focusShell(alias string) {
 }
 
 // openBrowser opens the host's SFTP browser, on the connection hop already holds or on one of its own.
-func (m *model) openBrowser(h store.Host) tea.Cmd {
+func (m *model) openBrowser(h store.Host) tea.Cmd { return m.openBrowserAt(h, h.DefaultDir, "") }
+
+// openBrowserAt is openBrowser starting in dir; note, when set, replaces the landing's own
+// status, because the caller has something to say that outlives the dial.
+func (m *model) openBrowserAt(h store.Host, dir, note string) tea.Cmd {
 	var existing *sshx.Client
 	if s := m.sessions[h.Alias]; s != nil {
 		if s.dead {
@@ -302,9 +310,69 @@ func (m *model) openBrowser(h store.Host) tea.Cmd {
 	bw, bh := m.browserSize()
 	if existing == nil {
 		m.connecting[h.Alias] = true
-		return m.withSpinner(openBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), h.DefaultDir, bw, bh, false))
+		return m.withSpinner(withBrowserNote(startBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), dir, bw, bh, false), note))
 	}
-	return openBrowserCmd(h, existing, "", nil, m.browserOptions(), h.DefaultDir, bw, bh, false)
+	return withBrowserNote(startBrowserCmd(h, existing, "", nil, m.browserOptions(), dir, bw, bh, false), note)
+}
+
+// startBrowserCmd is openBrowserCmd behind a variable so a test can see the directory a
+// browser is asked to start in, without raising SFTP.
+var startBrowserCmd = openBrowserCmd
+
+// withBrowserNote stamps note onto the browserOpenedMsg cmd lands with.
+func withBrowserNote(cmd tea.Cmd, note string) tea.Cmd {
+	if note == "" {
+		return cmd
+	}
+	return func() tea.Msg {
+		msg := cmd()
+		if opened, ok := msg.(browserOpenedMsg); ok {
+			opened.note = note
+			return opened
+		}
+		return msg
+	}
+}
+
+// browseShellCwd shows the host's browser at the directory its shell stands in: the open
+// browser is moved there, or a new one starts there. Without a reported directory there is
+// nowhere to move to, so the browser opens where it would anyway and the status says why.
+func (m *model) browseShellCwd(h store.Host) tea.Cmd {
+	alias := h.Alias
+	dir := m.shellCwd(alias)
+	s := m.sessions[alias]
+	if s == nil || s.dead {
+		return m.openBrowser(h)
+	}
+
+	if s.browser == nil {
+		if dir == "" {
+			return m.openBrowserAt(h, h.DefaultDir, alias+": the shell has not reported its directory; browsing the default")
+		}
+		return m.openBrowserAt(h, dir, "")
+	}
+
+	m.active = alias
+	m.mode = modeBrowser
+	m.reader.Reset()
+	m.relayout()
+	switch {
+	case dir == "":
+		m.setStatus(statusWarn, "%s: the shell has not reported its directory; the browser stays where it was", alias)
+	case !s.browser.GoTo(dir):
+		m.setStatus(statusErr, "sftp %s: %s", alias, stripControl(s.browser.Status()))
+	default:
+		m.setStatus(statusOK, "sftp %s:%s", alias, stripControl(dir))
+	}
+	return nil
+}
+
+// openShellIn starts another shell tab on the host, standing in dir. The directory rides in
+// as the host's default dir, so it takes exactly the path a configured one does.
+func (m *model) openShellIn(h store.Host, dir string) tea.Cmd {
+	here := h
+	here.DefaultDir = dir
+	return m.openShell(here, true)
 }
 
 // openBrowserTrusting retries after host-key approval; like openShellTrusting it is always a fresh dial.

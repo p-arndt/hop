@@ -14,10 +14,15 @@ the footer becomes the menu, and hop waits as long as you take:
 | [[o]] | out — back to hop |
 | [[1]] … [[9]] | that tab, selected **in place** |
 | [[0]] | another shell on this host |
+| [[f]] | this directory in the [file browser](#browser) — the open one moves there |
 | [[c]] | this directory in VS Code Remote |
 | [[ctrl+k]] | the [palette](#actions) — this pane's chords, searchable |
 | [[?]] | the key card |
 | anything else | closes the leader and does nothing |
+
+[[f]] and [[c]] follow the directory the shell reports as you `cd`. A shell that has not
+reported one (a login shell hop could not hook, or one still starting) leaves [[f]] opening
+the browser where it would anyway, and the status line says so.
 
 A key that names no chord is **swallowed**, not passed to the remote: while the leader is
 open hop has the keyboard, and a program that received the tail of an abandoned chord would

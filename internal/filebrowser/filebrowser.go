@@ -575,6 +575,25 @@ func (b *Browser) Resize(w, h int) {
 // Path returns the current remote directory.
 func (b *Browser) Path() string { return b.cwd }
 
+// GoTo re-roots the tree at dir, as if the browser had been opened there. On failure the
+// tree stays where it was and the note says why, so the caller must not claim it moved.
+func (b *Browser) GoTo(dir string) bool { return b.load(dir) }
+
+// CursorDir is the directory the cursor entry names: itself when it is one, else the one
+// holding it. Unlike Path it ignores whether a directory is open, since a closed directory
+// under the cursor is still the one the user pointed at.
+func (b *Browser) CursorDir() string {
+	n := b.cur()
+	switch {
+	case n == nil:
+		return b.rootPath()
+	case n.e.IsDir:
+		return n.path
+	default:
+		return n.parent.path
+	}
+}
+
 // Status returns the last-action message.
 func (b *Browser) Status() string { return b.note.text }
 
