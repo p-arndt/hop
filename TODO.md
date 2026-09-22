@@ -71,6 +71,8 @@ file tracks *what*, not *why*.
 - [x] **Host list keymap trimmed** to step keys via `keymap.Scope`.
 - [x] **Mouse support** routed by region (`tui/mouse.go`); a remote asking for the mouse gets it verbatim.
 - [x] **Mouse text selection** over shells, scrollback and editors → clipboard on release; `ctrl+g` hands reporting back.
+- [x] **Copy out of vim:** `shift+drag` selects with hop over a program that has the mouse (hinted once); XTGETTCAP `Ms` is answered so nvim's `"+y` goes out as OSC 52.
+- [x] **Close the SFTP browser** (`q`): editor tabs stay; an emptied session disconnects.
 - [x] **Selection past one screenful:** the wheel scrolls under a live drag, a drag held at a pane edge autoscrolls, and a selection rides the text it was made on. On the alt screen the wheel is sent on as `↑`/`↓`.
 - [x] **Drag autoscroll** past a pane's top/bottom row, into scrollback and back.
 - [x] **Copy/paste:** paste as your terminal pastes (shape-detected on Windows); copy via OSC 52. A remote *read* is never answered.

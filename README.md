@@ -500,6 +500,7 @@ which are otherwise held in every mode.
 | `ctrl+b` | hide / show the sidebar |
 | `ctrl+o` | back to hop |
 | `esc` `esc` | back to hop (two presses within 400 ms) |
+| `q` | **close** the browser — open files stay, and with nothing else open the connection goes too |
 
 With [vim keys](KEYBINDINGS.md#vim-keys) on the browser keeps the *whole* motion set (the host list only the
 step keys): `j`/`k`, `gg`, `G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`,

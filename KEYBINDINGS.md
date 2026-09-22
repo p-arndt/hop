@@ -326,6 +326,7 @@ lag on every `esc` you press in vim. So the rule is:
 | `ctrl+b` | hide / show the sidebar |
 | `ctrl+o` | back to hop |
 | `esc` `esc` | back to hop (two presses within 400 ms) |
+| `q` | **close** the browser — open files stay, and with nothing else open the connection goes too |
 
 With [vim keys](#vim-keys) on the browser keeps the *whole* motion set (the host list only the
 step keys): `j`/`k`, `gg`, `G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`,
@@ -389,7 +390,7 @@ and the browser goes back to filling the pane while it has the keyboard.
 `←` is pure motion: it collapses the directory you are in, steps out to its parent, and
 only at the top of the tree does it pop back to hop. The directory you open in is usually your
 home directory — so a `←` that left straight away would drop you back to hop exactly when
-you meant to go up to `/home`. Leaving is otherwise always explicit: `ctrl+o`, or a
+you meant to go up to `/home`. Leaving is otherwise always explicit: `ctrl+o`, `q` to close it for good, or a
 [double esc](#how-double-esc-works-and-what-it-costs) — though unlike in a pane, a lone `esc` here is swallowed rather
 than forwarded.
 
@@ -675,6 +676,7 @@ Every gesture is an existing binding reached by pointing, so nothing is mouse-on
 | click | a pane the list has the keyboard in | takes it: the pointer's `s` or `f` |
 | click | a tab strip | switches to that shell or file tab |
 | drag | a pane | selects text; it lands on the clipboard when you let go |
+| shift+drag | a pane whose program has the mouse | selects with hop anyway, and copies |
 | wheel *while dragging* | a pane | scrolls under the selection, which grows to follow |
 | drag to the top / bottom row | a pane | keeps scrolling by itself while you hold it there |
 | double-click | a host, or a browser entry | opens it — `enter`, by pointing |
@@ -686,7 +688,9 @@ was made on, so scrolling leaves the highlight over the same words. Anything you
 it down.
 
 A remote program that asks for the mouse (vim with `set mouse=a`, htop) gets the pointer
-verbatim instead. The cards are keyboard-only. `ctrl+g` hands mouse reporting back to your
+verbatim instead, so a drag in vim becomes a visual selection that copies nothing. Hold
+shift as you press to select with hop instead — the first plain drag says so on the status
+line. The cards are keyboard-only. `ctrl+g` hands mouse reporting back to your
 terminal for a moment — for a selection spanning the sidebar and a pane, or anything else
 that wants your terminal's own pointer.
 
@@ -700,7 +704,9 @@ staircase. It works on Windows too.
 
 Copying *out* of a pane is a drag ([the mouse](#the-mouse)), or your terminal's own selection
 after `ctrl+g`. A yank on the remote host travels to your clipboard over OSC 52, unless you
-turn *Remote clipboard* off. A remote asking to **read** your clipboard is never answered.
+turn *Remote clipboard* off. nvim asks the terminal whether it takes OSC 52 before it uses
+it, and hop says yes, so `"+y` in a remote nvim lands on your clipboard with no config; plain
+vim needs its `osc52` package. A remote asking to **read** your clipboard is never answered.
 
 ### What hop takes from the remote
 

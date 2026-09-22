@@ -34,6 +34,7 @@ label: Browsing mode
 | [[ctrl+b]] | hide / show the sidebar |
 | [[ctrl+o]] | back to hop |
 | [[esc]] [[esc]] | back to hop (two presses within 400 ms) |
+| [[q]] | **close** the browser — open files stay, and with nothing else open the connection goes too |
 
 With [vim keys](#vim) on the browser keeps the *whole* motion set (the host list only the
 step keys): [[j]]/[[k]], [[gg]], [[G]], [[H]]/[[M]]/[[L]], [[ctrl+d]]/[[ctrl+u]],
@@ -92,7 +93,7 @@ and the browser goes back to filling the pane while it has the keyboard.
 [[←]] is pure motion: it collapses the directory you are in, steps out to its parent, and
 only at the top of the tree does it pop back to hop. The directory you open in is usually your
 home directory — so a [[←]] that left straight away would drop you back to hop exactly when
-you meant to go up to `/home`. Leaving is otherwise always explicit: [[ctrl+o]], or a
+you meant to go up to `/home`. Leaving is otherwise always explicit: [[ctrl+o]], [[q]] to close it for good, or a
 [double esc](#doubleesc) — though unlike in a pane, a lone [[esc]] here is swallowed rather
 than forwarded.
 :::

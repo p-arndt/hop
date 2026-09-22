@@ -14,7 +14,9 @@ staircase. It works on Windows too.
 
 Copying *out* of a pane is a drag ([the mouse](#mouse)), or your terminal's own selection
 after [[ctrl+g]]. A yank on the remote host travels to your clipboard over OSC 52, unless you
-turn *Remote clipboard* off. A remote asking to **read** your clipboard is never answered.
+turn *Remote clipboard* off. nvim asks the terminal whether it takes OSC 52 before it uses
+it, and hop says yes, so `"+y` in a remote nvim lands on your clipboard with no config; plain
+vim needs its `osc52` package. A remote asking to **read** your clipboard is never answered.
 
 ## What hop takes from the remote
 

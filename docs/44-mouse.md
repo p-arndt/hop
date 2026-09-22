@@ -18,6 +18,7 @@ Every gesture is an existing binding reached by pointing, so nothing is mouse-on
 | click | a pane the list has the keyboard in | takes it: the pointer's [[s]] or [[f]] |
 | click | a tab strip | switches to that shell or file tab |
 | drag | a pane | selects text; it lands on the clipboard when you let go |
+| shift+drag | a pane whose program has the mouse | selects with hop anyway, and copies |
 | wheel *while dragging* | a pane | scrolls under the selection, which grows to follow |
 | drag to the top / bottom row | a pane | keeps scrolling by itself while you hold it there |
 | double-click | a host, or a browser entry | opens it — [[enter]], by pointing |
@@ -29,6 +30,8 @@ was made on, so scrolling leaves the highlight over the same words. Anything you
 it down.
 
 A remote program that asks for the mouse (vim with `set mouse=a`, htop) gets the pointer
-verbatim instead. The cards are keyboard-only. [[ctrl+g]] hands mouse reporting back to your
+verbatim instead, so a drag in vim becomes a visual selection that copies nothing. Hold
+shift as you press to select with hop instead — the first plain drag says so on the status
+line. The cards are keyboard-only. [[ctrl+g]] hands mouse reporting back to your
 terminal for a moment — for a selection spanning the sidebar and a pane, or anything else
 that wants your terminal's own pointer.
