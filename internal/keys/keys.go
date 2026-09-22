@@ -101,6 +101,7 @@ const (
 	BrowserRename   Action = "browser.rename"
 	BrowserMkdir    Action = "browser.mkdir"
 	BrowserSort     Action = "browser.sort"
+	BrowserHosts    Action = "browser.hosts"
 
 	// Browser, the multi-selection and the target. Handled by the filebrowser, not the tui.
 	BrowserMark      Action = "browser.mark"
@@ -149,6 +150,8 @@ const (
 	LeaderHelp    Action = "leader.help"
 	LeaderShell   Action = "leader.new-shell"
 	LeaderBrowser Action = "leader.browser-here"
+	LeaderHosts   Action = "leader.hosts"
+	LeaderLast    Action = "leader.last-host"
 
 	// DeadPane.
 	DeadReconnect Action = "dead.reconnect"
@@ -265,6 +268,7 @@ var defaults = []Binding{
 	{Action: BrowserRefresh, Layer: Browser, Keys: []string{"r"}, Label: "refresh the listing"},
 	{Action: BrowserClose, Layer: Browser, Keys: []string{"q"}, Label: "close the browser"},
 	{Action: BrowserLeave, Layer: Browser, Keys: []string{"ctrl+o", "esc esc"}, Window: doubleEscWindow, Label: "back to the host list"},
+	{Action: BrowserHosts, Layer: Browser, Keys: []string{"p"}, Label: "hop to another host"},
 	{Action: BrowserPalette, Layer: Browser, Keys: []string{"ctrl+k"}, Label: "search every action"},
 	{Action: BrowserSettings, Layer: Browser, Keys: []string{","}, Label: "settings"},
 	{Action: BrowserHelp, Layer: Browser, Keys: []string{"?"}, Label: "all the keys"},
@@ -311,6 +315,8 @@ var defaults = []Binding{
 	{Action: LeaderShell, Layer: Leader, Keys: []string{"0"}, Label: "another shell on this host"},
 	{Action: LeaderVSCode, Layer: Leader, Keys: []string{"c"}, Label: "open this directory in VS Code"},
 	{Action: LeaderBrowser, Layer: Leader, Keys: []string{"f"}, Label: "browse this directory in sftp"},
+	{Action: LeaderHosts, Layer: Leader, Keys: []string{"space"}, Label: "hop to another host"},
+	{Action: LeaderLast, Layer: Leader, Keys: []string{"tab"}, Label: "back to the last host"},
 	{Action: LeaderPalette, Layer: Leader, Keys: []string{"ctrl+k"}, Label: "search every action"},
 	{Action: LeaderHelp, Layer: Leader, Keys: []string{"?"}, Label: "all the keys"},
 

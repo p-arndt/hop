@@ -123,11 +123,32 @@ against a newer message. Remote-derived text is stripped of control characters f
 
 ### Card
 
-**Is:** a modal overlay that takes the keyboard — help, settings, the palette, the
-menu, a confirmation, the importer, the tunnel manager, the auth prompt, the host-key
+**Is:** a modal overlay that takes the keyboard — help, settings, the palette, the host
+switcher, the menu, a confirmation, the importer, the tunnel manager, the auth prompt, the host-key
 prompt.
 
 **In code:** `overlay.go` and one file per card.
+
+### Host switcher
+
+**Is:** the card that lists every host — the ones with a session first, then the list's
+order — narrowed by typing, where `enter` lands in that host's shell (connecting first if
+there is none).
+
+**Is not:** the host list's filter, which narrows the column in place; nor the palette,
+which lists actions, not hosts.
+
+**In code:** `hostSwitchUI`, `openHostSwitch`, `hopTo` in `internal/tui/hostswitch.go`.
+
+### Last host
+
+**Is:** the host that was in front before the current one, with the mode it was showing
+when it was left. Going back to it swaps the two, alt-tab style.
+
+**Rule:** it changes only when the host in front changes, never on a change of mode.
+
+**In code:** `focus.last` / `focus.shown` (a `hostView`), kept by `noteHost`;
+`backToLastHost`.
 
 ### Sidebar
 

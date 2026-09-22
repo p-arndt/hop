@@ -30,7 +30,7 @@ var browserHelpActions = []keys.Action{
 	keys.BrowserCopy, keys.BrowserMoveTo,
 	keys.BrowserRename, keys.BrowserDelete, keys.BrowserMkdir, keys.BrowserSort,
 	keys.BrowserRefresh, keys.BrowserFocusPane, keys.BrowserSplit, keys.BrowserShell, keys.BrowserTree,
-	keys.BrowserPalette, keys.BrowserHelp, keys.BrowserLeave, keys.BrowserClose,
+	keys.BrowserHosts, keys.BrowserPalette, keys.BrowserHelp, keys.BrowserLeave, keys.BrowserClose,
 }
 
 // editorHelpActions is the editor section's, on the same terms.
@@ -108,6 +108,8 @@ func (m *model) helpRight() []helpSection {
 	shell = append(shell, m.chord(keys.LeaderShell)...)
 	shell = append(shell, m.chord(keys.LeaderBrowser)...)
 	shell = append(shell, m.chord(keys.LeaderVSCode)...)
+	shell = append(shell, m.chord(keys.LeaderHosts)...)
+	shell = append(shell, m.chord(keys.LeaderLast)...)
 	shell = append(shell, m.chord(keys.LeaderPalette)...)
 	shell = append(shell, m.chord(keys.LeaderHelp)...)
 	shell = append(shell, m.helpRows(keys.Pane, keys.PaneScroll)...)
@@ -119,6 +121,8 @@ func (m *model) helpRight() []helpSection {
 	editor := []row{{":q", "close the tab"}}
 	editor = append(editor, m.helpRows(keys.Editor, editorHelpActions...)...)
 	editor = append(editor, m.chordRange("straight to that tab")...)
+	editor = append(editor, m.chord(keys.LeaderHosts)...)
+	editor = append(editor, m.chord(keys.LeaderLast)...)
 	editor = append(editor, m.chord(keys.LeaderPalette)...)
 	editor = append(editor, m.chord(keys.LeaderOut)...)
 	editor = append(editor, m.chord(keys.LeaderHelp)...)
@@ -163,7 +167,7 @@ func (m *model) helpFor(mode paneMode) (left, right []helpSection, lead string) 
 
 // Help card geometry.
 const (
-	helpKeyW   = 13 // "ctrl+o ctrl+o", the widest key name hop has
+	helpKeyW   = 14 // "ctrl+o ctrl+k", the widest key name hop has, plus a gap
 	helpColW   = 42
 	helpGutter = 4
 )

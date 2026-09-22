@@ -28,6 +28,7 @@ label: Browsing mode
 | [[S]] | a new shell tab on this host, standing in the directory under the cursor (a file's own directory) |
 | [[←]] [[backspace]] | collapse, or step out to the parent |
 | [[r]] | refresh the listing |
+| [[p]] | the [host switcher](#leader): hop to another host's shell |
 | [[ctrl+k]] | the [palette](#actions): everything the browser can do, searchable |
 | [[,]] | settings |
 | [[?]] | the key card |

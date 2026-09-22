@@ -29,6 +29,9 @@ func (m *model) handlePaste(text string) (tea.Model, tea.Cmd) {
 		m.hostForm.buf[m.hostForm.cursor] += pasteInline(text)
 	case m.importer.open:
 		m.importer.path += pasteInline(text)
+	case m.hostSwitch.open:
+		m.hostSwitch.query += pasteInline(text)
+		m.filterHostSwitch()
 	case m.tunnels.open:
 		if m.tunnels.editing && m.tunnels.field != tfKind {
 			m.tunnels.buf[m.tunnels.field] += pasteInline(text)
@@ -150,7 +153,7 @@ func pastable(msg tea.KeyPressMsg) bool {
 func (m *model) cardOpen() bool {
 	return m.auth.open || m.help || m.hostKey.open || m.confirm.open ||
 		m.hostForm.open || m.importer.open || m.tunnels.open || m.settings.open ||
-		m.palette.open || m.menu.open || m.guidance.open
+		m.palette.open || m.hostSwitch.open || m.menu.open || m.guidance.open
 }
 
 // forwardingPane reports whether the keyboard belongs to a remote program: a live shell pane

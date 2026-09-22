@@ -70,6 +70,15 @@ type focus struct {
 	// active is the alias of the session shown in the right pane ("" means navigation/details mode).
 	active string
 	mode   paneMode
+	// shown is the host in front and what it last showed; last is the one before it. See noteHost.
+	shown hostView
+	last  hostView
+}
+
+// hostView is a host and the mode it was showing, which is where going back to it lands.
+type hostView struct {
+	alias string
+	mode  paneMode
 }
 
 type model struct {
@@ -144,8 +153,9 @@ type model struct {
 	// guidance is up only on an install that has never written a config file.
 	guidance guidanceUI
 
-	palette paletteUI
-	menu    menuUI
+	palette    paletteUI
+	hostSwitch hostSwitchUI
+	menu       menuUI
 
 	importer importUI
 
@@ -225,6 +235,7 @@ func (m *model) Init() tea.Cmd {
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	gen := m.statusGen
 	next, cmd := m.update(msg)
+	m.noteHost()
 	if m.statusGen != gen && m.status != "" {
 		cmd = tea.Batch(cmd, expireStatusCmd(m.statusGen))
 	}

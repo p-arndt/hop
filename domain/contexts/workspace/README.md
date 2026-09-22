@@ -17,6 +17,7 @@ code:
   - internal/tui/msgs.go
   - internal/tui/menu.go
   - internal/tui/palette.go
+  - internal/tui/hostswitch.go
   - internal/tui/help.go
   - internal/tui/settings.go
   - internal/tui/confirm.go
@@ -109,6 +110,14 @@ The terms live in [`language.md`](language.md).
 - **Closing is explicit and narrow.** `q` in the browser closes the browser and nothing
   else: its editor tabs are channels of their own and may hold unsaved work. The
   connection goes only when that leaves the session empty.
+- **A hop does not go through the list.** From a shell or an editor the host switcher is
+  one chord away (`ctrl+o space`), and the last host another (`ctrl+o tab`), so moving
+  between servers never costs leaving the pane first. In a pane only the leader reaches
+  them: a bare key belongs to the remote program.
+- **Going back lands where you left.** The last host is the one in front before the
+  current one, changing only when the host in front does, and going back to it restores
+  the mode it was showing — or, if that is gone, its shell, browser or editor, in that
+  order. With no last host, or none with a session left, hop says so and stays put.
 - **The user always knows where their keystrokes go.** The status bar is permanent
   screen space, directly above the keys that act on it, naming the host, the mode, the
   file or directory, and the machine behind the alias.

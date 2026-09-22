@@ -101,7 +101,8 @@ func TestHelpMarksWhereYouAre(t *testing.T) {
 	if !strings.Contains(card, "you are here") {
 		t.Fatalf("the card does not mark the section it opened on:\n%s", card)
 	}
-	if i, j := strings.Index(card, "SFTP BROWSER"), strings.Index(card, "LIST"); i > j {
+	// A list section scrolled out of view is behind the browser's too.
+	if i, j := strings.Index(card, "SFTP BROWSER"), strings.Index(card, "LIST"); i < 0 || (j >= 0 && i > j) {
 		t.Fatalf("the browser section is not ahead of the list's on a card opened from the browser:\n%s", card)
 	}
 }

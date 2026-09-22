@@ -91,6 +91,8 @@ func (m *model) modalCard() string {
 		return m.renderConfirm()
 	case m.palette.open:
 		return m.renderPalette()
+	case m.hostSwitch.open:
+		return m.renderHostSwitch()
 	case m.hostForm.open:
 		return m.renderHostForm()
 	case m.importer.open:
@@ -411,6 +413,10 @@ var footerCardArms = []footerArm{
 		hints: fixedHints(keyHint("type", "search"), keyHint("enter", "run"), keyHint("esc", "close")),
 	},
 	{
+		when:  func(m *model) bool { return m.hostSwitch.open },
+		hints: fixedHints(keyHint("type", "search"), keyHint("enter", "hop"), keyHint("esc", "close")),
+	},
+	{
 		when:  func(m *model) bool { return m.menu.open },
 		hints: fixedHints(keyHint("↑↓", "move"), keyHint("enter", "run"), keyHint("esc", "close")),
 	},
@@ -463,6 +469,10 @@ var footerCardArms = []footerArm{
 			// Named only where it would work: without a cwd the chord opens the host's default.
 			if m.shellCwd(m.chords.leaderAlias) != "" {
 				menu = append(menu, m.hint(keys.Leader, keys.LeaderVSCode, "vs code here"))
+			}
+			menu = append(menu, m.hint(keys.Leader, keys.LeaderHosts, "hosts"))
+			if lastHostSpec.ok(m) {
+				menu = append(menu, m.hint(keys.Leader, keys.LeaderLast, "last host"))
 			}
 			menu = append(menu,
 				m.hint(keys.Leader, keys.LeaderPalette, "actions"),

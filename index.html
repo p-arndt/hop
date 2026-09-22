@@ -1040,6 +1040,14 @@
       <td>this directory in VS Code Remote</td>
       </tr>
       <tr>
+      <td><kbd>space</kbd></td>
+      <td>the <strong>host switcher</strong>: every host, connected ones first — type to narrow, <kbd>enter</kbd> lands in its shell</td>
+      </tr>
+      <tr>
+      <td><kbd>tab</kbd></td>
+      <td>back to the <strong>last host</strong>, in the mode it was showing — press it again to come back</td>
+      </tr>
+      <tr>
       <td><kbd>ctrl+k</kbd></td>
       <td>the <a href="#actions">palette</a> — this pane&rsquo;s chords, searchable</td>
       </tr>
@@ -1060,6 +1068,13 @@
       open hop has the keyboard, and a program that received the tail of an abandoned chord would
       act on a key you were not typing at it. The leader also outranks <kbd>ctrl+b</kbd> and <kbd>ctrl+g</kbd>,
       which are otherwise held in every mode.</p>
+      <p><strong>Hopping without going back to the list.</strong> <kbd>ctrl+o</kbd> <kbd>space</kbd> raises the host switcher
+      over whatever you are in: hosts you already have a session on come first, then the rest in
+      the list&rsquo;s order, and typing narrows them the way <kbd>/</kbd> narrows the list. <kbd>enter</kbd> focuses
+      that host&rsquo;s shell, or connects and opens one; <kbd>esc</kbd> closes it and changes nothing.
+      <kbd>ctrl+o</kbd> <kbd>tab</kbd> is alt-tab for hosts: it goes back to the host you were on before this
+      one, landing in its shell, browser or editor — whichever it was showing — and a second press
+      comes back. The <a href="#browser">file browser</a> opens the same switcher with <kbd>p</kbd>.</p>
       <details class="why"><summary>Why the leader does nothing on its own</summary><p>This is the tmux and wezterm arrangement, and the reason for it is worth stating: a leader
       that <em>also acts</em> forces a timeout, and every value for that timeout is wrong — too short and
       the chords are unreachable, too long and leaving feels broken. Earlier versions of hop tried
@@ -1263,6 +1278,10 @@
       <tr>
       <td><kbd>r</kbd></td>
       <td>refresh the listing</td>
+      </tr>
+      <tr>
+      <td><kbd>p</kbd></td>
+      <td>the <a href="#leader">host switcher</a>: hop to another host&rsquo;s shell</td>
       </tr>
       <tr>
       <td><kbd>ctrl+k</kbd></td>
@@ -1989,6 +2008,11 @@
       <td>any text searches, <kbd>↑</kbd>/<kbd>↓</kbd> select, <kbd>enter</kbd> runs</td>
       </tr>
       <tr>
+      <td><a href="#leader">Host switcher</a></td>
+      <td><kbd>ctrl+o</kbd> <kbd>space</kbd> in a pane, <kbd>p</kbd> in the browser</td>
+      <td>any text searches, <kbd>↑</kbd>/<kbd>↓</kbd> select, <kbd>enter</kbd> hops to that host&rsquo;s shell</td>
+      </tr>
+      <tr>
       <td>Welcome</td>
       <td>by itself, once, on a first run</td>
       <td><kbd>↑</kbd>/<kbd>↓</kbd> pick a <a href="#actions">guidance profile</a>, <kbd>enter</kbd> starts hop</td>
@@ -2371,11 +2395,14 @@
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"0 · another shell on this host"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"f · this directory in the file browser — the open one moves there"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"c · this directory in VS Code Remote"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"space · the host switcher: every host, connected ones first — type to narrow, enter lands in its shell"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"tab · back to the last host, in the mode it was showing — press it again to come back"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"ctrl+k · the palette — this pane’s chords, searchable"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"? · the key card"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"anything else · closes the leader and does nothing"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"f and c follow the directory the shell reports as you cd. A shell that has not reported one (a login shell hop could not hook, or one still starting) leaves f opening the browser where it would anyway, and the status line says so."},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"A key that names no chord is swallowed, not passed to the remote: while the leader is open hop has the keyboard, and a program that received the tail of an abandoned chord would act on a key you were not typing at it. The leader also outranks ctrl+b and ctrl+g, which are otherwise held in every mode."},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"Hopping without going back to the list. ctrl+o space raises the host switcher over whatever you are in: hosts you already have a session on come first, then the rest in the list’s order, and typing narrows them the way / narrows the list. enter focuses that host’s shell, or connects and opens one; esc closes it and changes nothing. ctrl+o tab is alt-tab for hosts: it goes back to the host you were on before this one, landing in its shell, browser or editor — whichever it was showing — and a second press comes back. The file browser opens the same switcher with p."},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"Why the leader does nothing on its own"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"This is the tmux and wezterm arrangement, and the reason for it is worth stating: a leader that also acts forces a timeout, and every value for that timeout is wrong — too short and the chords are unreachable, too long and leaving feels broken. Earlier versions of hop tried both and neither worked. Paying one extra keystroke for out buys back all of the timing."},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Scrolling back through history"},
@@ -2426,6 +2453,7 @@
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"S · a new shell tab on this host, standing in the directory under the cursor (a file’s own directory)"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"← backspace · collapse, or step out to the parent"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"r · refresh the listing"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"p · the host switcher: hop to another host’s shell"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+k · the palette: everything the browser can do, searchable"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":", · settings"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"? · the key card"},
@@ -2609,6 +2637,7 @@
 {"s":"The cards","h":"","a":"#cards","t":"Keys · ? — ctrl+o ? in a shell or editor · any key closes it"},
 {"s":"The cards","h":"","a":"#cards","t":"Action menu · space, or a right-click on a host · ↑/↓ select, enter runs, esc closes"},
 {"s":"The cards","h":"","a":"#cards","t":"Palette · ctrl+k — ctrl+o ctrl+k in a pane · any text searches, ↑/↓ select, enter runs"},
+{"s":"The cards","h":"","a":"#cards","t":"Host switcher · ctrl+o space in a pane, p in the browser · any text searches, ↑/↓ select, enter hops to that host’s shell"},
 {"s":"The cards","h":"","a":"#cards","t":"Welcome · by itself, once, on a first run · ↑/↓ pick a guidance profile, enter starts hop"},
 {"s":"The cards","h":"","a":"#cards","t":"The keys card opens on the section for the mode you are in — the shell’s keys from a shell, the browser’s from the browser — and marks it you are here. That is what lets the footer stay short: it names the two or three keys a mode cannot be worked without and leaves the rest to this card, which is only a fair trade if the card starts where you are."},
 {"s":"The cards","h":"","a":"#cards","t":"? reaches it from every mode hop owns the keyboard in. In a shell or an editor a bare ? is a question mark the remote is owed, so there it is ctrl+o ? — the same key, one level in."},
