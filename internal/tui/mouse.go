@@ -427,12 +427,30 @@ func (m *model) mouseShell(s *session, msg mouseEvt, x, y int) (tea.Model, tea.C
 	}
 
 	// A remote program that asked for the mouse keeps it, selection included: two
-	// selections for one drag is worse than either.
-	if p.MouseEnabled() {
+	// selections for one drag is worse than either. Shift takes it back, as in xterm.
+	if m.remoteOwnsPointer(p, msg) {
 		p.SendMouse(msg.report(), x, y)
 		return m, nil
 	}
 	return m.mouseSelect(msg, x, y, p.View(), m.frame.content)
+}
+
+// remoteOwnsPointer decides whether a pointer event over a pane goes to the remote program.
+// A shift-press starts hop's own selection instead, and the drag it starts stays hop's until
+// release, whether or not shift is still held.
+func (m *model) remoteOwnsPointer(p *terminal.Pane, msg mouseEvt) bool {
+	if !p.MouseEnabled() || m.sel.dragging {
+		return false
+	}
+	if msg.Mod.Contains(tea.ModShift) && msg.Button == tea.MouseLeft && msg.action == actPress {
+		return false
+	}
+	if msg.Button == tea.MouseLeft && msg.action == actMotion && !m.pointerHintShown {
+		// A drag vim is turning into a visual selection copies nothing; say once how to copy.
+		m.pointerHintShown = true
+		m.setStatus(statusInfo, "the program has the mouse · shift+drag copies with hop")
+	}
+	return true
 }
 
 // wheelDir reads a wheel notch as -1 back into history, +1 toward the live bottom, 0 for
@@ -598,7 +616,7 @@ func (m *model) mouseEditor(s *session, msg mouseEvt, x, y int) (tea.Model, tea.
 		return m, nil
 	}
 	p := s.editor().pane
-	if p.MouseEnabled() {
+	if m.remoteOwnsPointer(p, msg) {
 		p.SendMouse(msg.report(), x, y-1)
 		return m, nil
 	}

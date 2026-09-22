@@ -132,6 +132,8 @@ type model struct {
 	nextShID int
 
 	cfg config.Config
+	// pointerHintShown keeps the shift+drag hint to once a run: it is advice, not a warning.
+	pointerHintShown bool
 	// mouseOn is what the terminal was last asked for, which is not cfg.Mouse until Init has run.
 	mouseOn  bool
 	settings settingsUI

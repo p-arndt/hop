@@ -125,6 +125,8 @@ func New(sess *sshx.Session, w, h int, onOutput func()) *Pane {
 		},
 	})
 
+	emu.RegisterDcsHandler(ansi.Command(0, '+', 'q'), p.answerTermcap)
+
 	// Server output -> emulator parser. A read loop rather than io.Copy, so the UI can
 	// be notified right after each chunk is parsed.
 	go func() {

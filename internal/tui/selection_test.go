@@ -194,6 +194,54 @@ func TestRemoteMouseKeepsTheDrag(t *testing.T) {
 	}
 }
 
+// remoteMouseModel is selModel over a program that has asked for the mouse, as vim does.
+func remoteMouseModel(t *testing.T) (*model, func() string) {
+	t.Helper()
+	m, copied := selModel(t, "\x1b[?1002h\x1b[?1006hvim visual\r\n", "vim visual")
+	p := m.sessions["ha"].shell().pane
+	deadline := time.Now().Add(2 * time.Second)
+	for !p.MouseEnabled() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !p.MouseEnabled() {
+		t.Fatal("the pane never saw the program ask for the mouse")
+	}
+	return m, copied
+}
+
+func TestShiftDragCopiesOverARemoteThatHasTheMouse(t *testing.T) {
+	m, copied := remoteMouseModel(t)
+
+	drag := dragEvents(0, 0, 9, 0)
+	drag[0].Mod = tea.ModShift
+	for _, e := range drag {
+		m.handleMouse(e)
+	}
+
+	if copied() != "vim visual" {
+		t.Fatalf("clipboard = %q, want %q", copied(), "vim visual")
+	}
+}
+
+func TestPlainDragOverARemoteMouseHintsAtShift(t *testing.T) {
+	m, _ := remoteMouseModel(t)
+
+	for _, e := range dragEvents(0, 0, 9, 0) {
+		m.handleMouse(e)
+	}
+	if !strings.Contains(m.status, "shift+drag") {
+		t.Fatalf("status = %q, want the shift+drag hint", m.status)
+	}
+
+	m.clearStatus()
+	for _, e := range dragEvents(0, 0, 9, 0) {
+		m.handleMouse(e)
+	}
+	if m.status != "" {
+		t.Fatalf("the hint came back: %q", m.status)
+	}
+}
+
 func TestToggleMouseKeyHandsThePointerOver(t *testing.T) {
 	m := newMouseModel(3)
 	m.mouseOn = true

@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"io"
 	"strings"
 	"sync"
@@ -240,5 +241,42 @@ func TestOversizeOSC7PayloadIsStillDropped(t *testing.T) {
 	dir, ok := s.feed([]byte("\x1b]7;file:///" + strings.Repeat("d", maxOSCPayload+16) + "\x07"))
 	if ok {
 		t.Fatalf("an over-long OSC 7 reported %q", dir)
+	}
+}
+
+// xtgettcap is the query nvim sends to learn whether the terminal takes OSC 52.
+func xtgettcap(names ...string) string {
+	hexed := make([]string, len(names))
+	for i, n := range names {
+		hexed[i] = hex.EncodeToString([]byte(n))
+	}
+	return "\x1bP+q" + strings.Join(hexed, ";") + "\x1b\\"
+}
+
+func TestTermcapAdvertisesTheClipboardWhileASinkIsInstalled(t *testing.T) {
+	out, w := io.Pipe()
+	in := &syncBuf{}
+	p := New(&sshx.Session{Stdin: in, Stdout: out}, 80, 24, nil)
+	defer p.Close()
+	p.SetClipboardSink(func(string) {})
+
+	go io.WriteString(w, xtgettcap("Ms", "Tc"))
+	wantMs := "\x1bP1+r" + hex.EncodeToString([]byte("Ms")) + "=" + hex.EncodeToString([]byte(termcapClipboard)) + "\x1b\\"
+	wantTc := "\x1bP0+r" + hex.EncodeToString([]byte("Tc")) + "\x1b\\"
+	if !waitFor(func() bool { return strings.Contains(in.String(), wantMs+wantTc) }) {
+		t.Fatalf("the remote got %q, want Ms known and Tc unknown", in.String())
+	}
+}
+
+func TestTermcapHidesTheClipboardWithoutASink(t *testing.T) {
+	out, w := io.Pipe()
+	in := &syncBuf{}
+	p := New(&sshx.Session{Stdin: in, Stdout: out}, 80, 24, nil)
+	defer p.Close()
+
+	go io.WriteString(w, xtgettcap("Ms"))
+	want := "\x1bP0+r" + hex.EncodeToString([]byte("Ms")) + "\x1b\\"
+	if !waitFor(func() bool { return strings.Contains(in.String(), want) }) {
+		t.Fatalf("the remote got %q, want Ms reported unknown", in.String())
 	}
 }

@@ -103,13 +103,21 @@ pieces across chunks is normal and must be reassembled.
 
 **In code:** `internal/terminal/clipboard.go`, `clipSink`, `clipQueue`.
 
+### Termcap query (XTGETTCAP)
+
+**Is:** a remote program asking the terminal for a terminfo capability by name, over
+`DCS + q`. hop knows exactly one: `Ms`, the OSC 52 clipboard write.
+
+**In code:** `internal/terminal/clipboard.go`, `answerTermcap`.
+
 ### Selection
 
 **Is:** a region of the pane's screen the user has marked with the mouse, to copy
 locally.
 
 **Is not:** the remote program's own selection. hop's selection is drawn over the
-emulator's screen and never sent.
+emulator's screen and never sent. Over a program that has the mouse it is made with
+shift held.
 
 **In code:** `internal/terminal/selection.go`.
 

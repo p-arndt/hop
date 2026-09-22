@@ -6,8 +6,11 @@ package terminal
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // oscClipPrefix is what oscScanner.cap recognises to give the payload clipboard-sized room.
@@ -112,4 +115,29 @@ func decodeBase64(data string) ([]byte, error) {
 		return b, nil
 	}
 	return base64.RawStdEncoding.DecodeString(data)
+}
+
+// termcapClipboard is the terminfo Ms string, xterm's own. nvim asks for Ms over XTGETTCAP and
+// only then sends "+y as OSC 52; a remote nvim has no other clipboard to reach.
+const termcapClipboard = "\x1b]52;%p1%s;%p2%s\x07"
+
+// answerTermcap replies to XTGETTCAP (DCS + q <hex names> ST), one reply per name. Ms is
+// known only while a clipboard sink is installed: advertising a clipboard that goes nowhere
+// would swallow yanks that would otherwise report "no provider".
+func (p *Pane) answerTermcap(_ ansi.Params, data []byte) bool {
+	p.clipMu.Lock()
+	clip := p.clipSink != nil
+	p.clipMu.Unlock()
+
+	var reply strings.Builder
+	for _, name := range strings.Split(string(data), ";") {
+		raw, err := hex.DecodeString(name)
+		if err == nil && clip && string(raw) == "Ms" {
+			reply.WriteString("\x1bP1+r" + name + "=" + hex.EncodeToString([]byte(termcapClipboard)) + "\x1b\\")
+			continue
+		}
+		reply.WriteString("\x1bP0+r" + name + "\x1b\\")
+	}
+	p.send([]byte(reply.String()))
+	return true
 }

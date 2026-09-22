@@ -82,6 +82,10 @@ The terms live in [`language.md`](language.md).
 - **The remote decides whether the mouse is live.** hop forwards mouse events only at
   the tracking level the program asked for, and forgets the mouse on a full reset or
   when the program leaves the alternate screen.
+- **Shift takes the pointer back.** A shift-press over a pane whose program has the mouse
+  starts hop's own selection, and that drag stays hop's until release.
+- **The clipboard is advertised only while it has a sink.** hop answers XTGETTCAP `Ms`
+  so nvim sends `"+y` as OSC 52, but not when there is nowhere for the text to go.
 - **Shell integration must not be visible.** The cwd hook is one submitted line at
   startup; its echo is erased from the screen — and *declined* if the geometry is
   untrustworthy or the host printed into the span. Better no erase than a corrupted
