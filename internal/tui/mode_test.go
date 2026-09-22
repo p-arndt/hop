@@ -163,7 +163,8 @@ func TestFocusCrossesTheColumns(t *testing.T) {
 		t.Fatal("focusing the file collapsed the tree column, want it left on screen")
 	}
 
-	m.handleKey(altKey("t"))
+	m.handleKey(ctrlO())
+	m.handleKey(key(t, "t"))
 	wantMode(t, m, modeBrowser)
 	if len(s.editors) != 1 {
 		t.Fatalf("editors = %d after crossing back to the tree, want the file left open", len(s.editors))

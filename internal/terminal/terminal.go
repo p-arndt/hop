@@ -215,6 +215,16 @@ func (p *Pane) SendKey(msg tea.KeyPressMsg) bool {
 	return p.send(keyToBytes(msg, p.cursorKeys.enabled()))
 }
 
+// SendLine types a command line into a shell sitting at its prompt: ctrl+u clears whatever
+// was half-typed, and the line is submitted. Refused on the alternate screen, where the
+// bytes would land in a program rather than at a prompt.
+func (p *Pane) SendLine(line string) bool {
+	if p.AltScreen() {
+		return false
+	}
+	return p.send([]byte("\x15" + line + "\r"))
+}
+
 // SendKeys queues a run of key events as one queue item.
 func (p *Pane) SendKeys(msgs []tea.KeyPressMsg) bool {
 	var b []byte

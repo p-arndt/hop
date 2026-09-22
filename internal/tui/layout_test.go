@@ -25,10 +25,13 @@ type layoutCase struct {
 
 // ---- the arrangements ----
 
-// withTree gives the active session a browser, which is what puts the tree column on screen.
+// withTree gives the active session a browser beside an open file, which is what puts the
+// tree column on screen.
 func withTree(t *testing.T, m *model) {
 	t.Helper()
-	m.sessions["web1"] = &session{browser: fakeBrowser(t, "/srv")}
+	s := &session{browser: fakeBrowser(t, "/srv"), editors: []*editorTab{{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()}}}
+	t.Cleanup(s.closeEditors)
+	m.sessions["web1"] = s
 	m.active, m.mode = "web1", modeBrowser
 	m.relayout()
 }
@@ -82,26 +85,19 @@ func withSplitShell(t *testing.T, m *model) {
 	m.relayout()
 }
 
-// treeThreshold is the width at which three columns first fit with the host list open.
-const treeThreshold = sidebarWidth + treeColWidth + minContentWidth
+// treeThreshold is the width at which the tree column first fits beside the files.
+const treeThreshold = treeColMin + minContentWidth
 
 // splitThreshold is the width at which the content area first halves with no sidebar or tree.
 const splitThreshold = 2 * minSplitHalf
 
 // layoutCases crosses every column state with the widths where the layout changes its mind.
 func layoutCases() []layoutCase {
-	hide := func(f func(t *testing.T, m *model)) func(*testing.T, *model) {
-		return func(t *testing.T, m *model) {
-			f(t, m)
-			m.toggleSidebar()
-		}
-	}
 	editors := func(tree, split bool) func(*testing.T, *model) {
 		return func(t *testing.T, m *model) { withEditors(t, m, tree, split) }
 	}
 	return []layoutCase{
-		{"three columns", 200, 60, withTree},
-		{"three columns, sidebar collapsed", 200, 60, hide(withTree)},
+		{"tree beside a file", 200, 60, withTree},
 		{"tree collapsed", 200, 60, func(t *testing.T, m *model) {
 			withTree(t, m)
 			m.toggleTree()
@@ -109,29 +105,22 @@ func layoutCases() []layoutCase {
 		{"no browser on the session", 200, 60, withShell},
 		{"no session at all", 200, 60, func(*testing.T, *model) {}},
 
-		{"one column short of three", treeThreshold - 1, 34, withTree},
-		{"exactly three columns' worth", treeThreshold, 34, withTree},
+		{"one column short of the tree", treeThreshold - 1, 34, withTree},
+		{"exactly the tree's worth", treeThreshold, 34, withTree},
 		{"one column over", treeThreshold + 1, 34, withTree},
-		{"collapsed, one short", treeColWidth + minContentWidth - 1, 34, hide(withTree)},
-		{"collapsed, exactly", treeColWidth + minContentWidth, 34, hide(withTree)},
 		{"the classic 80 columns, inline", 80, 24, withTree},
 
 		{"split beside the tree", 200, 60, editors(true, true)},
 		{"split with no tree", 200, 60, editors(false, true)},
-		{"split, sidebar collapsed", 200, 60, hide(editors(true, true))},
 		{"split, odd content width", 201, 60, editors(true, true)},
 		{"unsplit editors", 200, 60, editors(true, false)},
 		{"shell focused in a split session", 200, 20, withSplitShell},
-		{"shell focused in a split session, sidebar collapsed", 200, 20, hide(withSplitShell)},
 
-		{"one column short of a split", splitThreshold - 1, 20, hide(editors(false, true))},
-		{"exactly a split's worth", splitThreshold, 20, hide(editors(false, true))},
-		{"one column over a split", splitThreshold + 1, 20, hide(editors(false, true))},
-		{"split beside the host list", sidebarWidth + splitThreshold, 24, editors(false, true)},
+		{"one column short of a split", splitThreshold + 1, 20, editors(false, true)},
+		{"exactly a split's worth", splitThreshold + 2, 20, editors(false, true)},
 
 		{"a tiny window", 40, 10, withTree},
 		{"a tiny window, no session", 40, 10, func(*testing.T, *model) {}},
-		{"a tiny window, sidebar collapsed", 40, 10, hide(withShell)},
 	}
 }
 
@@ -267,6 +256,7 @@ func TestTheSidebarYieldsBeforeTheFrameOverruns(t *testing.T) {
 	} {
 		m := viewModel(c.w, 12)
 		withShell(t, m)
+		m.leavePane()
 		m.recomputeLayout()
 		if got := m.frame.list.w; got != c.wantList {
 			t.Errorf("at %d columns the list is %d wide, want %d", c.w, got, c.wantList)
@@ -442,14 +432,6 @@ func TestTooNarrowForTheSidebarReadsAsCollapsed(t *testing.T) {
 			t.Fatalf("at %d columns the host list is drawn after all", w)
 		}
 		// Asked of the hint, not the rendered row: a footer this narrow has no room to print it.
-		if got := m.sidebarHint(); got != "" {
-			t.Fatalf("at %d columns the footer offers %q for a list that cannot come back", w, got)
-		}
-		before := m.sidebarHidden
-		m.handleKey(toggleKey())
-		if m.sidebarHidden != before {
-			t.Fatalf("at %d columns ctrl+b flipped sidebarHidden with nothing to show for it", w)
-		}
 		if got := m.listWidth(); got != 0 {
 			t.Fatalf("at %d columns the list is %d columns wide, want 0", w, got)
 		}
@@ -465,11 +447,13 @@ func TestTheSidebarComesBackWhenTheWindowCanPayForIt(t *testing.T) {
 	}
 
 	m.update(tea.WindowSizeMsg{Width: 28, Height: 12})
+	m.leavePane()
+	m.recomputeLayout()
 
 	if !m.sidebarOn() {
 		t.Fatal("28 columns can pay for the sidebar and it did not come back")
 	}
-	if got := m.listWidth(); got != 16 {
+	if got := m.frame.list.w; got != 16 {
 		t.Fatalf("the restored list is %d columns wide, want its floor of 16", got)
 	}
 	if !strings.Contains(ansi.Strip(m.View().Content), "HOSTS") {

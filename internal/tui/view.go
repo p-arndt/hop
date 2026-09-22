@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -26,14 +25,21 @@ func (m *model) View() tea.View {
 	m.recomputeLayout()
 
 	body := m.renderRight(m.frame.content.h)
+	if r := m.frame.drawer; !r.empty() {
+		body = lipgloss.JoinVertical(lipgloss.Left, body, m.renderDrawer(m.sessions[m.active], r))
+	}
 	if r := m.frame.tree; !r.empty() {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderTree(r), body)
 	}
-	if r := m.frame.list; !r.empty() {
+	r := m.frame.list
+	if !r.empty() && !m.sidebarFloats() {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderList(r.w, r.h), body)
 	}
 
 	screen := lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), body, m.renderStatus(), m.renderFooter())
+	if !r.empty() && m.sidebarFloats() {
+		screen = overlay(screen, m.renderList(r.w, r.h), r.x, r.y)
+	}
 
 	// Positioned rather than centred: the menu belongs to a list row.
 	if m.menu.open {
@@ -107,23 +113,6 @@ func (m *model) modalCard() string {
 
 // ---- header ----
 
-// renderHeader draws the title on the left, session count and last status on the right.
-func (m *model) renderHeader() string {
-	left := headerBadge.Render("hop")
-
-	var chips []string
-	if n := len(m.sessions); n > 0 {
-		chips = append(chips, chipStyle.Render(fmt.Sprintf("%d %s", n, plural(n, "session", "sessions"))))
-	}
-	if st := m.styledStatus(); st != "" {
-		chips = append(chips, st)
-	}
-	right := strings.Join(chips, " ")
-
-	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(right), 0)
-	return truncate(left+strings.Repeat(" ", gap)+right, m.width)
-}
-
 // styledStatus colors the status line by statusKind rather than by wording.
 func (m *model) styledStatus() string {
 	if m.status == "" {
@@ -142,6 +131,13 @@ func (m *model) styledStatus() string {
 }
 
 // ---- the tree column ----
+
+// browserInContent: the files view with no column for the browser draws it in the content
+// area — while it has the keyboard, or when there is no open file to show instead.
+func (m *model) browserInContent(s *session) bool {
+	return s != nil && s == m.sessions[m.active] && m.treeInline() &&
+		(m.browsing() || s.editor() == nil)
+}
 
 // renderTree draws the SFTP column; the border says whether the keyboard is in it.
 func (m *model) renderTree(r rect) string {
@@ -175,9 +171,9 @@ func (m *model) contentIsSplit() bool {
 	switch {
 	case s.dead && m.active != "":
 		return false
-	case m.treeInline() && m.browsing() && s.browser != nil:
+	case m.browserInContent(s):
 		return false
-	case m.focused() && s.shell() != nil:
+	case !m.filesView() && s.shell() != nil:
 		return false
 	}
 	return s.editor() != nil
@@ -196,10 +192,10 @@ func (m *model) renderRight(h int) string {
 
 	switch {
 	// No column to put it in, so the browser takes the content area. See treeWidth.
-	case m.treeInline() && m.browsing() && s != nil && s.browser != nil:
-		return m.contentBox(true, m.paneW, innerH, s.browser.View())
+	case m.browserInContent(s):
+		return m.contentBox(m.browsing(), m.paneW, innerH, s.browser.View())
 
-	case m.focused() && s != nil && s.shell() != nil:
+	case m.active != "" && !m.filesView() && s != nil && s.shell() != nil:
 		return m.renderShellPane(s, innerH)
 
 	case s != nil && s.editor() != nil:
@@ -311,18 +307,6 @@ func (m *model) updateHint() string {
 	return yellowText.Render("⬆ hop "+m.updateLatest+" available") + " " + dimStyle.Render("· hop self-update")
 }
 
-// sidebarHint names the outcome rather than the toggle.
-func (m *model) sidebarHint() string {
-	// Too narrow for the list means no toggle to name; toggleSidebar declines for the same reason.
-	if !m.sidebarFits() {
-		return ""
-	}
-	if m.sidebarHidden {
-		return m.hint(keys.Global, keys.Sidebar, "show hosts")
-	}
-	return m.hint(keys.Global, keys.Sidebar, "hide hosts")
-}
-
 // hint is one footer entry: the key bound to an action, and the footer's own word for it.
 // An unbound action leaves no hint rather than a dead one.
 func (m *model) hint(l keys.Layer, id keys.Action, word string) string {
@@ -414,7 +398,7 @@ var footerCardArms = []footerArm{
 	},
 	{
 		when:  func(m *model) bool { return m.hostSwitch.open },
-		hints: fixedHints(keyHint("type", "search"), keyHint("enter", "hop"), keyHint("esc", "close")),
+		hints: fixedHints(keyHint("type", "search"), keyHint("enter", "go"), keyHint("esc", "close")),
 	},
 	{
 		when:  func(m *model) bool { return m.menu.open },
@@ -457,6 +441,10 @@ var footerCardArms = []footerArm{
 		hints: fixedHints(keyHint("enter", "edit"), keyHint("r", "reset"), keyHint("esc", "close")),
 	},
 	{
+		when:  func(m *model) bool { return m.sizingDrawer },
+		hints: fixedHints(keyHint("↑ +", "taller"), keyHint("↓ -", "shorter"), dimStyle.Render("any other key is done")),
+	},
+	{
 		when: (*model).leaderArmed,
 		hints: func(m *model) ([]string, []string) {
 			menu := []string{
@@ -470,7 +458,18 @@ var footerCardArms = []footerArm{
 			if m.shellCwd(m.chords.leaderAlias) != "" {
 				menu = append(menu, m.hint(keys.Leader, keys.LeaderVSCode, "vs code here"))
 			}
-			menu = append(menu, m.hint(keys.Leader, keys.LeaderHosts, "hosts"))
+			if s := m.sessions[m.chords.leaderAlias]; s != nil && s.browser != nil && !m.editing() {
+				menu = append(menu, m.hint(keys.Leader, keys.LeaderTree, "tree"))
+			}
+			if m.editing() || m.mode == modeDrawer {
+				menu = append(menu, m.hint(keys.Leader, keys.LeaderDrawer, "terminal"),
+					m.hint(keys.Leader, keys.LeaderToShell, "shell"))
+				if m.drawerOnScreen() > 0 {
+					menu = append(menu, m.hint(keys.Leader, keys.LeaderGrow, "taller"),
+						m.hint(keys.Leader, keys.LeaderShrink, "shorter"))
+				}
+			}
+			menu = append(menu, m.hint(keys.Leader, keys.LeaderHosts, "go to"))
 			if lastHostSpec.ok(m) {
 				menu = append(menu, m.hint(keys.Leader, keys.LeaderLast, "last host"))
 			}
@@ -487,11 +486,12 @@ var footerCardArms = []footerArm{
 // editorExtras is the editor arm's extra hints. Unsplit is named only while there is a split,
 // since naming a key that would decline is worse than not naming it.
 func (m *model) editorExtras() []string {
-	extra := []string{m.hint(keys.Editor, keys.EditorFocusTree, "tree")}
+	// The chord, not alt+t: a Mac terminal never sends alt.
+	extra := []string{m.chordHint(keys.LeaderTree, "tree"), m.chordHint(keys.LeaderDrawer, "terminal"), m.chordHint(keys.LeaderToShell, "shell")}
 	if s := m.sessions[m.active]; s != nil && s.split {
 		extra = append(extra, m.hint(keys.Editor, keys.EditorUnsplit, "unsplit"))
 	}
-	return append(extra, m.leaderRange("jump"), m.sidebarHint())
+	return append(extra, m.leaderRange("jump"), m.chordHint(keys.LeaderHosts, "go to"))
 }
 
 // footerModeArms are the modes hop's own keyboard is in. Unlike the cards these keep the
@@ -506,6 +506,17 @@ var footerModeArms = []footerArm{
 				m.hint(keys.DeadPane, keys.DeadDrop, "drop session"),
 				m.hint(keys.DeadPane, keys.DeadLeave, "back"),
 			}, nil
+		},
+	},
+	{
+		when: func(m *model) bool { return m.mode == modeDrawer && m.active != "" },
+		hints: func(m *model) ([]string, []string) {
+			return []string{
+				m.chordHint(keys.LeaderDrawer, "hide"),
+				m.hint(keys.Pane, keys.PaneLeave, "files"),
+				m.chordHint(keys.LeaderTree, "tree"),
+			}, []string{m.chordHint(keys.LeaderGrow, "taller"), m.chordHint(keys.LeaderShrink, "shorter"),
+				m.chordHint(keys.LeaderToShell, "shell"), m.chordHint(keys.LeaderHosts, "go to")}
 		},
 	},
 	{
@@ -529,7 +540,8 @@ var footerModeArms = []footerArm{
 				m.hint(keys.Browser, keys.BrowserDownload, "download"),
 				m.hint(keys.Browser, keys.BrowserFocusPane, "focus file"),
 				m.hint(keys.Browser, keys.BrowserSplit, "open beside"),
-				m.hint(keys.Browser, keys.BrowserShell, "shell here"),
+				m.hint(keys.Browser, keys.BrowserDrawer, "terminal"),
+				m.hint(keys.Browser, keys.BrowserShell, "terminal here"),
 				// A copy is three keys nobody guesses, so the selection and target are named.
 				m.hint(keys.Browser, keys.BrowserMark, "mark"),
 				m.hint(keys.Browser, keys.BrowserTarget, "target"),
@@ -546,7 +558,6 @@ var footerModeArms = []footerArm{
 				m.hint(keys.Browser, keys.BrowserSort, "sort"),
 				m.hint(keys.Browser, keys.BrowserRefresh, "refresh"),
 				m.hint(keys.Browser, keys.BrowserTree, "tree"),
-				m.sidebarHint(),
 			}
 		},
 	},
@@ -599,7 +610,7 @@ func (m *model) shellHints() (core, extra []string) {
 	if s != nil && s.shell() != nil && !s.shell().pane.AltScreen() && s.shell().pane.ScrollbackLen() > 0 {
 		extra = append(extra, m.hint(keys.Pane, keys.PaneScroll, "scrollback"))
 	}
-	return core, append(extra, m.hint(keys.Pane, keys.PaneLeave, "back"), m.sidebarHint())
+	return core, append(extra, m.chordHint(keys.LeaderHosts, "go to"), m.hint(keys.Pane, keys.PaneLeave, "back"))
 }
 
 // listHints is the host list's legend, and the only one that changes with what is under the
@@ -657,7 +668,7 @@ func (m *model) footerHelp() string {
 		return ""
 	case m.activeDead():
 		return m.hint(keys.DeadPane, keys.DeadHelp, "keys")
-	case m.editing() || m.mode == modeShell:
+	case m.editing() || m.mode == modeShell || m.mode == modeDrawer:
 		return m.chordHint(keys.LeaderHelp, "keys")
 	}
 	return m.hint(keys.List, keys.Help, "keys")
@@ -681,11 +692,6 @@ func (m *model) footerHints() (core, extra []string, help string) {
 			core, extra = arm.hints(m)
 			break
 		}
-	}
-
-	// Collapsed, the way back to the hosts outranks the mode's own keys.
-	if !m.sidebarOn() {
-		core = append([]string{m.sidebarHint()}, core...)
 	}
 
 	core, extra = compact(core), compact(extra)

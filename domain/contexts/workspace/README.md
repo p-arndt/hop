@@ -18,6 +18,8 @@ code:
   - internal/tui/menu.go
   - internal/tui/palette.go
   - internal/tui/hostswitch.go
+  - internal/tui/targets.go
+  - internal/tui/sessionbar.go
   - internal/tui/help.go
   - internal/tui/settings.go
   - internal/tui/confirm.go
@@ -110,21 +112,36 @@ The terms live in [`language.md`](language.md).
 - **Closing is explicit and narrow.** `q` in the browser closes the browser and nothing
   else: its editor tabs are channels of their own and may hold unsaved work. The
   connection goes only when that leaves the session empty.
-- **A hop does not go through the list.** From a shell or an editor the host switcher is
-  one chord away (`ctrl+o space`), and the last host another (`ctrl+o tab`), so moving
-  between servers never costs leaving the pane first. In a pane only the leader reaches
-  them: a bare key belongs to the remote program.
-- **Going back lands where you left.** The last host is the one in front before the
-  current one, changing only when the host in front does, and going back to it restores
-  the mode it was showing — or, if that is gone, its shell, browser or editor, in that
-  order. With no last host, or none with a session left, hop says so and stays put.
+- **A hop does not go through the list.** From a shell or an editor the switcher is one
+  chord away (`ctrl+o space`), and the last host another (`ctrl+o tab`), so moving between
+  servers never costs leaving the pane first. In a pane only the leader reaches them: a bare
+  key belongs to the remote program.
+- **Everything open is one move away.** The switcher lists every target on every connected
+  host, most recently used first, and lands exactly on the one chosen — that shell tab, that
+  file, the panel. With no query `enter` goes back to the place before this one.
+- **Entering a host lands on its last place.** The host list's `enter`, a host in the switcher
+  or the session bar, and `ctrl+o tab` all go back to the target last used there — or, if
+  that has closed, the one used before it, then its shell, browser or editor. Only an
+  explicit new-shell action opens another shell.
+- **The last host is the one in front before the current one**, changing only when the host
+  in front does. With no last host, or none with a session left, hop says so and stays put;
+  one whose connection dropped is reconnected.
+- **The header shows what is open, and every chip is a way there.** The session bar is laid
+  out once and hit-tested against the same cells; it degrades by dropping from its far end
+  to a "+N", and a transient status borrows its right side rather than losing its place.
 - **The user always knows where their keystrokes go.** The status bar is permanent
   screen space, directly above the keys that act on it, naming the host, the mode, the
   file or directory, and the machine behind the alias.
+- **At most two boxes, and a pane keeps one size.** A host in front shows one view: its
+  shell at full width, or the tree beside its open files. The host list floats over the
+  view rather than resizing it, so going to the list and back never reflows a remote program.
+- **The terminal panel belongs to the files.** It needs a browser or an open file to sit
+  under, goes when the browser closes with no file left, and moving it with `S` sends a
+  `cd` to the running shell rather than starting another — never onto the alternate screen.
 - **Mode says where keystrokes go, and only that** — not what is drawn. Layout and
   focus are separate facts.
 - **Layout degrades, it does not break.** Below the width a column needs, the browser
-  falls back to a full pane; the sidebar hides; the split refuses to open. hop never
+  falls back to a full pane; the host list gives way; the split refuses to open. hop never
   renders a broken screen because the terminal is small.
 - **A column that is not on screen does not take keys.** The host list off screen —
   collapsed, or the window too narrow — holds no selection, so its keys go quiet; and

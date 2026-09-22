@@ -35,7 +35,7 @@ func TestHostActionAvailability(t *testing.T) {
 	m.sessions = map[string]*session{}
 
 	idle := m.availableHostActions()
-	if !has(idle, "connect") || has(idle, "focus its shell") || has(idle, "disconnect everything on it") {
+	if !has(idle, "connect") || has(idle, "back to where you were") || has(idle, "disconnect everything on it") {
 		t.Fatalf("idle host: %v", labels(idle))
 	}
 	if !has(idle, "pin it to the top") || has(idle, "unpin it") {
@@ -44,7 +44,7 @@ func TestHostActionAvailability(t *testing.T) {
 
 	m.sessions["h0"] = &session{}
 	live := m.availableHostActions()
-	if has(live, "connect") || !has(live, "focus its shell") || !has(live, "disconnect everything on it") {
+	if has(live, "connect") || !has(live, "back to where you were") || !has(live, "disconnect everything on it") {
 		t.Fatalf("live host: %v", labels(live))
 	}
 	if has(live, "reconnect and reopen") {
@@ -53,7 +53,7 @@ func TestHostActionAvailability(t *testing.T) {
 
 	m.sessions["h0"] = &session{dead: true}
 	dead := m.availableHostActions()
-	if !has(dead, "reconnect and reopen") || has(dead, "focus its shell") {
+	if !has(dead, "reconnect and reopen") || has(dead, "back to where you were") {
 		t.Fatalf("dropped host: %v", labels(dead))
 	}
 
@@ -159,11 +159,11 @@ func TestPaletteFiltersAndRuns(t *testing.T) {
 func TestPaletteMatchesTheKey(t *testing.T) {
 	m := newNavModel(1)
 	m.openPalette()
-	m.palette.query = "ctrl+b"
+	m.palette.query = "esc esc"
 	m.filterPalette()
 
-	if !has(m.palette.items, "hide / show the sidebar") {
-		t.Fatalf("ctrl+b matched %v", labels(m.palette.items))
+	if !has(m.palette.items, "quit hop") {
+		t.Fatalf("esc esc matched %v", labels(m.palette.items))
 	}
 }
 

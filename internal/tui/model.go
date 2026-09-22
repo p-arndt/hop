@@ -33,6 +33,8 @@ const (
 	modeScrollback
 	modeBrowser
 	modeEditor
+	// modeDrawer is the terminal panel under the files: a shell, but the files view's.
+	modeDrawer
 )
 
 func (f *focus) focused() bool { return f.mode == modeShell || f.mode == modeScrollback }
@@ -50,14 +52,17 @@ func (f *focus) inPane() bool { return f.mode != modeList }
 type layout struct {
 	// frame is a cache: nothing writes it but recomputeLayout, and View re-derives it before measuring.
 	frame frame
-	// sidebarHidden and treeHidden are session-only, never persisted settings.
-	sidebarHidden bool
-	treeHidden    bool
-	width         int
-	height        int
-	paneW         int
-	paneH         int
-	ready         bool
+	// drawerPct is the terminal panel's share of the body, 0 for the default. Session-only.
+	drawerPct int
+	// treeHidden is session-only, never a persisted setting.
+	treeHidden bool
+	// shape is what the panes were last sized for; see syncView.
+	shape  layoutShape
+	width  int
+	height int
+	paneW  int
+	paneH  int
+	ready  bool
 }
 
 // focus is where the keyboard is and what the pointer is holding. Also embedded.
@@ -65,20 +70,24 @@ type focus struct {
 	chords chordState
 	// sel stands in for the terminal's own selection, which never happens because hop reports the mouse.
 	sel selection
+	// resizingDrawer is a drag on the terminal panel's top edge, which moves the edge.
+	resizingDrawer bool
+	// sizingDrawer holds the keyboard on the panel's size after one resize key, so the next
+	// steps need no leader.
+	sizingDrawer bool
 	// dragGen numbers the autoscroll chains a drag starts, so a tick armed for a stale edge is dropped.
 	dragGen int
 	// active is the alias of the session shown in the right pane ("" means navigation/details mode).
 	active string
 	mode   paneMode
-	// shown is the host in front and what it last showed; last is the one before it. See noteHost.
-	shown hostView
-	last  hostView
-}
-
-// hostView is a host and the mode it was showing, which is where going back to it lands.
-type hostView struct {
-	alias string
-	mode  paneMode
+	// shown is the host in front; last is the one before it. See noteHost.
+	shown string
+	last  string
+	// used stamps each target with when the keyboard was last in it, from useSeq; current is
+	// the one it is in now. See noteTarget.
+	used    map[target]int
+	useSeq  int
+	current target
 }
 
 type model struct {
@@ -236,6 +245,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	gen := m.statusGen
 	next, cmd := m.update(msg)
 	m.noteHost()
+	m.syncView()
+	// After syncView, which can still move the keyboard off a panel that went.
+	m.noteTarget()
 	if m.statusGen != gen && m.status != "" {
 		cmd = tea.Batch(cmd, expireStatusCmd(m.statusGen))
 	}
@@ -291,6 +303,9 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case shellExitedMsg:
 		return m.shellExited(msg)
+
+	case drawerLandedMsg:
+		return m.drawerLanded(msg)
 
 	case sessionLostMsg:
 		return m.sessionLost(msg)

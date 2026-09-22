@@ -20,12 +20,12 @@ vim needs its `osc52` package. A remote asking to **read** your clipboard is nev
 
 ## What hop takes from the remote
 
-The full list, so there are no surprises: [[ctrl+o]], [[ctrl+b]], [[ctrl+g]],
+The full list, so there are no surprises: [[ctrl+o]], [[ctrl+g]],
 [[shift+←]]/[[shift+→]], [[shift+↑]], [[shift+pgup]], and the first [[esc]] of a double.
 Everything else reaches the program on the other end.
 
-Two costs worth naming: a remote `tmux` never sees its own [[ctrl+b]] prefix through hop, and
-[[shift+←]]/[[shift+→]] no longer reaches the remote as a selection motion.
+One cost worth naming: [[shift+←]]/[[shift+→]] no longer reaches the remote as a selection
+motion. A remote `tmux` does get its [[ctrl+b]] prefix.
 
 ## macOS and the alt keys
 
@@ -41,6 +41,5 @@ binding is simply absent until the terminal is told otherwise:
 - **Ghostty** — `macos-option-as-alt = true`
 - **VS Code's terminal** — `"terminal.integrated.macOptionIsMeta": true`
 
-This is also why [[shift+k]]/[[shift+j]] reorder pinned hosts, and why the sidebar is
-[[ctrl+b]] and the mouse toggle [[ctrl+g]] rather than the `alt` mnemonics they would
-otherwise be.
+This is also why [[shift+k]]/[[shift+j]] reorder pinned hosts, why the mouse toggle is
+[[ctrl+g]], and why the tree is [[ctrl+o]] [[t]] from an editor rather than [[alt+t]] alone.

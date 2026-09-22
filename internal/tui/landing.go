@@ -79,6 +79,10 @@ func (m *model) shellExited(msg shellExitedMsg) (tea.Model, tea.Cmd) {
 		m.markDead(msg.alias, lostReason(s))
 		return m, nil
 	}
+	if s.drawer != nil && s.drawer.id == msg.id {
+		m.dropDrawer(msg.alias)
+		return m, nil
+	}
 	if !s.dropShell(msg.id) {
 		return m, nil
 	}

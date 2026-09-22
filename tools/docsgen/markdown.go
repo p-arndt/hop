@@ -31,7 +31,14 @@ func lowerKbd(src string) string {
 		if inFence {
 			continue
 		}
-		lines[i] = kbdRe.ReplaceAllString(line, "`$1`")
+		lines[i] = kbdRe.ReplaceAllStringFunc(line, func(tok string) string {
+			k := kbdRe.FindStringSubmatch(tok)[1]
+			if strings.Contains(k, "`") {
+				// A backtick inside a code span needs a longer fence and a space either side.
+				return "`` " + k + " ``"
+			}
+			return "`" + k + "`"
+		})
 	}
 	return strings.Join(lines, "\n")
 }

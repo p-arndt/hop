@@ -163,21 +163,6 @@ func TestLeaderCancelsOnAnUnboundKey(t *testing.T) {
 	}
 }
 
-func TestLeaderOutranksTheSidebarKey(t *testing.T) {
-	m, _ := shellModel(t, 2)
-	before := m.sidebarHidden
-
-	m.handleKey(ctrlO())
-	m.handleKey(key(t, "ctrl+b"))
-
-	if m.sidebarHidden != before {
-		t.Fatal("ctrl+b toggled the sidebar while the leader was open")
-	}
-	if m.leaderArmed() {
-		t.Fatal("the leader stayed open after a key resolved it")
-	}
-}
-
 func TestDigitWithoutLeaderGoesToTheShell(t *testing.T) {
 	m, s := shellModel(t, 3)
 

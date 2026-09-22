@@ -25,15 +25,16 @@ label: Browsing mode
 | [[v]] | move what is marked into the target |
 | [[tab]] | focus the content pane |
 | [[\]] | open the file beside the current one, not as another tab ([[ctrl+\]] closes the split again) |
-| [[S]] | a new shell tab on this host, standing in the directory under the cursor (a file's own directory) |
+| [[S]] | the [terminal panel](#sidebar) in the directory under the cursor — a running one `cd`s there |
+| [[`]] | show / hide the terminal panel under the files |
+| [[+]] ([[=]]) [[-]] | a taller / shorter terminal panel |
 | [[←]] [[backspace]] | collapse, or step out to the parent |
 | [[r]] | refresh the listing |
-| [[p]] | the [host switcher](#leader): hop to another host's shell |
+| [[p]] | the [switcher](#leader): any tab, file or host, most recent first |
 | [[ctrl+k]] | the [palette](#actions): everything the browser can do, searchable |
 | [[,]] | settings |
 | [[?]] | the key card |
 | [[ctrl+t]] | hide / show the tree column |
-| [[ctrl+b]] | hide / show the sidebar |
 | [[ctrl+o]] | back to hop |
 | [[esc]] [[esc]] | back to hop (two presses within 400 ms) |
 | [[q]] | **close** the browser — open files stay, and with nothing else open the connection goes too |
@@ -86,10 +87,11 @@ that is a rename the server does by itself; only across a mount boundary does it
 the same copy.
 :::
 
-The browser is a **column**, not a screen it takes over: it stays drawn while you read a file
-beside it, and [[tab]] and [[alt+t]] pass the keyboard between the two. [[ctrl+t]] gives the
-column's width back to the file. Below 96 columns of room there is no space for both anyway,
-and the browser goes back to filling the pane while it has the keyboard.
+The browser is the [files view](#sidebar): alone it has the whole window; once a file is
+open it becomes a **column** beside it, and [[tab]] and [[ctrl+o]] [[t]] pass the keyboard
+between the two. [[ctrl+t]] gives the column's width back to the file. The column is a quarter
+of the window (30 to 44 columns); below 92 columns there is no room for both, and the browser
+goes back to filling the view while it has the keyboard.
 
 :::why not="readme" Why [[←]] walks the tree instead of leaving
 [[←]] is pure motion: it collapses the directory you are in, steps out to its parent, and

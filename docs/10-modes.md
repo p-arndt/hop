@@ -30,7 +30,7 @@ host under the cursor and [[ctrl+k]] the palette for whatever mode you are in â€
 what is possible *and* the key that does it, and how much hop keeps on screen without being
 asked is one setting (see [Guidance](#actions)).
 
-Everything else works in **all** of them: the [sidebar toggle](#sidebar), the
+Everything else works in **all** of them: the [host list over any view](#sidebar), the
 [settings popover](#settings), the [tunnels](#tunnels), the [mouse](#mouse) and the optional
 [vim keys](#vim).
 

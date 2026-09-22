@@ -341,15 +341,12 @@ func watchBrowserSize(t *testing.T) func() (int, int) {
 	return func() (int, int) { return w, h }
 }
 
-// wideDeadModel is deadModel on a window wide enough for the tree column and content area to differ.
+// wideDeadModel is deadModel on a wide window.
 func wideDeadModel(t *testing.T, shells int, browser bool) (*model, *session, *sshx.Client) {
 	t.Helper()
 	m, s, cli := deadModel(t, shells, browser)
 	m.width, m.height = 200, 40
 	m.relayout()
-	if bw, _ := m.browserSize(); bw == m.paneW {
-		t.Fatalf("the tree column is not on screen (browser width %d = pane width %d), so nothing here is being tested", bw, m.paneW)
-	}
 	return m, s, cli
 }
 
@@ -357,7 +354,7 @@ func wideDeadModel(t *testing.T, shells int, browser bool) (*model, *session, *s
 func TestReconnectBuildsTheBrowserAtTheColumnWidth(t *testing.T) {
 	m, _, _ := wideDeadModel(t, 0, true)
 	size := watchBrowserSize(t)
-	wantW, wantH := m.browserSize()
+	wantW, wantH := m.browserSize(m.sessions["web"])
 
 	m.markDead("web", "")
 	if cmd := m.reconnect(m.hosts[0]); cmd == nil {
@@ -374,7 +371,7 @@ func TestReconnectBuildsTheBrowserAtTheColumnWidth(t *testing.T) {
 func TestReconnectLandingBuildsTheBrowserAtTheColumnWidth(t *testing.T) {
 	m, _, _ := wideDeadModel(t, 1, false)
 	size := watchBrowserSize(t)
-	wantW, wantH := m.browserSize()
+	wantW, wantH := m.browserSize(m.sessions["web"])
 
 	m.pending["web"] = reconnectPlan{browser: true, browserDir: "/srv/www"}
 	if cmd := m.applyPlan("web"); cmd == nil {

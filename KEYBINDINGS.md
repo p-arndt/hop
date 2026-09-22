@@ -39,7 +39,7 @@ host under the cursor and `ctrl+k` the palette for whatever mode you are in — 
 what is possible *and* the key that does it, and how much hop keeps on screen without being
 asked is one setting (see [Guidance](#actions--the-menu-and-the-palette)).
 
-Everything else works in **all** of them: the [sidebar toggle](#the-sidebar--ctrlb), the
+Everything else works in **all** of them: the [host list over any view](#views-and-the-host-list), the
 [settings popover](#settings--the-popover), the [tunnels](#tunnels--port-forwarding), the [mouse](#the-mouse) and the optional
 [vim keys](#vim-keys).
 
@@ -58,7 +58,7 @@ Everything else works in **all** of them: the [sidebar toggle](#the-sidebar--ctr
 | --- | --- |
 | `↓` `↑` | move |
 | `pgdn` `pgup` | a full page down / up |
-| `enter` `→` | connect (opens a terminal pane), or focus the shell already open |
+| `enter` `→` | connect (opens a terminal pane), or go back to where you were on it — the same tab, file or panel |
 | `esc` `←` | back — leave the details view |
 | `s` | focus the existing session for this host |
 | `S` | open **another** shell on this host, alongside the ones already open |
@@ -77,7 +77,6 @@ Everything else works in **all** of them: the [sidebar toggle](#the-sidebar--ctr
 | `space` | the [action menu](#actions--the-menu-and-the-palette) for this host — everything above, with its key beside it |
 | `ctrl+k` | the [palette](#actions--the-menu-and-the-palette): every action, searchable |
 | `,` `?` | settings / the keys card |
-| `ctrl+b` | hide / show the sidebar |
 | `ctrl+g` | hand the mouse to your terminal (and take it back) |
 | `q` `ctrl+c` | quit |
 | `esc` `esc` | quit (two presses within 400 ms — one esc only drops the selected host) |
@@ -111,7 +110,7 @@ The menu is also a **right-click** on a host: the click stands the cursor on it 
 the menu in one gesture.
 
 **The menu is about the thing under the cursor.** It lists only what that host can take
-right now — *connect* on an idle host, *focus its shell* on a live one, *reconnect and
+right now — *connect* on an idle host, *back to where you were* on a live one, *reconnect and
 reopen* on one whose connection dropped, *unpin it* on a pinned one. `↑`/`↓` move,
 `enter` runs, `esc` closes and decides nothing.
 
@@ -120,7 +119,7 @@ and then hop's own; in the [file browser](#browsing--the-sftp-file-browser) it h
 [shell](#terminal--a-live-shell-on-a-remote-host) or an [editor tab](#editing--editor-tabs) it holds the chords behind the
 [leader](#the-leader--ctrlo) — which is the keyboard hardest to remember, and so the one it is worth
 most for. Type to narrow it: the search matches the label *and* the key, so a
-half-remembered `ctrl+b` finds the sidebar just as `sft` finds the browser.
+half-remembered `ctrl+g` finds the mouse toggle just as `sft` finds the browser.
 
 ### Guidance — how much hop keeps on screen
 
@@ -161,7 +160,6 @@ and what hop tells you it offers can never drift apart.
 | `ctrl+o` `0` | open **another** shell on this host, without leaving the pane |
 | `ctrl+o` `c` | open **this directory** in VS Code Remote |
 | `shift+↑` `shift+pgup` | scroll back into the pane's history |
-| `ctrl+b` | hide / show the sidebar — the pane takes the whole window |
 | `ctrl+g` | hand the mouse to your terminal (and take it back) |
 | `alt+0`, `alt+←`/`alt+→`, `alt+1`…`alt+9` | aliases for the above, where your terminal sends them |
 | *everything else* | sent to the remote shell |
@@ -220,8 +218,11 @@ the footer becomes the menu, and hop waits as long as you take:
 | `0` | another shell on this host |
 | `f` | this directory in the [file browser](#browsing--the-sftp-file-browser) — the open one moves there |
 | `c` | this directory in VS Code Remote |
-| `space` | the **host switcher**: every host, connected ones first — type to narrow, `enter` lands in its shell |
-| `tab` | back to the **last host**, in the mode it was showing — press it again to come back |
+| `j` | show / hide the [terminal panel](#views-and-the-host-list) under the files — pressed inside it, hides it |
+| `t` | the file tree, if the host has a browser open — the [files view](#views-and-the-host-list) |
+| `s` | from an editor tab: this host's shell — the [shell view](#views-and-the-host-list) |
+| `space` | the **switcher**: every shell, browser, editor tab and terminal panel open on every host, then every host — type to narrow, `enter` lands exactly there |
+| `tab` | back to the **last host**, on the tab it was showing — press it again to come back |
 | `ctrl+k` | the [palette](#actions--the-menu-and-the-palette) — this pane's chords, searchable |
 | `?` | the key card |
 | anything else | closes the leader and does nothing |
@@ -232,16 +233,20 @@ the browser where it would anyway, and the status line says so.
 
 A key that names no chord is **swallowed**, not passed to the remote: while the leader is
 open hop has the keyboard, and a program that received the tail of an abandoned chord would
-act on a key you were not typing at it. The leader also outranks `ctrl+b` and `ctrl+g`,
-which are otherwise held in every mode.
+act on a key you were not typing at it. The leader also outranks `ctrl+g`, which is otherwise
+held in every mode.
 
-**Hopping without going back to the list.** `ctrl+o` `space` raises the host switcher
-over whatever you are in: hosts you already have a session on come first, then the rest in
-the list's order, and typing narrows them the way `/` narrows the list. `enter` focuses
-that host's shell, or connects and opens one; `esc` closes it and changes nothing.
-`ctrl+o` `tab` is alt-tab for hosts: it goes back to the host you were on before this
-one, landing in its shell, browser or editor — whichever it was showing — and a second press
-comes back. The [file browser](#browsing--the-sftp-file-browser) opens the same switcher with `p`.
+**Getting back to anything.** `ctrl+o` `space` raises the switcher over whatever you are
+in. It lists everything open on every connected host — each shell tab with its directory,
+the browser, each editor tab by path, the terminal panel, a host's tunnels — most recently
+used first, so `ctrl+o` `space` `enter` goes back to the place before this one. Below
+them come the hosts: connected ones first, then the rest in the list's order. Typing narrows
+all of it by host, path or name, the way `/` narrows the list. `enter` lands exactly on
+the row: that shell tab, that file, the panel. A host row lands where you last were on that
+host, connects one that has no session, and reconnects one that dropped; `esc` closes the
+card and changes nothing. `ctrl+o` `tab` is alt-tab for hosts: it goes back to the host
+you were on before this one, on the tab you left it on, and a second press comes back. The
+[file browser](#browsing--the-sftp-file-browser) opens the same switcher with `p`.
 
 <details>
 <summary><b>Why the leader does nothing on its own</b></summary>
@@ -268,7 +273,7 @@ Once paused, the keyboard drives the history viewport rather than the remote she
 | Key | Action |
 | --- | --- |
 | `↑` `↓` `j` `k` | up / down one line (`shift+↑` `shift+↓` do the same, so the chord that got you here keeps working) |
-| `pgup` `pgdn` `ctrl+f` | up / down a page (`shift+pgup` `shift+pgdn` too; `ctrl+b` is the sidebar) |
+| `pgup` `pgdn` `ctrl+f` | up / down a page (`shift+pgup` `shift+pgdn` too; `ctrl+b` is not bound) |
 | `ctrl+u` `ctrl+d` | up / down half a page |
 | `g` `home` | jump to the oldest line |
 | `G` `end` | back to the live bottom (and leave scrollback) |
@@ -332,15 +337,16 @@ lag on every `esc` you press in vim. So the rule is:
 | `v` | move what is marked into the target |
 | `tab` | focus the content pane |
 | `\` | open the file beside the current one, not as another tab (`ctrl+\` closes the split again) |
-| `S` | a new shell tab on this host, standing in the directory under the cursor (a file's own directory) |
+| `S` | the [terminal panel](#views-and-the-host-list) in the directory under the cursor — a running one `cd`s there |
+| `` ` `` | show / hide the terminal panel under the files |
+| `+` (`=`) `-` | a taller / shorter terminal panel |
 | `←` `backspace` | collapse, or step out to the parent |
 | `r` | refresh the listing |
-| `p` | the [host switcher](#the-leader--ctrlo): hop to another host's shell |
+| `p` | the [switcher](#the-leader--ctrlo): any tab, file or host, most recent first |
 | `ctrl+k` | the [palette](#actions--the-menu-and-the-palette): everything the browser can do, searchable |
 | `,` | settings |
 | `?` | the key card |
 | `ctrl+t` | hide / show the tree column |
-| `ctrl+b` | hide / show the sidebar |
 | `ctrl+o` | back to hop |
 | `esc` `esc` | back to hop (two presses within 400 ms) |
 | `q` | **close** the browser — open files stay, and with nothing else open the connection goes too |
@@ -396,10 +402,11 @@ the same copy.
 
 </details>
 
-The browser is a **column**, not a screen it takes over: it stays drawn while you read a file
-beside it, and `tab` and `alt+t` pass the keyboard between the two. `ctrl+t` gives the
-column's width back to the file. Below 96 columns of room there is no space for both anyway,
-and the browser goes back to filling the pane while it has the keyboard.
+The browser is the [files view](#views-and-the-host-list): alone it has the whole window; once a file is
+open it becomes a **column** beside it, and `tab` and `ctrl+o` `t` pass the keyboard
+between the two. `ctrl+t` gives the column's width back to the file. The column is a quarter
+of the window (30 to 44 columns); below 92 columns there is no room for both, and the browser
+goes back to filling the view while it has the keyboard.
 
 <details>
 <summary><b>Why `←` walks the tree instead of leaving</b></summary>
@@ -415,8 +422,9 @@ than forwarded.
 
 ## Editing — editor tabs
 
-`enter` on a file opens it in an editor **inside hop**, in the content area beside the
-browser column, with a tab strip above it listing every open file. The tree stays on screen.
+`enter` on a file opens it in an editor **inside hop**, beside the browser column — the
+[files view](#views-and-the-host-list) — with a tab strip above it listing every open file. The tree stays on
+screen.
 
 | Key | Action |
 | --- | --- |
@@ -424,7 +432,10 @@ browser column, with a tab strip above it listing every open file. The tree stay
 | `ctrl+o` `1` … `9` | go straight to that tab, without leaving |
 | `ctrl+o` `o` | back to the file browser |
 | `:q` (i.e. quit the editor) | close the tab |
-| `alt+t` | back to the tree, without closing anything |
+| `ctrl+o` `t` | back to the tree, without closing anything (`alt+t` where your terminal sends it) |
+| `ctrl+o` `s` | this host's shell, full width |
+| `ctrl+o` `j` | show / hide the terminal panel under the files |
+| `ctrl+o` `+` / `ctrl+o` `-` | size the terminal panel: after the first, `+` `-` `↑` `↓` keep going until any other key — or drag its top edge |
 | `ctrl+\` | close the split, keeping the file you are reading |
 | `ctrl+t` | hide / show the tree column |
 | `esc` `esc` | back to the file browser (two presses within 400 ms) |
@@ -448,7 +459,7 @@ running: come back and every file is where you left it, cursor included.
 ### Two files side by side
 
 `\` in the browser opens the file **beside** the current one instead of behind it,
-splitting the content area into two halves with their own tab strips. `tab`/`alt+t` pass
+splitting the content area into two halves with their own tab strips. `tab`/`ctrl+o` `t` pass
 the keyboard between tree and content; `shift+→`/`shift+←` cycle the tabs of whichever
 half has it. The same file is never shown in both halves — asking for one that is already
 open just focuses the half it is in. A content area too narrow to give each half a readable
@@ -540,7 +551,7 @@ All of them are modal: while a card is up it takes every key, and `esc` closes i
 | Keys | `?` — `ctrl+o` `?` in a shell or editor | any key closes it |
 | [Action menu](#actions--the-menu-and-the-palette) | `space`, or a right-click on a host | `↑`/`↓` select, `enter` runs, `esc` closes |
 | [Palette](#actions--the-menu-and-the-palette) | `ctrl+k` — `ctrl+o` `ctrl+k` in a pane | any text searches, `↑`/`↓` select, `enter` runs |
-| [Host switcher](#the-leader--ctrlo) | `ctrl+o` `space` in a pane, `p` in the browser | any text searches, `↑`/`↓` select, `enter` hops to that host's shell |
+| [Switcher](#the-leader--ctrlo) | `ctrl+o` `space` in a pane, `p` in the browser | any text searches hosts, paths and names, `↑`/`↓` select, `enter` lands on that tab, file or host — with no text, on the place before this one |
 | Welcome | by itself, once, on a first run | `↑`/`↓` pick a [guidance profile](#actions--the-menu-and-the-palette), `enter` starts hop |
 
 The **keys card** opens on the section for the mode you are in — the shell's keys from a
@@ -619,22 +630,48 @@ then a letter of the value, not a motion.
 
 </details>
 
-## The sidebar — `ctrl+b`
+## Views and the host list
 
-`ctrl+b` hides the host list and gives the whole window to the pane; `ctrl+b` again
-brings it back. It is bound in **every** mode except while a card is up — from a focused
-shell, from the browser, from an editor tab — because the moment you want the columns is the
-moment you are reading something wide on the far side of them. The terminals reflow to the
-new width immediately, both ways.
+A host in front has two **views**, and the screen never shows more than one of them:
+
+- **the shell view** — one shell, the whole width of the window. No list, no tree beside it.
+- **the files view** — the SFTP tree beside the open files. With no file open, the browser
+  takes the whole width itself.
+
+`ctrl+o` `f` crosses from the shell to the files on the same host, `ctrl+o` `t` and
+`ctrl+o` `s` from an editor tab. hop remembers which view each host was in, and more:
+entering a host — `enter` in the list, a host in the switcher, `ctrl+o` `tab` — lands
+on the **last place** you were on it, the same shell tab, file, browser or panel. Only an
+explicit new shell (`ctrl+o` `0`, `S` in the list) opens another shell.
+
+The top row is the **session bar**. With a host in front it names that host, then a chip for
+everything open on it — shells, the browser, each file, the panel, a tunnel count — with the
+one that has the keyboard highlighted, and the other connected hosts on the right with their
+status dots. With no host in front it lists every connected host. Click a chip or a host to
+go there, exactly as the switcher would; when the row is too narrow the far end gives way to
+a **+N**, which opens the switcher. A status message such as *connected* takes the right side
+for the few seconds it is up.
+
+The files view has a **terminal panel** under the files, the way an IDE keeps one under its
+editor: `` ` `` in the tree or `ctrl+o` `j` shows it and moves into it, the same key inside
+it puts it away, and a double `esc` hands the keys back to the files. `S` on an entry puts
+the panel in that directory — a running panel is told to `cd` there, so its history stays.
+Drag its top edge to resize it. From the keyboard, `+` and `-` in the tree size it
+directly; from the panel or an editor, `ctrl+o` `+` or `ctrl+o` `-` starts sizing, and
+`+` `-` `↑` `↓` keep going until any other key. It starts at a bit under half the height. It is a shell of its own, not one of the shell view's tabs, so neither ever resizes the other.
+
+The **host list** is a column only when no host is in front. Once one is, going back to the
+list (`ctrl+o` `o`, `ctrl+o` in the browser, a double `esc`) draws it **over** the view
+instead — the host's view stays where it is underneath, and nothing is resized. For hopping
+without the list at all there is the switcher, `ctrl+o` `space`.
 
 <details>
-<summary><b>What it costs a remote tmux, and why it resets on restart</b></summary>
+<summary><b>Why the list floats instead of taking a column</b></summary>
 
-- **It resets on restart.** hop opens on its host list, so the collapse is a session thing
-  rather than a setting.
-- **A remote tmux never sees its prefix.** That is the usual deal between a multiplexer and
-  the one above it — `ctrl+o` `o` still leaves the pane, and no other key is taken. It is
-  also why `ctrl+b` is no longer a page-up anywhere: paging back is `pgup`.
+A column that comes and goes resizes every pane beside it, and a remote vim or `less`
+redraws on each resize. With the list drawn over the view, a shell keeps one width however
+often you go to the list and back — and a single shell gets the whole window, which is what
+you opened it for. `ctrl+b` is not hop's any more either: a remote `tmux` gets its prefix.
 
 </details>
 
@@ -671,7 +708,7 @@ off never costs you a way to page.
   the list binds does there what it does in the browser.
 - **`gg` is a real two-key motion** — in the browser. A lone `g` arms it; any other key
   in between cancels it. In the host list it is not bound.
-- **`ctrl+b` is not a motion anywhere.** It is the sidebar toggle in every mode.
+- **`ctrl+b` is not a motion anywhere.** In a pane it belongs to the remote program.
 - **Half and full pages are viewport-relative**, matching vim, and clamped to at least one
   row so they still work in a very short terminal.
 - **The cursor never leaves the visible window.** Every motion re-clamps the scroll offset;
@@ -728,12 +765,12 @@ vim needs its `osc52` package. A remote asking to **read** your clipboard is nev
 
 ### What hop takes from the remote
 
-The full list, so there are no surprises: `ctrl+o`, `ctrl+b`, `ctrl+g`,
+The full list, so there are no surprises: `ctrl+o`, `ctrl+g`,
 `shift+←`/`shift+→`, `shift+↑`, `shift+pgup`, and the first `esc` of a double.
 Everything else reaches the program on the other end.
 
-Two costs worth naming: a remote `tmux` never sees its own `ctrl+b` prefix through hop, and
-`shift+←`/`shift+→` no longer reaches the remote as a selection motion.
+One cost worth naming: `shift+←`/`shift+→` no longer reaches the remote as a selection
+motion. A remote `tmux` does get its `ctrl+b` prefix.
 
 ### macOS and the alt keys
 
@@ -749,9 +786,8 @@ binding is simply absent until the terminal is told otherwise:
 - **Ghostty** — `macos-option-as-alt = true`
 - **VS Code's terminal** — `"terminal.integrated.macOptionIsMeta": true`
 
-This is also why `shift+k`/`shift+j` reorder pinned hosts, and why the sidebar is
-`ctrl+b` and the mouse toggle `ctrl+g` rather than the `alt` mnemonics they would
-otherwise be.
+This is also why `shift+k`/`shift+j` reorder pinned hosts, why the mouse toggle is
+`ctrl+g`, and why the tree is `ctrl+o` `t` from an editor rather than `alt+t` alone.
 
 ## Where a binding lives
 

@@ -199,10 +199,10 @@ func TestLeftAlwaysGoesToTheShell(t *testing.T) {
 func TestShellSizeMakesRoomForTheStrip(t *testing.T) {
 	m, _ := shellModel(t, 1)
 
-	if _, h := m.shellSize(1); h != m.paneH {
-		t.Fatalf("one shell gets height %d, want the whole pane (%d)", h, m.paneH)
+	if _, h := m.shellSize(1); h != m.fullH() {
+		t.Fatalf("one shell gets height %d, want the whole body (%d)", h, m.fullH())
 	}
-	if _, h := m.shellSize(2); h != m.paneH-1 {
-		t.Fatalf("two shells get height %d, want one row less than the pane (%d)", h, m.paneH)
+	if _, h := m.shellSize(2); h != m.fullH()-1 {
+		t.Fatalf("two shells get height %d, want one row less than the body (%d)", h, m.fullH())
 	}
 }

@@ -4,50 +4,97 @@ import (
 	"slices"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/sahilm/fuzzy"
-
-	"hop/internal/store"
 )
 
-// hostSwitchUI is the host switcher's state; the matches are held, as the palette's are,
-// since the cursor indexes them.
+// switchItem is one row of the switcher: a target, or a host.
+type switchItem struct {
+	t     target
+	label string
+}
+
+// hostSwitchUI is the switcher's state; the matches are held, as the palette's are, since
+// the cursor indexes them.
 type hostSwitchUI struct {
 	open bool
 	picker
-	items []store.Host
+	items []switchItem
+	// here is where the keyboard was when the card opened; hereOK is false from the list.
+	here   target
+	hereOK bool
 }
 
-// openHostSwitch raises the host switcher on every host, unfiltered.
+// switchAliasMax caps the alias column, so one long alias cannot squeeze every path.
+const switchAliasMax = 14
+
+// openHostSwitch raises the switcher on everything, unfiltered.
 func (m *model) openHostSwitch() {
-	m.hostSwitch = hostSwitchUI{open: true}
+	here, ok := m.here()
+	m.hostSwitch = hostSwitchUI{open: true, here: here, hereOK: ok}
 	m.filterHostSwitch()
 	m.clearStatus()
 }
 
 func (m *model) closeHostSwitch() { m.hostSwitch = hostSwitchUI{} }
 
-// filterHostSwitch re-runs the query over alias, user and host name, as the list's filter
-// does, and puts the hosts with a session first. The partition is stable, so the list's
-// order — or the match ranking — survives inside it.
+// switchRows is every row before the query: what is open, most recently used first, then
+// every host — connected ones first, the most recently used of those first, then the list's order.
+func (m *model) switchRows() []switchItem {
+	var ts []target
+	for _, alias := range m.sessionAliases() {
+		ts = append(ts, m.openTargets(alias)...)
+	}
+	slices.SortStableFunc(ts, func(a, b target) int { return m.used[b] - m.used[a] })
+
+	used := make(map[string]int, len(m.sessions))
+	for alias := range m.sessions {
+		used[alias] = m.hostUsed(alias)
+	}
+	hosts := make([]target, 0, len(m.hosts))
+	for _, h := range m.hosts {
+		hosts = append(hosts, target{alias: h.Alias})
+	}
+	slices.SortStableFunc(hosts, func(a, b target) int {
+		if d := m.sessionRank(a.alias) - m.sessionRank(b.alias); d != 0 {
+			return d
+		}
+		return used[b.alias] - used[a.alias]
+	})
+
+	rows := make([]switchItem, 0, len(ts)+len(hosts))
+	for _, t := range append(ts, hosts...) {
+		rows = append(rows, switchItem{t: t, label: m.targetLabel(t)})
+	}
+	return rows
+}
+
+// filterHostSwitch re-runs the query: over alias and label for what is open, and over alias,
+// user and host name for a host, as the list's filter does. The cursor goes to the best
+// match — or, with no query, to the row after where the keyboard is, so enter goes back.
 func (m *model) filterHostSwitch() {
-	hosts := m.hosts
+	rows := m.switchRows()
 	if q := m.hostSwitch.query; q != "" {
-		hay := make([]string, len(m.hosts))
-		for i, h := range m.hosts {
-			hay[i] = h.Alias + " " + h.User + " " + h.HostName
+		hay := make([]string, len(rows))
+		for i, r := range rows {
+			hay[i] = r.t.alias + " " + r.label
+			if r.t.kind == targetHost {
+				h, _ := m.hostByAlias(r.t.alias)
+				hay[i] = h.Alias + " " + h.User + " " + h.HostName
+			}
 		}
-		hosts = nil
+		matched := make([]switchItem, 0, len(rows))
 		for _, mt := range fuzzy.Find(q, hay) {
-			hosts = append(hosts, m.hosts[mt.Index])
+			matched = append(matched, rows[mt.Index])
 		}
+		rows = matched
 	}
 
-	items := slices.Clone(hosts)
-	slices.SortStableFunc(items, func(a, b store.Host) int {
-		return m.sessionRank(a.Alias) - m.sessionRank(b.Alias)
-	})
-	m.hostSwitch.items = items
-	m.hostSwitch.cursor = clamp(m.hostSwitch.cursor, 0, max(len(items)-1, 0))
+	m.hostSwitch.items = rows
+	m.hostSwitch.cursor = 0
+	if m.hostSwitch.query == "" && m.hostSwitch.hereOK && len(rows) > 1 && rows[0].t == m.hostSwitch.here {
+		m.hostSwitch.cursor = 1
+	}
 }
 
 // sessionRank sorts a host with a session ahead of one without.
@@ -58,8 +105,8 @@ func (m *model) sessionRank(alias string) int {
 	return 1
 }
 
-// handleHostSwitchKey routes a key while the host switcher is up; like the palette it
-// swallows everything, or a key would reach the pane underneath.
+// handleHostSwitchKey routes a key while the switcher is up; like the palette it swallows
+// everything, or a key would reach the pane underneath.
 func (m *model) handleHostSwitchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -69,9 +116,9 @@ func (m *model) handleHostSwitchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.hostSwitch.cursor >= len(m.hostSwitch.items) {
 			return m, nil
 		}
-		h := m.hostSwitch.items[m.hostSwitch.cursor]
+		t := m.hostSwitch.items[m.hostSwitch.cursor].t
 		m.closeHostSwitch()
-		return m, m.hopTo(h)
+		return m, m.jumpTo(t)
 
 	default:
 		if m.hostSwitch.key(msg, len(m.hostSwitch.items)) {
@@ -81,87 +128,75 @@ func (m *model) handleHostSwitchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// hopTo lands in h's shell: its own if it has one, a new connection's otherwise.
-func (m *model) hopTo(h store.Host) tea.Cmd {
-	// While m.active is still the host being left, so its pane snaps back to live.
-	m.exitScrollback()
-	m.reader.Reset()
-	return m.openShell(h, false)
+func (m *model) renderHostSwitch() string {
+	aw := 0
+	for _, it := range m.hostSwitch.items {
+		aw = max(aw, lipgloss.Width(stripControl(it.t.alias)))
+	}
+	aw = min(aw, switchAliasMax)
+
+	return m.renderPicker("GO TO", m.hostSwitch.picker, len(m.hostSwitch.items), "go",
+		func(i int, selected bool, w int) string {
+			it := m.hostSwitch.items[i]
+			right := ""
+			switch {
+			case m.hostSwitch.hereOK && it.t == m.hostSwitch.here:
+				right = faint.Render("here")
+			case it.t.kind == targetHost:
+				right = m.dotFor(it.t.alias)
+			}
+			head := padTo(truncate(stripControl(it.t.alias), aw), aw) + "  "
+			room := w - 2 - lipgloss.Width(head) - lipgloss.Width(right) - 1
+			return pickRow(head+elideLabel(it, room), right, selected, w)
+		})
 }
 
-func (m *model) renderHostSwitch() string {
-	return m.renderPicker("HOSTS", m.hostSwitch.picker, len(m.hostSwitch.items), "hop",
-		func(i int, selected bool, w int) string {
-			h := m.hostSwitch.items[i]
-			return pickRow(stripControl(h.Alias), m.dotFor(h.Alias), selected, w)
-		})
+// elideLabel fits a row's label to w. A path says more by its end, so a target keeps its
+// glyph and loses the middle; a host's summary is cut at the end like any other text.
+func elideLabel(it switchItem, w int) string {
+	r := []rune(it.label)
+	if it.t.kind == targetHost || len(r) < 3 || lipgloss.Width(it.label) <= w {
+		return it.label
+	}
+	return string(r[:2]) + elideLeft(string(r[2:]), w-2)
 }
 
 // ---- last host ----
 
 // noteHost keeps the last host current: when the active host changes, the one being left
-// becomes the last host, carrying the mode it was showing. Run after every message, so no
-// path that moves the keyboard can forget to.
+// becomes the last host. Run after every message, so no path that moves the keyboard can
+// forget to.
 func (m *model) noteHost() {
-	if m.active == "" {
+	if m.active == "" || m.active == m.shown {
 		return
 	}
-	if m.active != m.shown.alias {
-		if m.shown.alias != "" {
-			m.last = m.shown
-		}
-		m.shown = hostView{alias: m.active}
+	if m.shown != "" {
+		m.last = m.shown
 	}
-	if m.inPane() {
-		m.shown.mode = m.mode
-		if m.mode == modeScrollback {
-			m.shown.mode = modeShell
-		}
-	}
+	m.shown = m.active
 }
 
-// backToLastHost lands on the last host, in the mode it was showing when it was left, or
-// the first of shell, browser, editor it still has.
-func (m *model) backToLastHost() {
-	alias := m.last.alias
+// backToLastHost lands on the last host's last place, reconnecting it if it went down.
+func (m *model) backToLastHost() tea.Cmd {
+	alias := m.last
 	if alias == "" {
 		m.setStatus(statusWarn, "no last host to go back to")
-		return
+		return nil
 	}
 	s := m.sessions[alias]
 	if s == nil {
 		m.setStatus(statusWarn, "%s has no session any more", alias)
-		return
+		return nil
 	}
-
-	mode := modeList
-	for _, want := range []paneMode{m.last.mode, modeShell, modeBrowser, modeEditor} {
-		if s.shows(want) {
-			mode = want
-			break
+	if s.dead {
+		if h, ok := m.hostByAlias(alias); ok {
+			return m.enterHost(h)
 		}
 	}
-	if mode == modeList {
+	t, ok := m.lastPlace(alias)
+	if !ok {
 		m.setStatus(statusWarn, "nothing open on %s to go back to", alias)
-		return
+		return nil
 	}
-
-	m.exitScrollback()
-	m.reader.Reset()
-	m.active, m.mode = alias, mode
-	m.clearStatus()
-	m.relayout()
-}
-
-// shows reports whether the session has something to show in mode.
-func (s *session) shows(mode paneMode) bool {
-	switch mode {
-	case modeShell:
-		return len(s.shells) > 0
-	case modeBrowser:
-		return s.browser != nil
-	case modeEditor:
-		return len(s.editors) > 0
-	}
-	return false
+	return m.jumpTo(t)
 }

@@ -10,7 +10,7 @@ label: Navigation mode
 | --- | --- |
 | [[↓]] [[↑]] | move |
 | [[pgdn]] [[pgup]] | a full page down / up |
-| [[enter]] [[→]] | connect (opens a terminal pane), or focus the shell already open |
+| [[enter]] [[→]] | connect (opens a terminal pane), or go back to where you were on it — the same tab, file or panel |
 | [[esc]] [[←]] | back — leave the details view |
 | [[s]] | focus the existing session for this host |
 | [[S]] | open **another** shell on this host, alongside the ones already open |
@@ -29,7 +29,6 @@ label: Navigation mode
 | [[space]] | the [action menu](#actions) for this host — everything above, with its key beside it |
 | [[ctrl+k]] | the [palette](#actions): every action, searchable |
 | [[,]] [[?]] | settings / the keys card |
-| [[ctrl+b]] | hide / show the sidebar |
 | [[ctrl+g]] | hand the mouse to your terminal (and take it back) |
 | [[q]] [[ctrl+c]] | quit |
 | [[esc]] [[esc]] | quit (two presses within 400 ms — one esc only drops the selected host) |

@@ -68,7 +68,9 @@ file tracks *what*, not *why*.
 - [x] Cursor visible; event-driven redraw; visual pass (keycap pills, status dots, accent bar, badges).
 - [x] **Settings popover** (`,`) over `internal/config`, applied live on save.
 - [x] **Scrollback UI:** `shift+↑` / `shift+pgup` with vim + page motions; `esc`/`q`/`ctrl+o` return to live.
-- [x] **Collapsible sidebar** (`ctrl+b`), session-only. Costs a remote tmux its prefix.
+- [x] **Two views per host** (layout B): the shell view is one shell at full width, the files view the tree beside the open files; the host list floats over the view instead of resizing it, so no pane reflows. `ctrl+b` goes back to the remote; `ctrl+o t` / `ctrl+o s` cross from an editor.
+- [x] **Terminal panel** under the files (`` ` `` / `ctrl+o j`): its own shell, `S` cds it to the cursor directory, resizable by dragging its edge or `ctrl+o +`/`-`.
+- [x] **Getting back to anything** (`tui/targets.go`, `tui/sessionbar.go`): the switcher (`ctrl+o space`, `p`) lists every shell tab, browser, editor tab and panel on every host, most recent first, then the hosts; the header is a clickable session bar; entering a host lands on its last place instead of its shell.
 - [x] **Host list keymap trimmed** to step keys via `keymap.Scope`.
 - [x] **Mouse support** routed by region (`tui/mouse.go`); a remote asking for the mouse gets it verbatim.
 - [x] **Mouse text selection** over shells, scrollback and editors → clipboard on release; `ctrl+g` hands reporting back.

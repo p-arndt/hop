@@ -19,7 +19,7 @@ The menu is also a **right-click** on a host: the click stands the cursor on it 
 the menu in one gesture.
 
 **The menu is about the thing under the cursor.** It lists only what that host can take
-right now — *connect* on an idle host, *focus its shell* on a live one, *reconnect and
+right now — *connect* on an idle host, *back to where you were* on a live one, *reconnect and
 reopen* on one whose connection dropped, *unpin it* on a pinned one. [[↑]]/[[↓]] move,
 [[enter]] runs, [[esc]] closes and decides nothing.
 
@@ -28,7 +28,7 @@ and then hop's own; in the [file browser](#browser) it holds the browser's; in a
 [shell](#terminal) or an [editor tab](#editor) it holds the chords behind the
 [leader](#leader) — which is the keyboard hardest to remember, and so the one it is worth
 most for. Type to narrow it: the search matches the label *and* the key, so a
-half-remembered [[ctrl+b]] finds the sidebar just as `sft` finds the browser.
+half-remembered [[ctrl+g]] finds the mouse toggle just as `sft` finds the browser.
 
 ## Guidance — how much hop keeps on screen
 

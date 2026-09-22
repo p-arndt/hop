@@ -10,7 +10,7 @@ import (
 	"hop/internal/keys"
 )
 
-// picker is the typing and moving a filtered card does: the palette's and the host switcher's.
+// picker is the typing and moving a filtered card does: the palette's and the switcher's.
 type picker struct {
 	query  string
 	cursor int

@@ -329,7 +329,7 @@ func TestSplitOnAnOpenFileFocusesItInstead(t *testing.T) {
 // A content area too narrow to halve opens the file as a tab and says so.
 func TestSplitDeclinesOnANarrowContentArea(t *testing.T) {
 	m, s := splitModel(t, "a.conf")
-	m.paneW = 2*minSplitHalf - 3
+	m.width = 2*minSplitHalf - 1
 	m.mode = modeBrowser
 
 	_, cmd := m.handleKey(key(t, "\\"))

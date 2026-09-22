@@ -69,13 +69,6 @@ func TestZoneAt(t *testing.T) {
 			t.Errorf("%s: zoneAt(%d, %d) = %v, want %v", c.name, c.x, c.y, got, c.want)
 		}
 	}
-
-	// Collapsed, the pane owns every column; the relayout is what toggleSidebar does in production.
-	m.sidebarHidden = true
-	m.recomputeLayout()
-	if got := m.zoneAt(4, 5); got != zonePane {
-		t.Errorf("with the sidebar collapsed, zoneAt(4, 5) = %v, want zonePane", got)
-	}
 }
 
 // The wheel over the list steps the selection one host at a time and stops at both ends.
@@ -512,9 +505,11 @@ func treeMouseModel(t *testing.T) (*model, *session) {
 	if err != nil {
 		t.Fatalf("build browser: %v", err)
 	}
-	s := &session{browser: br, shells: []*shellTab{{id: 1, pane: fakePane()}}}
+	// An open file is what gives the browser a column of its own.
+	s := &session{browser: br, shells: []*shellTab{{id: 1, pane: fakePane()}},
+		editors: []*editorTab{{id: 1, name: "app.conf", path: "/srv/app.conf", pane: fakePane()}}}
 	m.sessions["ha"] = s
-	m.active = "ha"
+	m.active, m.mode = "ha", modeBrowser
 	m.relayout()
 	if m.treeWidth() == 0 {
 		t.Fatal("the tree column is not on screen, so nothing here is being tested")
@@ -522,7 +517,7 @@ func treeMouseModel(t *testing.T) (*model, *session) {
 	return m, s
 }
 
-// Three columns, so three regions across the body, each starting where the one left of it ends.
+// The tree and the files, each starting where the one left of it ends.
 func TestZoneAtWithTheTreeColumn(t *testing.T) {
 	m, _ := treeMouseModel(t)
 	lw, tw := m.listWidth(), m.treeWidth()
@@ -532,7 +527,6 @@ func TestZoneAtWithTheTreeColumn(t *testing.T) {
 		x    int
 		want zone
 	}{
-		{"the sidebar's last column", lw - 1, zoneList},
 		{"the tree column's first", lw, zoneTree},
 		{"its last", lw + tw - 1, zoneTree},
 		{"the content area's first", lw + tw, zonePane},
@@ -542,13 +536,6 @@ func TestZoneAtWithTheTreeColumn(t *testing.T) {
 		if got := m.zoneAt(c.x, 5); got != c.want {
 			t.Errorf("%s: zoneAt(%d, 5) = %v, want %v", c.name, c.x, got, c.want)
 		}
-	}
-
-	// Collapsed, the host list is not there to point at and the tree starts at column 0.
-	m.sidebarHidden = true
-	m.recomputeLayout()
-	if got := m.zoneAt(0, 5); got != zoneTree {
-		t.Errorf("with the sidebar collapsed, zoneAt(0, 5) = %v, want zoneTree", got)
 	}
 }
 
@@ -574,7 +561,7 @@ func TestTreeLocalTranslatesPerColumn(t *testing.T) {
 
 func TestClickingAColumnFocusesIt(t *testing.T) {
 	m, s := treeMouseModel(t)
-	m.mode = modeShell
+	m.mode = modeEditor
 
 	// The browser's first entry: content row 2, so screen row 4, in the tree column.
 	m.handleMouse(click(m.listWidth()+2, 4))
@@ -587,7 +574,7 @@ func TestClickingAColumnFocusesIt(t *testing.T) {
 
 	// And back the other way: a click on the content area takes the keyboard out of the column.
 	m.handleMouse(click(m.listWidth()+m.treeWidth()+4, 6))
-	if !m.focused() {
+	if !m.editing() {
 		t.Fatal("a click on the content area did not take the keyboard out of the tree")
 	}
 	if s.browser == nil || m.treeWidth() == 0 {

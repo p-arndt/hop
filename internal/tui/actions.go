@@ -39,7 +39,7 @@ var hostSpecs = []spec{
 	{id: keys.In, label: "connect", host: true, ok: func(m *model) bool {
 		return m.selectedSession() == nil
 	}},
-	{id: keys.In, label: "focus its shell", host: true, ok: func(m *model) bool {
+	{id: keys.In, label: "back to where you were", host: true, ok: func(m *model) bool {
 		s := m.selectedSession()
 		return s != nil && !s.dead
 	}},
@@ -71,7 +71,6 @@ var globalSpecs = []spec{
 	{id: keys.HostAdd},
 	{id: keys.HostImport},
 	{id: keys.Filter},
-	{id: keys.Sidebar},
 	{id: keys.Settings},
 	{id: keys.Help},
 	{id: keys.Quit},
@@ -97,6 +96,9 @@ var browserSpecs = []spec{
 	{id: keys.BrowserFocusPane},
 	{id: keys.BrowserSplit},
 	{id: keys.BrowserShell},
+	{id: keys.BrowserDrawer},
+	{id: keys.BrowserGrow},
+	{id: keys.BrowserShrink},
 	{id: keys.BrowserTree},
 	{id: keys.BrowserLeave},
 	{id: keys.BrowserClose},
@@ -110,7 +112,7 @@ var browserSpecs = []spec{
 var (
 	hostsSpec    = spec{id: keys.LeaderHosts, leader: true}
 	lastHostSpec = spec{id: keys.LeaderLast, leader: true, ok: func(m *model) bool {
-		return m.last.alias != "" && m.sessions[m.last.alias] != nil
+		return m.last != "" && m.sessions[m.last] != nil
 	}}
 )
 
@@ -120,6 +122,10 @@ func (m *model) paneSpecs() []spec {
 		{id: keys.LeaderOut, leader: true},
 		{id: keys.LeaderShell, leader: true},
 		{id: keys.LeaderBrowser, leader: true},
+		{id: keys.LeaderTree, leader: true, ok: func(m *model) bool {
+			s := m.sessions[m.active]
+			return s != nil && s.browser != nil
+		}},
 		{id: keys.PaneNextTab},
 		{id: keys.PanePrevTab},
 		hostsSpec,
@@ -134,7 +140,7 @@ func (m *model) paneSpecs() []spec {
 		!s.shell().pane.AltScreen() && s.shell().pane.ScrollbackLen() > 0 {
 		ss = append(ss, spec{id: keys.PaneScroll})
 	}
-	return append(ss, spec{id: keys.Sidebar}, spec{id: keys.LeaderHelp, leader: true})
+	return append(ss, spec{id: keys.LeaderHelp, leader: true})
 }
 
 // editorSpecs is an open editor tab's; ":q" is the remote editor's, so it is not here.
@@ -143,13 +149,17 @@ var editorSpecs = []spec{
 	{id: keys.EditorNextTab},
 	{id: keys.EditorPrevTab},
 	{id: keys.EditorFocusTree},
+	{id: keys.LeaderTree, leader: true},
+	{id: keys.LeaderDrawer, leader: true},
+	{id: keys.LeaderGrow, leader: true, ok: func(m *model) bool { return m.drawerOnScreen() > 0 }},
+	{id: keys.LeaderShrink, leader: true, ok: func(m *model) bool { return m.drawerOnScreen() > 0 }},
+	{id: keys.LeaderToShell, leader: true},
 	{id: keys.EditorUnsplit, ok: func(m *model) bool {
 		s := m.sessions[m.active]
 		return s != nil && s.split
 	}},
 	hostsSpec,
 	lastHostSpec,
-	{id: keys.Sidebar},
 	{id: keys.LeaderHelp, leader: true},
 }
 

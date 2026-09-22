@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>hop · Layout-Varianten</title>
+<style>
+  :root {
+    --bg: #1d1d2b; --panel: #232336; --fg: #e4e4f0; --dim: #7c7c96; --faint: #4a4a62;
+    --ac: #ff6ac1; --ac2: #c792ea; --g: #8be28b; --b: #7fb4ff; --y: #f6d57a; --r: #ff7a90;
+    --bd: #44445c; --chip: #34344c; --lh: 18px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #11111a; color: var(--fg); font: 15px/1.5 -apple-system, system-ui, sans-serif; }
+  nav { position: sticky; top: 0; z-index: 10; background: #11111aee; backdrop-filter: blur(6px);
+        border-bottom: 1px solid #2a2a3c; padding: 10px 32px; display: flex; gap: 18px; flex-wrap: wrap; }
+  nav a { color: var(--dim); text-decoration: none; font-weight: 600; }
+  nav a:hover { color: var(--ac); }
+  main { padding: 24px 32px 80px; max-width: 1500px; }
+  h1 { margin: 8px 0 4px; }
+  h2 { margin: 56px 0 4px; font-size: 26px; }
+  h2 .tag { color: var(--ac); margin-right: 8px; }
+  .idea { color: #b8b8cc; max-width: 900px; margin: 0 0 12px; }
+  .pc { display: flex; gap: 40px; margin: 8px 0 18px; font-size: 14px; }
+  .pc ul { margin: 4px 0; padding-left: 20px; }
+  .pc .p b { color: var(--g); } .pc .c b { color: var(--r); }
+  .shot { margin: 18px 0 30px; }
+  .shot .cap { font-size: 14px; color: var(--dim); margin-bottom: 6px; }
+  .shot .cap b { color: var(--fg); background: #2a2a3c; padding: 1px 7px; border-radius: 4px; margin-right: 6px; }
+  .note { background: #1b1b28; border-left: 3px solid var(--ac); padding: 10px 16px; max-width: 900px; color: #c8c8da; }
+  table.cmp { border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+  table.cmp td, table.cmp th { border: 1px solid #2e2e42; padding: 6px 12px; text-align: left; }
+  table.cmp th { background: #1b1b28; }
+
+  /* the terminal */
+  .term { width: 118ch; height: calc(34 * var(--lh)); background: var(--bg); border-radius: 8px;
+          font: 13px/var(--lh) "JetBrains Mono", "SF Mono", Menlo, monospace; color: var(--fg);
+          display: flex; flex-direction: column; overflow: hidden; position: relative;
+          box-shadow: 0 10px 40px #0008; padding: 4px 0; }
+  .line { height: var(--lh); white-space: pre; overflow: hidden; padding: 0 1ch; display: flex; align-items: center; gap: 1ch; flex: none; }
+  .line .sp { flex: 1; }
+  .body { flex: 1; display: flex; min-height: 0; padding: 2px 0; }
+  .col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .box { border: 1px solid var(--bd); border-radius: 5px; margin: 0 .5ch; display: flex; flex-direction: column;
+         min-width: 0; min-height: 0; overflow: hidden; position: relative; }
+  .box.f { border-color: var(--ac); }
+  .box + .box { margin-top: 0; }
+  .col > .box + .box { margin-top: 2px; }
+  .box pre { margin: 0; padding: 0 1ch; flex: 1; overflow: hidden; white-space: pre; font: inherit; }
+  .bt { height: var(--lh); padding: 0 1ch; color: var(--dim); white-space: pre; overflow: hidden; flex: none; }
+  .bt.rule { border-bottom: 1px solid var(--bd); height: calc(var(--lh) + 1px); }
+  .badge { background: var(--ac); color: #1d1d2b; font-weight: 700; padding: 0 1ch; }
+  .badge.dim { background: var(--chip); color: var(--fg); }
+  .chip { background: var(--chip); padding: 0 1ch; color: #c8c8da; }
+  .chip.on { background: var(--ac); color: #1d1d2b; font-weight: 700; }
+  .chip.h { background: transparent; color: var(--fg); }
+  .tab { padding: 0 1ch; color: var(--dim); }
+  .tab.on { background: var(--ac); color: #1d1d2b; font-weight: 700; }
+  .tab.on2 { color: var(--fg); border-bottom: 2px solid var(--ac); }
+  .k { background: #34344c; color: var(--fg); padding: 0 1ch; }
+  .kd { color: var(--dim); }
+  .d { color: var(--dim); } .x { color: var(--faint); }
+  .a { color: var(--ac); } .a2 { color: var(--ac2); } .g { color: var(--g); } .b { color: var(--b); } .y { color: var(--y); } .r { color: var(--r); }
+  .bold { font-weight: 700; }
+  .sel { background: #3a3350; display: inline-block; width: 100%; }
+  .selm { background: #3a3350; }
+  .cur { background: var(--fg); color: var(--bg); }
+  .ov { position: absolute; background: var(--panel); border: 1px solid var(--ac); border-radius: 6px;
+        box-shadow: 0 10px 40px #000a; display: flex; flex-direction: column; overflow: hidden; }
+  .ov pre { margin: 0; padding: 0 1ch; white-space: pre; font: inherit; }
+  .dim-all { opacity: .45; }
+  .ln { color: var(--faint); }
+  .ruleh { height: 1px; background: var(--bd); margin: 0 1ch; flex: none; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="#top">Übersicht</a>
+  <a href="#A">A · Stand jetzt</a>
+  <a href="#B">B · Tab-Reihen</a>
+  <a href="#C">C · Explorer links</a>
+  <a href="#D">D · Vollbild + Statuszeile</a>
+  <a href="#E">E · Startbildschirm</a>
+  <a href="#F">F · Files-Varianten</a>
+  <a href="#cmp">Vergleich</a>
+</nav>
+<main>
+  <h1 id="top">hop · Layout-Varianten</h1>
+  <p class="idea">Das sind nur Mockups, nichts davon ist gebaut. Jeder Screen hat ein Kürzel (z.B. <b>C2</b>).
+    Sag einfach sowas wie „C, aber Files wie F2“ oder „B1 gefällt, B2 nicht, weil …“.
+    A–D sind die grundsätzliche Aufteilung (wo sehe ich Hosts und was offen ist?). E ist der Startbildschirm, F die Dateiansicht.
+    E und F kann man mit A–D kombinieren.</p>
+  <p class="note">Alle Varianten nehmen an: dieselben Hosts <b>web1</b>, <b>db1</b>, <b>cache</b> sind verbunden, <b>staging</b> und <b>bastion</b> nicht.
+    Auf web1 sind offen: 2 Shells, der Datei-Browser in /srv/app, zwei Dateien (nginx.conf, docker-compose.yml), das Terminal-Panel und 2 Tunnel.</p>
+  <div id="out"></div>
+</main>
+
+<script>
+// Building blocks, so every variant draws the same hosts, files and shells.
+const line = (html, cls = '') => `<div class="line ${cls}">${html}</div>`;
+const sp = '<span class="sp"></span>';
+const chip = (t, on) => `<span class="chip${on ? ' on' : ''}">${t}</span>`;
+const keys = pairs => pairs.map(([k, d]) => `<span class="k">${k}</span><span class="kd">${d}</span>`).join(' ');
+const box = (inner, { f = false, style = '', title = '', rule = false } = {}) =>
+  `<div class="box${f ? ' f' : ''}" style="${style}">${title ? `<div class="bt${rule ? ' rule' : ''}">${title}</div>` : ''}${inner}</div>`;
+const pre = s => `<pre>${s}</pre>`;
+const term = (inner, overlay = '') => `<div class="term">${inner}${overlay}</div>`;
+const body = (inner, style = '') => `<div class="body" style="${style}">${inner}</div>`;
+const col = (inner, style = '') => `<div class="col" style="${style}">${inner}</div>`;
+const dot = on => on ? '<span class="g">●</span>' : '<span class="x">○</span>';
+
+const P = (host = 'web1', dir = '~/app') => `<span class="g">deploy@${host}</span>:<span class="b">${dir}</span>$ `;
+
+const SHELL = `${P()}docker compose ps
+<span class="d">NAME            IMAGE                          STATUS        PORTS</span>
+app-web-1       ghcr.io/acme/web:1.42.0        Up 3 days     127.0.0.1:8080->8080/tcp
+app-worker-1    ghcr.io/acme/worker:1.42.0     Up 3 days
+app-redis-1     redis:7-alpine                 Up 3 days     6379/tcp
+${P()}git log --oneline -4
+<span class="y">4f2a9c1</span> fix: retry webhook on 502
+<span class="y">a81be07</span> feat: export invoices as csv
+<span class="y">77c01d2</span> chore: bump node to 22
+<span class="y">0d9e3aa</span> fix(auth): reject expired tokens
+${P()}df -h /srv
+<span class="d">Filesystem      Size  Used Avail Use% Mounted on</span>
+/dev/nvme0n1p1   80G   51G   29G  64% /
+${P()}docker compose logs -f --tail 5 web
+web-1  | 10:14:02 GET /health 200 1ms
+web-1  | 10:14:07 GET /api/invoices?page=2 200 38ms
+web-1  | 10:14:09 POST /api/webhooks/stripe 200 112ms
+web-1  | 10:14:12 GET /health 200 1ms
+web-1  | 10:14:17 GET /static/app.4f2a9c1.js 304 0ms
+^C
+${P()}<span class="cur"> </span>`;
+
+const PANEL = `${P('web1', '/srv/app')}nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+${P('web1', '/srv/app')}sudo systemctl reload nginx
+${P('web1', '/srv/app')}<span class="cur"> </span>`;
+
+const NGINX = [
+  'server {', '    listen 443 ssl http2;', '    server_name app.acme.io;', '',
+  '    ssl_certificate     /etc/letsencrypt/live/app/fullchain.pem;',
+  '    ssl_certificate_key /etc/letsencrypt/live/app/privkey.pem;', '',
+  '    location / {', '        proxy_pass http://127.0.0.1:8080;',
+  '        proxy_set_header Host $host;', '        proxy_set_header X-Real-IP $remote_addr;', '    }', '',
+  '    location /static/ {', '        root /srv/app/public;', '        expires 7d;', '    }', '}',
+];
+const code = (n = NGINX.length, cursor = 9) => NGINX.slice(0, n).map((l, i) => {
+  let t = l.replace(/^(\s*)([a-z_]+)/, '$1<span class="b">$2</span>');
+  if (i + 1 === cursor) t = t.replace('proxy_pass', '<span class="cur">p</span>roxy_pass'.replace('<span class="cur">p</span>', '<span class="cur">p</span>'));
+  return `<span class="ln">${String(i + 1).padStart(3)} </span>${t}`;
+}).join('\n');
+
+const COMPOSE = `<span class="b">services</span>:
+  <span class="b">web</span>:
+    <span class="b">image</span>: ghcr.io/acme/web:1.42.0
+    <span class="b">restart</span>: unless-stopped
+    <span class="b">ports</span>:
+      - "127.0.0.1:8080:8080"
+    <span class="b">env_file</span>: .env
+  <span class="b">worker</span>:
+    <span class="b">image</span>: ghcr.io/acme/worker:1.42.0
+  <span class="b">redis</span>:
+    <span class="b">image</span>: redis:7-alpine`;
+
+// [depth, name, kind, meta]
+const TREE = [
+  [0, 'config/', 'd'], [0, 'nginx/', 'o'], [1, 'nginx.conf', 'f', '1.2K'], [1, 'mime.types', 'f', '5.1K'],
+  [0, 'public/', 'd'], [0, 'scripts/', 'd'], [0, '.env.example', 'f', '216B'], [0, 'docker-compose.yml', 'f', '427B'],
+  [0, 'Makefile', 'f', '1.9K'], [0, 'README.md', 'f', '3.4K'],
+];
+const tree = (sel = 'nginx.conf', meta = true) => TREE.map(([d, n, k, m]) => {
+  const icon = k === 'd' ? '▸ ' : k === 'o' ? '▾ ' : '  ';
+  const name = k === 'f' ? n : `<span class="a2">${n}</span>`;
+  const txt = `${'  '.repeat(d)}${icon}${name}`;
+  const pad = ' '.repeat(Math.max(1, 26 - (2 * d + 2 + n.length)));
+  const row = meta && m ? `${txt}${pad}<span class="d">${m}</span>` : txt;
+  return n === sel ? `<span class="selm">${row}</span>` : row;
+}).join('\n');
+
+const FOOT_SHELL = keys([['ctrl+o', 'leader'], ['ctrl+o space', 'go to'], ['ctrl+o tab', 'last host'], ['ctrl+o f', 'files'], ['ctrl+o ?', 'keys']]);
+const FOOT_EDIT = keys([['ctrl+o t', 'tree'], ['ctrl+o j', 'terminal'], [':q', 'close'], ['ctrl+o space', 'go to'], ['ctrl+o ?', 'keys']]);
+
+// A · today --------------------------------------------------------------------------
+const hdrA = active => line(
+  `<span class="badge">web1</span>` +
+  [['$1 app', 'sh1'], ['$2 log', 'sh2'], ['▤ app', 'br'], ['✎ nginx.conf', 'ng'], ['✎ docker-compose.yml', 'dc'], ['▭ terminal', 'pn'], ['⇄ 2', 'tu']]
+    .map(([t, id]) => chip(t, id === active)).join('') + sp +
+  `${dot(true)} db1  ${dot(true)} cache`);
+const statusA = (crumb) => line(`<span class="bold">web1</span> <span class="d">›</span> ${crumb}`);
+
+const A1 = term(hdrA('sh1') + body(box(pre(SHELL), { f: true, style: 'flex:1' })) + statusA('shell 1 <span class="d">›</span> <span class="a">~/app</span>') + line(FOOT_SHELL));
+
+const A2 = term(hdrA('ng') + body(
+  box(pre(tree()), { title: '/srv/app', rule: true, style: 'width:36ch;flex:none' }) +
+  col(
+    box(`<div class="bt"><span class="tab on">1 nginx.conf</span><span class="tab">2 docker-compose.yml</span></div>` + pre(code()), { f: true, style: 'flex:55' }) +
+    box(pre(PANEL), { title: '<span class="a">terminal</span> · /srv/app', style: 'flex:45' }),
+    'flex:1')) + statusA('edit <span class="d">›</span> <span class="a">/srv/app/nginx/nginx.conf</span>') + line(FOOT_EDIT));
+
+const SWITCH = `<div class="bt"><span class="a bold">GO TO</span>  <span class="fg">› </span><span class="cur"> </span></div><div class="ruleh"></div><pre>
+  <span class="d">web1  </span> $ shell 1 · ~/app                    <span class="x">here</span>
+<span class="selm"><span class="a">▸</span> <span class="d">web1  </span> ✎ /srv/app/nginx/nginx.conf                  </span>
+  <span class="d">db1   </span> $ shell 1 · ~
+  <span class="d">web1  </span> ▤ /srv/app
+  <span class="d">web1  </span> ▭ terminal · /srv/app
+  <span class="d">cache </span> $ shell 1 · /etc/redis
+  <span class="d">web1  </span> $ shell 2 · /var/log
+  <span class="d">web1  </span> ✎ /srv/app/docker-compose.yml
+  <span class="d">web1  </span> ⇄ 2 tunnels
+  <span class="x">── hosts ──────────────────────────────────</span>
+  staging   <span class="d">deploy@10.0.3.7        connect</span>
+  bastion   <span class="d">ops@bastion.acme.io    connect</span>
+</pre><div class="ruleh"></div><div class="bt">${keys([['enter', 'go'], ['↑↓', 'move'], ['esc', 'close']])}</div>`;
+const A3 = term(`<div class="dim-all" style="display:flex;flex-direction:column;flex:1;min-height:0">${hdrA('sh1') + body(box(pre(SHELL), { style: 'flex:1' })) + statusA('shell 1') + line(FOOT_SHELL)}</div>`,
+  `<div class="ov" style="left:22ch;top:4*18px;top:72px;width:62ch;height:360px">${SWITCH}</div>`);
+
+// B · two rows of tabs ----------------------------------------------------------------
+const hostTabs = act => line(
+  `<span class="badge">hop</span>` +
+  [['web1', true], ['db1', true], ['cache', true], ['staging', false]].map(([h, on]) =>
+    `<span class="tab${h === act ? ' on' : ''}">${h === act ? '●' : dot(on)} ${h}</span>`).join('') +
+  `<span class="tab d">+</span>` + sp + `<span class="d">ctrl+o ←/→ host</span>`);
+const itemTabs = act => line(
+  [['1', '$ app', 'sh1'], ['2', '$ log', 'sh2'], ['3', '▤ files', 'br'], ['4', '✎ nginx.conf', 'ng'], ['5', '✎ docker-compose.yml', 'dc'], ['6', '⇄ tunnels', 'tu']]
+    .map(([n, t, id]) => `<span class="tab${id === act ? ' on2' : ''}"><span class="d">${n}</span> ${t}</span>`).join('') +
+  sp + `<span class="d">ctrl+o 1–9</span>`, '');
+const B1 = term(hostTabs('web1') + itemTabs('sh1') + body(box(pre(SHELL), { f: true, style: 'flex:1' })) + line(FOOT_SHELL));
+const B2 = term(hostTabs('web1') + itemTabs('ng') + body(
+  box(pre(tree()), { title: '/srv/app', rule: true, style: 'width:36ch;flex:none' }) +
+  col(box(pre(code()), { f: true, style: 'flex:55' }) +
+      box(pre(PANEL), { title: '<span class="a">terminal</span> · /srv/app', style: 'flex:45' }), 'flex:1')) + line(FOOT_EDIT));
+const B3 = term(hostTabs('db1') + line(`<span class="tab on2"><span class="d">1</span> $ ~</span><span class="tab"><span class="d">2</span> $ psql</span>` + sp + `<span class="d">ctrl+o 1–9</span>`) +
+  body(box(pre(`${P('db1', '~')}sudo -u postgres psql -c "select count(*) from invoices"
+ count
+--------
+ 184213
+(1 row)
+
+${P('db1', '~')}<span class="cur"> </span>`), { f: true, style: 'flex:1' })) + line(FOOT_SHELL));
+
+// C · explorer on the left -------------------------------------------------------------
+const explorer = (sel, collapsedFiles = false) => {
+  const it = (t, id) => id === sel ? `<span class="selm">${t}</span>` : t;
+  return `<pre>
+<span class="d">HOSTS</span>
+<span class="a">▾</span> <span class="bold">web1</span>        ${dot(true)}
+${it('    $ shell 1   <span class="d">~/app</span>', 'sh1')}
+${it('    $ shell 2   <span class="d">/var/log</span>', 'sh2')}
+${it('    ✎ nginx.conf', 'ng')}
+${it('    ✎ docker-compose.yml', 'dc')}
+${it('    ▭ terminal', 'pn')}
+    ⇄ 2 tunnels
+<span class="d">▸</span> db1         ${dot(true)}  <span class="d">1</span>
+<span class="d">▸</span> cache       ${dot(true)}  <span class="d">1</span>
+<span class="d">▸</span> staging     ${dot(false)}
+<span class="d">▸</span> bastion     ${dot(false)}
+<span class="x">─────────────────────────────</span>
+<span class="d">FILES  web1:/srv/app</span>
+${tree(sel === 'ng' ? 'nginx.conf' : '', false)}</pre>`;
+};
+const edTabs = act => `<div class="bt">` + [['$1 app', 'sh1'], ['$2 log', 'sh2'], ['✎ nginx.conf', 'ng'], ['✎ docker-compose.yml', 'dc']]
+  .map(([t, id]) => `<span class="tab${id === act ? ' on' : ''}">${t}</span>`).join('') + `</div>`;
+const C1 = term(line(`<span class="badge">hop</span> <span class="d">web1 › shell 1 › ~/app</span>`) + body(
+  box(explorer('sh1'), { style: 'width:32ch;flex:none' }) +
+  box(edTabs('sh1') + pre(SHELL), { f: true, style: 'flex:1' })) + line(keys([['ctrl+o b', 'explorer'], ['ctrl+o space', 'go to'], ['ctrl+o tab', 'last host'], ['ctrl+o ?', 'keys']])));
+const C2 = term(line(`<span class="badge">hop</span> <span class="d">web1 › edit › /srv/app/nginx/nginx.conf</span>`) + body(
+  box(explorer('ng'), { style: 'width:32ch;flex:none' }) +
+  col(box(edTabs('ng') + pre(code()), { f: true, style: 'flex:55' }) +
+      box(pre(PANEL), { title: '<span class="a">terminal</span> · /srv/app', style: 'flex:45' }), 'flex:1')) + line(FOOT_EDIT));
+const C3 = term(line(`<span class="badge">hop</span> <span class="d">web1 › shell 1 › ~/app</span>` + sp + '<span class="d">explorer zu · ctrl+o b</span>') + body(
+  box(edTabs('sh1') + pre(SHELL), { f: true, style: 'flex:1' })) + line(FOOT_SHELL));
+
+// D · full screen, one status line ------------------------------------------------------
+const tmux = act => line(
+  `<span class="badge">web1</span>` +
+  [['1', 'app', 'sh1'], ['2', 'log', 'sh2'], ['3', 'files', 'br'], ['4', 'nginx.conf', 'ng'], ['5', 'compose', 'dc']]
+    .map(([n, t, id]) => `<span class="${id === act ? 'a bold' : 'd'}">${n}:${t}${id === act ? '*' : ''}</span>`).join(' ') + sp +
+  `<span class="d">db1</span> <span class="d">cache</span> <span class="x">│</span> <span class="d">⇄2</span>`, '');
+const D1 = term(body(`<pre style="margin:0;padding:0 1ch;flex:1;overflow:hidden;font:inherit">${SHELL}</pre>`) + tmux('sh1'));
+const MILLER = (() => {
+  const parent = ['<span class="a2">app/</span>', '<span class="a2">backup/</span>', '<span class="a2">releases/</span>'];
+  const cur = ['config/', 'nginx/', 'public/', 'scripts/', '.env.example', 'docker-compose.yml', 'Makefile', 'README.md'];
+  const c = cur.map(n => n.endsWith('/') ? `<span class="a2">${n}</span>` : n).map(t => t.includes('docker-compose') ? `<span class="selm">${t.padEnd(30)}</span>` : t);
+  return body(
+    box(pre(parent.map((p, i) => i === 0 ? `<span class="selm">${p}</span>` : p).join('\n')), { title: '/srv', rule: true, style: 'width:20ch;flex:none' }) +
+    box(pre(c.join('\n')), { f: true, title: '/srv/app', rule: true, style: 'width:34ch;flex:none' }) +
+    box(pre(COMPOSE), { title: 'docker-compose.yml <span class="x">· 427B · Sep 18</span>', rule: true, style: 'flex:1' }));
+})();
+const D2 = term(MILLER + tmux('br'));
+const D3 = term(`<div class="dim-all" style="display:flex;flex-direction:column;flex:1;min-height:0">${body(`<pre style="margin:0;padding:0 1ch;flex:1;overflow:hidden;font:inherit">${SHELL}</pre>`)}</div>` + tmux('sh1'),
+  `<div class="ov" style="left:14ch;top:40px;width:80ch;height:420px">${SWITCH.replace('<span class="cur"> </span>', 'ngi<span class="cur"> </span>')
+    .replace(/<pre>[\s\S]*?<\/pre>/, `<pre>
+<span class="selm"><span class="a">▸</span> <span class="d">web1  </span> ✎ /srv/app/<span class="a bold">ngi</span>nx/nginx.conf                                     </span>
+  <span class="d">web1  </span> ▤ /srv/app/<span class="a bold">ngi</span>nx/
+  <span class="d">web1  </span> $ shell 2 · /var/log/<span class="a bold">ngi</span>nx
+  <span class="x">── dateien auf web1 ──────────────────────────────────────────────</span>
+  <span class="d">web1  </span> /etc/<span class="a bold">ngi</span>nx/sites-enabled/app.conf
+  <span class="d">web1  </span> /var/log/<span class="a bold">ngi</span>nx/error.log
+</pre>`)}</div>`);
+
+// E · landing ------------------------------------------------------------------------------
+const E1 = term(line(`<span class="badge">hop</span>` + sp + '<span class="d">3 verbunden</span>') + body(
+  box(`<pre>
+<span class="d">PINNED</span>
+<span class="selm"><span class="a">▌</span>web1       ${dot(true)} <span class="d">2$ ▤ 2✎</span>     </span>
+ db1        ${dot(true)} <span class="d">1$</span>
+<span class="d">ALL</span>
+ cache      ${dot(true)} <span class="d">1$</span>
+ staging    ${dot(false)}
+ bastion    ${dot(false)}
+ ci-runner  ${dot(false)}
+ mail       ${dot(false)}</pre>`, { title: 'HOSTS', f: true, style: 'width:32ch;flex:none' }) +
+  box(`<pre>
+<span class="bold">web1</span>  <span class="d">deploy@10.0.1.12 · port 22 · via bastion</span>
+<span class="d">tags</span>  prod  web
+
+<span class="d">OFFEN</span>
+  $ shell 1 · ~/app          <span class="d">vor 2 min</span>
+  $ shell 2 · /var/log
+  ▤ /srv/app
+  ✎ nginx.conf  ✎ docker-compose.yml
+  ⇄ 8080→localhost:8080   ⇄ 5432→db1:5432
+
+${keys([['enter', 'zurück wo ich war'], ['S', 'neue shell'], ['b', 'files'], ['t', 'tunnel']])}</pre>`, { style: 'flex:1' })) + line(keys([['/', 'filter'], ['a', 'add'], ['ctrl+o space', 'go to'], ['?', 'keys']])));
+
+const E2 = term(body(`<div style="flex:1;display:flex;flex-direction:column;align-items:center;padding-top:36px">
+<pre style="margin:0;font:inherit;width:72ch">
+<span class="a bold">hop</span>  <span class="d">wohin?</span>
+
+<span class="box f" style="display:block;margin:0;padding:0 1ch">› <span class="cur"> </span>                                                                    </span>
+
+<span class="d">ZULETZT</span>
+<span class="selm"><span class="a">▸</span> <span class="d">web1  </span> ✎ /srv/app/nginx/nginx.conf               <span class="d">vor 2 min</span>    </span>
+  <span class="d">web1  </span> $ shell 1 · ~/app                          <span class="d">vor 3 min</span>
+  <span class="d">db1   </span> $ psql                                     <span class="d">vor 20 min</span>
+  <span class="d">cache </span> $ shell 1 · /etc/redis                     <span class="d">gestern</span>
+
+<span class="d">HOSTS</span>
+  ${dot(true)} web1     ${dot(true)} db1      ${dot(true)} cache    ${dot(false)} staging  ${dot(false)} bastion
+  ${dot(false)} ci-runner ${dot(false)} mail
+
+<span class="x">tippen = suchen über hosts, offene sachen und dateien</span>
+</pre></div>`) + line(keys([['enter', 'go'], ['ctrl+n', 'neuer host'], ['?', 'keys']])));
+
+// F · files ---------------------------------------------------------------------------------
+const F1 = A2;
+const F2 = term(hdrA('br') + MILLER.replace('</div>', '</div>') + line(keys([['h/l', 'hoch/rein'], ['enter', 'öffnen'], ['`', 'terminal'], ['space', 'markieren'], ['y/p', 'kopieren/einfügen']])));
+const cmdr = (title, rows, f) => box(pre(rows.join('\n')), { f, title, rule: true, style: 'flex:1' });
+const F3 = term(hdrA('br') + col(body(
+  cmdr('<span class="bold">lokal</span> ~/Downloads', [
+    '<span class="a2">..</span>', '<span class="a2">screenshots/</span>',
+    'app-1.43.0.tar.gz             <span class="d">18M</span>', '<span class="y">✓ nginx.conf.new               1.3K</span>',
+    'invoice-export.csv            <span class="d">2.1M</span>', 'notes.md                      <span class="d">4K</span>'], false) +
+  cmdr('<span class="bold">web1</span> /srv/app', [
+    '<span class="a2">..</span>', '<span class="a2">config/</span>', '<span class="a2">nginx/</span>', '<span class="a2">public/</span>',
+    '<span class="selm">docker-compose.yml            427B  Sep 18</span>', '.env.example                  <span class="d">216B  Sep 09</span>',
+    'Makefile                      <span class="d">1.9K  Sep 15</span>', 'README.md                     <span class="d">3.4K  Sep 13</span>'], true), 'flex:60') +
+  body(box(pre(PANEL), { title: '<span class="a">terminal</span> · web1:/srv/app', style: 'flex:1' }), 'flex:40;padding-top:0'), 'flex:1') +
+  line(keys([['tab', 'seite'], ['F5', 'kopieren →/←'], ['enter', 'öffnen'], ['`', 'terminal'], ['q', 'zu']])));
+
+// the page -----------------------------------------------------------------------------------
+const sections = [
+  { id: 'A', name: 'Stand jetzt', idea: 'Das ist der aktuelle Stand (uncommittet). Oben die Session-Leiste mit dem aktiven Host und Chips für alles Offene, rechts die anderen Hosts. Shell-Ansicht = Shell volle Breite. Files-Ansicht = Baum | Editor, Terminal-Panel darunter. Alles andere über „go to“.',
+    pros: ['Shell hat maximal Platz', 'eine Zeile zeigt alles Offene auf dem Host', 'Kein neues Konzept mehr zu lernen'],
+    cons: ['Chips und „Ansichten“ (Shell vs. Files) sind zwei Ideen gleichzeitig', 'andere Hosts sieht man nur als Namen', 'Leiste wird bei vielen Sachen voll („+3“)'],
+    shots: [['A1', 'Shell auf web1', A1], ['A2', 'Files-Ansicht mit Terminal-Panel', A2], ['A3', 'ctrl+o space: go to', A3]] },
+  { id: 'B', name: 'Zwei Tab-Reihen (wie Browser/Terminal-App)', idea: 'Oben eine Reihe pro Host (wie Browser-Fenster), darunter die Tabs dieses Hosts: Shells, Files, jede offene Datei. Jeder Tab ist genau eine Sache, keine „Ansichten“. ctrl+o 1–9 springt zum Tab, ctrl+o ←/→ zum Host.',
+    pros: ['Sofort klar was offen ist und wo man ist', 'Jeder Tab ist 1 Tastendruck entfernt', 'Das Modell kennt jeder aus Browser/iTerm/Windows Terminal'],
+    cons: ['2 Zeilen Chrome oben', 'Shell und Datei gleichzeitig nur über das Panel', 'bei 10+ Hosts wird die obere Reihe eng'],
+    shots: [['B1', 'Shell-Tab auf web1', B1], ['B2', 'Datei-Tab: Baum | Datei, Terminal-Panel unten', B2], ['B3', 'Host-Tab db1 hat eigene Tabs', B3]] },
+  { id: 'C', name: 'Explorer links (VS Code Remote Explorer)', idea: 'Eine Leiste links wie in VS Code: oben alle Hosts als Baum, der aktive aufgeklappt mit allem was offen ist, darunter der Dateibaum. Rechts Tabs (Shells und Dateien gemischt), unten optional das Terminal-Panel. ctrl+o b klappt die Leiste weg.',
+    pros: ['Am nächsten an VS Code Remote', 'Überblick über alle Hosts und alles Offene auf einen Blick', 'Dateibaum immer da, ohne umzuschalten'],
+    cons: ['Kostet 32 Spalten, auch wenn man nur Shell will', 'Das hatten wir so ähnlich schon mal (Sidebar + Rest)', 'auf kleinen Fenstern eng'],
+    shots: [['C1', 'Shell, Explorer offen', C1], ['C2', 'Datei + Terminal-Panel', C2], ['C3', 'Explorer weggeklappt (ctrl+o b)', C3]] },
+  { id: 'D', name: 'Vollbild + eine Statuszeile (tmux-Stil)', idea: 'Kein Rahmen, keine Leisten. Eine Sache füllt den ganzen Screen, unten eine Zeile wie bei tmux: Host, nummerierte Fenster, andere Hosts. Navigieren fast nur über go to (sucht auch Dateien) und ctrl+o 1–9. Files als Spalten-Browser wie ranger/yazi.',
+    pros: ['Maximal schnell und minimal, wie reines SSH', 'Fühlt sich an wie tmux, falls du das kennst', 'Suche als Hauptweg: tippen statt klicken'],
+    cons: ['Wenig Überblick ohne go to zu öffnen', 'Kein Baum + Datei nebeneinander', 'Maus hat weniger zu tun'],
+    shots: [['D1', 'Shell, nur Statuszeile', D1], ['D2', 'Files als Spalten (ranger-Stil) mit Vorschau', D2], ['D3', 'go to mit Suche, findet auch Dateien auf dem Host', D3]] },
+  { id: 'E', name: 'Startbildschirm', idea: 'Was man sieht, wenn noch nichts oder kein Host vorne ist. Mit jeder Variante oben kombinierbar.',
+    pros: ['E1: Liste + Details, zeigt pro Host was offen ist', 'E2: Launcher, direkt tippen und los, „zuletzt“ über alle Hosts'],
+    cons: ['E1: viel Text', 'E2: Host-Verwaltung (bearbeiten, taggen) muss woanders hin'],
+    shots: [['E1', 'Hostliste + Details mit „offen“', E1], ['E2', 'Launcher (Spotlight-Stil)', E2]] },
+  { id: 'F', name: 'Files-Varianten', idea: 'Wie die Dateiansicht aussieht, unabhängig von A–D.',
+    pros: ['F1: Baum + Editor + Terminal, wie VS Code', 'F2: schnell mit Tastatur, Vorschau ohne öffnen', 'F3: Upload/Download zwischen lokal und Server sichtbar'],
+    cons: ['F1: Baum schmal', 'F2: ungewohnt ohne ranger-Vorwissen', 'F3: lokal ist nicht immer nötig'],
+    shots: [['F1', 'Baum | Editor, Terminal unten (jetzt)', F1], ['F2', 'Spalten (ranger/yazi) mit Vorschau', F2], ['F3', 'Commander: lokal | Server, Terminal unten', F3]] },
+];
+
+document.getElementById('out').innerHTML = sections.map(s => `
+  <h2 id="${s.id}"><span class="tag">${s.id}</span>${s.name}</h2>
+  <p class="idea">${s.idea}</p>
+  <div class="pc"><div class="p"><b>+</b><ul>${s.pros.map(p => `<li>${p}</li>`).join('')}</ul></div>
+  <div class="c"><b>−</b><ul>${s.cons.map(p => `<li>${p}</li>`).join('')}</ul></div></div>
+  ${s.shots.map(([id, cap, html]) => `<div class="shot"><div class="cap"><b>${id}</b>${cap}</div>${html}</div>`).join('')}
+`).join('') + `
+  <h2 id="cmp">Vergleich</h2>
+  <table class="cmp">
+    <tr><th></th><th>A jetzt</th><th>B Tab-Reihen</th><th>C Explorer</th><th>D Vollbild</th></tr>
+    <tr><td>Überblick was offen ist</td><td>mittel</td><td>gut</td><td>sehr gut</td><td>schwach</td></tr>
+    <tr><td>Platz für die Shell</td><td>fast alles</td><td>fast alles</td><td>minus 32 Spalten</td><td>alles</td></tr>
+    <tr><td>Wie VS Code Remote</td><td>teils</td><td>teils</td><td>ja</td><td>nein</td></tr>
+    <tr><td>Schnell nur mit Tastatur</td><td>gut</td><td>sehr gut</td><td>gut</td><td>sehr gut</td></tr>
+    <tr><td>Aufwand ab jetzt</td><td>0</td><td>mittel</td><td>mittel–groß</td><td>mittel</td></tr>
+  </table>`;
+</script>
+</body>
+</html>

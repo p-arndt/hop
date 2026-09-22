@@ -23,6 +23,7 @@ const (
 	zoneList
 	zoneTree
 	zonePane
+	zoneDrawer
 	zoneFooter
 )
 
@@ -43,6 +44,8 @@ func (m *model) zoneAt(x, y int) zone {
 		return zoneList
 	case m.frame.tree.contains(x, y):
 		return zoneTree
+	case m.frame.drawer.contains(x, y):
+		return zoneDrawer
 	}
 	// Everything else on a body row is the content area, including the blank column an
 	// odd-width split leaves over.
@@ -117,18 +120,28 @@ func (m *model) routeMouse(msg mouseEvt) (tea.Model, tea.Cmd) {
 	if m.capturing() {
 		return m, nil
 	}
+	if m.resizingDrawer {
+		return m.dragDrawerEdge(msg)
+	}
 	// A live drag keeps its events wherever the pointer went, or crossing into the sidebar
 	// would clear the selection halfway through making it.
 	if m.sel.dragging {
+		if m.mode == modeDrawer {
+			return m.mouseDrawer(msg)
+		}
 		return m.mousePane(msg)
 	}
 	switch m.zoneAt(msg.X, msg.Y) {
+	case zoneHeader:
+		return m.clickBar(msg)
 	case zoneList:
 		return m.mouseList(msg)
 	case zoneTree:
 		return m.mouseTree(msg)
 	case zonePane:
 		return m.mousePane(msg)
+	case zoneDrawer:
+		return m.mouseDrawer(msg)
 	}
 	return m, nil
 }
@@ -136,6 +149,9 @@ func (m *model) routeMouse(msg mouseEvt) (tea.Model, tea.Cmd) {
 // dragView is what a drag in progress is selecting out of.
 func (m *model) dragView() string {
 	s := m.sessions[m.active]
+	if m.mode == modeDrawer && s != nil && s.drawer != nil {
+		return s.drawer.pane.View()
+	}
 	if s == nil || s.shell() == nil {
 		return ""
 	}
@@ -189,7 +205,7 @@ func (m *model) mouseList(msg mouseEvt) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// clickList stands the cursor on the clicked host, connecting on a double-click.
+// clickList stands the cursor on the clicked host, entering it on a double-click.
 func (m *model) clickList(msg mouseEvt) (tea.Model, tea.Cmd) {
 	m.clearSelection()
 	m.backToList()
@@ -207,7 +223,7 @@ func (m *model) clickList(msg mouseEvt) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	return m, m.openShell(h, false)
+	return m, m.enterHost(h)
 }
 
 // rightClickList opens the context menu on the clicked host, standing the cursor on it
@@ -317,7 +333,7 @@ func (m *model) mousePane(msg mouseEvt) (tea.Model, tea.Cmd) {
 	// With no column for it the browser is the content area. Must come before the focus
 	// handling below, which would read a click on the listing as a click into a pane that
 	// is not there.
-	if m.treeInline() && m.browsing() && s.browser != nil {
+	if m.browsing() && m.browserInContent(s) {
 		return m.mouseBrowser(s, msg, x, y)
 	}
 
@@ -375,6 +391,10 @@ func (m *model) clickIntoPane(s *session, right bool) {
 	// back at the tree row you came from would open that row.
 	m.chords.click = time.Time{}
 	switch {
+	case m.browserInContent(s):
+		m.mode = modeBrowser
+	case !m.filesView() && s.shell() != nil:
+		m.focusShell(m.active)
 	case s.editorAt(right) != nil:
 		if m.contentIsSplit() {
 			s.splitRight = right

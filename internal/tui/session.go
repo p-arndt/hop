@@ -33,6 +33,13 @@ type session struct {
 	split      bool
 	splitRight bool
 
+	// drawer is the terminal panel's own shell; a shell tab would be resized on every view change.
+	drawer     *shellTab
+	drawerOpen bool
+
+	// filesView is the view the host was last in, which the host list shows it in.
+	filesView bool
+
 	// dead keeps the session: the panes still hold the last screen, and it is what 'r' reconnects.
 	dead bool
 	// lostWhy is what the transport reported when it went, for the banner. Often empty.
@@ -196,13 +203,22 @@ func (s *session) closeTunnels() {
 }
 
 func (s *session) empty() bool {
-	return len(s.shells) == 0 && s.browser == nil && len(s.editors) == 0 && len(s.tunnels) == 0
+	return len(s.shells) == 0 && s.browser == nil && len(s.editors) == 0 && len(s.tunnels) == 0 && s.drawer == nil
+}
+
+// closeDrawer ends the panel's shell.
+func (s *session) closeDrawer() {
+	if s.drawer != nil {
+		s.drawer.pane.Close()
+	}
+	s.drawer, s.drawerOpen = nil, false
 }
 
 // close tears the whole session down, the connection last.
 func (s *session) close() {
 	s.closeShells()
 	s.closeEditors()
+	s.closeDrawer()
 	s.closeTunnels()
 	if s.browser != nil {
 		s.browser.Close()
@@ -306,8 +322,7 @@ func (m *model) openBrowserAt(h store.Host, dir, note string) tea.Cmd {
 		existing = s.client
 	}
 	m.setStatus(statusInfo, "opening sftp %s…", h.Alias)
-	// browserSize tests the window rather than asking treeWidth: there is no column on screen yet to measure.
-	bw, bh := m.browserSize()
+	bw, bh := m.browserSize(m.sessions[h.Alias])
 	if existing == nil {
 		m.connecting[h.Alias] = true
 		return m.withSpinner(withBrowserNote(startBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), dir, bw, bh, false), note))
@@ -367,14 +382,6 @@ func (m *model) browseShellCwd(h store.Host) tea.Cmd {
 	return nil
 }
 
-// openShellIn starts another shell tab on the host, standing in dir. The directory rides in
-// as the host's default dir, so it takes exactly the path a configured one does.
-func (m *model) openShellIn(h store.Host, dir string) tea.Cmd {
-	here := h
-	here.DefaultDir = dir
-	return m.openShell(here, true)
-}
-
 // openBrowserTrusting retries after host-key approval; like openShellTrusting it is always a fresh dial.
 func (m *model) openBrowserTrusting(h store.Host, fingerprint string) tea.Cmd {
 	if m.connecting[h.Alias] {
@@ -382,7 +389,7 @@ func (m *model) openBrowserTrusting(h store.Host, fingerprint string) tea.Cmd {
 	}
 	m.setStatus(statusInfo, "opening sftp %s…", h.Alias)
 	m.connecting[h.Alias] = true
-	bw, bh := m.browserSize()
+	bw, bh := m.browserSize(m.sessions[h.Alias])
 	return m.withSpinner(openBrowserCmd(h, nil, fingerprint, m.prompter(h.Alias), m.browserOptions(), m.browserStartDir(h), bw, bh, false))
 }
 
@@ -440,6 +447,10 @@ func (m *model) closeBrowser() {
 	}
 	s.browser.Close()
 	s.browser = nil
+	if len(s.editors) == 0 {
+		// Nothing left for the panel to sit under.
+		s.closeDrawer()
+	}
 	m.reader.Reset()
 
 	if s.empty() {
@@ -452,8 +463,6 @@ func (m *model) closeBrowser() {
 	m.mode = modeList
 	if s.editor() != nil {
 		m.mode = modeEditor
-	} else {
-		m.revealSidebar()
 	}
 	// The tree column went with it; the editors are owed its width.
 	m.relayout()

@@ -43,8 +43,7 @@ const None Action = ""
 // file's vocabulary, so they are renamed only with a migration.
 const (
 	// Global.
-	Sidebar Action = "global.sidebar"
-	Mouse   Action = "global.mouse"
+	Mouse Action = "global.mouse"
 
 	// Motions, shared by the list and the browser.
 	Up        Action = "motion.up"
@@ -113,6 +112,9 @@ const (
 	BrowserTree      Action = "browser.tree-column"
 	BrowserSplit     Action = "browser.split"
 	BrowserShell     Action = "browser.shell-here"
+	BrowserDrawer    Action = "browser.terminal"
+	BrowserGrow      Action = "browser.terminal-taller"
+	BrowserShrink    Action = "browser.terminal-shorter"
 
 	// Pane. LeaderKey and PaneLeave are the two exits escapeHatch insists on keeping.
 	LeaderKey    Action = "pane.leader"
@@ -150,6 +152,11 @@ const (
 	LeaderHelp    Action = "leader.help"
 	LeaderShell   Action = "leader.new-shell"
 	LeaderBrowser Action = "leader.browser-here"
+	LeaderTree    Action = "leader.tree"
+	LeaderDrawer  Action = "leader.terminal"
+	LeaderGrow    Action = "leader.terminal-taller"
+	LeaderShrink  Action = "leader.terminal-shorter"
+	LeaderToShell Action = "leader.to-shell"
 	LeaderHosts   Action = "leader.hosts"
 	LeaderLast    Action = "leader.last-host"
 
@@ -191,12 +198,11 @@ func (b Binding) Keycap() string {
 // defaults is hop's keyboard as shipped. Order within a layer is the order the help card
 // and the palette show. Digits are handled as a range elsewhere, not bound here.
 var defaults = []Binding{
-	{Action: Sidebar, Layer: Global, Keys: []string{"ctrl+b"}, Label: "hide / show the sidebar"},
 	{Action: Mouse, Layer: Global, Keys: []string{"ctrl+g"}, Label: "hand the mouse to your terminal"},
 
 	// ---- host list ----
-	{Action: In, Layer: List, Keys: []string{"enter", "right"}, Label: "connect / focus its shell"},
-	{Action: In, Layer: List, Keys: []string{"l"}, Vim: true, Label: "connect / focus its shell"},
+	{Action: In, Layer: List, Keys: []string{"enter", "right"}, Label: "connect / back to where you were"},
+	{Action: In, Layer: List, Keys: []string{"l"}, Vim: true, Label: "connect / back to where you were"},
 	{Action: Out, Layer: List, Keys: []string{"left"}, Label: "back out of the host"},
 	{Action: Out, Layer: List, Keys: []string{"h"}, Vim: true, Label: "back out of the host"},
 	{Action: Up, Layer: List, Keys: []string{"up"}, Label: "move up"},
@@ -264,11 +270,14 @@ var defaults = []Binding{
 	{Action: BrowserFocusPane, Layer: Browser, Keys: []string{"tab"}, Label: "focus the content pane"},
 	{Action: BrowserTree, Layer: Browser, Keys: []string{"ctrl+t"}, Label: "hide / show the tree column"},
 	{Action: BrowserSplit, Layer: Browser, Keys: []string{"\\"}, Label: "open beside the current file"},
-	{Action: BrowserShell, Layer: Browser, Keys: []string{"S"}, Show: "shift+s", Label: "new shell in this directory"},
+	{Action: BrowserShell, Layer: Browser, Keys: []string{"S"}, Show: "shift+s", Label: "the terminal panel, in this directory"},
+	{Action: BrowserDrawer, Layer: Browser, Keys: []string{"`"}, Label: "show / hide the terminal panel"},
+	{Action: BrowserGrow, Layer: Browser, Keys: []string{"+", "="}, Label: "a taller terminal panel"},
+	{Action: BrowserShrink, Layer: Browser, Keys: []string{"-"}, Label: "a shorter terminal panel"},
 	{Action: BrowserRefresh, Layer: Browser, Keys: []string{"r"}, Label: "refresh the listing"},
 	{Action: BrowserClose, Layer: Browser, Keys: []string{"q"}, Label: "close the browser"},
 	{Action: BrowserLeave, Layer: Browser, Keys: []string{"ctrl+o", "esc esc"}, Window: doubleEscWindow, Label: "back to the host list"},
-	{Action: BrowserHosts, Layer: Browser, Keys: []string{"p"}, Label: "hop to another host"},
+	{Action: BrowserHosts, Layer: Browser, Keys: []string{"p"}, Label: "go to anything open, or a host"},
 	{Action: BrowserPalette, Layer: Browser, Keys: []string{"ctrl+k"}, Label: "search every action"},
 	{Action: BrowserSettings, Layer: Browser, Keys: []string{","}, Label: "settings"},
 	{Action: BrowserHelp, Layer: Browser, Keys: []string{"?"}, Label: "all the keys"},
@@ -315,7 +324,12 @@ var defaults = []Binding{
 	{Action: LeaderShell, Layer: Leader, Keys: []string{"0"}, Label: "another shell on this host"},
 	{Action: LeaderVSCode, Layer: Leader, Keys: []string{"c"}, Label: "open this directory in VS Code"},
 	{Action: LeaderBrowser, Layer: Leader, Keys: []string{"f"}, Label: "browse this directory in sftp"},
-	{Action: LeaderHosts, Layer: Leader, Keys: []string{"space"}, Label: "hop to another host"},
+	{Action: LeaderDrawer, Layer: Leader, Keys: []string{"j"}, Label: "show / hide the terminal panel"},
+	{Action: LeaderGrow, Layer: Leader, Keys: []string{"+", "="}, Label: "a taller terminal panel"},
+	{Action: LeaderShrink, Layer: Leader, Keys: []string{"-"}, Label: "a shorter terminal panel"},
+	{Action: LeaderTree, Layer: Leader, Keys: []string{"t"}, Label: "the file tree"},
+	{Action: LeaderToShell, Layer: Leader, Keys: []string{"s"}, Label: "this host's shell"},
+	{Action: LeaderHosts, Layer: Leader, Keys: []string{"space"}, Label: "go to anything open, or a host"},
 	{Action: LeaderLast, Layer: Leader, Keys: []string{"tab"}, Label: "back to the last host"},
 	{Action: LeaderPalette, Layer: Leader, Keys: []string{"ctrl+k"}, Label: "search every action"},
 	{Action: LeaderHelp, Layer: Leader, Keys: []string{"?"}, Label: "all the keys"},

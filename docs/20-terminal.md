@@ -15,7 +15,6 @@ label: Terminal mode
 | [[ctrl+o]] [[0]] | open **another** shell on this host, without leaving the pane |
 | [[ctrl+o]] [[c]] | open **this directory** in VS Code Remote |
 | [[shift+↑]] [[shift+pgup]] | scroll back into the pane's history |
-| [[ctrl+b]] | hide / show the sidebar — the pane takes the whole window |
 | [[ctrl+g]] | hand the mouse to your terminal (and take it back) |
 | [[alt+0]], [[alt+←]]/[[alt+→]], [[alt+1]]…[[alt+9]] | aliases for the above, where your terminal sends them |
 | *everything else* | sent to the remote shell |

@@ -54,6 +54,13 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.leaderArmed() {
 		return m.handleLeader(msg)
 	}
+	if m.sizingDrawer {
+		if m.sizeDrawerKey(msg.String()) {
+			return m, nil
+		}
+		// Any other key ends the sizing and then does what it always does.
+		m.sizingDrawer = false
+	}
 
 	m.clearSelection()
 
@@ -67,6 +74,8 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case m.active != "" && m.inPane() && m.activeDead():
 		return m.handleDeadPaneKey(msg)
 
+	case m.mode == modeDrawer && m.active != "":
+		return m.handleDrawerKey(msg)
 	case m.editing() && m.active != "":
 		return m.handleEditorKey(msg)
 	case m.browsing() && m.active != "":
@@ -84,8 +93,6 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // doGlobal runs one of the bindings that belong to the window rather than to a mode.
 func (m *model) doGlobal(a keys.Action) (tea.Model, tea.Cmd) {
 	switch a {
-	case keys.Sidebar:
-		m.toggleSidebar()
 	case keys.Mouse:
 		return m, m.toggleMouse()
 	}
@@ -268,7 +275,7 @@ func (m *model) move(mo keys.Action) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		return m, m.openShell(h, false)
+		return m, m.enterHost(h)
 	}
 
 	m.clampCursor()
@@ -300,7 +307,6 @@ func (m *model) leaveDetails() {
 	m.active = ""
 	m.mode = modeList
 	m.clearStatus()
-	m.revealSidebar()
 	m.relayout() // no active session means no tree column, so the columns move
 }
 
@@ -406,11 +412,17 @@ func (m *model) doBrowser(a keys.Action) (tea.Model, tea.Cmd) {
 
 	case keys.BrowserShell:
 		s := m.sessions[m.active]
-		h, ok := m.hostByAlias(m.active)
-		if s == nil || s.browser == nil || !ok {
+		if s == nil || s.browser == nil {
 			return m, nil
 		}
-		return m, m.openShellIn(h, s.browser.CursorDir())
+		return m, m.drawerHere(s.browser.CursorDir())
+
+	case keys.BrowserDrawer:
+		return m, m.toggleDrawer()
+
+	case keys.BrowserGrow, keys.BrowserShrink:
+		m.stepDrawer(a == keys.BrowserGrow)
+		return m, nil
 	}
 
 	if s := m.sessions[m.active]; s != nil && s.browser != nil {
@@ -728,7 +740,6 @@ func (m *model) leavePane() {
 	m.mode = modeList
 	m.clearStatus()
 	m.reader.Reset()
-	m.revealSidebar()
 }
 
 // armLeader opens the leader on the pane the keyboard is in. No timer starts.
@@ -804,9 +815,34 @@ func (m *model) doLeader(a keys.Action, alias string, editing bool) (tea.Model, 
 		m.openHostSwitch()
 		return m, nil
 
-	case keys.LeaderLast:
-		m.backToLastHost()
+	case keys.LeaderDrawer:
+		return m, m.toggleDrawer()
+
+	case keys.LeaderGrow, keys.LeaderShrink:
+		if m.stepDrawer(a == keys.LeaderGrow) {
+			m.sizingDrawer = true
+		}
 		return m, nil
+
+	case keys.LeaderTree:
+		if !m.focusTree() {
+			m.setStatus(statusWarn, "no sftp browser on %s · ctrl+o f opens one", alias)
+		}
+		return m, nil
+
+	case keys.LeaderToShell:
+		if !editing && m.mode != modeDrawer {
+			break
+		}
+		h, ok := m.hostByAlias(alias)
+		if !ok {
+			return m, nil
+		}
+		m.reader.Reset()
+		return m, m.openShell(h, false)
+
+	case keys.LeaderLast:
+		return m, m.backToLastHost()
 
 	case keys.LeaderShell:
 		if editing {
@@ -860,7 +896,6 @@ func (m *model) leaveBrowser() {
 	m.mode = modeList
 	m.clearStatus()
 	m.reader.Reset()
-	m.revealSidebar()
 }
 
 // leaveEditor hands the keyboard to the tree column, or the host list if it is gone.
@@ -872,14 +907,12 @@ func (m *model) leaveEditor() {
 		m.mode = modeBrowser
 		return
 	}
-	m.revealSidebar()
 }
 
 // leaveAll drops every pane mode, handing the keyboard back to the host list.
 func (m *model) leaveAll() {
 	m.active = ""
 	m.mode = modeList
-	m.revealSidebar()
 	m.relayout()
 }
 

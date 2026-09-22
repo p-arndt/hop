@@ -41,12 +41,36 @@ is holding.
 
 ### Layout
 
-**Is:** the arrangement facts — total width, the sidebar, the list column, the tree
-column, the content area, the split.
+**Is:** the arrangement facts — total width, the list column, the tree column, the
+content area, the split.
 
-**Rule:** only a resize or a column toggle writes it.
+**Rule:** a resize, a column toggle or a change of [[View]] writes it. Pane sizes depend
+on the window and the session alone, never on which host is in front or where the keyboard is.
 
-**In code:** the embedded `layout` struct; `recomputeLayout`, `relayout`.
+**In code:** the embedded `layout` struct; `recomputeLayout`, `relayout`, `syncView`.
+
+### View
+
+**Is:** what a host in front shows: the **shell view** (one shell at full width) or the
+**files view** (the tree beside the open files, or the browser alone at full width).
+
+**Is not:** a [[Mode]]. The mode says where the keys go; the view says what is drawn. In the
+host list the view is the one the host was last in.
+
+**In code:** `model.filesView`, `session.filesView`.
+
+### Terminal panel
+
+**Is:** a shell under the files in the files view, the way an IDE keeps one under its
+editor. One per session, started on demand in the directory under the tree's cursor.
+
+**Is not:** a [[Shell tab]]. It is its own shell, so the shell view's tabs are never resized
+by it and it is never resized by them. Hiding it keeps it running.
+
+**Rule:** its height is a share of the body the user sets (drag the edge, `ctrl+o +`/`-`),
+held between its floor and the files' floor.
+
+**In code:** `internal/tui/drawer.go` — `session.drawer`, `modeDrawer`, `frame.drawer`.
 
 ### Rect / frame
 
@@ -60,8 +84,8 @@ drawn into (`frame`), including its two halves when split.
 **Is:** one vertical region of the screen: the sidebar, the host list, the file tree,
 the content area.
 
-**Rule:** a column that does not fit is not drawn. The browser falls back to a full
-pane below 96 columns.
+**Rule:** a column that does not fit is not drawn. The tree is a column only beside open
+files and only from 92 columns up (a quarter of the window, 30 to 44 wide, plus 62 for the files).
 
 ### Split
 
@@ -129,30 +153,66 @@ prompt.
 
 **In code:** `overlay.go` and one file per card.
 
-### Host switcher
+### Target
 
-**Is:** the card that lists every host — the ones with a session first, then the list's
-order — narrowed by typing, where `enter` lands in that host's shell (connecting first if
-there is none).
+**Is:** one place on a connected host the keyboard can be put back into — a shell tab, the
+browser, an editor tab, the terminal panel — or, as a row of the [[Switcher]], the host
+itself or its tunnels. Named by alias, kind and the tab's stable id, never its index.
+
+**Is not:** a [[Tab]]. The browser and the panel are targets and not tabs.
+
+**Rule:** a dead session has no targets; reaching it goes through its host, which reconnects.
+
+**In code:** `target`, `openTargets`, `jumpTo` in `internal/tui/targets.go`.
+
+### Last place
+
+**Is:** the target on a host that last had the keyboard — or, on a host never used yet, its
+shell, browser or editor, in that order. Entering a host lands there.
+
+**Rule:** every target is stamped when the keyboard moves into it, after every message; the
+last place is the one stamped last that is still open.
+
+**In code:** `focus.used` / `useSeq`, kept by `noteTarget`; `lastPlace`, `enterHost`.
+
+### Switcher
+
+**Is:** the card over every target on every connected host, most recently used first, then
+every host — connected ones first — narrowed by typing over alias, path and name. `enter`
+lands exactly on the row. With no query the cursor starts on the row after where the
+keyboard is, so opening it and pressing `enter` goes back.
 
 **Is not:** the host list's filter, which narrows the column in place; nor the palette,
-which lists actions, not hosts.
+which lists actions, not places.
 
-**In code:** `hostSwitchUI`, `openHostSwitch`, `hopTo` in `internal/tui/hostswitch.go`.
+**In code:** `hostSwitchUI`, `openHostSwitch`, `switchRows` in `internal/tui/hostswitch.go`.
+
+### Session bar
+
+**Is:** the header row: the host in front and a chip per target open on it, the keyboard's
+highlighted, then the other connected hosts. With no host in front, every connected host.
+Every chip is a way to its target.
+
+**Rule:** laid out once (`sessionBar`) and read by both the renderer and the pointer, so what
+is clicked is what is drawn. The far end gives way to a "+N" that opens the [[Switcher]]; the
+keyboard's chip gives way last. A transient status takes the right side while it lasts.
+
+**In code:** `internal/tui/sessionbar.go`.
 
 ### Last host
 
-**Is:** the host that was in front before the current one, with the mode it was showing
-when it was left. Going back to it swaps the two, alt-tab style.
+**Is:** the host that was in front before the current one. Going back to it swaps the two,
+alt-tab style, landing on its [[Last place]].
 
 **Rule:** it changes only when the host in front changes, never on a change of mode.
 
-**In code:** `focus.last` / `focus.shown` (a `hostView`), kept by `noteHost`;
-`backToLastHost`.
+**In code:** `focus.last` / `focus.shown`, kept by `noteHost`; `backToLastHost`.
 
 ### Sidebar
 
-**Is:** the narrow column hop shows when there is room for it, toggled by a key that is
-reserved in **every** mode.
+**Is:** the host list: a column while no host is in front, drawn **over** the host's view
+while one is. On screen exactly while it has the keyboard.
 
-**In code:** `layout.sidebarOn`, `toggleSidebar`, `revealSidebar`.
+**Is not:** toggled by a key any more; [[Switcher]] is the way to hop without it.
+
+**In code:** `sidebarOn`, `sidebarFloats`, `listWidth`.

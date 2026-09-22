@@ -49,6 +49,9 @@ func (m *model) crumbs() ([]string, string) {
 	case s != nil && s.dead && m.active != "":
 		return []string{aliasStyle.Render(m.active), redText.Render("disconnected")}, ""
 
+	case m.mode == modeDrawer && s != nil && s.drawer != nil:
+		return []string{aliasStyle.Render(m.active), dimStyle.Render("terminal")}, s.drawer.pane.Cwd()
+
 	case m.editing() && s != nil && s.editor() != nil:
 		ed := s.editor()
 		// The path, not the name: two tabs on config.yaml in different directories are

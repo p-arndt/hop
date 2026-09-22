@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -177,5 +178,35 @@ func TestAFullQueueRefusesInput(t *testing.T) {
 	p.Flush()
 	if got, want := w.String(), strings.Repeat("x", taken); got != want {
 		t.Fatalf("the far end received %d bytes, want the %d keys the queue took", len(got), len(want))
+	}
+}
+
+func TestSendLineClearsThePromptAndSubmits(t *testing.T) {
+	in := &syncBuf{}
+	out, w := io.Pipe()
+	p := New(&sshx.Session{Stdin: in, Stdout: out}, 80, 24, nil)
+	defer p.Close()
+	defer w.Close()
+
+	if !p.SendLine("cd -- '/srv'") {
+		t.Fatal("a shell at its prompt refused the line")
+	}
+	if !waitFor(func() bool { return in.String() == "\x15cd -- '/srv'\r" }) {
+		t.Fatalf("the remote got %q", in.String())
+	}
+}
+
+func TestSendLineIsRefusedOnTheAltScreen(t *testing.T) {
+	in := &syncBuf{}
+	out, w := io.Pipe()
+	p := New(&sshx.Session{Stdin: in, Stdout: out}, 80, 24, nil)
+	defer p.Close()
+
+	go io.WriteString(w, "\x1b[?1049h")
+	if !waitFor(p.AltScreen) {
+		t.Fatal("the pane never entered the alternate screen")
+	}
+	if p.SendLine("cd /srv") {
+		t.Fatal("a line was typed into a full-screen program")
 	}
 }

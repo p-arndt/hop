@@ -138,9 +138,8 @@ func (m *model) reconnect(h store.Host) tea.Cmd {
 	// Which half is dialed first decides which ends up focused: the primary landing takes
 	// the keyboard, everything restored after it lands quietly.
 	if plan.browser && (plan.browsingFirst || plan.shells == 0) {
-		// The browser is built at the size of the tree column it will live in: browserLanded
-		// relayouts a frame later, but the listing is laid out against this size first.
-		bw, bh := m.browserSize()
+		// browserLanded relayouts a frame later, but the listing is laid out against this size first.
+		bw, bh := m.browserSize(m.sessions[h.Alias])
 		return m.withSpinner(reconnectBrowserCmd(h, nil, "", m.prompter(h.Alias), m.browserOptions(), plan.browserDir, bw, bh, false))
 	}
 	if plan.shells == 0 && len(plan.tunnels) > 0 {
@@ -176,8 +175,7 @@ func (m *model) applyPlan(alias string) tea.Cmd {
 		cmds = append(cmds, shellCmd(alias, h.DefaultDir, s.client, m.nextShID, cols, rows, m.notify, true))
 	}
 	if plan.browser && s.browser == nil {
-		// As above: the tree column's interior, since that is where it is going.
-		bw, bh := m.browserSize()
+		bw, bh := m.browserSize(s)
 		cmds = append(cmds, reconnectBrowserCmd(h, s.client, "", nil, m.browserOptions(), plan.browserDir, bw, bh, true))
 	}
 	var missing []int64

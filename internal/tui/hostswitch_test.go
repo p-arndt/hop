@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -33,13 +34,24 @@ func press(t *testing.T, m *model, names ...string) {
 
 func switchAliases(m *model) []string {
 	var out []string
-	for _, h := range m.hostSwitch.items {
-		out = append(out, h.Alias)
+	for _, it := range m.hostSwitch.items {
+		out = append(out, it.t.alias)
 	}
 	return out
 }
 
-func TestLeaderSpaceOpensTheHostSwitcherWithSessionsFirst(t *testing.T) {
+// switchHosts is the host rows alone, in the switcher's order.
+func switchHosts(m *model) []string {
+	var out []string
+	for _, it := range m.hostSwitch.items {
+		if it.t.kind == targetHost {
+			out = append(out, it.t.alias)
+		}
+	}
+	return out
+}
+
+func TestLeaderSpaceOpensTheSwitcherOnWhatIsOpenThenEveryHost(t *testing.T) {
 	m := newMouseModel(3)
 	m.sessions["hc"] = &session{shells: []*shellTab{{id: 1, pane: fakePane()}}}
 	m.focusShell("hc")
@@ -47,10 +59,13 @@ func TestLeaderSpaceOpensTheHostSwitcherWithSessionsFirst(t *testing.T) {
 	press(t, m, "ctrl+o", "space")
 
 	if !m.hostSwitch.open {
-		t.Fatal("ctrl+o space did not open the host switcher")
+		t.Fatal("ctrl+o space did not open the switcher")
 	}
-	if got := switchAliases(m); len(got) != 3 || got[0] != "hc" || got[1] != "ha" || got[2] != "hb" {
-		t.Fatalf("items = %v, want the connected host first, then the list's order", got)
+	if first := m.hostSwitch.items[0].t; first != (target{alias: "hc", kind: targetShell, id: 1}) {
+		t.Fatalf("first row = %+v, want hc's shell", first)
+	}
+	if got := switchHosts(m); len(got) != 3 || got[0] != "hc" || got[1] != "ha" || got[2] != "hb" {
+		t.Fatalf("hosts = %v, want the connected host first, then the list's order", got)
 	}
 }
 
@@ -61,7 +76,7 @@ func TestSpaceInAShellDoesNotOpenTheHostSwitcher(t *testing.T) {
 	press(t, m, "space")
 
 	if m.hostSwitch.open {
-		t.Fatal("a bare space opened the host switcher instead of reaching the shell")
+		t.Fatal("a bare space opened the switcher instead of reaching the shell")
 	}
 }
 
@@ -113,7 +128,7 @@ func TestHostSwitcherCardNamesEveryHost(t *testing.T) {
 
 	card := ansi.Strip(m.modalCard())
 
-	for _, want := range []string{"HOSTS", "ha", "hb", "hc", "hop"} {
+	for _, want := range []string{"GO TO", "ha", "hb", "hc", "$ shell 1", "here", "go"} {
 		if !strings.Contains(card, want) {
 			t.Fatalf("the card is missing %q:\n%s", want, card)
 		}
@@ -139,7 +154,7 @@ func TestPasteIntoTheHostSwitcherSearches(t *testing.T) {
 
 	m.Update(tea.PasteMsg{Content: "hb"})
 
-	if got := switchAliases(m); len(got) != 1 || got[0] != "hb" {
+	if got := switchAliases(m); len(got) == 0 || slices.ContainsFunc(got, func(a string) bool { return a != "hb" }) {
 		t.Fatalf("pasting hb matched %v", got)
 	}
 }
@@ -150,7 +165,7 @@ func TestPOpensTheHostSwitcherFromTheBrowser(t *testing.T) {
 	press(t, m, "p")
 
 	if !m.hostSwitch.open {
-		t.Fatal("p in the browser did not open the host switcher")
+		t.Fatal("p in the browser did not open the switcher")
 	}
 }
 
@@ -160,7 +175,7 @@ func TestLeaderSpaceOpensTheHostSwitcherFromAnEditor(t *testing.T) {
 	press(t, m, "ctrl+o", "space")
 
 	if !m.hostSwitch.open {
-		t.Fatal("ctrl+o space did not open the host switcher in an editor tab")
+		t.Fatal("ctrl+o space did not open the switcher in an editor tab")
 	}
 }
 
@@ -193,13 +208,16 @@ func TestLeaderTabLandsInTheModeTheLastHostWasShowing(t *testing.T) {
 	}
 }
 
-// A mode the host no longer has falls back to the first it does: shell, browser, editor.
-func TestLeaderTabFallsBackWhenTheLastModeIsGone(t *testing.T) {
+// A last place that has closed falls back to the one used before it.
+func TestLeaderTabFallsBackWhenTheLastPlaceIsGone(t *testing.T) {
 	m := switchModel(t)
-	m.sessions["ha"].editors = []*editorTab{{id: 3, name: "a.conf", path: "/etc/a.conf", pane: fakePane()}}
+	s := m.sessions["ha"]
+	s.editors = []*editorTab{{id: 3, name: "a.conf", path: "/etc/a.conf", pane: fakePane()}}
+	m.mode = modeEditor
+	press(t, m)
 	m.focusShell("hb")
 	press(t, m)
-	m.last = hostView{alias: "ha", mode: modeBrowser}
+	s.dropEditor(3)
 
 	press(t, m, "ctrl+o", "tab")
 
@@ -233,7 +251,7 @@ func TestLeaderTabToAHostWhoseSessionIsGoneSaysSo(t *testing.T) {
 // The palette offers the way back only while it would work.
 func TestPaletteOffersTheHostChordsInAPane(t *testing.T) {
 	m := switchModel(t)
-	if as := m.contextActions(); !has(as, "hop to another host") || has(as, "back to the last host") {
+	if as := m.contextActions(); !has(as, "go to anything open, or a host") || has(as, "back to the last host") {
 		t.Fatalf("with no last host: %v", labels(as))
 	}
 

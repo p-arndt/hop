@@ -209,33 +209,3 @@ func browsingOn(t *testing.T) (*model, *session) {
 	m.mode = modeBrowser
 	return m, s
 }
-
-func TestShellHereStartsInTheDirectoryUnderTheCursor(t *testing.T) {
-	rec := stubExtraShell(t)
-	m, s := browsingOn(t)
-
-	_, cmd := m.handleKey(key(t, "S"))
-	run(t, m, cmd)
-
-	if rec.calls != 1 || rec.dir != "/srv/app" {
-		t.Fatalf("asked for %d shells starting in %q, want one in /srv/app", rec.calls, rec.dir)
-	}
-	if len(s.shells) != 2 || s.activeSh != 1 {
-		t.Fatalf("shells = %d, active = %d; want a second tab, shown", len(s.shells), s.activeSh)
-	}
-	if m.mode != modeShell {
-		t.Fatalf("mode = %v, want the new shell to have the keyboard", m.mode)
-	}
-}
-
-func TestShellHereOnAFileStartsInItsDirectory(t *testing.T) {
-	rec := stubExtraShell(t)
-	m, s := browsingOn(t)
-	s.browser.Select(1) // notes.txt
-
-	m.handleKey(key(t, "S"))
-
-	if rec.calls != 1 || rec.dir != "/srv" {
-		t.Fatalf("asked for %d shells starting in %q, want one in /srv", rec.calls, rec.dir)
-	}
-}

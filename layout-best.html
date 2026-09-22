@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>hop · Vorschlag: das Beste aus allem</title>
+<style>
+  :root {
+    --bg: #1d1d2b; --panel: #232336; --fg: #e4e4f0; --dim: #7c7c96; --faint: #4a4a62;
+    --ac: #ff6ac1; --ac2: #c792ea; --g: #8be28b; --b: #7fb4ff; --y: #f6d57a; --r: #ff7a90;
+    --bd: #44445c; --chip: #34344c; --lh: 18px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #11111a; color: var(--fg); font: 15px/1.55 -apple-system, system-ui, sans-serif; }
+  nav { position: sticky; top: 0; z-index: 10; background: #11111aee; backdrop-filter: blur(6px);
+        border-bottom: 1px solid #2a2a3c; padding: 10px 32px; display: flex; gap: 18px; flex-wrap: wrap; }
+  nav a { color: var(--dim); text-decoration: none; font-weight: 600; }
+  nav a:hover { color: var(--ac); }
+  main { padding: 24px 32px 80px; max-width: 1500px; }
+  h1 { margin: 8px 0 4px; }
+  h2 { margin: 52px 0 6px; font-size: 25px; }
+  h3 { margin: 26px 0 4px; font-size: 18px; }
+  p, li { max-width: 920px; color: #c4c4d6; }
+  b.a { color: var(--ac); }
+  .shot { margin: 16px 0 30px; }
+  .shot .cap { font-size: 14px; color: var(--dim); margin-bottom: 6px; max-width: 118ch; }
+  .shot .cap b { color: var(--fg); background: #2a2a3c; padding: 1px 7px; border-radius: 4px; margin-right: 6px; }
+  .note { background: #1b1b28; border-left: 3px solid var(--ac); padding: 10px 16px; max-width: 920px; color: #c8c8da; }
+  table.t { border-collapse: collapse; margin-top: 10px; font-size: 14px; max-width: 1100px; }
+  table.t td, table.t th { border: 1px solid #2e2e42; padding: 6px 12px; text-align: left; vertical-align: top; }
+  table.t th { background: #1b1b28; }
+  table.t td.ok { color: var(--g); } table.t td.no { color: var(--r); } table.t td.mid { color: var(--y); }
+  code, kbd { font-family: "JetBrains Mono", Menlo, monospace; font-size: 13px; background: #26263a; padding: 1px 6px; border-radius: 4px; color: var(--fg); }
+
+  .term { width: 118ch; height: calc(34 * var(--lh)); background: var(--bg); border-radius: 8px;
+          font: 13px/var(--lh) "JetBrains Mono", "SF Mono", Menlo, monospace; color: var(--fg);
+          display: flex; flex-direction: column; overflow: hidden; position: relative;
+          box-shadow: 0 10px 40px #0008; padding: 4px 0; }
+  .line { height: var(--lh); white-space: pre; overflow: hidden; padding: 0 1ch; display: flex; align-items: center; gap: 0; flex: none; }
+  .line .sp { flex: 1; }
+  .body { flex: 1; display: flex; min-height: 0; padding: 2px 0; }
+  .col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .box { border: 1px solid var(--bd); border-radius: 5px; margin: 0 .5ch; display: flex; flex-direction: column;
+         min-width: 0; min-height: 0; overflow: hidden; position: relative; }
+  .box.f { border-color: var(--ac); }
+  .col > .box + .box { margin-top: 2px; }
+  .box pre, pre.raw { margin: 0; padding: 0 1ch; flex: 1; overflow: hidden; white-space: pre; font: inherit; }
+  .bt { height: var(--lh); padding: 0 1ch; color: var(--dim); white-space: pre; overflow: hidden; flex: none; display: flex; }
+  .bt.rule { border-bottom: 1px solid var(--bd); height: calc(var(--lh) + 1px); }
+  .bt .sp { flex: 1; }
+  .badge { background: var(--chip); color: var(--ac); font-weight: 700; padding: 0 1ch; margin-right: 1ch; }
+  .htab { padding: 0 1ch; color: #b8b8cc; }
+  .htab.on { background: var(--ac); color: #1d1d2b; font-weight: 700; }
+  .htab .n { color: var(--faint); }
+  .htab.on .n { color: #5a2346; }
+  .ttab { padding: 0 1ch; color: var(--dim); }
+  .ttab.on { color: var(--fg); background: #34344c; font-weight: 700; }
+  .ttab.on::after { content: ""; }
+  .ttab .n { color: var(--faint); }
+  .sep { color: var(--faint); padding: 0 .5ch; }
+  .k { background: #34344c; color: var(--fg); padding: 0 1ch; }
+  .kd { color: var(--dim); padding: 0 1.5ch 0 .5ch; }
+  .d { color: var(--dim); } .x { color: var(--faint); }
+  .a { color: var(--ac); } .a2 { color: var(--ac2); } .g { color: var(--g); } .b { color: var(--b); } .y { color: var(--y); } .r { color: var(--r); }
+  .bold { font-weight: 700; }
+  .selm { background: #3a3350; }
+  .cur { background: var(--fg); color: var(--bg); }
+  .ov { position: absolute; background: var(--panel); border: 1px solid var(--ac); border-radius: 6px;
+        box-shadow: 0 10px 40px #000a; display: flex; flex-direction: column; overflow: hidden; }
+  .ov pre { margin: 0; padding: 0 1ch; white-space: pre; font: inherit; flex: 1; overflow: hidden; }
+  .dim-all { opacity: .4; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .ln { color: var(--faint); }
+  .ruleh { height: 1px; background: var(--bd); margin: 0 1ch; flex: none; }
+  .edge { height: 3px; background: repeating-linear-gradient(90deg, var(--ac) 0 6px, transparent 6px 10px); margin: 1px 1ch; opacity: .6; flex: none; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="#top">Kurz</a>
+  <a href="#review">Prüfung der Vorschläge</a>
+  <a href="#idea">Der Vorschlag</a>
+  <a href="#screens">Screens</a>
+  <a href="#keys">Tasten</a>
+  <a href="#rules">Regeln</a>
+  <a href="#cost">Umbau</a>
+  <a href="layout-mockups.html">← alle Varianten</a>
+</nav>
+<main>
+  <h1 id="top">Vorschlag: das Beste aus A–F</h1>
+  <p class="note"><b class="a">Kurz:</b> Die Struktur von <b>B</b> (Hosts oben, darunter die Tabs dieses Hosts, jeder Tab ist genau eine Sache),
+    der Platz von <b>D</b> (eine Shell bekommt den ganzen Bildschirm, nur eine Fußzeile),
+    der Überblick von <b>C</b> (nicht als feste Leiste, sondern als „go to“, das ohne Suche alles nach Host gruppiert zeigt),
+    <b>F1</b> für Dateien plus die Vorschau aus <b>F2</b> und das Terminal-Panel,
+    und als Start <b>E1 + E2</b> in einem Screen.
+    Weg fällt die Idee „Shell-Ansicht vs. Files-Ansicht“. Die war der Grund, warum sich A komisch anfühlt.</p>
+
+  <h2 id="review">1 · Prüfung der Vorschläge</h2>
+  <p>Gemessen an dem, was du willst: schnell von Server zu Server, VS Code Remote ersetzen, jederzeit sehen und wieder hinkommen, was offen ist, auch nur mit Shell gut.</p>
+  <table class="t">
+    <tr><th></th><th>Was gut ist</th><th>Was nicht passt</th><th>Übernehmen?</th></tr>
+    <tr><td><b>A</b> jetzt</td><td>Shell voll breit; Chips zeigen was offen ist; „go to“ springt überall hin; zurück wo ich war</td>
+        <td>Zwei Ideen gleichzeitig: Chips <i>und</i> unsichtbare „Ansichten“. Andere Hosts sind nur Namen rechts. Zwei Zeilen unten, eine oben: unten ist zu viel</td>
+        <td class="mid">„go to“, „zurück wo ich war“, Panel: ja. Ansichten: nein</td></tr>
+    <tr><td><b>B</b> Tab-Reihen</td><td>Ein Modell, das jeder kennt: Hosts wie Fenster, Sachen wie Tabs. Man sieht immer wo man ist. ctrl+o 1–9</td>
+        <td>2 Zeilen oben; viele Hosts werden eng</td>
+        <td class="ok">Ja, als Gerüst. Hostzeile zeigt nur verbundene Hosts, scrollt bei zu vielen</td></tr>
+    <tr><td><b>C</b> Explorer</td><td>Bester Überblick: alle Hosts, alles Offene, Dateibaum</td>
+        <td>Kostet immer 32 Spalten, auch in der Shell. Das war genau das „alles nebeneinander“, das du kacke fandest</td>
+        <td class="mid">Den Baum aller Hosts ja, aber nur auf Tastendruck (in „go to“)</td></tr>
+    <tr><td><b>D</b> Vollbild</td><td>Shell hat alles, fühlt sich an wie reines SSH; Suche als Hauptweg</td>
+        <td>Kaum Überblick ohne etwas zu öffnen. Genau das hast du bemängelt</td>
+        <td class="mid">Nur die Idee: Shell ohne Rahmen, Suche die auch Dateien findet</td></tr>
+    <tr><td><b>E1</b> Liste + Details</td><td>Hostverwaltung, pro Host sieht man was offen ist</td><td>Viel Text, man muss erst navigieren</td><td class="ok">Ja, rechte Hälfte</td></tr>
+    <tr><td><b>E2</b> Launcher</td><td>Tippen und los; „zuletzt“ über alle Hosts</td><td>Kein Platz für Verwaltung</td><td class="ok">Ja, linke Hälfte, Suchfeld oben</td></tr>
+    <tr><td><b>F1</b> Baum | Datei</td><td>Wie VS Code, jeder kennt es</td><td>Ohne offene Datei ist die Breite verschwendet</td><td class="ok">Ja</td></tr>
+    <tr><td><b>F2</b> Spalten</td><td>Vorschau ohne Öffnen, schnell mit Tastatur</td><td>Ungewohnt; drei Spalten sind im Terminal eng</td><td class="mid">Nur die Vorschau: wenn keine Datei offen ist, zeigt die rechte Seite die Vorschau</td></tr>
+    <tr><td><b>F3</b> Commander</td><td>Upload/Download sichtbar</td><td>Selten gebraucht, kostet eine ganze Ansicht</td><td class="no">Nein. Upload/Download bleiben Tasten im Baum</td></tr>
+  </table>
+
+  <h2 id="idea">2 · Der Vorschlag in 6 Sätzen</h2>
+  <ol>
+    <li><b>Zeile 1: Hosts.</b> Jeder verbundene Host ist ein Reiter (ctrl+o ←/→ oder Klick). Rechts: Tunnel und <kbd>+</kbd> für einen neuen Host.</li>
+    <li><b>Zeile 2: die Tabs dieses Hosts.</b> Shells, der Dateibaum und jede offene Datei, nummeriert. ctrl+o 1–9 oder Klick. Es gibt keine „Ansichten“ mehr, nur Tabs.</li>
+    <li><b>Ein Tab füllt den Rest.</b> Eine Shell hat die volle Breite. Ein Datei-Tab zeigt den Baum links (ctrl+o t blendet ihn aus). Der Datei-Tab ohne offene Datei zeigt eine Vorschau.</li>
+    <li><b>Terminal-Panel</b> unter Dateien, in dem Ordner, in dem man ist. Mit <kbd>`</kbd> oder ctrl+o j, größer/kleiner mit Maus oder <kbd>+</kbd>/<kbd>-</kbd>. Wie jetzt.</li>
+    <li><b>ctrl+o space „go to“</b> zeigt ohne Suche <i>alle</i> Hosts mit allem Offenen als Baum (der Überblick aus C). Tippt man, wird es eine flache Suche über Offenes, Hosts und Dateien des Hosts.</li>
+    <li><b>Start</b> ist ein Screen: links Suchfeld, „zuletzt“ und Hosts; rechts die Details des markierten Hosts mit dem, was offen ist. <kbd>enter</kbd> geht dahin zurück, wo du warst.</li>
+  </ol>
+  <p>Dazu: eine Fußzeile statt zwei (links wo du bist, rechts die wichtigsten Tasten). Chrome gesamt: 2 Zeilen oben, 1 unten. Das ist dieselbe Höhe wie jetzt.</p>
+
+  <h2 id="screens">3 · Screens</h2>
+  <div id="out"></div>
+
+  <h2 id="keys">4 · Tasten</h2>
+  <p>Kein alt, keine neuen nackten Tasten in der Shell. Alles, was es heute schon gibt, bleibt. Neu ist nur <kbd>ctrl+o ←/→</kbd> für den Host.</p>
+  <table class="t">
+    <tr><th>Wohin</th><th>Taste</th><th>Status</th></tr>
+    <tr><td>Überblick / Suche über alles</td><td><kbd>ctrl+o space</kbd></td><td>gibt es, Anzeige ohne Suche wird zum Baum</td></tr>
+    <tr><td>zurück zum letzten Ort (auch anderer Host)</td><td><kbd>ctrl+o tab</kbd></td><td>gibt es</td></tr>
+    <tr><td>Tab 1–9 auf diesem Host</td><td><kbd>ctrl+o 1</kbd>…<kbd>9</kbd></td><td>gibt es (heute nur Shells), gilt dann für alle Tabs</td></tr>
+    <tr><td>nächster / voriger Tab</td><td><kbd>shift+→</kbd> <kbd>shift+←</kbd></td><td>gibt es, gilt dann über Shells und Dateien hinweg</td></tr>
+    <tr><td>nächster / voriger Host</td><td><kbd>ctrl+o →</kbd> <kbd>ctrl+o ←</kbd></td><td><b>neu</b></td></tr>
+    <tr><td>neue Shell</td><td><kbd>ctrl+o 0</kbd></td><td>gibt es</td></tr>
+    <tr><td>Dateien (in dem Ordner, in dem die Shell ist)</td><td><kbd>ctrl+o f</kbd></td><td>gibt es</td></tr>
+    <tr><td>Terminal-Panel an/aus/rein</td><td><kbd>ctrl+o j</kbd>, im Baum <kbd>`</kbd></td><td>gibt es</td></tr>
+    <tr><td>Baum aus/an</td><td><kbd>ctrl+o t</kbd></td><td>gibt es</td></tr>
+    <tr><td>Start / Hostverwaltung</td><td><kbd>ctrl+o o</kbd></td><td>gibt es (heute schwebende Liste, dann der Start-Screen)</td></tr>
+  </table>
+
+  <h2 id="rules">5 · Regeln, damit es sich nicht wieder verheddert</h2>
+  <ul>
+    <li><b>Ein Tab ist eine Sache.</b> Shell, Dateibaum, Datei. Kein Tab hat versteckte Unter-Ansichten.</li>
+    <li><b>Größen ändern sich nur, wenn du sie änderst.</b> Umschalten zwischen Tabs oder Hosts ändert nie die Größe einer laufenden Shell (vim bricht sonst um).</li>
+    <li><b>Wiederkommen ist immer genau dahin, wo du warst</b>: gleicher Tab, gleiche Datei, Panel offen oder zu.</li>
+    <li><b>Nur verbundene Hosts sind Reiter.</b> Nicht verbundene findet man über go to oder den Start.</li>
+    <li><b>Ein getrennter Host bleibt als Reiter</b> (rot), damit man sieht, was weg ist. <kbd>enter</kbd> verbindet neu und öffnet alles wieder.</li>
+    <li><b>Klein zuerst:</b> Unter ~100 Spalten versteckt sich der Baum neben Dateien, die Tab-Namen werden kürzer, die Hostzeile scrollt (<code>‹ 2</code>). Die Shell bekommt immer die volle Breite.</li>
+  </ul>
+
+  <h2 id="cost">6 · Was sich gegenüber dem jetzigen Stand ändert</h2>
+  <table class="t">
+    <tr><th>Teil</th><th>Heute (uncommittet)</th><th>Dann</th><th>Aufwand</th></tr>
+    <tr><td>Kopfzeile</td><td>1 Zeile Session-Leiste (Host + Chips + andere Hosts)</td><td>2 Zeilen: Hosts, dann Tabs. Die Chip-Logik (Positionen, Klicks) bleibt und wird aufgeteilt</td><td>klein</td></tr>
+    <tr><td>„Ansichten“</td><td>Shell-Ansicht vs. Files-Ansicht, gemerkt pro Host</td><td>weg. Der aktive Tab bestimmt was man sieht</td><td>mittel (layout.go wird einfacher)</td></tr>
+    <tr><td>Tab-Reihenfolge</td><td>Shells und Editoren getrennt</td><td>eine Reihe pro Host, ctrl+o 1–9 und shift+←/→ gehen über alles</td><td>mittel</td></tr>
+    <tr><td>go to</td><td>flache Liste nach „zuletzt“</td><td>ohne Suche: Baum nach Host; mit Suche: wie heute, plus Dateien des Hosts</td><td>klein bis mittel (Dateisuche später)</td></tr>
+    <tr><td>Dateibaum allein</td><td>volle Breite</td><td>Baum + Vorschau</td><td>klein</td></tr>
+    <tr><td>Start</td><td>Liste + Details, sonst schwebende Liste</td><td>ein Start-Screen mit Suche + zuletzt + Details. Keine schwebende Liste mehr</td><td>mittel</td></tr>
+    <tr><td>Fußzeile</td><td>2 Zeilen (wo + Tasten)</td><td>1 Zeile</td><td>klein</td></tr>
+    <tr><td>Terminal-Panel, zurück wo ich war, Klicks, Größe ziehen</td><td>gibt es</td><td>bleibt</td><td>–</td></tr>
+  </table>
+  <p>Grob: ein Umbau in 3 Schritten, jeder für sich testbar. (1) Kopf 2 Zeilen + Fußzeile 1 Zeile, (2) Tabs statt Ansichten, (3) go to als Baum + Start-Screen. Die Dateisuche in go to wäre ein vierter, eigener Schritt.</p>
+</main>
+
+<script>
+const line = (html, style = '') => `<div class="line" style="${style}">${html}</div>`;
+const sp = '<span class="sp"></span>';
+const keys = pairs => pairs.map(([k, d]) => `<span class="k">${k}</span><span class="kd">${d}</span>`).join('');
+const box = (inner, { f = false, style = '', title = '', rule = false } = {}) =>
+  `<div class="box${f ? ' f' : ''}" style="${style}">${title ? `<div class="bt${rule ? ' rule' : ''}">${title}</div>` : ''}${inner}</div>`;
+const pre = s => `<pre>${s}</pre>`;
+const term = (inner, overlay = '', width = 118) => `<div class="term" style="width:${width}ch">${inner}${overlay}</div>`;
+const body = (inner, style = '') => `<div class="body" style="${style}">${inner}</div>`;
+const col = (inner, style = '') => `<div class="col" style="${style}">${inner}</div>`;
+const dot = s => s === 'on' ? '<span class="g">●</span>' : s === 'dead' ? '<span class="r">●</span>' : '<span class="x">○</span>';
+const P = (host = 'web1', dir = '~/app') => `<span class="g">deploy@${host}</span>:<span class="b">${dir}</span>$ `;
+
+const SHELL = `${P()}docker compose ps
+<span class="d">NAME            IMAGE                          STATUS        PORTS</span>
+app-web-1       ghcr.io/acme/web:1.42.0        Up 3 days     127.0.0.1:8080->8080/tcp
+app-worker-1    ghcr.io/acme/worker:1.42.0     Up 3 days
+app-redis-1     redis:7-alpine                 Up 3 days     6379/tcp
+${P()}git log --oneline -4
+<span class="y">4f2a9c1</span> fix: retry webhook on 502
+<span class="y">a81be07</span> feat: export invoices as csv
+<span class="y">77c01d2</span> chore: bump node to 22
+<span class="y">0d9e3aa</span> fix(auth): reject expired tokens
+${P()}df -h /srv
+<span class="d">Filesystem      Size  Used Avail Use% Mounted on</span>
+/dev/nvme0n1p1   80G   51G   29G  64% /
+${P()}docker compose logs -f --tail 5 web
+web-1  | 10:14:02 GET /health 200 1ms
+web-1  | 10:14:07 GET /api/invoices?page=2 200 38ms
+web-1  | 10:14:09 POST /api/webhooks/stripe 200 112ms
+web-1  | 10:14:12 GET /health 200 1ms
+web-1  | 10:14:17 GET /static/app.4f2a9c1.js 304 0ms
+^C
+${P()}<span class="cur"> </span>`;
+
+const PANEL = `${P('web1', '/srv/app/nginx')}nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+${P('web1', '/srv/app/nginx')}sudo systemctl reload nginx
+${P('web1', '/srv/app/nginx')}<span class="cur"> </span>`;
+
+const NGINX = [
+  'server {', '    listen 443 ssl http2;', '    server_name app.acme.io;', '',
+  '    ssl_certificate     /etc/letsencrypt/live/app/fullchain.pem;',
+  '    ssl_certificate_key /etc/letsencrypt/live/app/privkey.pem;', '',
+  '    location / {', '        proxy_pass http://127.0.0.1:8080;',
+  '        proxy_set_header Host $host;', '        proxy_set_header X-Real-IP $remote_addr;', '    }', '',
+  '    location /static/ {', '        root /srv/app/public;', '        expires 7d;', '    }', '}',
+];
+const code = () => NGINX.map((l, i) => {
+  let t = l.replace(/^(\s*)([a-z_]+)/, '$1<span class="b">$2</span>');
+  if (i === 8) t = t.replace('<span class="b">proxy_pass', '<span class="cur">p</span><span class="b">roxy_pass');
+  return `<span class="ln">${String(i + 1).padStart(3)} </span>${t}`;
+}).join('\n');
+
+const COMPOSE = `<span class="b">services</span>:
+  <span class="b">web</span>:
+    <span class="b">image</span>: ghcr.io/acme/web:1.42.0
+    <span class="b">restart</span>: unless-stopped
+    <span class="b">ports</span>:
+      - "127.0.0.1:8080:8080"
+    <span class="b">env_file</span>: .env
+    <span class="b">depends_on</span>: [redis]
+  <span class="b">worker</span>:
+    <span class="b">image</span>: ghcr.io/acme/worker:1.42.0
+  <span class="b">redis</span>:
+    <span class="b">image</span>: redis:7-alpine
+    <span class="b">command</span>: redis-server --save 60 1`;
+
+const TREE = [
+  [0, 'config/', 'd'], [0, 'nginx/', 'o'], [1, 'nginx.conf', 'f', '1.2K', 'Sep 21'], [1, 'mime.types', 'f', '5.1K', 'Jul 02'],
+  [0, 'public/', 'd'], [0, 'scripts/', 'd'], [0, '.env.example', 'f', '216B', 'Sep 09'], [0, 'docker-compose.yml', 'f', '427B', 'Sep 18'],
+  [0, 'Makefile', 'f', '1.9K', 'Sep 15'], [0, 'README.md', 'f', '3.4K', 'Sep 13'],
+];
+const tree = (sel, meta = 'size', open = []) => TREE.map(([d, n, k, s, dt]) => {
+  const icon = k === 'd' ? '▸ ' : k === 'o' ? '▾ ' : '  ';
+  const nm = k === 'f' ? (open.includes(n) ? `<span class="a">${n}</span>` : n) : `<span class="a2">${n}</span>`;
+  const w = 2 * d + 2 + n.length;
+  let row = `${'  '.repeat(d)}${icon}${nm}`;
+  if (meta === 'size' && s) row += ' '.repeat(Math.max(1, 25 - w)) + `<span class="d">${s.padStart(5)}</span>`;
+  if (meta === 'full' && s) row += ' '.repeat(Math.max(1, 25 - w)) + `<span class="d">${s.padStart(5)}  ${dt}</span>`;
+  return n === sel ? `<span class="selm">${row}${' '.repeat(Math.max(0, (meta === 'full' ? 40 : 32) - (meta ? 31 : w)))}</span>` : row;
+}).join('\n');
+
+// The two header rows. hosts: [alias, state, count]
+const HOSTS = [['web1', 'on', 5], ['db1', 'on', 2], ['cache', 'on', 1]];
+const hostRow = (act, hosts = HOSTS, extra = '') => line(
+  `<span class="badge">hop</span> ` +
+  hosts.map(([h, st, n]) => `<span class="htab${h === act ? ' on' : ''}">${h === act ? '' : dot(st) + ' '}${h}${n ? ` <span class="n">${n}</span>` : ''}</span>`).join('') +
+  `<span class="htab d">+</span>` + extra + sp + `<span class="d">⇄ 2 tunnels</span>`);
+const WEB1_TABS = [['1', '$ app'], ['2', '$ log'], ['3', '▤ files'], ['4', '✎ nginx.conf'], ['5', '✎ docker-compose.yml']];
+const tabRow = (act, tabs = WEB1_TABS, right = '<span class="d">ctrl+o 1–9</span>') => line(
+  tabs.map(([n, t]) => `<span class="ttab${n === act ? ' on' : ''}"><span class="n">${n}</span> ${t}</span>`).join('<span class="sep">│</span>') + sp + right);
+const foot = (where, ks) => line(`<span class="bold">${where}</span>` + sp + keys(ks));
+const K_SHELL = [['ctrl+o space', 'go to'], ['ctrl+o tab', 'zurück'], ['ctrl+o f', 'files'], ['ctrl+o ?', 'keys']];
+const K_EDIT = [['ctrl+o j', 'terminal'], ['ctrl+o t', 'baum'], [':q', 'schließen'], ['ctrl+o space', 'go to']];
+
+// H1 — a shell owns the screen
+const H1 = term(hostRow('web1') + tabRow('1') +
+  body(`<pre class="raw">${SHELL}</pre>`) +
+  foot('<span class="d">web1 ›</span> shell 1 <span class="d">› ~/app</span>', K_SHELL));
+
+// H2 — a file tab: tree | file, terminal panel under the files
+const H2 = term(hostRow('web1') + tabRow('4') + body(
+  box(pre(tree('nginx.conf', 'size', ['nginx.conf', 'docker-compose.yml'])), { title: '/srv/app', rule: true, style: 'width:34ch;flex:none' }) +
+  col(box(pre(code()), { f: true, style: 'flex:55' }) +
+      box(pre(PANEL), { title: '<span class="a">terminal</span>&nbsp;· /srv/app/nginx<span class="sp"></span><span class="x">ziehen oder + −</span>', style: 'flex:45' }), 'flex:1')) +
+  foot('<span class="d">web1 ›</span> nginx.conf <span class="d">› /srv/app/nginx</span>', K_EDIT));
+
+// H3 — the files tab with nothing open: preview instead of empty width
+const H3 = term(hostRow('web1') + tabRow('3') + body(
+  box(pre(tree('docker-compose.yml', 'full', ['nginx.conf', 'docker-compose.yml'])), { f: true, title: '/srv/app', rule: true, style: 'width:46ch;flex:none' }) +
+  box(pre(COMPOSE), { title: 'Vorschau · docker-compose.yml<span class="sp"></span><span class="x">enter öffnet als Tab</span>', rule: true, style: 'flex:1' })) +
+  foot('<span class="d">web1 ›</span> files <span class="d">› /srv/app</span>', [['enter', 'öffnen'], ['`', 'terminal hier'], ['d/u', 'down/upload'], ['?', 'alle']]));
+
+// H4 — go to without a query: every host and what is open on it (C's overview, on demand)
+const GOTO_TREE = `<div class="bt"><span class="a bold">GO TO</span>&nbsp; › <span class="cur"> </span><span class="sp"></span><span class="x">tippen = suchen</span></div><div class="ruleh"></div><pre>
+<span class="a">▾</span> <span class="bold">web1</span>  ${dot('on')}                                    <span class="x">hier</span>
+     <span class="d">1</span> $ shell 1 · ~/app                        <span class="x">jetzt</span>
+<span class="selm">   <span class="a">▸</span> <span class="d">2</span> $ shell 2 · /var/log                     <span class="d">vor 4 min</span>  </span>
+     <span class="d">3</span> ▤ files · /srv/app
+     <span class="d">4</span> ✎ nginx.conf                             <span class="d">vor 1 min</span>
+     <span class="d">5</span> ✎ docker-compose.yml
+       ⇄ 2 tunnels
+<span class="a">▾</span> <span class="bold">db1</span>   ${dot('on')}
+     <span class="d">1</span> $ shell 1 · ~                            <span class="d">vor 20 min</span>
+     <span class="d">2</span> $ psql
+<span class="a">▾</span> <span class="bold">cache</span> ${dot('on')}
+     <span class="d">1</span> $ shell 1 · /etc/redis                   <span class="d">gestern</span>
+<span class="x">── nicht verbunden ────────────────────────────────────</span>
+  ${dot()} staging     <span class="d">deploy@10.0.3.7</span>
+  ${dot()} bastion     <span class="d">ops@bastion.acme.io</span>
+</pre><div class="ruleh"></div><div class="bt">${keys([['enter', 'hin'], ['↑↓', 'wählen'], ['x', 'schließen'], ['esc', 'zu']])}</div>`;
+const H4 = term(`<div class="dim-all">${hostRow('web1') + tabRow('1') + body(`<pre class="raw">${SHELL}</pre>`) + foot('web1 › shell 1', K_SHELL)}</div>`,
+  `<div class="ov" style="left:24ch;top:46px;width:66ch;height:430px">${GOTO_TREE}</div>`);
+
+// H5 — go to with a query: flat fuzzy list, including files on the host
+const GOTO_Q = `<div class="bt"><span class="a bold">GO TO</span>&nbsp; › ngi<span class="cur"> </span></div><div class="ruleh"></div><pre>
+<span class="selm"><span class="a">▸</span> <span class="d">web1 </span> ✎ /srv/app/<span class="a bold">ngi</span>nx/nginx.conf                   <span class="d">offen</span>  </span>
+  <span class="d">web1 </span> $ shell 2 · /var/log/<span class="a bold">ngi</span>nx                  <span class="d">offen</span>
+  <span class="d">web1 </span> ▤ /srv/app/<span class="a bold">ngi</span>nx/
+<span class="x">── dateien auf web1 ─────────────────────────────────────</span>
+  <span class="d">web1 </span>   /etc/<span class="a bold">ngi</span>nx/sites-enabled/app.conf
+  <span class="d">web1 </span>   /etc/<span class="a bold">ngi</span>nx/nginx.conf
+  <span class="d">web1 </span>   /var/log/<span class="a bold">ngi</span>nx/error.log
+<span class="x">── hosts ────────────────────────────────────────────────</span>
+  ${dot()} <span class="a bold">ngi</span>nx-edge   <span class="d">root@edge.acme.io</span>
+</pre><div class="ruleh"></div><div class="bt">${keys([['enter', 'hin'], ['ctrl+enter', 'im terminal-panel'], ['esc', 'zu']])}</div>`;
+const H5 = term(`<div class="dim-all">${hostRow('web1') + tabRow('1') + body(`<pre class="raw">${SHELL}</pre>`) + foot('web1 › shell 1', K_SHELL)}</div>`,
+  `<div class="ov" style="left:24ch;top:46px;width:66ch;height:270px">${GOTO_Q}</div>`);
+
+// H6 — start: E2's search and recents on the left, E1's details on the right
+const H6 = term(hostRow('', HOSTS).replace('⇄ 2 tunnels', 'start') + line('') + body(
+  col(box(`<pre>
+› <span class="cur"> </span>
+
+<span class="d">ZULETZT</span>
+<span class="selm"><span class="a">▸</span> web1   ✎ nginx.conf         <span class="d">1 min</span>   </span>
+  web1   $ shell 1 · ~/app    <span class="d">3 min</span>
+  db1    $ psql               <span class="d">20 min</span>
+  cache  $ /etc/redis         <span class="d">gestern</span>
+
+<span class="d">HOSTS</span>                   <span class="x">★ gepinnt</span>
+  ${dot('on')} web1      <span class="d">★ prod</span>
+  ${dot('on')} db1       <span class="d">★ prod</span>
+  ${dot('on')} cache
+  ${dot()} staging
+  ${dot()} bastion
+  ${dot()} ci-runner
+  ${dot()} mail</pre>`, { f: true, style: 'flex:1' }), 'width:40ch;flex:none') +
+  box(`<pre>
+<span class="bold">web1</span>   ${dot('on')} <span class="d">verbunden seit 09:12</span>
+<span class="d">deploy@10.0.1.12 · port 22 · über bastion · prod, web</span>
+
+<span class="d">OFFEN</span>
+  <span class="d">1</span> $ shell 1 · ~/app
+  <span class="d">2</span> $ shell 2 · /var/log
+  <span class="d">3</span> ▤ files · /srv/app
+  <span class="d">4</span> ✎ nginx.conf              <span class="a">← zuletzt</span>
+  <span class="d">5</span> ✎ docker-compose.yml
+  ⇄ 8080 → localhost:8080
+  ⇄ 5432 → db1:5432
+
+${keys([['enter', 'dahin zurück'], ['S', 'neue shell'], ['b', 'files'], ['T', 'tunnel'], ['e', 'bearbeiten']])}</pre>`, { style: 'flex:1' })) +
+  foot('start', [['tippen', 'suchen'], ['a', 'host anlegen'], ['i', 'import ~/.ssh/config'], ['?', 'keys']]));
+
+// H7 — small window, many hosts, one dropped
+const MANY = [['web1', 'on', 5], ['db1', 'on', 2], ['cache', 'on', 1], ['worker', 'dead', 0], ['edge', 'on', 1], ['mail', 'on', 1]];
+const H7 = term(
+  line(`<span class="badge">hop</span> ` + MANY.slice(0, 4).map(([h, st, n]) => `<span class="htab${h === 'web1' ? ' on' : ''}">${h === 'web1' ? '' : dot(st) + ' '}${h}${n ? ` <span class="n">${n}</span>` : ''}</span>`).join('') + sp + '<span class="d">+2 ›</span>') +
+  tabRow('4', [['1', '$ app'], ['2', '$ log'], ['3', '▤'], ['4', '✎ nginx.conf'], ['5', '✎ …compose']], '') +
+  body(col(box(pre(code()), { f: true, style: 'flex:55' }) +
+    box(pre(PANEL), { title: '<span class="a">terminal</span>&nbsp;· nginx/', style: 'flex:45' }), 'flex:1')) +
+  foot('nginx.conf', [['ctrl+o t', 'baum'], ['ctrl+o space', 'go to']]), '', 88);
+
+// H8 — a dropped host keeps its tab and its tabs
+const H8 = term(hostRow('worker', [['web1', 'on', 5], ['db1', 'on', 2], ['worker', 'dead', 3]]) +
+  tabRow('1', [['1', '$ app'], ['2', '<span class="x">$ queue</span>'], ['3', '<span class="x">▤ files</span>']], '') +
+  body(box(`<pre>
+
+
+
+                           <span class="r bold">worker ist getrennt</span>  <span class="d">· 10:41 · connection reset by peer</span>
+
+                           Beim Neuverbinden wird wieder geöffnet:
+                             $ shell 1 · ~/app
+                             $ shell 2 · ~/queue
+                             ▤ files · /srv/worker
+
+                           ${keys([['enter', 'neu verbinden'], ['x', 'schließen'], ['ctrl+o tab', 'zurück']])}</pre>`, { style: 'flex:1;border-color:var(--r)' })) +
+  foot('<span class="d">worker ›</span> <span class="r">getrennt</span>', K_SHELL));
+
+const shots = [
+  ['H1', 'Shell-Tab: Hosts oben, Tabs darunter, die Shell hat den Rest. Eine Fußzeile.', H1],
+  ['H2', 'Datei-Tab: Baum | Datei, Terminal-Panel darunter im Ordner der Datei. Offene Dateien sind im Baum pink.', H2],
+  ['H3', 'Files-Tab ohne offene Datei: statt leerer Breite eine Vorschau. enter öffnet sie als eigenen Tab.', H3],
+  ['H4', 'ctrl+o space ohne Suche: der Überblick über alle Hosts und alles Offene (das Gute aus C, nur auf Tastendruck).', H4],
+  ['H5', 'ctrl+o space mit Suche: flach, findet Offenes, Dateien auf dem Host und Hosts.', H5],
+  ['H6', 'Start (ctrl+o o): links suchen, zuletzt, Hosts; rechts was auf dem markierten Host offen ist.', H6],
+  ['H7', 'Kleines Fenster (88 Spalten), 6 Hosts: Hostzeile zeigt „+2 ›“, Baum versteckt sich, Tab-Namen werden kürzer.', H7],
+  ['H8', 'Getrennter Host: Reiter bleibt rot, seine Tabs grau, enter verbindet neu und öffnet alles wieder.', H8],
+];
+document.getElementById('out').innerHTML = shots.map(([id, cap, html]) =>
+  `<div class="shot"><div class="cap"><b>${id}</b>${cap}</div>${html}</div>`).join('');
+</script>
+</body>
+</html>

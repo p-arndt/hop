@@ -6,8 +6,9 @@ group: Browsing mode
 label: Browsing mode
 ---
 
-[[enter]] on a file opens it in an editor **inside hop**, in the content area beside the
-browser column, with a tab strip above it listing every open file. The tree stays on screen.
+[[enter]] on a file opens it in an editor **inside hop**, beside the browser column — the
+[files view](#sidebar) — with a tab strip above it listing every open file. The tree stays on
+screen.
 
 | Key | Action |
 | --- | --- |
@@ -15,7 +16,10 @@ browser column, with a tab strip above it listing every open file. The tree stay
 | [[ctrl+o]] [[1]] … [[9]] | go straight to that tab, without leaving |
 | [[ctrl+o]] [[o]] | back to the file browser |
 | `:q` (i.e. quit the editor) | close the tab |
-| [[alt+t]] | back to the tree, without closing anything |
+| [[ctrl+o]] [[t]] | back to the tree, without closing anything ([[alt+t]] where your terminal sends it) |
+| [[ctrl+o]] [[s]] | this host's shell, full width |
+| [[ctrl+o]] [[j]] | show / hide the terminal panel under the files |
+| [[ctrl+o]] [[+]] / [[ctrl+o]] [[-]] | size the terminal panel: after the first, [[+]] [[-]] [[↑]] [[↓]] keep going until any other key — or drag its top edge |
 | [[ctrl+\]] | close the split, keeping the file you are reading |
 | [[ctrl+t]] | hide / show the tree column |
 | [[esc]] [[esc]] | back to the file browser (two presses within 400 ms) |
@@ -39,7 +43,7 @@ running: come back and every file is where you left it, cursor included.
 ## Two files side by side
 
 [[\]] in the browser opens the file **beside** the current one instead of behind it,
-splitting the content area into two halves with their own tab strips. [[tab]]/[[alt+t]] pass
+splitting the content area into two halves with their own tab strips. [[tab]]/[[ctrl+o]] [[t]] pass
 the keyboard between tree and content; [[shift+→]]/[[shift+←]] cycle the tabs of whichever
 half has it. The same file is never shown in both halves — asking for one that is already
 open just focuses the half it is in. A content area too narrow to give each half a readable

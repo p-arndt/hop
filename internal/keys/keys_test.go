@@ -47,13 +47,14 @@ func TestActionIsPerLayer(t *testing.T) {
 		{Browser, "d", BrowserDownload},
 		{List, "f", HostBrowser},
 		{Browser, "u", BrowserUpload},
-		{Global, "ctrl+b", Sidebar},
+		{Global, "ctrl+g", Mouse},
 		{Leader, "o", LeaderOut},
 		{Pane, "ctrl+o", LeaderKey},
 		{DeadPane, "r", DeadReconnect},
 		// Not bound in this layer: a pane is owed the key.
 		{Pane, "d", None},
-		{List, "ctrl+b", None}, // Global's, and asked for as Global
+		{List, "ctrl+g", None},   // Global's, and asked for as Global
+		{Global, "ctrl+b", None}, // a remote tmux's prefix
 		{Browser, "T", None},
 	}
 	for _, c := range cases {

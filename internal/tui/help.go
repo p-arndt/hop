@@ -29,7 +29,7 @@ var browserHelpActions = []keys.Action{
 	keys.BrowserMark, keys.BrowserMarkAll, keys.BrowserTarget,
 	keys.BrowserCopy, keys.BrowserMoveTo,
 	keys.BrowserRename, keys.BrowserDelete, keys.BrowserMkdir, keys.BrowserSort,
-	keys.BrowserRefresh, keys.BrowserFocusPane, keys.BrowserSplit, keys.BrowserShell, keys.BrowserTree,
+	keys.BrowserRefresh, keys.BrowserFocusPane, keys.BrowserSplit, keys.BrowserShell, keys.BrowserDrawer, keys.BrowserGrow, keys.BrowserShrink, keys.BrowserTree,
 	keys.BrowserHosts, keys.BrowserPalette, keys.BrowserHelp, keys.BrowserLeave, keys.BrowserClose,
 }
 
@@ -77,7 +77,6 @@ func (m *model) helpLeft() []helpSection {
 	}
 	list = append(list, m.helpRows(keys.List,
 		keys.Menu, keys.Palette, keys.Filter, keys.HostAdd, keys.HostImport)...)
-	list = append(list, m.helpRows(keys.Global, keys.Sidebar)...)
 	list = append(list, m.helpRows(keys.List, keys.Help, keys.Quit)...)
 
 	host := m.helpRows(keys.List,
@@ -107,13 +106,13 @@ func (m *model) helpRight() []helpSection {
 	shell = append(shell, m.chordRange("straight to that shell")...)
 	shell = append(shell, m.chord(keys.LeaderShell)...)
 	shell = append(shell, m.chord(keys.LeaderBrowser)...)
+	shell = append(shell, m.chord(keys.LeaderTree)...)
 	shell = append(shell, m.chord(keys.LeaderVSCode)...)
 	shell = append(shell, m.chord(keys.LeaderHosts)...)
 	shell = append(shell, m.chord(keys.LeaderLast)...)
 	shell = append(shell, m.chord(keys.LeaderPalette)...)
 	shell = append(shell, m.chord(keys.LeaderHelp)...)
 	shell = append(shell, m.helpRows(keys.Pane, keys.PaneScroll)...)
-	shell = append(shell, m.helpRows(keys.Global, keys.Sidebar)...)
 	shell = append(shell, row{"…anything", "goes to the remote shell"})
 
 	browser := m.helpRows(keys.Browser, browserHelpActions...)
@@ -121,6 +120,11 @@ func (m *model) helpRight() []helpSection {
 	editor := []row{{":q", "close the tab"}}
 	editor = append(editor, m.helpRows(keys.Editor, editorHelpActions...)...)
 	editor = append(editor, m.chordRange("straight to that tab")...)
+	editor = append(editor, m.chord(keys.LeaderTree)...)
+	editor = append(editor, m.chord(keys.LeaderDrawer)...)
+	editor = append(editor, m.chord(keys.LeaderGrow)...)
+	editor = append(editor, m.chord(keys.LeaderShrink)...)
+	editor = append(editor, m.chord(keys.LeaderToShell)...)
 	editor = append(editor, m.chord(keys.LeaderHosts)...)
 	editor = append(editor, m.chord(keys.LeaderLast)...)
 	editor = append(editor, m.chord(keys.LeaderPalette)...)

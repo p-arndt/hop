@@ -52,8 +52,7 @@ func TestViewFitsTheWindow(t *testing.T) {
 			m.sessions["web1"] = &session{dead: true, lostWhy: "ssh: unexpected packet in response to channel open"}
 			m.active, m.mode = "web1", modeShell
 		},
-		"no hosts":          func(m *model) { m.hosts = nil; m.applyFilter() },
-		"sidebar collapsed": func(m *model) { m.toggleSidebar() },
+		"no hosts": func(m *model) { m.hosts = nil; m.applyFilter() },
 		"sftp column": func(m *model) {
 			m.sessions["web1"] = &session{browser: fakeBrowser(t, "/srv")}
 			m.active, m.mode = "web1", modeBrowser
@@ -128,15 +127,16 @@ func TestPanesFillTheWidth(t *testing.T) {
 	}
 }
 
-func TestThreeColumnsFillTheWidth(t *testing.T) {
-	m, _ := columnModel(t, 200, 34)
+func TestTreeAndFilesFillTheWidth(t *testing.T) {
+	m, s := columnModel(t, 200, 34)
+	s.editors = []*editorTab{{id: 1, name: "a.conf", path: "/srv/a.conf", pane: fakePane()}}
+	m.relayout()
 
-	body := strings.Split(m.renderList(m.frame.list.w, m.frame.list.h), "\n")[0] +
-		strings.Split(m.renderTree(m.frame.tree), "\n")[0] +
+	body := strings.Split(m.renderTree(m.frame.tree), "\n")[0] +
 		strings.Split(m.renderRight(m.frame.content.h), "\n")[0]
 
 	if got := lipgloss.Width(body); got != 200 {
-		t.Fatalf("the three columns are %d cells wide, want the full window (200)", got)
+		t.Fatalf("the tree and the files are %d cells wide, want the full window (200)", got)
 	}
 }
 
