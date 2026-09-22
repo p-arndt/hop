@@ -88,6 +88,7 @@ const (
 	// Browser. The exits and the hop-wide cards are handled by the tui, the rest by the
 	// filebrowser.
 	BrowserLeave    Action = "browser.leave"
+	BrowserClose    Action = "browser.close"
 	BrowserSettings Action = "browser.settings"
 	BrowserHelp     Action = "browser.help"
 	BrowserPalette  Action = "browser.palette"
@@ -259,6 +260,7 @@ var defaults = []Binding{
 	{Action: BrowserTree, Layer: Browser, Keys: []string{"ctrl+t"}, Label: "hide / show the tree column"},
 	{Action: BrowserSplit, Layer: Browser, Keys: []string{"\\"}, Label: "open beside the current file"},
 	{Action: BrowserRefresh, Layer: Browser, Keys: []string{"r"}, Label: "refresh the listing"},
+	{Action: BrowserClose, Layer: Browser, Keys: []string{"q"}, Label: "close the browser"},
 	{Action: BrowserLeave, Layer: Browser, Keys: []string{"ctrl+o", "esc esc"}, Window: doubleEscWindow, Label: "back to the host list"},
 	{Action: BrowserPalette, Layer: Browser, Keys: []string{"ctrl+k"}, Label: "search every action"},
 	{Action: BrowserSettings, Layer: Browser, Keys: []string{","}, Label: "settings"},

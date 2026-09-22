@@ -106,6 +106,9 @@ The terms live in [`language.md`](language.md).
 
 - **A session outlives the view of it.** Leaving a pane, collapsing a column or hopping
   to another host never closes a shell, an editor, a browser or a tunnel.
+- **Closing is explicit and narrow.** `q` in the browser closes the browser and nothing
+  else: its editor tabs are channels of their own and may hold unsaved work. The
+  connection goes only when that leaves the session empty.
 - **The user always knows where their keystrokes go.** The status bar is permanent
   screen space, directly above the keys that act on it, naming the host, the mode, the
   file or directory, and the machine behind the alias.

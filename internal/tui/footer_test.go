@@ -435,7 +435,7 @@ var footerGolden = map[string]string{
 	"leader/armed with a cwd":              "core: leader |  o  out |  1-9  tab |  0  new shell |  c  vs code here |  ctrl+k  actions |  ?  keys | any other key cancels\nextra: \nhelp: ",
 	"mode/dead pane":                       "core:  r  reconnect |  d  drop session |  ctrl+o  back\nextra: \nhelp:  ?  keys",
 	"mode/editor":                          "core:  ctrl+o o  browser |  :q  close |  shift+→  tab\nextra:  alt+t  tree |  ctrl+o 1-9  jump |  ctrl+b  hide hosts\nhelp:  ctrl+o ?  keys",
-	"mode/browser":                         "core:  ctrl+o  back |  enter  edit |  d  download\nextra:  tab  focus file |  \\  open beside |  space  mark |  t  target |  c  copy there |  v  move there |  ctrl+k  actions |  ←  up |  a  mark all |  u  upload |  o  open local |  x  delete |  shift+r  rename |  m  mkdir |  s  sort |  r  refresh |  ctrl+t  tree |  ctrl+b  hide hosts\nhelp:  ?  keys",
+	"mode/browser":                         "core:  ctrl+o  back |  q  close |  enter  edit\nextra:  d  download |  tab  focus file |  \\  open beside |  space  mark |  t  target |  c  copy there |  v  move there |  ctrl+k  actions |  ←  up |  a  mark all |  u  upload |  o  open local |  x  delete |  shift+r  rename |  m  mkdir |  s  sort |  r  refresh |  ctrl+t  tree |  ctrl+b  hide hosts\nhelp:  ?  keys",
 	"mode/scrollback":                      "core:  esc  back to live |  ↑↓  scroll |  home/end  top/live\nextra:  pgup/pgdn  page\nhelp:  ?  keys",
 	"mode/shell":                           "core:  ctrl+o o  back |  ctrl+o  leader\nextra:  esc esc  back |  ctrl+b  hide hosts\nhelp:  ctrl+o ?  keys",
 	"mode/shell with two tabs":             "core:  ctrl+o o  back |  ctrl+o  leader |  shift+→  shell\nextra:  ctrl+o 1-9  jump |  esc esc  back |  ctrl+b  hide hosts\nhelp:  ctrl+o ?  keys",
@@ -450,7 +450,7 @@ var footerGolden = map[string]string{
 	"layer/sidebar collapsed in the list":  "core:  ctrl+b  show hosts |  enter  connect |  space  actions |  /  filter\nextra:  ctrl+k  search actions |  ↑↓  move |  f  sftp |  a  add |  e  edit |  x  delete |  p  pin |  t  tunnels |  i  import |  ,  settings |  esc esc  quit\nhelp:  ?  keys",
 	"layer/guidance keys in a shell":       "core:  ctrl+o o  back |  ctrl+o  leader\nextra: \nhelp:  ctrl+o ?  keys",
 	"layer/guidance guided in a shell":     "core:  ctrl+o o  back |  ctrl+o  leader |  ctrl+o ctrl+k  actions\nextra:  esc esc  back |  ctrl+b  hide hosts\nhelp:  ctrl+o ?  keys",
-	"layer/guidance guided in the browser": "core:  ctrl+o  back |  enter  edit |  d  download |  ctrl+k  actions\nextra:  tab  focus file |  \\  open beside |  space  mark |  t  target |  c  copy there |  v  move there |  ←  up |  a  mark all |  u  upload |  o  open local |  x  delete |  shift+r  rename |  m  mkdir |  s  sort |  r  refresh |  ctrl+t  tree |  ctrl+b  hide hosts\nhelp:  ?  keys",
+	"layer/guidance guided in the browser": "core:  ctrl+o  back |  q  close |  enter  edit |  ctrl+k  actions\nextra:  d  download |  tab  focus file |  \\  open beside |  space  mark |  t  target |  c  copy there |  v  move there |  ←  up |  a  mark all |  u  upload |  o  open local |  x  delete |  shift+r  rename |  m  mkdir |  s  sort |  r  refresh |  ctrl+t  tree |  ctrl+b  hide hosts\nhelp:  ?  keys",
 	"layer/guidance guided in the list":    "core:  enter  connect |  space  actions |  /  filter |  ctrl+k  search actions\nextra:  ↑↓  move |  f  sftp |  a  add |  e  edit |  x  delete |  p  pin |  t  tunnels |  i  import |  ,  settings |  esc esc  quit\nhelp:  ?  keys",
 }
 

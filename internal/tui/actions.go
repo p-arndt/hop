@@ -98,6 +98,7 @@ var browserSpecs = []spec{
 	{id: keys.BrowserSplit},
 	{id: keys.BrowserTree},
 	{id: keys.BrowserLeave},
+	{id: keys.BrowserClose},
 	{id: keys.BrowserSettings},
 	{id: keys.BrowserHelp},
 }

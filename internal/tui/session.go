@@ -362,6 +362,36 @@ func (m *model) disconnect(alias string) {
 	m.setStatus(statusOK, "disconnected %s", alias)
 }
 
+// closeBrowser shuts the active host's SFTP browser. Its editor tabs are channels of their
+// own and may hold unsaved work, so they stay; the connection goes only once nothing is left on it.
+func (m *model) closeBrowser() {
+	alias := m.active
+	s := m.sessions[alias]
+	if s == nil || s.browser == nil {
+		return
+	}
+	s.browser.Close()
+	s.browser = nil
+	m.reader.Reset()
+
+	if s.empty() {
+		s.close()
+		delete(m.sessions, alias)
+		m.leaveAll()
+		m.setStatus(statusOK, "closed the sftp browser and disconnected %s", alias)
+		return
+	}
+	m.mode = modeList
+	if s.editor() != nil {
+		m.mode = modeEditor
+	} else {
+		m.revealSidebar()
+	}
+	// The tree column went with it; the editors are owed its width.
+	m.relayout()
+	m.setStatus(statusOK, "closed the sftp browser on %s", alias)
+}
+
 // splitOpen answers keys.BrowserSplit via the browser's ActivateBeside, so a directory still opens in place.
 func (m *model) splitOpen() tea.Cmd {
 	s := m.sessions[m.active]

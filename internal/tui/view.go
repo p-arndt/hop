@@ -511,30 +511,31 @@ var footerModeArms = []footerArm{
 		when: func(m *model) bool { return m.browsing() && m.active != "" },
 		hints: func(m *model) ([]string, []string) {
 			return []string{
-					m.hint(keys.Browser, keys.BrowserLeave, "back"),
-					m.hint(keys.Browser, keys.In, "edit"),
-					m.hint(keys.Browser, keys.BrowserDownload, "download"),
-				}, []string{
-					m.hint(keys.Browser, keys.BrowserFocusPane, "focus file"),
-					m.hint(keys.Browser, keys.BrowserSplit, "open beside"),
-					// A copy is three keys nobody guesses, so the selection and target are named.
-					m.hint(keys.Browser, keys.BrowserMark, "mark"),
-					m.hint(keys.Browser, keys.BrowserTarget, "target"),
-					m.hint(keys.Browser, keys.BrowserCopy, "copy there"),
-					m.hint(keys.Browser, keys.BrowserMoveTo, "move there"),
-					m.hint(keys.Browser, keys.BrowserPalette, "actions"),
-					m.hint(keys.Browser, keys.Out, "up"),
-					m.hint(keys.Browser, keys.BrowserMarkAll, "mark all"),
-					m.hint(keys.Browser, keys.BrowserUpload, "upload"),
-					m.hint(keys.Browser, keys.BrowserOpen, "open local"),
-					m.hint(keys.Browser, keys.BrowserDelete, "delete"),
-					m.hint(keys.Browser, keys.BrowserRename, "rename"),
-					m.hint(keys.Browser, keys.BrowserMkdir, "mkdir"),
-					m.hint(keys.Browser, keys.BrowserSort, "sort"),
-					m.hint(keys.Browser, keys.BrowserRefresh, "refresh"),
-					m.hint(keys.Browser, keys.BrowserTree, "tree"),
-					m.sidebarHint(),
-				}
+				m.hint(keys.Browser, keys.BrowserLeave, "back"),
+				m.hint(keys.Browser, keys.BrowserClose, "close"),
+				m.hint(keys.Browser, keys.In, "edit"),
+			}, []string{
+				m.hint(keys.Browser, keys.BrowserDownload, "download"),
+				m.hint(keys.Browser, keys.BrowserFocusPane, "focus file"),
+				m.hint(keys.Browser, keys.BrowserSplit, "open beside"),
+				// A copy is three keys nobody guesses, so the selection and target are named.
+				m.hint(keys.Browser, keys.BrowserMark, "mark"),
+				m.hint(keys.Browser, keys.BrowserTarget, "target"),
+				m.hint(keys.Browser, keys.BrowserCopy, "copy there"),
+				m.hint(keys.Browser, keys.BrowserMoveTo, "move there"),
+				m.hint(keys.Browser, keys.BrowserPalette, "actions"),
+				m.hint(keys.Browser, keys.Out, "up"),
+				m.hint(keys.Browser, keys.BrowserMarkAll, "mark all"),
+				m.hint(keys.Browser, keys.BrowserUpload, "upload"),
+				m.hint(keys.Browser, keys.BrowserOpen, "open local"),
+				m.hint(keys.Browser, keys.BrowserDelete, "delete"),
+				m.hint(keys.Browser, keys.BrowserRename, "rename"),
+				m.hint(keys.Browser, keys.BrowserMkdir, "mkdir"),
+				m.hint(keys.Browser, keys.BrowserSort, "sort"),
+				m.hint(keys.Browser, keys.BrowserRefresh, "refresh"),
+				m.hint(keys.Browser, keys.BrowserTree, "tree"),
+				m.sidebarHint(),
+			}
 		},
 	},
 	{
@@ -626,13 +627,13 @@ func (m *model) listHints() (core, extra []string) {
 		return core, extra
 	}
 	return []string{
-			m.hint(keys.List, keys.HostAdd, "add host"),
-			m.hint(keys.List, keys.HostImport, "import"),
-		}, []string{
-			m.hint(keys.List, keys.Palette, "search actions"),
-			m.hint(keys.List, keys.Settings, "settings"),
-			m.hint(keys.List, keys.Quit, "quit"),
-		}
+		m.hint(keys.List, keys.HostAdd, "add host"),
+		m.hint(keys.List, keys.HostImport, "import"),
+	}, []string{
+		m.hint(keys.List, keys.Palette, "search actions"),
+		m.hint(keys.List, keys.Settings, "settings"),
+		m.hint(keys.List, keys.Quit, "quit"),
+	}
 }
 
 // footerHelp is how this mode reaches the help card. Where keys are forwarded a bare "?" is

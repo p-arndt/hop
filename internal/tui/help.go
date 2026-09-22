@@ -30,7 +30,7 @@ var browserHelpActions = []keys.Action{
 	keys.BrowserCopy, keys.BrowserMoveTo,
 	keys.BrowserRename, keys.BrowserDelete, keys.BrowserMkdir, keys.BrowserSort,
 	keys.BrowserRefresh, keys.BrowserFocusPane, keys.BrowserSplit, keys.BrowserTree,
-	keys.BrowserPalette, keys.BrowserHelp, keys.BrowserLeave,
+	keys.BrowserPalette, keys.BrowserHelp, keys.BrowserLeave, keys.BrowserClose,
 }
 
 // editorHelpActions is the editor section's, on the same terms.

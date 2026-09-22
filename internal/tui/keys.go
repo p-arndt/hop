@@ -371,6 +371,10 @@ func (m *model) doBrowser(a keys.Action) (tea.Model, tea.Cmd) {
 		m.leaveBrowser()
 		return m, nil
 
+	case keys.BrowserClose:
+		m.closeBrowser()
+		return m, nil
+
 	case keys.BrowserSettings:
 		m.openSettings()
 		return m, nil
