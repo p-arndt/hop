@@ -27,6 +27,7 @@ label: Browsing mode
 | [[\]] | open the file beside the current one, not as another tab ([[ctrl+\]] closes the split again) |
 | [[←]] [[backspace]] | collapse, or step out to the parent |
 | [[r]] | refresh the listing |
+| [[p]] | the [host switcher](#leader): hop to another host's shell |
 | [[ctrl+k]] | the [palette](#actions): everything the browser can do, searchable |
 | [[,]] | settings |
 | [[?]] | the key card |

@@ -36,6 +36,8 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmKey(msg)
 	case m.palette.open:
 		return m.handlePaletteKey(msg)
+	case m.hostSwitch.open:
+		return m.handleHostSwitchKey(msg)
 	case m.menu.open:
 		return m.handleMenuKey(msg)
 	case m.hostForm.open:
@@ -381,6 +383,10 @@ func (m *model) doBrowser(a keys.Action) (tea.Model, tea.Cmd) {
 
 	case keys.BrowserPalette:
 		m.openPalette()
+		return m, nil
+
+	case keys.BrowserHosts:
+		m.openHostSwitch()
 		return m, nil
 
 	case keys.BrowserHelp:
@@ -773,6 +779,14 @@ func (m *model) doLeader(a keys.Action, alias string, editing bool) (tea.Model, 
 
 	case keys.LeaderHelp:
 		m.openHelp()
+		return m, nil
+
+	case keys.LeaderHosts:
+		m.openHostSwitch()
+		return m, nil
+
+	case keys.LeaderLast:
+		m.backToLastHost()
 		return m, nil
 
 	case keys.LeaderShell:

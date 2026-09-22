@@ -99,9 +99,19 @@ var browserSpecs = []spec{
 	{id: keys.BrowserTree},
 	{id: keys.BrowserLeave},
 	{id: keys.BrowserClose},
+	{id: keys.BrowserHosts},
 	{id: keys.BrowserSettings},
 	{id: keys.BrowserHelp},
 }
+
+// hostsSpec and lastHostSpec are the leader's way between hosts, in a shell and an editor
+// alike. The last host is offered only while there is one to land on.
+var (
+	hostsSpec    = spec{id: keys.LeaderHosts, leader: true}
+	lastHostSpec = spec{id: keys.LeaderLast, leader: true, ok: func(m *model) bool {
+		return m.last.alias != "" && m.sessions[m.last.alias] != nil
+	}}
+)
 
 // paneSpecs is a live shell's, mostly chords: an unreserved key belongs to the remote.
 func (m *model) paneSpecs() []spec {
@@ -110,6 +120,8 @@ func (m *model) paneSpecs() []spec {
 		{id: keys.LeaderShell, leader: true},
 		{id: keys.PaneNextTab},
 		{id: keys.PanePrevTab},
+		hostsSpec,
+		lastHostSpec,
 	}
 	// The same conditions the chords themselves check, so the palette never offers a key
 	// that would decline.
@@ -133,6 +145,8 @@ var editorSpecs = []spec{
 		s := m.sessions[m.active]
 		return s != nil && s.split
 	}},
+	hostsSpec,
+	lastHostSpec,
 	{id: keys.Sidebar},
 	{id: keys.LeaderHelp, leader: true},
 }

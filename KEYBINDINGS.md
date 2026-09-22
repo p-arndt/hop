@@ -219,6 +219,8 @@ the footer becomes the menu, and hop waits as long as you take:
 | `1` … `9` | that tab, selected **in place** |
 | `0` | another shell on this host |
 | `c` | this directory in VS Code Remote |
+| `space` | the **host switcher**: every host, connected ones first — type to narrow, `enter` lands in its shell |
+| `tab` | back to the **last host**, in the mode it was showing — press it again to come back |
 | `ctrl+k` | the [palette](#actions--the-menu-and-the-palette) — this pane's chords, searchable |
 | `?` | the key card |
 | anything else | closes the leader and does nothing |
@@ -227,6 +229,14 @@ A key that names no chord is **swallowed**, not passed to the remote: while the 
 open hop has the keyboard, and a program that received the tail of an abandoned chord would
 act on a key you were not typing at it. The leader also outranks `ctrl+b` and `ctrl+g`,
 which are otherwise held in every mode.
+
+**Hopping without going back to the list.** `ctrl+o` `space` raises the host switcher
+over whatever you are in: hosts you already have a session on come first, then the rest in
+the list's order, and typing narrows them the way `/` narrows the list. `enter` focuses
+that host's shell, or connects and opens one; `esc` closes it and changes nothing.
+`ctrl+o` `tab` is alt-tab for hosts: it goes back to the host you were on before this
+one, landing in its shell, browser or editor — whichever it was showing — and a second press
+comes back. The [file browser](#browsing--the-sftp-file-browser) opens the same switcher with `p`.
 
 <details>
 <summary><b>Why the leader does nothing on its own</b></summary>
@@ -319,6 +329,7 @@ lag on every `esc` you press in vim. So the rule is:
 | `\` | open the file beside the current one, not as another tab (`ctrl+\` closes the split again) |
 | `←` `backspace` | collapse, or step out to the parent |
 | `r` | refresh the listing |
+| `p` | the [host switcher](#the-leader--ctrlo): hop to another host's shell |
 | `ctrl+k` | the [palette](#actions--the-menu-and-the-palette): everything the browser can do, searchable |
 | `,` | settings |
 | `?` | the key card |
@@ -523,6 +534,7 @@ All of them are modal: while a card is up it takes every key, and `esc` closes i
 | Keys | `?` — `ctrl+o` `?` in a shell or editor | any key closes it |
 | [Action menu](#actions--the-menu-and-the-palette) | `space`, or a right-click on a host | `↑`/`↓` select, `enter` runs, `esc` closes |
 | [Palette](#actions--the-menu-and-the-palette) | `ctrl+k` — `ctrl+o` `ctrl+k` in a pane | any text searches, `↑`/`↓` select, `enter` runs |
+| [Host switcher](#the-leader--ctrlo) | `ctrl+o` `space` in a pane, `p` in the browser | any text searches, `↑`/`↓` select, `enter` hops to that host's shell |
 | Welcome | by itself, once, on a first run | `↑`/`↓` pick a [guidance profile](#actions--the-menu-and-the-palette), `enter` starts hop |
 
 The **keys card** opens on the section for the mode you are in — the shell's keys from a

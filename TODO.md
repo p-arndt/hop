@@ -73,6 +73,8 @@ file tracks *what*, not *why*.
 - [x] **Mouse text selection** over shells, scrollback and editors → clipboard on release; `ctrl+g` hands reporting back.
 - [x] **Copy out of vim:** `shift+drag` selects with hop over a program that has the mouse (hinted once); XTGETTCAP `Ms` is answered so nvim's `"+y` goes out as OSC 52.
 - [x] **Close the SFTP browser** (`q`): editor tabs stay; an emptied session disconnects.
+- [x] **Host switcher** (`ctrl+o space` in a pane, `p` in the browser): fuzzy card over every host, sessions first; `enter` lands in its shell.
+- [x] **Last host** (`ctrl+o tab`): alt-tab between the two most recent hosts, back into the mode each was showing.
 - [x] **Selection past one screenful:** the wheel scrolls under a live drag, a drag held at a pane edge autoscrolls, and a selection rides the text it was made on. On the alt screen the wheel is sent on as `↑`/`↓`.
 - [x] **Drag autoscroll** past a pane's top/bottom row, into scrollback and back.
 - [x] **Copy/paste:** paste as your terminal pastes (shape-detected on Windows); copy via OSC 52. A remote *read* is never answered.

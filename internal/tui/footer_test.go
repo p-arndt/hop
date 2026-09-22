@@ -268,6 +268,7 @@ func footerStates(t *testing.T) []footerState {
 		{"card/hostkey", func() *model { m := base(); m.hostKey.open = true; return m }},
 		{"card/confirm", func() *model { m := base(); m.confirm.open = true; return m }},
 		{"card/palette", func() *model { m := base(); m.palette.open = true; return m }},
+		{"card/host switcher", func() *model { m := base(); m.hostSwitch.open = true; return m }},
 		{"card/menu", func() *model { m := base(); m.menu.open = true; return m }},
 		{"card/hostform", func() *model { m := base(); m.hostForm.open = true; return m }},
 		{"card/importer", func() *model { m := base(); m.importer.open = true; return m }},
@@ -298,6 +299,13 @@ func footerStates(t *testing.T) []footerState {
 			m, s := shell()
 			p, _ := cwdPane(t, "/srv/app")
 			s.shells = []*shellTab{{id: 1, pane: p}}
+			m.chords.leaderAlias = "web1"
+			return m
+		}},
+		{"leader/armed with a last host", func() *model {
+			m, _ := shell()
+			m.sessions["db1"] = &session{shells: []*shellTab{{id: 2, pane: fakePane()}}}
+			m.last = hostView{alias: "db1", mode: modeShell}
 			m.chords.leaderAlias = "web1"
 			return m
 		}},
@@ -422,6 +430,7 @@ var footerGolden = map[string]string{
 	"card/hostkey":                         "core:  y  trust |  n  cancel\nextra: \nhelp: ",
 	"card/confirm":                         "core:  y  delete |  n  cancel\nextra: \nhelp: ",
 	"card/palette":                         "core:  type  search |  enter  run |  esc  close\nextra: \nhelp: ",
+	"card/host switcher":                   "core:  type  search |  enter  hop |  esc  close\nextra: \nhelp: ",
 	"card/menu":                            "core:  ↑↓  move |  enter  run |  esc  close\nextra: \nhelp: ",
 	"card/hostform":                        "core:  tab  next |  enter  save |  esc  cancel |  ctrl+u  clear\nextra: \nhelp: ",
 	"card/importer":                        "core:  enter  import |  esc  cancel |  ctrl+u  clear\nextra: \nhelp: ",
@@ -431,8 +440,9 @@ var footerGolden = map[string]string{
 	"card/settings editing":                "core:  enter  save |  esc  cancel |  ctrl+u  clear\nextra: \nhelp: ",
 	"card/settings list":                   "core:  enter  edit |  r  reset |  esc  close\nextra: \nhelp: ",
 	"card/over a shell":                    "core:  esc  close\nextra: \nhelp: ",
-	"leader/armed":                         "core: leader |  o  out |  1-9  tab |  0  new shell |  ctrl+k  actions |  ?  keys | any other key cancels\nextra: \nhelp: ",
-	"leader/armed with a cwd":              "core: leader |  o  out |  1-9  tab |  0  new shell |  c  vs code here |  ctrl+k  actions |  ?  keys | any other key cancels\nextra: \nhelp: ",
+	"leader/armed":                         "core: leader |  o  out |  1-9  tab |  0  new shell |  space  hosts |  ctrl+k  actions |  ?  keys | any other key cancels\nextra: \nhelp: ",
+	"leader/armed with a cwd":              "core: leader |  o  out |  1-9  tab |  0  new shell |  c  vs code here |  space  hosts |  ctrl+k  actions |  ?  keys | any other key cancels\nextra: \nhelp: ",
+	"leader/armed with a last host":        "core: leader |  o  out |  1-9  tab |  0  new shell |  space  hosts |  tab  last host |  ctrl+k  actions |  ?  keys | any other key cancels\nextra: \nhelp: ",
 	"mode/dead pane":                       "core:  r  reconnect |  d  drop session |  ctrl+o  back\nextra: \nhelp:  ?  keys",
 	"mode/editor":                          "core:  ctrl+o o  browser |  :q  close |  shift+→  tab\nextra:  alt+t  tree |  ctrl+o 1-9  jump |  ctrl+b  hide hosts\nhelp:  ctrl+o ?  keys",
 	"mode/browser":                         "core:  ctrl+o  back |  q  close |  enter  edit\nextra:  d  download |  tab  focus file |  \\  open beside |  space  mark |  t  target |  c  copy there |  v  move there |  ctrl+k  actions |  ←  up |  a  mark all |  u  upload |  o  open local |  x  delete |  shift+r  rename |  m  mkdir |  s  sort |  r  refresh |  ctrl+t  tree |  ctrl+b  hide hosts\nhelp:  ?  keys",
