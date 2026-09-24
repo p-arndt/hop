@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>hop · Seitenleiste neu gedacht</title>
+<style>
+  :root {
+    --bg: #1d1d2b; --panel: #232336; --fg: #e4e4f0; --dim: #7c7c96; --faint: #4a4a62;
+    --ac: #ff6ac1; --ac2: #c792ea; --g: #8be28b; --b: #7fb4ff; --y: #f6d57a; --r: #ff7a90;
+    --bd: #44445c; --chip: #34344c; --lh: 18px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #11111a; color: var(--fg); font: 15px/1.55 -apple-system, system-ui, sans-serif; }
+  nav { position: sticky; top: 0; z-index: 10; background: #11111aee; backdrop-filter: blur(6px);
+        border-bottom: 1px solid #2a2a3c; padding: 10px 32px; display: flex; gap: 18px; flex-wrap: wrap; }
+  nav a { color: var(--dim); text-decoration: none; font-weight: 600; }
+  nav a:hover { color: var(--ac); }
+  main { padding: 24px 32px 80px; max-width: 1500px; }
+  h1 { margin: 8px 0 4px; }
+  h2 { margin: 52px 0 6px; font-size: 25px; }
+  h3 { margin: 26px 0 4px; font-size: 18px; }
+  p, li { max-width: 920px; color: #c4c4d6; }
+  b.a { color: var(--ac); }
+  .shot { margin: 16px 0 30px; }
+  .shot .cap { font-size: 14px; color: var(--dim); margin-bottom: 6px; max-width: 118ch; }
+  .shot .cap b { color: var(--fg); background: #2a2a3c; padding: 1px 7px; border-radius: 4px; margin-right: 6px; }
+  .note { background: #1b1b28; border-left: 3px solid var(--ac); padding: 10px 16px; max-width: 920px; color: #c8c8da; }
+  table.t { border-collapse: collapse; margin-top: 10px; font-size: 14px; max-width: 1100px; }
+  table.t td, table.t th { border: 1px solid #2e2e42; padding: 6px 12px; text-align: left; vertical-align: top; }
+  table.t th { background: #1b1b28; }
+  table.t td.ok { color: var(--g); } table.t td.no { color: var(--r); } table.t td.mid { color: var(--y); }
+  code, kbd { font-family: "JetBrains Mono", Menlo, monospace; font-size: 13px; background: #26263a; padding: 1px 6px; border-radius: 4px; color: var(--fg); }
+
+  .term { width: 118ch; height: calc(34 * var(--lh)); background: var(--bg); border-radius: 8px;
+          font: 13px/var(--lh) "JetBrains Mono", "SF Mono", Menlo, monospace; color: var(--fg);
+          display: flex; flex-direction: column; overflow: hidden; position: relative;
+          box-shadow: 0 10px 40px #0008; padding: 4px 0; }
+  .line { height: var(--lh); white-space: pre; overflow: hidden; padding: 0 1ch; display: flex; align-items: center; gap: 0; flex: none; }
+  .line .sp { flex: 1; }
+  .body { flex: 1; display: flex; min-height: 0; padding: 2px 0; }
+  .col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .box { border: 1px solid var(--bd); border-radius: 5px; margin: 0 .5ch; display: flex; flex-direction: column;
+         min-width: 0; min-height: 0; overflow: hidden; position: relative; }
+  .box.f { border-color: var(--ac); }
+  .col > .box + .box { margin-top: 2px; }
+  .box pre, pre.raw { margin: 0; padding: 0 1ch; flex: 1; overflow: hidden; white-space: pre; font: inherit; }
+  .bt { height: var(--lh); padding: 0 1ch; color: var(--dim); white-space: pre; overflow: hidden; flex: none; display: flex; }
+  .bt.rule { border-bottom: 1px solid var(--bd); height: calc(var(--lh) + 1px); }
+  .bt .sp { flex: 1; }
+  .badge { background: var(--chip); color: var(--ac); font-weight: 700; padding: 0 1ch; margin-right: 1ch; }
+  .htab { padding: 0 1ch; color: #b8b8cc; }
+  .htab.on { background: var(--ac); color: #1d1d2b; font-weight: 700; }
+  .htab .n { color: var(--faint); }
+  .htab.on .n { color: #5a2346; }
+  .ttab { padding: 0 1ch; color: var(--dim); }
+  .ttab.on { color: var(--fg); background: #34344c; font-weight: 700; }
+  .ttab.on::after { content: ""; }
+  .ttab .n { color: var(--faint); }
+  .sep { color: var(--faint); padding: 0 .5ch; }
+  .k { background: #34344c; color: var(--fg); padding: 0 1ch; }
+  .kd { color: var(--dim); padding: 0 1.5ch 0 .5ch; }
+  .d { color: var(--dim); } .x { color: var(--faint); }
+  .a { color: var(--ac); } .a2 { color: var(--ac2); } .g { color: var(--g); } .b { color: var(--b); } .y { color: var(--y); } .r { color: var(--r); }
+  .bold { font-weight: 700; }
+  .selm { background: #3a3350; }
+  .cur { background: var(--fg); color: var(--bg); }
+  .ov { position: absolute; background: var(--panel); border: 1px solid var(--ac); border-radius: 6px;
+        box-shadow: 0 10px 40px #000a; display: flex; flex-direction: column; overflow: hidden; }
+  .ov pre { margin: 0; padding: 0 1ch; white-space: pre; font: inherit; flex: 1; overflow: hidden; }
+  .dim-all { opacity: .4; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .ln { color: var(--faint); }
+  .ruleh { height: 1px; background: var(--bd); margin: 0 1ch; flex: none; }
+  .edge { height: 3px; background: repeating-linear-gradient(90deg, var(--ac) 0 6px, transparent 6px 10px); margin: 1px 1ch; opacity: .6; flex: none; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="#top">Worum es geht</a>
+  <a href="#S1">S1 · Seitenleiste mit allem</a>
+  <a href="#S2">S2 · Seitenleiste + Tabs oben</a>
+  <a href="#S3">S3 · Eine Zeile oben</a>
+  <a href="#cmp">Vergleich</a>
+  <a href="layout-best.html">← letzter Vorschlag</a>
+</nav>
+<main>
+  <h1 id="top">Die Leiste neu gedacht</h1>
+  <p class="note"><b class="a">Was ich falsch eingeschätzt habe:</b> Das Problem war nie die Seitenleiste. Das Problem waren <b>drei Spalten</b>
+    (Seitenleiste + Dateibaum + Shell/Editor nebeneinander). Die Tab-Leiste oben hat die Seitenleiste ersetzt und damit den Überblick
+    und das schnelle <kbd>esc esc</kbd> <kbd>↑↓</kbd> <kbd>enter</kbd> weggenommen.<br><br>
+    Also: Seitenleiste zurück, aber nie mehr als <b>zwei Spalten</b>. Der Dateibaum wohnt <i>in</i> der Seitenleiste, nicht daneben.</p>
+  <p>Hier drei Varianten, wie das aussehen kann. Überall gleich:</p>
+  <ul>
+    <li><kbd>esc esc</kbd> in der Shell → Tastatur in der Seitenleiste, <kbd>↑↓</kbd> zum Host, <kbd>enter</kbd> = zurück wo du warst. Wie früher.</li>
+    <li>Pink ist nur, wo die Tastatur gerade ist. Alles andere grau.</li>
+    <li>Die Breite der Shell ändert sich nie durch Umschalten. Ist das Fenster zu schmal für die Leiste, schwebt sie auf <kbd>esc esc</kbd> über dem Inhalt.</li>
+  </ul>
+  <div id="out"></div>
+</main>
+<script>
+const line = (html, style = '') => `<div class="line" style="${style}">${html}</div>`;
+const sp = '<span class="sp"></span>';
+const keys = pairs => pairs.map(([k, d]) => `<span class="k">${k}</span><span class="kd">${d}</span>`).join('');
+const box = (inner, { f = false, style = '', title = '', rule = false } = {}) =>
+  `<div class="box${f ? ' f' : ''}" style="${style}">${title ? `<div class="bt${rule ? ' rule' : ''}">${title}</div>` : ''}${inner}</div>`;
+const pre = s => `<pre>${s}</pre>`;
+const term = (inner, overlay = '', width = 118) => `<div class="term" style="width:${width}ch">${inner}${overlay}</div>`;
+const body = (inner, style = '') => `<div class="body" style="${style}">${inner}</div>`;
+const col = (inner, style = '') => `<div class="col" style="${style}">${inner}</div>`;
+const dot = s => s === 'on' ? '<span class="g">●</span>' : s === 'dead' ? '<span class="r">●</span>' : '<span class="x">○</span>';
+const P = (host = 'web1', dir = '~/app') => `<span class="g">deploy@${host}</span>:<span class="b">${dir}</span>$ `;
+
+const SHELL = `${P()}docker compose ps
+<span class="d">NAME            IMAGE                          STATUS        PORTS</span>
+app-web-1       ghcr.io/acme/web:1.42.0        Up 3 days     127.0.0.1:8080->8080/tcp
+app-worker-1    ghcr.io/acme/worker:1.42.0     Up 3 days
+app-redis-1     redis:7-alpine                 Up 3 days     6379/tcp
+${P()}git log --oneline -4
+<span class="y">4f2a9c1</span> fix: retry webhook on 502
+<span class="y">a81be07</span> feat: export invoices as csv
+<span class="y">77c01d2</span> chore: bump node to 22
+<span class="y">0d9e3aa</span> fix(auth): reject expired tokens
+${P()}df -h /srv
+<span class="d">Filesystem      Size  Used Avail Use% Mounted on</span>
+/dev/nvme0n1p1   80G   51G   29G  64% /
+${P()}docker compose logs -f --tail 5 web
+web-1  | 10:14:02 GET /health 200 1ms
+web-1  | 10:14:07 GET /api/invoices?page=2 200 38ms
+web-1  | 10:14:09 POST /api/webhooks/stripe 200 112ms
+web-1  | 10:14:12 GET /health 200 1ms
+web-1  | 10:14:17 GET /static/app.4f2a9c1.js 304 0ms
+^C
+${P()}<span class="cur"> </span>`;
+
+const PANEL = `${P('web1', '/srv/app/nginx')}nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+${P('web1', '/srv/app/nginx')}sudo systemctl reload nginx
+${P('web1', '/srv/app/nginx')}<span class="cur"> </span>`;
+
+const NGINX = [
+  'server {', '    listen 443 ssl http2;', '    server_name app.acme.io;', '',
+  '    ssl_certificate     /etc/letsencrypt/live/app/fullchain.pem;',
+  '    ssl_certificate_key /etc/letsencrypt/live/app/privkey.pem;', '',
+  '    location / {', '        proxy_pass http://127.0.0.1:8080;',
+  '        proxy_set_header Host $host;', '        proxy_set_header X-Real-IP $remote_addr;', '    }', '',
+  '    location /static/ {', '        root /srv/app/public;', '        expires 7d;', '    }', '}',
+];
+const code = () => NGINX.map((l, i) => {
+  let t = l.replace(/^(\s*)([a-z_]+)/, '$1<span class="b">$2</span>');
+  if (i === 8) t = t.replace('<span class="b">proxy_pass', '<span class="cur">p</span><span class="b">roxy_pass');
+  return `<span class="ln">${String(i + 1).padStart(3)} </span>${t}`;
+}).join('\n');
+
+const COMPOSE = `<span class="b">services</span>:
+  <span class="b">web</span>:
+    <span class="b">image</span>: ghcr.io/acme/web:1.42.0
+    <span class="b">restart</span>: unless-stopped
+    <span class="b">ports</span>:
+      - "127.0.0.1:8080:8080"
+    <span class="b">env_file</span>: .env
+    <span class="b">depends_on</span>: [redis]
+  <span class="b">worker</span>:
+    <span class="b">image</span>: ghcr.io/acme/worker:1.42.0
+  <span class="b">redis</span>:
+    <span class="b">image</span>: redis:7-alpine
+    <span class="b">command</span>: redis-server --save 60 1`;
+
+const TREE = [
+  [0, 'config/', 'd'], [0, 'nginx/', 'o'], [1, 'nginx.conf', 'f', '1.2K', 'Sep 21'], [1, 'mime.types', 'f', '5.1K', 'Jul 02'],
+  [0, 'public/', 'd'], [0, 'scripts/', 'd'], [0, '.env.example', 'f', '216B', 'Sep 09'], [0, 'docker-compose.yml', 'f', '427B', 'Sep 18'],
+  [0, 'Makefile', 'f', '1.9K', 'Sep 15'], [0, 'README.md', 'f', '3.4K', 'Sep 13'],
+];
+const tree = (sel, meta = 'size', open = []) => TREE.map(([d, n, k, s, dt]) => {
+  const icon = k === 'd' ? '▸ ' : k === 'o' ? '▾ ' : '  ';
+  const nm = k === 'f' ? (open.includes(n) ? `<span class="a">${n}</span>` : n) : `<span class="a2">${n}</span>`;
+  const w = 2 * d + 2 + n.length;
+  let row = `${'  '.repeat(d)}${icon}${nm}`;
+  if (meta === 'size' && s) row += ' '.repeat(Math.max(1, 25 - w)) + `<span class="d">${s.padStart(5)}</span>`;
+  if (meta === 'full' && s) row += ' '.repeat(Math.max(1, 25 - w)) + `<span class="d">${s.padStart(5)}  ${dt}</span>`;
+  return n === sel ? `<span class="selm">${row}${' '.repeat(Math.max(0, (meta === 'full' ? 40 : 32) - (meta ? 31 : w)))}</span>` : row;
+}).join('\n');
+
+// The two header rows. hosts: [alias, state, count]
+const HOSTS = [['web1', 'on', 5], ['db1', 'on', 2], ['cache', 'on', 1]];
+const hostRow = (act, hosts = HOSTS, extra = '') => line(
+  `<span class="badge">hop</span> ` +
+  hosts.map(([h, st, n]) => `<span class="htab${h === act ? ' on' : ''}">${h === act ? '' : dot(st) + ' '}${h}${n ? ` <span class="n">${n}</span>` : ''}</span>`).join('') +
+  `<span class="htab d">+</span>` + extra + sp + `<span class="d">⇄ 2 tunnels</span>`);
+const WEB1_TABS = [['1', '$ app'], ['2', '$ log'], ['3', '▤ files'], ['4', '✎ nginx.conf'], ['5', '✎ docker-compose.yml']];
+const tabRow = (act, tabs = WEB1_TABS, right = '<span class="d">ctrl+o 1–9</span>') => line(
+  tabs.map(([n, t]) => `<span class="ttab${n === act ? ' on' : ''}"><span class="n">${n}</span> ${t}</span>`).join('<span class="sep">│</span>') + sp + right);
+const foot = (where, ks) => line(`<span class="bold">${where}</span>` + sp + keys(ks));
+const K_SHELL = [['ctrl+o space', 'go to'], ['ctrl+o tab', 'zurück'], ['ctrl+o f', 'files'], ['ctrl+o ?', 'keys']];
+const K_EDIT = [['ctrl+o j', 'terminal'], ['ctrl+o t', 'baum'], [':q', 'schließen'], ['ctrl+o space', 'go to']];
+
+// ---- the sidebar: hosts, the open tabs of the host you are on, and on file tabs the tree ----
+const WEB1 = [['sh1', '$ app'], ['sh2', '$ log'], ['br', '▤ files'], ['ng', '✎ nginx.conf'], ['dc', '✎ docker-compose.yml']];
+const OTHERS = [['db1', 'on', 2], ['cache', 'on', 1], ['staging', 'off'], ['bastion', 'off'], ['ci-runner', 'off']];
+const row = (txt, { here = false, cur = false, w = 28 } = {}) => {
+  const bar = here ? '<span class="a">▌</span>' : ' ';
+  const body = here ? `<span class="bold">${txt}</span>` : txt;
+  const plain = txt.replace(/<[^>]+>/g, '');
+  const pad = ' '.repeat(Math.max(0, w - plain.length - 1));
+  return cur ? `<span class="selm">${bar}${body}${pad}</span>` : `${bar}${body}`;
+};
+function side({ active = 'sh1', cursor = null, tabs = true, files = false, w = 28 } = {}) {
+  const out = [`<span class="d"> HOSTS</span>`];
+  out.push(row(`<span class="a">▾</span> <span class="bold">web1</span>          ${dot('on')}`, { cur: cursor === 'web1', w }));
+  if (tabs) {
+    for (const [id, t] of WEB1) out.push(row(`    ${t}`, { here: id === active && !cursor, cur: cursor === id, w }));
+    out.push(row(`    <span class="d">⇄ 2 tunnels</span>`, { w }));
+  }
+  for (const [h, st, n] of OTHERS) {
+    const name = h.padEnd(15);
+    out.push(row(st === 'on' ? `<span class="d">▸</span> ${name}${dot(st)} <span class="d">${n}</span>`
+                             : `  <span class="d">${name}</span>${dot(st)}`, { cur: cursor === h, w }));
+  }
+  if (files) {
+    out.push(`<span class="x">${'─'.repeat(w - 1)}</span>`);
+    out.push(`<span class="d"> FILES  /srv/app</span>`);
+    out.push(...tree(active === 'ng' ? 'nginx.conf' : '', false, ['nginx.conf', 'docker-compose.yml']).split('\n').map(l => ' ' + l));
+  }
+  return out.join('\n');
+}
+const sideBox = (opts = {}, f = false) => box(pre(side(opts)), { f, style: `width:${(opts.w || 28) + 3}ch;flex:none` });
+const K_SIDE = [['↑↓', 'wählen'], ['enter', 'hin'], ['→', 'aufklappen'], ['esc', 'zurück']];
+const crumb = t => `<span class="d">web1 ›</span> ${t}`;
+const panel = () => box(pre(PANEL), { title: '<span class="d">terminal · /srv/app/nginx</span>', style: 'flex:45' });
+const editorBox = (tabsLine = '') => box(tabsLine + pre(code()), { f: true, style: 'flex:55' });
+
+// S1 — everything in the sidebar, no bar on top
+const S1a = term(body(sideBox() + box(pre(SHELL), { f: true, style: 'flex:1' })) + foot(crumb('$ app <span class="d">› ~/app</span>'), K_SHELL));
+const S1b = term(body(sideBox({ active: 'ng', files: true }) + col(editorBox(`<div class="bt">/srv/app/nginx/nginx.conf</div>`) + panel(), 'flex:1')) +
+  foot(crumb('nginx.conf <span class="d">› /srv/app/nginx</span>'), K_EDIT));
+const S1c = term(body(sideBox({ cursor: 'db1' }, true) + box(pre(SHELL), { style: 'flex:1' })) + foot('<span class="a">hosts</span>', K_SIDE));
+const S1d = term(`<div class="dim-all">${body(box(pre(SHELL), { style: 'flex:1' })) + foot(crumb('$ app'), K_SHELL)}</div>`,
+  `<div class="ov" style="left:1ch;top:6px;width:32ch;height:300px">${pre(side({ cursor: 'db1' }))}</div>`, 88);
+
+// S2 — hosts only in the sidebar, one row of tabs above the content
+const S2side = (opts = {}, f = false) => box(pre(side({ ...opts, tabs: false, w: 24 })), { f, style: 'width:27ch;flex:none' });
+const tabsLine = act => `<div class="bt" style="color:var(--dim)">` +
+  WEB1.map(([id, t], i) => `<span class="ttab${id === act ? ' on' : ''}"><span class="n">${i + 1}</span> ${t}</span>`).join('') + `</div>`;
+const S2a = term(body(S2side() + col(`<div style="height:var(--lh);display:flex">${tabsLine('sh1').replace('class="bt"', 'class="bt" style="padding:0 .5ch"')}</div>` +
+  box(pre(SHELL), { f: true, style: 'flex:1' }), 'flex:1')) + foot(crumb('$ app'), K_SHELL));
+const S2b = term(body(S2side({ active: 'ng', files: true }) + col(`<div style="height:var(--lh);display:flex">${tabsLine('ng')}</div>` +
+  editorBox() + panel(), 'flex:1')) + foot(crumb('nginx.conf'), K_EDIT));
+
+// S3 — no sidebar on screen; one quiet line on top, the sidebar floats on esc esc
+const topLine = act => line(
+  `<span class="d bold">hop</span><span class="sep">│</span>` +
+  `<span class="bold">web1</span>&nbsp;&nbsp;` +
+  WEB1.map(([id, t], i) => `<span class="ttab${id === act ? ' on' : ''}"><span class="n">${i + 1}</span> ${t}</span>`).join('') +
+  `<span class="sep">│</span><span class="d">${dot('on')} db1 2&nbsp;&nbsp;${dot('on')} cache 1</span>` + sp + `<span class="d">esc esc hosts</span>`);
+const S3a = term(topLine('sh1') + body(box(pre(SHELL), { f: true, style: 'flex:1' })) + foot(crumb('$ app'), K_SHELL));
+const S3b = term(`<div class="dim-all">${topLine('sh1') + body(box(pre(SHELL), { style: 'flex:1' })) + foot(crumb('$ app'), K_SHELL)}</div>`,
+  `<div class="ov" style="left:1ch;top:26px;width:32ch;height:300px">${pre(side({ cursor: 'db1' }))}</div>`);
+
+const sections = [
+  { id: 'S1', name: 'Seitenleiste mit allem (mein Favorit)',
+    idea: 'Keine Leiste oben. Links: alle Hosts; der, auf dem du bist, ist aufgeklappt und zeigt seine Tabs. Auf einem Datei-Tab kommt der Dateibaum unten in dieselbe Leiste. Maximal zwei Spalten.',
+    pros: ['Alles im Blick, wie früher, plus was offen ist', 'esc esc ↑↓ enter wie früher', '2 Zeilen mehr Höhe für die Shell'],
+    cons: ['Die Leiste kostet ~30 Spalten, auch in der Shell', 'Dateibaum teilt sich die Höhe mit den Hosts'],
+    shots: [['S1a', 'Shell', S1a], ['S1b', 'Datei offen: Baum unten in der Leiste, Terminal-Panel unter der Datei', S1b],
+            ['S1c', 'esc esc: Tastatur in der Leiste, ↑↓ zu db1, enter', S1c], ['S1d', 'Schmales Fenster (88 Spalten): Leiste nur auf esc esc, schwebt über der Shell', S1d]] },
+  { id: 'S2', name: 'Seitenleiste (nur Hosts) + eine Tab-Zeile über dem Inhalt',
+    idea: 'Wie VS Code: links nur die Hosts (und auf Datei-Tabs der Baum), die Tabs des Hosts als eine Zeile direkt über dem Inhalt.',
+    pros: ['Sehr vertraut (VS Code)', 'Leiste schmaler (~26 Spalten)'],
+    cons: ['Was auf anderen Hosts offen ist, sieht man nur als Zahl', 'Eine Zeile mehr Chrome'],
+    shots: [['S2a', 'Shell', S2a], ['S2b', 'Datei offen', S2b]] },
+  { id: 'S3', name: 'Keine Seitenleiste, eine ruhige Zeile oben',
+    idea: 'Die Shell hat die volle Breite. Oben eine graue Zeile: aktiver Host, seine Tabs, die anderen Hosts. esc esc holt die Seitenleiste als schwebende Liste.',
+    pros: ['Volle Breite für die Shell', 'esc esc ↑↓ enter geht trotzdem'],
+    cons: ['Überblick nur auf Tastendruck', 'Bei vielen Tabs wird die Zeile voll'],
+    shots: [['S3a', 'Shell', S3a], ['S3b', 'esc esc: Liste schwebt links', S3b]] },
+];
+document.getElementById('out').innerHTML = sections.map(s => `
+  <h2 id="${s.id}"><span class="a">${s.id}</span> · ${s.name}</h2>
+  <p>${s.idea}</p>
+  <p><span class="g">+</span> ${s.pros.join(' · ')}<br><span class="r">−</span> ${s.cons.join(' · ')}</p>
+  ${s.shots.map(([id, cap, html]) => `<div class="shot"><div class="cap"><b>${id}</b>${cap}</div>${html}</div>`).join('')}
+`).join('') + `
+  <h2 id="cmp">Vergleich</h2>
+  <table class="t">
+    <tr><th></th><th>S1 alles links</th><th>S2 Hosts links + Tabs oben</th><th>S3 eine Zeile oben</th></tr>
+    <tr><td>Überblick ohne Tastendruck</td><td class="ok">alle Hosts + alles Offene</td><td class="mid">alle Hosts + Tabs des aktiven</td><td class="mid">aktiver Host + Namen der anderen</td></tr>
+    <tr><td>Breite der Shell (120er Fenster)</td><td class="mid">~88</td><td class="mid">~92</td><td class="ok">~118</td></tr>
+    <tr><td>esc esc ↑↓ enter</td><td class="ok">ja</td><td class="ok">ja</td><td class="ok">ja (schwebend)</td></tr>
+    <tr><td>Spalten maximal</td><td>2</td><td>2</td><td>2</td></tr>
+  </table>`;
+</script>
+</body>
+</html>
