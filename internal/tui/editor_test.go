@@ -95,20 +95,17 @@ func TestEditorTabJump(t *testing.T) {
 	}
 }
 
-// ctrl+o drops back to the browser with the editor tabs left running.
-func TestEditorCtrlOKeepsTabs(t *testing.T) {
+// ctrl+o o goes to the start screen with the editor tabs left running behind it.
+func TestEditorCtrlOOKeepsTabs(t *testing.T) {
 	m, s := editorModel(t, "a.conf", "b.conf")
 	s.browser = &filebrowser.Browser{}
 
-	m.handleKey(altKey("2"))
+	m.handleKey(altKey("3"))
 	m.handleKey(key(t, "ctrl+o"))
 	m.handleKey(runeKey('o')) // the leader's "out"
 
-	if m.editing() {
-		t.Fatal("ctrl+o did not leave editing mode")
-	}
-	if !m.browsing() {
-		t.Fatal("ctrl+o did not return to the browser it was opened from")
+	if m.mode != modeList {
+		t.Fatalf("mode = %v, want the start screen", m.mode)
 	}
 	if len(s.editors) != 2 || s.activeEd != 1 {
 		t.Fatalf("editors = %d, activeEd = %d; want the two tabs intact on the second",
@@ -301,10 +298,18 @@ func TestSplitTabKeysMoveTheFocusedHalf(t *testing.T) {
 		t.Fatalf("splitEd/activeEd = %d/%d after alt+right in the right half, want 2/0", s.splitEd, s.activeEd)
 	}
 
+	// Tab 3 is b.conf: the files tab is tab 1. It goes into the half the keyboard is in.
 	s.splitRight = false
 	m.handleKey(altKey("3"))
-	if s.activeEd != 2 || s.splitEd != 2 {
-		t.Fatalf("activeEd/splitEd = %d/%d after alt+3 in the left half, want 2/2", s.activeEd, s.splitEd)
+	if s.activeEd != 1 || s.splitEd != 2 {
+		t.Fatalf("activeEd/splitEd = %d/%d after alt+3 in the left half, want 1/2", s.activeEd, s.splitEd)
+	}
+
+	// A file the other half already shows is not opened twice: the keyboard goes there.
+	m.handleKey(altKey("4"))
+	if !s.splitRight || s.activeEd != 1 || s.splitEd != 2 {
+		t.Fatalf("right=%v activeEd/splitEd = %d/%d after alt+4, want the right half's c.conf",
+			s.splitRight, s.activeEd, s.splitEd)
 	}
 }
 

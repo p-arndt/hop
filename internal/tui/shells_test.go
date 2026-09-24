@@ -196,13 +196,11 @@ func TestLeftAlwaysGoesToTheShell(t *testing.T) {
 	}
 }
 
-func TestShellSizeMakesRoomForTheStrip(t *testing.T) {
+// A shell tab has the whole content area however many there are: the sidebar, not a strip,
+// names them.
+func TestAShellTabHasTheWholeBody(t *testing.T) {
 	m, _ := shellModel(t, 1)
-
-	if _, h := m.shellSize(1); h != m.fullH() {
-		t.Fatalf("one shell gets height %d, want the whole body (%d)", h, m.fullH())
-	}
-	if _, h := m.shellSize(2); h != m.fullH()-1 {
-		t.Fatalf("two shells get height %d, want one row less than the body (%d)", h, m.fullH())
+	if w, h := m.shellSize(); w != m.width-m.paneLeft()-2 || h != m.fullH() {
+		t.Fatalf("a shell gets %dx%d, want the whole content area (%dx%d)", w, h, m.width-m.paneLeft()-2, m.fullH())
 	}
 }

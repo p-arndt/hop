@@ -51,7 +51,9 @@ func switchHosts(m *model) []string {
 	return out
 }
 
-func TestLeaderSpaceOpensTheSwitcherOnWhatIsOpenThenEveryHost(t *testing.T) {
+// With no query go to is a tree: every open host with what is open on it indented under it,
+// then the hosts with nothing open, under a heading.
+func TestLeaderSpaceOpensGoToAsATreeOfWhatIsOpen(t *testing.T) {
 	m := newMouseModel(3)
 	m.sessions["hc"] = &session{shells: []*shellTab{{id: 1, pane: fakePane()}}}
 	m.focusShell("hc")
@@ -61,11 +63,47 @@ func TestLeaderSpaceOpensTheSwitcherOnWhatIsOpenThenEveryHost(t *testing.T) {
 	if !m.hostSwitch.open {
 		t.Fatal("ctrl+o space did not open the switcher")
 	}
-	if first := m.hostSwitch.items[0].t; first != (target{alias: "hc", kind: targetShell, id: 1}) {
-		t.Fatalf("first row = %+v, want hc's shell", first)
+	items := m.hostSwitch.items
+	want := []switchItem{
+		{t: target{alias: "hc"}, tree: true},
+		{t: target{alias: "hc", kind: targetShell, id: 1}, tree: true, num: 1},
+		{heading: "not connected"},
+		{t: target{alias: "ha"}},
+		{t: target{alias: "hb"}},
 	}
-	if got := switchHosts(m); len(got) != 3 || got[0] != "hc" || got[1] != "ha" || got[2] != "hb" {
-		t.Fatalf("hosts = %v, want the connected host first, then the list's order", got)
+	if len(items) != len(want) {
+		t.Fatalf("go to has %d rows, want %d: %+v", len(items), len(want), items)
+	}
+	for i, w := range want {
+		got := items[i]
+		if got.t != w.t || got.heading != w.heading || got.tree != w.tree || got.num != w.num {
+			t.Fatalf("row %d = %+v, want %+v", i, got, w)
+		}
+	}
+	if items[m.hostSwitch.cursor].heading != "" {
+		t.Fatal("the cursor starts on a heading")
+	}
+}
+
+// A query flattens the tree into one ranked list: what is open, most recently used first,
+// then every host, the connected ones first.
+func TestGoToFlattensWhileTyping(t *testing.T) {
+	m := newMouseModel(3)
+	m.sessions["hc"] = &session{shells: []*shellTab{{id: 1, pane: fakePane()}}}
+	m.focusShell("hc")
+
+	press(t, m, "ctrl+o", "space", "h")
+
+	if first := m.hostSwitch.items[0].t; first.alias != "hc" {
+		t.Fatalf("first row = %+v, want hc's", first)
+	}
+	for _, it := range m.hostSwitch.items {
+		if it.heading != "" || it.tree {
+			t.Fatalf("a typed query still draws the tree: %+v", it)
+		}
+	}
+	if got := switchHosts(m); len(got) != 3 || got[0] != "hc" {
+		t.Fatalf("hosts = %v, want the connected host first", got)
 	}
 }
 

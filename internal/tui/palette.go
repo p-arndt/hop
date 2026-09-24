@@ -127,13 +127,13 @@ func (m *model) paletteInnerW() int {
 }
 
 func (m *model) renderPalette() string {
-	return m.renderPicker("ACTIONS", m.palette.picker, len(m.palette.items), "run",
+	return m.renderPicker("ACTIONS", m.palette.picker, len(m.palette.items), "run", paletteRows,
 		func(i int, selected bool, w int) string { return actionRow(m.palette.items[i], selected, w) })
 }
 
-// renderPicker draws a filtered card: a title, the query, a window of n rows kept around
-// the cursor, and the keys that work it.
-func (m *model) renderPicker(title string, p picker, n int, verb string, row func(i int, selected bool, w int) string) string {
+// renderPicker draws a filtered card: a title, the query, a window of up to rows of the n
+// rows kept around the cursor, and the keys that work it.
+func (m *model) renderPicker(title string, p picker, n int, verb string, rows int, row func(i int, selected bool, w int) string) string {
 	w := m.paletteInnerW()
 	var b strings.Builder
 
@@ -149,11 +149,14 @@ func (m *model) renderPicker(title string, p picker, n int, verb string, row fun
 		b.WriteString("\n")
 	}
 
+	// A tall card shrinks to the window, down to the palette's height: the card is centred,
+	// and one that overflows loses its keys.
+	rows = min(rows, max(m.height-12, paletteRows))
 	start := 0
-	if p.cursor >= paletteRows {
-		start = p.cursor - paletteRows + 1
+	if p.cursor >= rows {
+		start = p.cursor - rows + 1
 	}
-	for i := start; i < min(start+paletteRows, n); i++ {
+	for i := start; i < min(start+rows, n); i++ {
 		b.WriteString(padTo(row(i, i == p.cursor, w), w))
 		b.WriteString("\n")
 	}

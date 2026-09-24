@@ -40,8 +40,9 @@ func TestQClosingTheBrowserKeepsTheShells(t *testing.T) {
 	if m.sessions["ha"] != s || len(s.shells) != 1 {
 		t.Fatal("closing the browser took the shell with it")
 	}
-	if m.mode != modeList {
-		t.Fatalf("mode = %v, want the host list", m.mode)
+	// The files tab went; the host's last place is what is left of it.
+	if m.mode != modeShell || m.active != "ha" {
+		t.Fatalf("mode = %v, active = %q; want ha's shell tab", m.mode, m.active)
 	}
 }
 

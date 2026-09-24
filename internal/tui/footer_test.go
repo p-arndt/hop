@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"github.com/charmbracelet/x/ansi"
 	"io"
 	"os"
 	"strings"
@@ -88,11 +89,37 @@ func TestFooterAlwaysOffersTheCard(t *testing.T) {
 				t.Fatalf("the %s legend does not offer the help card:\n%s", name, m.renderFooter())
 			}
 			wantChord := (m.editing() || m.mode == modeShell) && !m.activeDead()
-			if got := strings.Contains(m.renderFooter(), "ctrl+o ?"); got != wantChord {
+			if got := behindLeader(m.renderFooter(), "?"); got != wantChord {
 				t.Fatalf("the %s legend offers the chord = %v, want %v — a bare ? is text in a pane that forwards:\n%s",
 					name, got, wantChord, m.renderFooter())
 			}
 		})
+	}
+}
+
+// behindLeader reports whether the footer offers key in its leader group, the keys drawn
+// after the one leader keycap.
+func behindLeader(foot, key string) bool {
+	plain := ansi.Strip(foot)
+	i := strings.Index(plain, " ctrl+o ")
+	return i >= 0 && strings.Contains(plain[i:], " "+key+" ")
+}
+
+// A pane's footer says the leader once, with its chords behind it, rather than on each.
+func TestFooterSaysTheLeaderOnce(t *testing.T) {
+	m, _ := statusModel(t, 160, 34)
+	m.mode = modeShell
+	foot := ansi.Strip(m.renderFooter())
+	if n := strings.Count(foot, "ctrl+o"); n != 1 {
+		t.Fatalf("the shell footer draws the leader %d times, want once:\n%s", n, foot)
+	}
+	for _, key := range []string{"space", "f", "?"} {
+		if !behindLeader(foot, key) {
+			t.Fatalf("the leader group is missing %q:\n%s", key, foot)
+		}
+	}
+	if strings.Contains(foot, "leader") {
+		t.Fatalf("the bare leader hint is drawn beside the gathered chords:\n%s", foot)
 	}
 }
 
@@ -207,31 +234,34 @@ func stripHint(hint string) string {
 	return parts[len(parts)-1]
 }
 
-// One esc only drops the selected host; the second quits.
-func TestDoubleEscQuitsFromTheList(t *testing.T) {
+// esc esc in the sidebar is esc: it gives the keyboard back to the host in front, and never
+// quits hop.
+func TestDoubleEscDoesNotQuitFromTheSidebar(t *testing.T) {
 	m, _ := statusModel(t, 120, 34)
 	m.active, m.mode = "web1", modeList
 
-	if _, cmd := m.handleKey(key(t, "esc")); cmd != nil {
-		t.Fatal("a single esc in the list quit hop")
+	for i := range 2 {
+		if _, cmd := m.handleKey(key(t, "esc")); isQuit(cmd) {
+			t.Fatalf("esc number %d in the sidebar quit hop", i+1)
+		}
 	}
-	if m.active != "" {
-		t.Fatalf("the first esc did not drop the selected host: active = %q", m.active)
-	}
-
-	if _, cmd := m.handleKey(key(t, "esc")); cmd == nil {
-		t.Fatal("esc esc in the list did not quit hop")
+	if m.active != "web1" || m.mode != modeShell {
+		t.Fatalf("active = %q, mode = %v; want the keyboard back in web1's shell", m.active, m.mode)
 	}
 }
 
-func TestSlowDoubleEscDoesNotQuit(t *testing.T) {
+// With no host in front esc esc has nowhere to go: the keyboard stays, and hop runs on.
+func TestDoubleEscWithNoHostInFrontStays(t *testing.T) {
 	m, _ := statusModel(t, 120, 34)
-	m.active, m.mode = "web1", modeList
+	m.active, m.mode = "", modeList
 
-	m.handleKey(key(t, "esc"))
-	m.reader.Reset() // as if the user paused past the chord's window
-	if _, cmd := m.handleKey(key(t, "esc")); cmd != nil {
-		t.Fatal("two escs outside the window quit hop")
+	for i := range 2 {
+		if _, cmd := m.handleKey(key(t, "esc")); cmd != nil {
+			t.Fatalf("esc number %d with nowhere to go ran a command", i+1)
+		}
+	}
+	if m.mode != modeList {
+		t.Fatalf("mode = %v, want the sidebar", m.mode)
 	}
 }
 
@@ -330,6 +360,11 @@ func footerStates(t *testing.T) []footerState {
 		}},
 		{"mode/filtering", func() *model { m := base(); m.filtering = true; return m }},
 		{"mode/list", func() *model { return base() }},
+		{"mode/sidebar over a host", func() *model {
+			m, _ := statusModel(t, 120, 34)
+			m.mode = modeList
+			return m
+		}},
 		{"mode/list on a pinned host", func() *model {
 			m := base()
 			m.hosts[0].Pinned = true
@@ -407,7 +442,8 @@ func TestFooterHintsDump(t *testing.T) {
 	}
 }
 
-// footerGolden is the legend each state produced before the arms became a table.
+// footerGolden is the legend each state produces, checked in so a change to one is a
+// decision rather than an accident.
 // Regenerate with HOP_FOOTER_DUMP=1 go test ./internal/tui -run TestFooterHintsDump -v.
 var footerGolden = map[string]string{
 	"card/auth":                            "core:  enter  submit |  esc  cancel |  ctrl+u  clear\nextra: \nhelp: ",
@@ -426,26 +462,27 @@ var footerGolden = map[string]string{
 	"card/settings editing":                "core:  enter  save |  esc  cancel |  ctrl+u  clear\nextra: \nhelp: ",
 	"card/settings list":                   "core:  enter  edit |  r  reset |  esc  close\nextra: \nhelp: ",
 	"card/over a shell":                    "core:  esc  close\nextra: \nhelp: ",
-	"leader/armed":                         "core: leader |  o  out |  1-9  tab |  0  new shell |  f  browse here |  space  go to |  ctrl+k  actions |  ?  keys | any other key cancels\nextra: \nhelp: ",
-	"leader/armed with a cwd":              "core: leader |  o  out |  1-9  tab |  0  new shell |  f  browse here |  c  vs code here |  space  go to |  ctrl+k  actions |  ?  keys | any other key cancels\nextra: \nhelp: ",
-	"leader/armed with a last host":        "core: leader |  o  out |  1-9  tab |  0  new shell |  f  browse here |  space  go to |  tab  last host |  ctrl+k  actions |  ?  keys | any other key cancels\nextra: \nhelp: ",
-	"mode/dead pane":                       "core:  r  reconnect |  d  drop session |  ctrl+o  back\nextra: \nhelp:  ?  keys",
-	"mode/editor":                          "core:  ctrl+o o  browser |  :q  close |  shift+→  tab\nextra:  ctrl+o t  tree |  ctrl+o j  terminal |  ctrl+o s  shell |  ctrl+o 1-9  jump |  ctrl+o space  go to\nhelp:  ctrl+o ?  keys",
-	"mode/browser":                         "core:  ctrl+o  back |  q  close |  enter  edit\nextra:  d  download |  tab  focus file |  \\  open beside |  `  terminal |  shift+s  terminal here |  space  mark |  t  target |  c  copy there |  v  move there |  ctrl+k  actions |  ←  up |  a  mark all |  u  upload |  o  open local |  x  delete |  shift+r  rename |  m  mkdir |  s  sort |  r  refresh |  ctrl+t  tree\nhelp:  ?  keys",
+	"leader/armed":                         "core: leader |  1-9  tab |  space  go to |  0  new shell |  f  files |  o  hosts |  b  sidebar |  ctrl+k  actions |  ?  keys | any other key cancels\nextra: \nhelp: ",
+	"leader/armed with a cwd":              "core: leader |  1-9  tab |  space  go to |  0  new shell |  f  files |  c  vs code here |  o  hosts |  b  sidebar |  ctrl+k  actions |  ?  keys | any other key cancels\nextra: \nhelp: ",
+	"leader/armed with a last host":        "core: leader |  1-9  tab |  ←→  host |  space  go to |  tab  last host |  0  new shell |  f  files |  o  hosts |  b  sidebar |  ctrl+k  actions |  ?  keys | any other key cancels\nextra: \nhelp: ",
+	"mode/dead pane":                       "core:  r  reconnect |  d  drop session |  esc  hosts\nextra:  ctrl+o tab  last host\nhelp:  ?  keys",
+	"mode/editor":                          "core:  :q  close |  ctrl+o t  tree |  shift+→  tab\nextra:  ctrl+o j  terminal |  ctrl+o s  shell |  ctrl+o 1-9  tab |  ctrl+o space  go to |  esc esc  hosts\nhelp:  ctrl+o ?  keys",
+	"mode/browser":                         "core:  enter  open |  q  close |  `  terminal\nextra:  p  go to |  esc esc  hosts |  shift+→  tab |  d  download |  u  upload |  tab  focus file |  \\  open beside |  shift+s  terminal here |  space  mark |  t  target |  c  copy there |  v  move there |  ctrl+k  actions |  ←  up |  a  mark all |  o  open local |  x  delete |  shift+r  rename |  m  mkdir |  s  sort |  r  refresh |  ctrl+t  tree |  ctrl+o  leader\nhelp:  ?  keys",
 	"mode/scrollback":                      "core:  esc  back to live |  ↑↓  scroll |  home/end  top/live\nextra:  pgup/pgdn  page\nhelp:  ?  keys",
-	"mode/shell":                           "core:  ctrl+o o  back |  ctrl+o  leader\nextra:  ctrl+o f  browse here |  ctrl+o space  go to |  esc esc  back\nhelp:  ctrl+o ?  keys",
-	"mode/shell with two tabs":             "core:  ctrl+o o  back |  ctrl+o  leader |  shift+→  shell\nextra:  ctrl+o 1-9  jump |  ctrl+o f  browse here |  ctrl+o space  go to |  esc esc  back\nhelp:  ctrl+o ?  keys",
-	"mode/shell with a cwd":                "core:  ctrl+o o  back |  ctrl+o  leader\nextra:  ctrl+o f  browse here |  ctrl+o c  vs code here |  ctrl+o space  go to |  esc esc  back\nhelp:  ctrl+o ?  keys",
-	"mode/shell with scrollback behind it": "core:  ctrl+o o  back |  ctrl+o  leader\nextra:  ctrl+o f  browse here |  ctrl+o c  vs code here |  shift+↑  scrollback |  ctrl+o space  go to |  esc esc  back\nhelp:  ctrl+o ?  keys",
+	"mode/shell":                           "core:  ctrl+o space  go to |  ctrl+o f  files\nextra:  esc esc  hosts |  ctrl+o 0  new shell |  ctrl+o  leader\nhelp:  ctrl+o ?  keys",
+	"mode/shell with two tabs":             "core:  ctrl+o space  go to |  ctrl+o f  files |  shift+→  tab\nextra:  ctrl+o 1-9  tab |  esc esc  hosts |  ctrl+o 0  new shell |  ctrl+o  leader\nhelp:  ctrl+o ?  keys",
+	"mode/shell with a cwd":                "core:  ctrl+o space  go to |  ctrl+o f  files\nextra:  esc esc  hosts |  ctrl+o 0  new shell |  ctrl+o c  vs code here |  ctrl+o  leader\nhelp:  ctrl+o ?  keys",
+	"mode/shell with scrollback behind it": "core:  ctrl+o space  go to |  ctrl+o f  files\nextra:  esc esc  hosts |  ctrl+o 0  new shell |  ctrl+o c  vs code here |  shift+↑  scrollback |  ctrl+o  leader\nhelp:  ctrl+o ?  keys",
 	"mode/filtering":                       "core:  type  filter |  enter  apply |  esc  clear\nextra:  ↑↓  move\nhelp: ",
-	"mode/list":                            "core:  enter  connect |  space  actions |  /  filter\nextra:  ctrl+k  search actions |  ↑↓  move |  f  sftp |  a  add |  e  edit |  x  delete |  p  pin |  t  tunnels |  i  import |  ,  settings |  esc esc  quit\nhelp:  ?  keys",
-	"mode/list on a pinned host":           "core:  enter  connect |  space  actions |  /  filter\nextra:  ctrl+k  search actions |  ↑↓  move |  f  sftp |  a  add |  e  edit |  x  delete |  p  pin |  t  tunnels |  i  import |  ,  settings |  esc esc  quit |  shift+kshift+j  reorder\nhelp:  ?  keys",
-	"mode/list on a dropped session":       "core:  r  reconnect |  enter  connect |  f  sftp\nextra:  d  drop session |  ctrl+k  search actions |  ↑↓  move |  f  sftp |  a  add |  e  edit |  x  delete |  p  pin |  t  tunnels |  i  import |  ,  settings |  esc esc  quit\nhelp:  ?  keys",
-	"mode/empty list":                      "core:  a  add host |  i  import\nextra:  ctrl+k  search actions |  ,  settings |  esc esc  quit\nhelp:  ?  keys",
-	"layer/guidance keys in a shell":       "core:  ctrl+o o  back |  ctrl+o  leader\nextra: \nhelp:  ctrl+o ?  keys",
-	"layer/guidance guided in a shell":     "core:  ctrl+o o  back |  ctrl+o  leader |  ctrl+o ctrl+k  actions\nextra:  ctrl+o f  browse here |  ctrl+o space  go to |  esc esc  back\nhelp:  ctrl+o ?  keys",
-	"layer/guidance guided in the browser": "core:  ctrl+o  back |  q  close |  enter  edit |  ctrl+k  actions\nextra:  d  download |  tab  focus file |  \\  open beside |  `  terminal |  shift+s  terminal here |  space  mark |  t  target |  c  copy there |  v  move there |  ←  up |  a  mark all |  u  upload |  o  open local |  x  delete |  shift+r  rename |  m  mkdir |  s  sort |  r  refresh |  ctrl+t  tree\nhelp:  ?  keys",
-	"layer/guidance guided in the list":    "core:  enter  connect |  space  actions |  /  filter |  ctrl+k  search actions\nextra:  ↑↓  move |  f  sftp |  a  add |  e  edit |  x  delete |  p  pin |  t  tunnels |  i  import |  ,  settings |  esc esc  quit\nhelp:  ?  keys",
+	"mode/list":                            "core:  enter  go |  space  actions |  /  filter\nextra:  ctrl+k  search actions |  ↑↓  move |  f  sftp |  a  add |  e  edit |  x  delete |  p  pin |  t  tunnels |  i  import |  ,  settings |  shift+b  dock / hide |  q  quit\nhelp:  ?  keys",
+	"mode/sidebar over a host":             "core:  enter  go |  esc  back\nextra:  space  actions |  /  filter |  ctrl+k  search actions |  ↑↓  move |  f  sftp |  a  add |  e  edit |  x  delete |  p  pin |  t  tunnels |  i  import |  ,  settings |  shift+b  dock / hide |  q  quit\nhelp:  ?  keys",
+	"mode/list on a pinned host":           "core:  enter  go |  space  actions |  /  filter\nextra:  ctrl+k  search actions |  ↑↓  move |  f  sftp |  a  add |  e  edit |  x  delete |  p  pin |  t  tunnels |  i  import |  ,  settings |  shift+b  dock / hide |  q  quit |  shift+kshift+j  reorder\nhelp:  ?  keys",
+	"mode/list on a dropped session":       "core:  r  reconnect |  enter  connect |  f  sftp\nextra:  d  drop session |  ctrl+k  search actions |  ↑↓  move |  f  sftp |  a  add |  e  edit |  x  delete |  p  pin |  t  tunnels |  i  import |  ,  settings |  shift+b  dock / hide |  q  quit\nhelp:  ?  keys",
+	"mode/empty list":                      "core:  a  add host |  i  import\nextra:  ctrl+k  search actions |  ,  settings |  q  quit\nhelp:  ?  keys",
+	"layer/guidance keys in a shell":       "core:  ctrl+o space  go to |  ctrl+o f  files\nextra: \nhelp:  ctrl+o ?  keys",
+	"layer/guidance guided in a shell":     "core:  ctrl+o space  go to |  ctrl+o f  files |  ctrl+o ctrl+k  actions\nextra:  esc esc  hosts |  ctrl+o 0  new shell |  ctrl+o  leader\nhelp:  ctrl+o ?  keys",
+	"layer/guidance guided in the browser": "core:  enter  open |  q  close |  `  terminal |  ctrl+k  actions\nextra:  p  go to |  esc esc  hosts |  shift+→  tab |  d  download |  u  upload |  tab  focus file |  \\  open beside |  shift+s  terminal here |  space  mark |  t  target |  c  copy there |  v  move there |  ←  up |  a  mark all |  o  open local |  x  delete |  shift+r  rename |  m  mkdir |  s  sort |  r  refresh |  ctrl+t  tree |  ctrl+o  leader\nhelp:  ?  keys",
+	"layer/guidance guided in the list":    "core:  enter  go |  space  actions |  /  filter |  ctrl+k  search actions\nextra:  ↑↓  move |  f  sftp |  a  add |  e  edit |  x  delete |  p  pin |  t  tunnels |  i  import |  ,  settings |  shift+b  dock / hide |  q  quit\nhelp:  ?  keys",
 }
 
 // Characterization: every state's legend still reads exactly as it did.

@@ -283,21 +283,22 @@ Upgrading from a version that kept its hosts in SQLite? The first start converts
 
 ## ⌨️ Keys
 
-Every mode returns to the host list — from a pane with `ctrl+o` `o`, from the browser
-with `ctrl+o`, and from either with a double `esc` inside 400 ms. In the list itself
-`esc` `esc` is the last level out: it quits hop.
+Every mode returns to the [sidebar](KEYBINDINGS.md#the-sidebar-and-the-content-area) — a double `esc` inside 400 ms from any
+pane, the browser or an editor, or `ctrl+o` `o` behind the leader. The cursor lands on
+where you were, and `esc` in the sidebar goes straight back there. **`esc` never quits
+hop**: `q` or `ctrl+c` in the sidebar does.
 
-Two rows along the bottom say where you are and what to press. The **status bar** carries the
-place: the host, what you are doing on it, and the thing you are doing it to — the directory
-a shell is standing in, the file an editor tab holds, the listing the browser shows — with
-`user@host:port` and the tab count at its right-hand end. The **footer** below it is the key
-legend, and it is deliberately short: it names the keys the mode cannot be worked without,
-adds more as the window gets wider, and leaves the full table to `?` (the
-[key card](KEYBINDINGS.md#the-cards)), which opens on the section for the mode you are in.
+One row along the bottom says where you are and what to press. On the left, the **crumb**
+names the place — the host, the tab, and the thing it is at: the directory a shell is
+standing in, the file an editor tab holds, the listing the browser shows. A message such as
+*connected* takes that side for the few seconds it is up. On the right is the key legend,
+and it is deliberately short: it names the keys the mode cannot be worked without, adds more
+as the window gets wider, and leaves the full table to `?` (the [key card](KEYBINDINGS.md#the-cards)), which
+opens on the section for the mode you are in.
 
 | Mode | You're here when | Who owns your keystrokes | Read next |
 | --- | --- | --- | --- |
-| **Navigation** | the host list is focused (the default) | hop | [Host list](KEYBINDINGS.md#navigation--the-host-list) · [SSH config import](KEYBINDINGS.md#import--the-ssh-config-card) · [Host keys](KEYBINDINGS.md#host-keys-and-authentication) |
+| **Navigation** | the sidebar has the keyboard (the default) | hop | [Sidebar keys](KEYBINDINGS.md#navigation--the-sidebar) · [SSH config import](KEYBINDINGS.md#import--the-ssh-config-card) · [Host keys](KEYBINDINGS.md#host-keys-and-authentication) |
 | **Terminal** | you connected with `enter` or `s` | the **remote shell** | [Shells](KEYBINDINGS.md#terminal--a-live-shell-on-a-remote-host) · [Scrollback](KEYBINDINGS.md#scrolling-back-through-history) |
 | **Browsing** | you opened the SFTP browser with `f` | hop | [File browser](KEYBINDINGS.md#browsing--the-sftp-file-browser) · [Editor tabs](KEYBINDINGS.md#editing--editor-tabs) |
 
@@ -306,16 +307,15 @@ host under the cursor and `ctrl+k` the palette for whatever mode you are in — 
 what is possible *and* the key that does it, and how much hop keeps on screen without being
 asked is one setting (see [Guidance](KEYBINDINGS.md#actions--the-menu-and-the-palette)).
 
-Everything else works in **all** of them: the [host list over any view](KEYBINDINGS.md#views-and-the-host-list), the
+Everything else works in **all** of them: the [sidebar beside every tab](KEYBINDINGS.md#the-sidebar-and-the-content-area), the
 [settings popover](KEYBINDINGS.md#settings--the-popover), the [tunnels](KEYBINDINGS.md#tunnels--port-forwarding), the [mouse](KEYBINDINGS.md#the-mouse) and the optional
 [vim keys](KEYBINDINGS.md#vim-keys).
 
 **Two rules explain most of the keyboard:**
 
-- **Inside a pane, `ctrl+o` is [hop's leader](KEYBINDINGS.md#the-leader--ctrlo).** It does nothing on its own and it
-  is on no clock — it opens a menu in the footer and waits. `ctrl+o` `o` goes **out**.
-- **Outside a pane** — in the browser, in a card — `ctrl+o` simply goes back. There is no
-  remote program competing for keys there, so there is nothing to lead.
+- **In a pane and in the browser, `ctrl+o` is [hop's leader](KEYBINDINGS.md#the-leader--ctrlo).** It does nothing on
+  its own and it is on no clock — it opens a menu in the footer and waits. `ctrl+o` `o`
+  goes to the sidebar.
 - **Inside a pane, everything else is the remote's.** hop reserves as few keys as it can,
   because every one it takes is one the shell or editor no longer gets.
 
@@ -324,13 +324,17 @@ Everything else works in **all** of them: the [host list over any view](KEYBINDI
 
 | Key | Action |
 | --- | --- |
-| `↓` `↑` | move |
+| `↓` `↑` | move — over the hosts and the tabs of an opened-out host alike |
 | `pgdn` `pgup` | a full page down / up |
-| `enter` `→` | connect (opens a terminal pane), or go back to where you were on it — the same tab, file or panel |
-| `esc` `←` | back — leave the details view |
+| `enter` `→` | go there: on a tab, that tab; on a host, back to where you were on it — the same tab, file or panel — connecting first if it is not |
+| `→` | open the host out into its tabs; on an open host, step into them |
+| `←` | from a tab, back up to its host; on an open host, fold it up |
+| `esc` | give the keyboard back to where it was, with nothing changed |
+| `shift+b` | hide the sidebar, giving its width to the content — or dock it again |
+| `ctrl+o` | the [leader](KEYBINDINGS.md#the-leader--ctrlo), as in a pane — `ctrl+o` `space` for go to, `ctrl+o` `→` for the next host |
 | `s` | focus the existing session for this host |
 | `S` | open **another** shell on this host, alongside the ones already open |
-| `1` … `9` | go straight to that shell of the host under the cursor |
+| `1` … `9` | go straight to that tab of the host under the cursor |
 | `f` | open the SFTP browser |
 | `t` | start all defined tunnels, or stop them when any are running |
 | `T` | manage this host's tunnel definitions |
@@ -338,6 +342,7 @@ Everything else works in **all** of them: the [host list over any view](KEYBINDI
 | `d` | disconnect the session |
 | `r` | reconnect a session whose connection dropped, reopening what it held |
 | `a` `e` `x` | add / edit / delete a host (delete asks first) |
+| `x` on a tab row | close that tab: the files tab and a shell go at once, an editor asks first since unsaved changes would be lost |
 | `p` | pin the host to the **PINNED** section at the top, or unpin it |
 | `shift+k` `shift+j` | move a pinned host up / down inside that section |
 | `i` | import hosts from an OpenSSH config (`~/.ssh/config` by default) |
@@ -347,10 +352,12 @@ Everything else works in **all** of them: the [host list over any view](KEYBINDI
 | `,` `?` | settings / the keys card |
 | `ctrl+g` | hand the mouse to your terminal (and take it back) |
 | `q` `ctrl+c` | quit |
-| `esc` `esc` | quit (two presses within 400 ms — one esc only drops the selected host) |
 
-With [vim keys](KEYBINDINGS.md#vim-keys) on, `j`/`k` move, `l` connects as `enter` does, and `h` goes
-back as `esc` does.
+`esc` never quits: a second one straight after the first is the same `esc`, and with no
+host in front there is nowhere to go back to, so it does nothing.
+
+With [vim keys](KEYBINDINGS.md#vim-keys) on, `j`/`k` move, `l` opens a host out as `→` does, and `h`
+folds it up as `←` does.
 
 </details>
 
@@ -404,10 +411,10 @@ asked: it keeps working exactly as it did, on `hybrid`.
 
 | Key | Action |
 | --- | --- |
-| `ctrl+o` `o` | **out** — back to hop |
-| `esc` `esc` | back to hop (two presses within 400 ms) |
-| `shift+→` `shift+←` | next / previous shell on this host (wraps) |
-| `ctrl+o` `1` … `9` | go straight to that shell, without leaving the pane |
+| `esc` `esc` | the [sidebar](KEYBINDINGS.md#the-sidebar-and-the-content-area), cursor on this shell (two presses within 400 ms) |
+| `ctrl+o` `o` | the sidebar, sending nothing to the shell |
+| `shift+→` `shift+←` | next / previous tab on this host (wraps) |
+| `ctrl+o` `1` … `9` | go straight to that tab, without leaving the pane |
 | `ctrl+o` `0` | open **another** shell on this host, without leaving the pane |
 | `ctrl+o` `c` | open **this directory** in VS Code Remote |
 | `shift+↑` `shift+pgup` | scroll back into the pane's history |
@@ -417,14 +424,14 @@ asked: it keeps working exactly as it did, on `hybrid`.
 
 ### Several shells on one host
 
-`S` in the host list, or `ctrl+o` `0` from inside the pane, opens another shell on a
+`S` in the sidebar, or `ctrl+o` `0` from inside the pane, opens another shell on a
 host you are already connected to. It is a second **channel** on the connection hop already
-holds — no new handshake, no second authentication — and it appears as a tab strip above the
-pane, which shows up only once there is a second shell to switch to. The new shell arrives
-focused.
+holds — no new handshake, no second authentication — and it appears as another tab under
+its host in the [sidebar](KEYBINDINGS.md#the-sidebar-and-the-content-area). The new shell arrives focused, at the full size of the
+content area, the same as the first.
 
 Type `exit` to close a shell: its tab goes away, the rest keep running. When the last one
-exits, the connection is done and the host goes back to idle in the list — unless its SFTP
+exits, the connection is done and the host goes back to idle in the sidebar — unless its SFTP
 browser, an editor tab or a tunnel is still open on it, which keeps the connection alive.
 `d` still tears down the whole host at once.
 
@@ -452,15 +459,17 @@ the footer becomes the menu, and hop waits as long as you take:
 
 | after `ctrl+o` | |
 | --- | --- |
-| `o` | out — back to hop |
-| `1` … `9` | that tab, selected **in place** |
+| `o` | the [sidebar](KEYBINDINGS.md#the-sidebar-and-the-content-area), cursor on where you are — what a double `esc` does |
+| `1` … `9` | that tab of this host, counted as the sidebar lists them |
+| `→` `←` | the next / previous open host, on its last place (`l` / `h` too) |
 | `0` | another shell on this host |
-| `f` | this directory in the [file browser](KEYBINDINGS.md#browsing--the-sftp-file-browser) — the open one moves there |
+| `f` | the files tab — from a shell, at the shell's directory; the open browser moves there |
 | `c` | this directory in VS Code Remote |
-| `j` | show / hide the [terminal panel](KEYBINDINGS.md#views-and-the-host-list) under the files — pressed inside it, hides it |
-| `t` | the file tree, if the host has a browser open — the [files view](KEYBINDINGS.md#views-and-the-host-list) |
-| `s` | from an editor tab: this host's shell — the [shell view](KEYBINDINGS.md#views-and-the-host-list) |
-| `space` | the **switcher**: every shell, browser, editor tab and terminal panel open on every host, then every host — type to narrow, `enter` lands exactly there |
+| `j` | show / hide the [terminal panel](KEYBINDINGS.md#the-sidebar-and-the-content-area) under the files — pressed inside it, hides it |
+| `t` | the tree: from an editor, into the tree box; from the tree, hides it; hidden, shows it again with the keyboard in it |
+| `s` | this host's last shell |
+| `b` | hide / show the [sidebar](KEYBINDINGS.md#the-sidebar-and-the-content-area) beside the content |
+| `space` | **go to**: everything open on every host, then every host — type to narrow, `enter` lands exactly there |
 | `tab` | back to the **last host**, on the tab it was showing — press it again to come back |
 | `ctrl+k` | the [palette](KEYBINDINGS.md#actions--the-menu-and-the-palette) — this pane's chords, searchable |
 | `?` | the key card |
@@ -475,17 +484,19 @@ open hop has the keyboard, and a program that received the tail of an abandoned 
 act on a key you were not typing at it. The leader also outranks `ctrl+g`, which is otherwise
 held in every mode.
 
-**Getting back to anything.** `ctrl+o` `space` raises the switcher over whatever you are
-in. It lists everything open on every connected host — each shell tab with its directory,
-the browser, each editor tab by path, the terminal panel, a host's tunnels — most recently
-used first, so `ctrl+o` `space` `enter` goes back to the place before this one. Below
-them come the hosts: connected ones first, then the rest in the list's order. Typing narrows
-all of it by host, path or name, the way `/` narrows the list. `enter` lands exactly on
+**Getting back to anything.** `ctrl+o` `space` raises **go to** over whatever you are
+in. With nothing typed it is a tree: every open host with what is open on it under it —
+each shell tab with its directory, the browser, each editor tab by path, the terminal panel,
+its tunnels — numbered as `ctrl+o` `1` … `9` count them, then the hosts with nothing
+open. The cursor starts on the place you were in before this one, so `ctrl+o` `space`
+`enter` goes back there. Typing flattens it into one list, most recently used first,
+narrowed by host, path or name the way `/` narrows the sidebar. `enter` lands exactly on
 the row: that shell tab, that file, the panel. A host row lands where you last were on that
 host, connects one that has no session, and reconnects one that dropped; `esc` closes the
 card and changes nothing. `ctrl+o` `tab` is alt-tab for hosts: it goes back to the host
-you were on before this one, on the tab you left it on, and a second press comes back. The
-[file browser](KEYBINDINGS.md#browsing--the-sftp-file-browser) opens the same switcher with `p`.
+you were on before this one, on the tab you left it on, and a second press comes back.
+`ctrl+o` `→` and `ctrl+o` `←` step along the open hosts in the sidebar's order. The
+[file browser](KEYBINDINGS.md#browsing--the-sftp-file-browser) opens go to with `p`.
 
 </details>
 
@@ -511,19 +522,20 @@ you were on before this one, on the tab you left it on, and a second press comes
 | `v` | move what is marked into the target |
 | `tab` | focus the content pane |
 | `\` | open the file beside the current one, not as another tab (`ctrl+\` closes the split again) |
-| `S` | the [terminal panel](KEYBINDINGS.md#views-and-the-host-list) in the directory under the cursor — a running one `cd`s there |
+| `S` | the [terminal panel](KEYBINDINGS.md#the-sidebar-and-the-content-area) in the directory under the cursor — a running one `cd`s there |
 | `` ` `` | show / hide the terminal panel under the files |
 | `+` (`=`) `-` | a taller / shorter terminal panel |
 | `←` `backspace` | collapse, or step out to the parent |
 | `r` | refresh the listing |
-| `p` | the [switcher](KEYBINDINGS.md#the-leader--ctrlo): any tab, file or host, most recent first |
+| `p` | [go to](KEYBINDINGS.md#the-leader--ctrlo): any tab, file or host |
+| `shift+→` `shift+←` | next / previous tab on this host |
 | `ctrl+k` | the [palette](KEYBINDINGS.md#actions--the-menu-and-the-palette): everything the browser can do, searchable |
 | `,` | settings |
 | `?` | the key card |
-| `ctrl+t` | hide / show the tree column |
-| `ctrl+o` | back to hop |
-| `esc` `esc` | back to hop (two presses within 400 ms) |
-| `q` | **close** the browser — open files stay, and with nothing else open the connection goes too |
+| `ctrl+t` | move the tree between the sidebar and the content area |
+| `ctrl+o` | the [leader](KEYBINDINGS.md#the-leader--ctrlo), as in a shell |
+| `esc` `esc` | the [sidebar](KEYBINDINGS.md#the-sidebar-and-the-content-area) (two presses within 400 ms) |
+| `q` | **close** the files tab — open files stay, and with nothing else open the connection goes too |
 
 With [vim keys](KEYBINDINGS.md#vim-keys) on the browser keeps the *whole* motion set (the host list only the
 step keys): `j`/`k`, `gg`, `G`, `H`/`M`/`L`, `ctrl+d`/`ctrl+u`,
@@ -563,34 +575,36 @@ Transfers run off the UI, so a large file no longer freezes the browser — the 
 becomes a progress line until it lands, counting `3/7 · name.txt` through a batch. Deleting
 asks first, and so does overwriting a file that is already in your download directory.
 
-The browser is the [files view](KEYBINDINGS.md#views-and-the-host-list): alone it has the whole window; once a file is
-open it becomes a **column** beside it, and `tab` and `ctrl+o` `t` pass the keyboard
-between the two. `ctrl+t` gives the column's width back to the file. The column is a quarter
-of the window (30 to 44 columns); below 92 columns there is no room for both, and the browser
-goes back to filling the view while it has the keyboard.
+The browser is the **files tab**. Where the window has room for the [sidebar](KEYBINDINGS.md#the-sidebar-and-the-content-area), the
+tree lives there, in a box under the hosts, and the content area beside it previews the file
+under the cursor — the first 64 KiB of it, read on demand, with directories, binaries and
+anything larger described rather than read. On an editor tab the same tree box stays under
+the hosts beside the open file, and `tab` and `ctrl+o` `t` pass the keyboard between
+the two. Below 94 columns there is no docked sidebar, and the files tab draws the tree across
+the content area instead.
 
 </details>
 
 <details>
 <summary><b>Editor tabs</b></summary>
 
-`enter` on a file opens it in an editor **inside hop**, beside the browser column — the
-[files view](KEYBINDINGS.md#views-and-the-host-list) — with a tab strip above it listing every open file. The tree stays on
-screen.
+`enter` on a file opens it in an editor **inside hop**, in the content area, with its path
+above it. The tree stays on screen in the [sidebar](KEYBINDINGS.md#the-sidebar-and-the-content-area), under the hosts, and every open
+file is a tab under its host there.
 
 | Key | Action |
 | --- | --- |
 | `shift+→` `shift+←` | next / previous tab (wraps) |
 | `ctrl+o` `1` … `9` | go straight to that tab, without leaving |
-| `ctrl+o` `o` | back to the file browser |
+| `ctrl+o` `o` | the sidebar |
 | `:q` (i.e. quit the editor) | close the tab |
-| `ctrl+o` `t` | back to the tree, without closing anything (`alt+t` where your terminal sends it) |
-| `ctrl+o` `s` | this host's shell, full width |
+| `ctrl+o` `t` | into the tree, without closing anything — again from there hides the tree box (`alt+t` where your terminal sends it) |
+| `ctrl+o` `s` | this host's last shell |
 | `ctrl+o` `j` | show / hide the terminal panel under the files |
 | `ctrl+o` `+` / `ctrl+o` `-` | size the terminal panel: after the first, `+` `-` `↑` `↓` keep going until any other key — or drag its top edge |
 | `ctrl+\` | close the split, keeping the file you are reading |
-| `ctrl+t` | hide / show the tree column |
-| `esc` `esc` | back to the file browser (two presses within 400 ms) |
+| `ctrl+t` | hide / show the tree box — the file keeps its size either way |
+| `esc` `esc` | the sidebar, cursor on this file (two presses within 400 ms) |
 | `alt+←`/`alt+→`, `alt+h`/`alt+l`, `alt+1`…`alt+9` | aliases, where your terminal sends them |
 | *everything else* | sent to the remote editor |
 
@@ -605,15 +619,15 @@ If the remote `$EDITOR` is unset (it usually is over SSH, since the rc-file that
 never sourced for a non-interactive command), hop probes the remote `PATH` for `nvim`,
 `vim`, `vi`, then `nano`, falling back to `vi` — POSIX requires it to exist.
 
-Tabs are independent editor processes, so leaving with `ctrl+o` `o` keeps them all
+Tabs are independent editor processes, so leaving with a double `esc` keeps them all
 running: come back and every file is where you left it, cursor included.
 
 ### Two files side by side
 
 `\` in the browser opens the file **beside** the current one instead of behind it,
-splitting the content area into two halves with their own tab strips. `tab`/`ctrl+o` `t` pass
-the keyboard between tree and content; `shift+→`/`shift+←` cycle the tabs of whichever
-half has it. The same file is never shown in both halves — asking for one that is already
+splitting the content area into two halves, each with its file's path above it.
+`tab`/`ctrl+o` `t` pass the keyboard between tree and content; `shift+→`/`shift+←`
+cycle the tabs of whichever half has it. The same file is never shown in both halves — asking for one that is already
 open just focuses the half it is in. A content area too narrow to give each half a readable
 22 columns declines the split rather than drawing two unreadable ones.
 
@@ -654,7 +668,8 @@ the [SSH config import](KEYBINDINGS.md#import--the-ssh-config-card), so the forw
 running definition stops the old one on save, and a [reconnect](KEYBINDINGS.md#when-a-connection-drops) puts the set that
 was running back up.
 
-The status dot in the host list shows `⇄2` when two tunnels are up on that host.
+The sidebar shows `⇄ 2 tunnels` under a host that has two up, and `enter` on that line
+opens its manager.
 
 </details>
 
@@ -669,7 +684,8 @@ VPN does not leave a pane quietly frozen.
 | `r` `enter` | reconnect: dial again and reopen what was open |
 | `d` `x` | drop the session — the pane goes, the host is idle again |
 | `?` | the key card |
-| `ctrl+o` `esc` `q` | back to the host list, leaving the pane on screen |
+| `esc` `q` | the sidebar, leaving the pane on screen |
+| `ctrl+o` | the [leader](KEYBINDINGS.md#the-leader--ctrlo): the other tabs and hosts are still a chord away |
 
 The pane keeps the last screen the host drew, under a banner saying what happened, so the
 command that was running is still there to read. Nothing is forwarded to the far end, because

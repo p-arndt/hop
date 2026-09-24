@@ -191,6 +191,29 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// ReadHead reads at most n bytes from the start of the remote file p, which must be a
+// regular file once symlinks are followed: opening a FIFO would block the server, and an
+// SFTP server serves one request at a time, so every later one would wait behind it.
+func (c *Client) ReadHead(p string, n int64) ([]byte, error) {
+	fi, err := c.sc.Stat(p)
+	if err != nil {
+		return nil, fmt.Errorf("sftpx: stat %s: %w", p, err)
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("sftpx: %s is not a regular file", p)
+	}
+	f, err := c.sc.Open(p)
+	if err != nil {
+		return nil, fmt.Errorf("sftpx: open %s: %w", p, err)
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, n))
+	if err != nil {
+		return nil, fmt.Errorf("sftpx: read %s: %w", p, err)
+	}
+	return data, nil
+}
+
 // Mkdir creates p and any necessary parents on the remote host.
 func (c *Client) Mkdir(p string) error {
 	if err := c.sc.MkdirAll(p); err != nil {

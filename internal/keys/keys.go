@@ -83,6 +83,7 @@ const (
 	HostVSCode   Action = "list.vscode"
 	HostReconnec Action = "list.reconnect"
 	HostDrop     Action = "list.disconnect"
+	SidebarDock  Action = "list.dock-sidebar"
 
 	// Browser. The exits and the hop-wide cards are handled by the tui, the rest by the
 	// filebrowser.
@@ -115,6 +116,8 @@ const (
 	BrowserDrawer    Action = "browser.terminal"
 	BrowserGrow      Action = "browser.terminal-taller"
 	BrowserShrink    Action = "browser.terminal-shorter"
+	BrowserNextTab   Action = "browser.next-tab"
+	BrowserPrevTab   Action = "browser.previous-tab"
 
 	// Pane. LeaderKey and PaneLeave are the two exits escapeHatch insists on keeping.
 	LeaderKey    Action = "pane.leader"
@@ -146,19 +149,22 @@ const (
 	EditorUnsplit   Action = "editor.unsplit"
 
 	// Leader.
-	LeaderOut     Action = "leader.out"
-	LeaderVSCode  Action = "leader.vscode"
-	LeaderPalette Action = "leader.palette"
-	LeaderHelp    Action = "leader.help"
-	LeaderShell   Action = "leader.new-shell"
-	LeaderBrowser Action = "leader.browser-here"
-	LeaderTree    Action = "leader.tree"
-	LeaderDrawer  Action = "leader.terminal"
-	LeaderGrow    Action = "leader.terminal-taller"
-	LeaderShrink  Action = "leader.terminal-shorter"
-	LeaderToShell Action = "leader.to-shell"
-	LeaderHosts   Action = "leader.hosts"
-	LeaderLast    Action = "leader.last-host"
+	LeaderOut      Action = "leader.out"
+	LeaderVSCode   Action = "leader.vscode"
+	LeaderPalette  Action = "leader.palette"
+	LeaderHelp     Action = "leader.help"
+	LeaderShell    Action = "leader.new-shell"
+	LeaderBrowser  Action = "leader.browser-here"
+	LeaderTree     Action = "leader.tree"
+	LeaderDrawer   Action = "leader.terminal"
+	LeaderGrow     Action = "leader.terminal-taller"
+	LeaderShrink   Action = "leader.terminal-shorter"
+	LeaderToShell  Action = "leader.to-shell"
+	LeaderHosts    Action = "leader.hosts"
+	LeaderLast     Action = "leader.last-host"
+	LeaderNextHost Action = "leader.next-host"
+	LeaderPrevHost Action = "leader.previous-host"
+	LeaderSidebar  Action = "leader.sidebar"
 
 	// DeadPane.
 	DeadReconnect Action = "dead.reconnect"
@@ -196,15 +202,17 @@ func (b Binding) Keycap() string {
 }
 
 // defaults is hop's keyboard as shipped. Order within a layer is the order the help card
-// and the palette show. Digits are handled as a range elsewhere, not bound here.
+// and the palette show. Digits are handled as a range elsewhere, not bound here. An action
+// bound in several layers is rebound through its first row, so the shell pane's leader
+// comes before every other layer's.
 var defaults = []Binding{
 	{Action: Mouse, Layer: Global, Keys: []string{"ctrl+g"}, Label: "hand the mouse to your terminal"},
 
 	// ---- host list ----
-	{Action: In, Layer: List, Keys: []string{"enter", "right"}, Label: "connect / back to where you were"},
-	{Action: In, Layer: List, Keys: []string{"l"}, Vim: true, Label: "connect / back to where you were"},
-	{Action: Out, Layer: List, Keys: []string{"left"}, Label: "back out of the host"},
-	{Action: Out, Layer: List, Keys: []string{"h"}, Vim: true, Label: "back out of the host"},
+	{Action: In, Layer: List, Keys: []string{"enter", "right"}, Label: "go there: the tab, or where you were on the host"},
+	{Action: In, Layer: List, Keys: []string{"l"}, Vim: true, Label: "go there: the tab, or where you were on the host"},
+	{Action: Out, Layer: List, Keys: []string{"left"}, Show: "←", Label: "fold the host up"},
+	{Action: Out, Layer: List, Keys: []string{"h"}, Vim: true, Label: "fold the host up"},
 	{Action: Up, Layer: List, Keys: []string{"up"}, Label: "move up"},
 	{Action: Up, Layer: List, Keys: []string{"k"}, Vim: true, Label: "move up"},
 	{Action: Down, Layer: List, Keys: []string{"down"}, Label: "move down"},
@@ -231,9 +239,18 @@ var defaults = []Binding{
 	{Action: Palette, Layer: List, Keys: []string{"ctrl+k"}, Label: "search every action"},
 	{Action: Settings, Layer: List, Keys: []string{","}, Label: "settings"},
 	{Action: Help, Layer: List, Keys: []string{"?"}, Label: "all the keys"},
-	{Action: Back, Layer: List, Keys: []string{"esc"}, Label: "back out / quit"},
-	{Action: Quit, Layer: List, Keys: []string{"esc esc"}, Window: doubleEscWindow, Label: "quit hop"},
+	{Action: Back, Layer: List, Keys: []string{"esc"}, Label: "back to where the keyboard was"},
+	{Action: SidebarDock, Layer: List, Keys: []string{"B"}, Show: "shift+b", Label: "hide / show the sidebar beside the content"},
 	{Action: Quit, Layer: List, Keys: []string{"q", "ctrl+c"}, Label: "quit hop"},
+
+	// ---- shell pane ----
+	{Action: LeaderKey, Layer: Pane, Keys: []string{"ctrl+o"}, Label: "hop's keyboard in a pane"},
+	{Action: PaneLeave, Layer: Pane, Keys: []string{"esc esc"}, Window: DoubleEscWindow, Label: "the sidebar"},
+	{Action: PaneNewShell, Layer: Pane, Keys: []string{"alt+0"}, Label: "another shell on this host"},
+	{Action: PaneNextTab, Layer: Pane, Keys: []string{"shift+right", "alt+right"}, Show: "shift+→", Label: "next tab"},
+	{Action: PanePrevTab, Layer: Pane, Keys: []string{"shift+left", "alt+left"}, Show: "shift+←", Label: "previous tab"},
+	{Action: PaneScroll, Layer: Pane, Keys: []string{"shift+up"}, Show: "shift+↑", Label: "scroll back through history"},
+	{Action: PaneScrollPg, Layer: Pane, Keys: []string{"shift+pgup"}, Label: "scroll back a page"},
 
 	// ---- sftp browser ----
 	{Action: In, Layer: Browser, Keys: []string{"enter", "right"}, Label: "open the directory / edit the file"},
@@ -275,21 +292,15 @@ var defaults = []Binding{
 	{Action: BrowserGrow, Layer: Browser, Keys: []string{"+", "="}, Label: "a taller terminal panel"},
 	{Action: BrowserShrink, Layer: Browser, Keys: []string{"-"}, Label: "a shorter terminal panel"},
 	{Action: BrowserRefresh, Layer: Browser, Keys: []string{"r"}, Label: "refresh the listing"},
-	{Action: BrowserClose, Layer: Browser, Keys: []string{"q"}, Label: "close the browser"},
-	{Action: BrowserLeave, Layer: Browser, Keys: []string{"ctrl+o", "esc esc"}, Window: doubleEscWindow, Label: "back to the host list"},
+	{Action: BrowserClose, Layer: Browser, Keys: []string{"q"}, Label: "close the files tab"},
+	{Action: LeaderKey, Layer: Browser, Keys: []string{"ctrl+o"}, Label: "hop's keyboard in a pane"},
+	{Action: BrowserNextTab, Layer: Browser, Keys: []string{"shift+right"}, Show: "shift+→", Label: "next tab"},
+	{Action: BrowserPrevTab, Layer: Browser, Keys: []string{"shift+left"}, Show: "shift+←", Label: "previous tab"},
+	{Action: BrowserLeave, Layer: Browser, Keys: []string{"esc esc"}, Window: DoubleEscWindow, Label: "the sidebar"},
 	{Action: BrowserHosts, Layer: Browser, Keys: []string{"p"}, Label: "go to anything open, or a host"},
 	{Action: BrowserPalette, Layer: Browser, Keys: []string{"ctrl+k"}, Label: "search every action"},
 	{Action: BrowserSettings, Layer: Browser, Keys: []string{","}, Label: "settings"},
 	{Action: BrowserHelp, Layer: Browser, Keys: []string{"?"}, Label: "all the keys"},
-
-	// ---- shell pane ----
-	{Action: LeaderKey, Layer: Pane, Keys: []string{"ctrl+o"}, Label: "hop's keyboard in a pane"},
-	{Action: PaneLeave, Layer: Pane, Keys: []string{"esc esc"}, Window: doubleEscWindow, Label: "back to hop"},
-	{Action: PaneNewShell, Layer: Pane, Keys: []string{"alt+0"}, Label: "another shell on this host"},
-	{Action: PaneNextTab, Layer: Pane, Keys: []string{"shift+right", "alt+right"}, Show: "shift+→", Label: "next shell"},
-	{Action: PanePrevTab, Layer: Pane, Keys: []string{"shift+left", "alt+left"}, Show: "shift+←", Label: "previous shell"},
-	{Action: PaneScroll, Layer: Pane, Keys: []string{"shift+up"}, Show: "shift+↑", Label: "scroll back through history"},
-	{Action: PaneScrollPg, Layer: Pane, Keys: []string{"shift+pgup"}, Label: "scroll back a page"},
 
 	// ---- scrollback ----
 	{Action: ScrollUp, Layer: Scrollback, Keys: []string{"up", "shift+up"}, Label: "a line up"},
@@ -310,7 +321,7 @@ var defaults = []Binding{
 
 	// ---- editor tab ----
 	{Action: LeaderKey, Layer: Editor, Keys: []string{"ctrl+o"}, Label: "hop's keyboard in a pane"},
-	{Action: EditorLeave, Layer: Editor, Keys: []string{"esc esc"}, Window: doubleEscWindow, Label: "back to the file browser"},
+	{Action: EditorLeave, Layer: Editor, Keys: []string{"esc esc"}, Window: DoubleEscWindow, Label: "the sidebar"},
 	{Action: EditorNextTab, Layer: Editor, Keys: []string{"shift+right", "alt+right", "alt+l"}, Show: "shift+→", Label: "next tab"},
 	{Action: EditorPrevTab, Layer: Editor, Keys: []string{"shift+left", "alt+left", "alt+h"}, Show: "shift+←", Label: "previous tab"},
 	{Action: EditorFocusTree, Layer: Editor, Keys: []string{"alt+t"}, Label: "focus the tree"},
@@ -320,25 +331,33 @@ var defaults = []Binding{
 	{Action: BrowserTree, Layer: Editor, Keys: []string{"ctrl+t"}, Label: "hide / show the tree column"},
 
 	// ---- leader ----
-	{Action: LeaderOut, Layer: Leader, Keys: []string{"o"}, Label: "back to hop"},
+	{Action: LeaderOut, Layer: Leader, Keys: []string{"o"}, Label: "the sidebar"},
 	{Action: LeaderShell, Layer: Leader, Keys: []string{"0"}, Label: "another shell on this host"},
 	{Action: LeaderVSCode, Layer: Leader, Keys: []string{"c"}, Label: "open this directory in VS Code"},
-	{Action: LeaderBrowser, Layer: Leader, Keys: []string{"f"}, Label: "browse this directory in sftp"},
+	{Action: LeaderBrowser, Layer: Leader, Keys: []string{"f"}, Label: "the files tab, in this directory"},
 	{Action: LeaderDrawer, Layer: Leader, Keys: []string{"j"}, Label: "show / hide the terminal panel"},
 	{Action: LeaderGrow, Layer: Leader, Keys: []string{"+", "="}, Label: "a taller terminal panel"},
 	{Action: LeaderShrink, Layer: Leader, Keys: []string{"-"}, Label: "a shorter terminal panel"},
-	{Action: LeaderTree, Layer: Leader, Keys: []string{"t"}, Label: "the file tree"},
-	{Action: LeaderToShell, Layer: Leader, Keys: []string{"s"}, Label: "this host's shell"},
+	{Action: LeaderTree, Layer: Leader, Keys: []string{"t"}, Label: "hide / show the file tree"},
+	{Action: LeaderToShell, Layer: Leader, Keys: []string{"s"}, Label: "this host's last shell"},
 	{Action: LeaderHosts, Layer: Leader, Keys: []string{"space"}, Label: "go to anything open, or a host"},
 	{Action: LeaderLast, Layer: Leader, Keys: []string{"tab"}, Label: "back to the last host"},
+	{Action: LeaderNextHost, Layer: Leader, Keys: []string{"right", "l"}, Show: "→", Label: "the next open host"},
+	{Action: LeaderPrevHost, Layer: Leader, Keys: []string{"left", "h"}, Show: "←", Label: "the previous open host"},
+	{Action: LeaderSidebar, Layer: Leader, Keys: []string{"b"}, Label: "hide / show the sidebar beside the content"},
 	{Action: LeaderPalette, Layer: Leader, Keys: []string{"ctrl+k"}, Label: "search every action"},
 	{Action: LeaderHelp, Layer: Leader, Keys: []string{"?"}, Label: "all the keys"},
 
 	// ---- dropped session ----
 	{Action: DeadReconnect, Layer: DeadPane, Keys: []string{"r", "enter"}, Label: "reconnect and reopen"},
 	{Action: DeadDrop, Layer: DeadPane, Keys: []string{"d", "x"}, Label: "drop the session"},
-	{Action: DeadLeave, Layer: DeadPane, Keys: []string{"ctrl+o", "esc", "q"}, Label: "back to the host list"},
+	{Action: LeaderKey, Layer: DeadPane, Keys: []string{"ctrl+o"}, Label: "hop's keyboard in a pane"},
+	{Action: DeadLeave, Layer: DeadPane, Keys: []string{"esc", "q"}, Label: "the sidebar"},
 	{Action: DeadHelp, Layer: DeadPane, Keys: []string{"?"}, Label: "all the keys"},
+
+	// The sidebar's leader is last, not with the rest of the list: an override of the leader
+	// goes through the shell pane's row, which must come first.
+	{Action: LeaderKey, Layer: List, Keys: []string{"ctrl+o"}, Label: "the leader, as in a pane"},
 }
 
 func Defaults() Map { return defaultMap() }
@@ -394,22 +413,30 @@ func New(overrides map[string]string) (Map, []error) {
 		// Normalized before trimming: the space bar's own name is " ", which TrimSpace would
 		// read as "unbind this".
 		key := strings.TrimSpace(Normalize(overrides[id]))
-		idx := indexOf(bindings, Action(id))
-		if idx < 0 {
+		rows := rowsFor(bindings, Action(id))
+		if len(rows) == 0 {
 			errs = append(errs, fmt.Errorf("keys: no action %q", id))
 			continue
 		}
-		if clash := claimedBy(bindings, bindings[idx].Layer, key, Action(id)); key != "" && clash != None {
-			errs = append(errs, fmt.Errorf("keys: %q is already %s in the %s layer",
-				key, clash, bindings[idx].Layer))
+		var clashErr error
+		for _, i := range rows {
+			if clash := claimedBy(bindings, bindings[i].Layer, key, Action(id)); key != "" && clash != None {
+				clashErr = fmt.Errorf("keys: %q is already %s in the %s layer", key, clash, bindings[i].Layer)
+				break
+			}
+		}
+		if clashErr != nil {
+			errs = append(errs, clashErr)
 			continue
 		}
-		bindings[idx].Keys = nil
-		if key != "" {
-			bindings[idx].Keys = []string{key}
+		for _, i := range rows {
+			bindings[i].Keys = nil
+			if key != "" {
+				bindings[i].Keys = []string{key}
+			}
+			// A rebound key is drawn as itself: the symbol was chosen for the default.
+			bindings[i].Show = ""
 		}
-		// A rebound key is drawn as itself: the symbol was chosen for the default.
-		bindings[idx].Show = ""
 	}
 
 	if err := escapeHatch(bindings); err != nil {
@@ -436,8 +463,27 @@ func build(bindings []Binding) Map {
 	return m
 }
 
-// indexOf finds the first binding for an action; an action bound twice (a vim alias on
-// its own row) is rebound through its first row only.
+// rowsFor is the rows an override of a rebinds. The leader is one key wherever it is
+// answered, so every layer's row moves together; the footer draws one leader for all of
+// them. Any other action bound twice (a vim alias on its own row) is rebound through its
+// first row only.
+func rowsFor(bindings []Binding, a Action) []int {
+	if a != LeaderKey {
+		if i := indexOf(bindings, a); i >= 0 {
+			return []int{i}
+		}
+		return nil
+	}
+	var rows []int
+	for i := range bindings {
+		if bindings[i].Action == a {
+			rows = append(rows, i)
+		}
+	}
+	return rows
+}
+
+// indexOf finds the first binding for an action.
 func indexOf(bindings []Binding, a Action) int {
 	for i := range bindings {
 		if bindings[i].Action == a {

@@ -64,6 +64,14 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	m.clearSelection()
 
+	// The second esc of a double esc whose first already left the sidebar: esc esc there
+	// means what esc means, and must not reach the pane as a stray esc.
+	guard := m.escGuard
+	m.escGuard = time.Time{}
+	if msg.String() == "esc" && !guard.IsZero() && !m.now().After(guard) {
+		return m, nil
+	}
+
 	if a := m.binds.Action(keys.Global, msg.String(), m.cfg.VimKeys); a != keys.None {
 		m.reader.Reset() // a key that is not an esc breaks a half-typed double-esc
 		return m.doGlobal(a)
@@ -110,7 +118,7 @@ func (m *model) handleNavKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		return m.gotoShell(h.Alias, i)
+		return m, m.gotoTab(h.Alias, i)
 	}
 
 	return m.doList(m.reader.Read(m.binds, keys.List, key, m.cfg.VimKeys).Action)
@@ -149,9 +157,28 @@ func (m *model) doList(a keys.Action) (tea.Model, tea.Cmd) {
 	case keys.Menu:
 		m.openHostMenu()
 
+	case keys.SidebarDock:
+		m.toggleSidebar()
+
+	case keys.LeaderKey:
+		// The same chords as in a pane, so a hop from the sidebar needs no new keys. With no
+		// host in front there is nothing for them to act on.
+		if m.active != "" {
+			m.armLeader()
+		}
+
 	case keys.Back:
-		// The list is the last level, so a second esc arrives as Quit above instead.
-		m.leaveDetails()
+		// esc never quits. A filter the prompt says esc clears goes first; otherwise the
+		// keyboard goes back, and a second esc straight after is swallowed rather than sent
+		// on to the pane it went back to.
+		if m.filter != "" {
+			m.filter = ""
+			m.applyFilter()
+			break
+		}
+		if m.backFromSidebar() {
+			m.escGuard = m.now().Add(keys.DoubleEscWindow)
+		}
 
 	case keys.HostNewShell:
 		h, ok := m.selectedHost()
@@ -237,6 +264,14 @@ func (m *model) doList(a keys.Action) (tea.Model, tea.Cmd) {
 		m.movePin(1)
 
 	case keys.HostDelete:
+		// On a tab row, or a recent place, the same key closes the tab: the row is what x
+		// points at, and a host is only deleted from its own row.
+		if t, ok := m.closableUnderCursor(); ok {
+			return m, m.closeTab(t)
+		}
+		if m.cursorTab.alias != "" || m.recentAt > 0 {
+			return m, nil
+		}
 		h, ok := m.selectedHost()
 		if !ok {
 			return m, nil
@@ -247,7 +282,7 @@ func (m *model) doList(a keys.Action) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// listDigit recognises "1" … "9" in the host list and returns the shell it addresses.
+// listDigit recognises "1" … "9" in the host list and returns the tab it addresses.
 func listDigit(key string) (int, bool) {
 	if len(key) != 1 || key[0] < '1' || key[0] > '9' {
 		return 0, false
@@ -259,18 +294,27 @@ func listDigit(key string) (int, bool) {
 func (m *model) move(mo keys.Action) (tea.Model, tea.Cmd) {
 	switch mo {
 	case keys.Up:
-		m.cursor--
+		m.stepCursor(-1)
+		return m, nil
 	case keys.Down:
-		m.cursor++
+		m.stepCursor(1)
+		return m, nil
 	case keys.PageDown:
 		m.pageCursor(1)
 	case keys.PageUp:
 		m.pageCursor(-1)
 
 	case keys.Out:
-		m.leaveDetails()
+		m.collapseSelected()
 
 	case keys.In:
+		t, ok := m.selectedPlace()
+		switch {
+		case !ok:
+			return m, nil
+		case t.kind != targetHost:
+			return m, m.jumpTo(t)
+		}
 		h, ok := m.selectedHost()
 		if !ok {
 			return m, nil
@@ -296,18 +340,91 @@ func (m *model) pageCursor(delta int) {
 	}
 	for i := target; i >= 0 && i < len(m.rows); i += back {
 		if m.rows[i].heading == "" {
-			m.cursor = m.rows[i].fi
+			m.selectRow(m.rows[i])
 			return
 		}
 	}
 }
 
-// leaveDetails backs out of the details/active view, to plain navigation.
-func (m *model) leaveDetails() {
-	m.active = ""
+// ---- the sidebar and back ----
+
+// toSidebar hands the keyboard to the sidebar with the cursor on where it was: the tab in
+// front, or its host. Nothing on screen moves, and esc gives the keyboard back.
+func (m *model) toSidebar() {
+	m.takeToSidebar()
+	if m.active != "" {
+		m.buildRows()
+		t, ok := m.frontTarget()
+		if !ok {
+			t = target{alias: m.active}
+		}
+		m.selectPlace(t)
+	}
+	m.relayout()
+}
+
+// takeToSidebar moves the keyboard into the sidebar, remembering where it came from.
+func (m *model) takeToSidebar() {
+	m.exitScrollback() // snaps the pane's offset back while m.active is still set
+	if m.mode != modeList {
+		m.back, m.backOK = m.mode, m.active != ""
+	}
 	m.mode = modeList
 	m.clearStatus()
-	m.relayout() // no active session means no tree column, so the columns move
+	m.reader.Reset()
+}
+
+// backFromSidebar gives the keyboard back to where it was before the sidebar took it — or,
+// if that has closed since, to the tab in front. With no host in front there is nowhere to
+// go, and it reports false.
+func (m *model) backFromSidebar() bool {
+	s := m.sessions[m.active]
+	if s == nil || m.mode != modeList {
+		return false
+	}
+	mode := m.back
+	if !m.backOK || !m.modeOpen(s, mode) {
+		f := m.frontOf(s)
+		if f == tabNone {
+			return false
+		}
+		mode = modeFor(f)
+	}
+	m.mode = mode
+	m.recentAt = 0
+	m.clearStatus()
+	m.reader.Reset()
+	m.relayout()
+	return true
+}
+
+// toggleSidebar docks the sidebar or hides it. Hidden, it behaves as in a narrow window:
+// off screen until the keyboard goes to it, then floating over the content.
+func (m *model) toggleSidebar() {
+	m.sidebarHidden = !m.sidebarHidden
+	m.relayout()
+	switch {
+	case m.width < sidebarWidth+minContentWidth:
+		m.setStatus(statusInfo, "the window is too narrow for a docked sidebar · esc esc shows it")
+	case m.sidebarHidden:
+		m.setStatus(statusInfo, "sidebar hidden · esc esc shows it, %s brings it back", m.chordKeys(keys.LeaderSidebar))
+	}
+}
+
+// modeOpen reports whether s still has what mode would put the keyboard in.
+func (m *model) modeOpen(s *session, mode paneMode) bool {
+	switch mode {
+	case modeShell, modeScrollback:
+		return s.shell() != nil
+	case modeBrowser:
+		return s.browser != nil
+	case modeEditor:
+		return s.editor() != nil
+	case modeDrawer:
+		f := m.frontOf(s)
+		return m.drawerShown(s) && (f == tabFiles || f == tabEditor)
+	}
+	return false
 }
 
 // ---- filter entry ----
@@ -324,12 +441,10 @@ func (m *model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.applyFilter()
 
 	case "up", "ctrl+p":
-		m.cursor--
-		m.clampCursor()
+		m.stepCursor(-1)
 
 	case "down", "ctrl+n":
-		m.cursor++
-		m.clampCursor()
+		m.stepCursor(1)
 
 	case "backspace":
 		if len(m.filter) > 0 {
@@ -375,13 +490,19 @@ func (m *model) handleBrowserKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // doBrowser runs hop's half of the browser layer; the rest is filebrowser.Do's.
 func (m *model) doBrowser(a keys.Action) (tea.Model, tea.Cmd) {
 	switch a {
-	case keys.BrowserLeave:
-		m.leaveBrowser()
+	case keys.LeaderKey:
+		m.armLeader()
 		return m, nil
 
-	case keys.BrowserClose:
-		m.closeBrowser()
+	case keys.BrowserLeave:
+		m.toSidebar()
 		return m, nil
+
+	case keys.BrowserNextTab, keys.BrowserPrevTab:
+		return m, m.stepTab(stepOf(a == keys.BrowserNextTab))
+
+	case keys.BrowserClose:
+		return m, m.closeBrowser()
 
 	case keys.BrowserSettings:
 		m.openSettings()
@@ -440,10 +561,7 @@ func (m *model) handleShellKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	if i, ok := altDigit(key); ok {
-		if s != nil && i < len(s.shells) {
-			s.activeSh = i
-		}
-		return m, nil
+		return m, m.gotoTab(m.active, i)
 	}
 
 	res := m.reader.Read(m.binds, keys.Pane, key, m.cfg.VimKeys)
@@ -467,7 +585,7 @@ func (m *model) doPane(a keys.Action) (bool, tea.Model, tea.Cmd) {
 		return true, m, nil
 
 	case keys.PaneLeave:
-		m.leavePane()
+		m.toSidebar()
 		return true, m, nil
 
 	case keys.PaneNewShell:
@@ -477,17 +595,8 @@ func (m *model) doPane(a keys.Action) (bool, tea.Model, tea.Cmd) {
 		}
 		return true, m, m.openShell(h, true)
 
-	case keys.PaneNextTab:
-		if s != nil {
-			s.activeSh = cycle(s.activeSh, 1, len(s.shells))
-		}
-		return true, m, nil
-
-	case keys.PanePrevTab:
-		if s != nil {
-			s.activeSh = cycle(s.activeSh, -1, len(s.shells))
-		}
-		return true, m, nil
+	case keys.PaneNextTab, keys.PanePrevTab:
+		return true, m, m.stepTab(stepOf(a == keys.PaneNextTab))
 
 	case keys.PaneScroll:
 		// When enterScrollback declines, the key falls through to the shell.
@@ -610,10 +719,7 @@ func (m *model) handleEditorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	if i, ok := altDigit(key); ok {
-		if i < len(s.editors) {
-			s.setEditor(i)
-		}
-		return m, nil
+		return m, m.gotoTab(m.active, i)
 	}
 
 	if handled, model, cmd := m.doEditor(m.reader.Read(m.binds, keys.Editor, key, m.cfg.VimKeys).Action); handled {
@@ -637,17 +743,11 @@ func (m *model) doEditor(a keys.Action) (bool, tea.Model, tea.Cmd) {
 		return true, m, nil
 
 	case keys.EditorLeave:
-		m.leaveEditor()
+		m.toSidebar()
 		return true, m, nil
 
-	case keys.EditorNextTab:
-		// The half the keyboard is in cycles, not the left one.
-		s.setEditor(cycle(s.editorIndex(s.focusedHalf()), 1, len(s.editors)))
-		return true, m, nil
-
-	case keys.EditorPrevTab:
-		s.setEditor(cycle(s.editorIndex(s.focusedHalf()), -1, len(s.editors)))
-		return true, m, nil
+	case keys.EditorNextTab, keys.EditorPrevTab:
+		return true, m, m.stepTab(stepOf(a == keys.EditorNextTab))
 
 	case keys.EditorFocusTree:
 		// With no browser open the key falls through to the remote editor.
@@ -689,11 +789,15 @@ func (m *model) focusContent() bool {
 	return true
 }
 
-// focusTree moves the keyboard into the SFTP column, reporting whether there is one.
+// focusTree moves the keyboard into the tree, reporting whether there is one: the tree box
+// of the editor tab in front, or else the files tab.
 func (m *model) focusTree() bool {
 	s := m.sessions[m.active]
 	if s == nil || s.browser == nil {
 		return false
+	}
+	if m.frontOf(s) != tabEditor || !m.treeInSidebar() {
+		s.front = tabFiles
 	}
 	m.mode = modeBrowser
 	m.clearStatus()
@@ -734,14 +838,6 @@ func (m *model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // ---- leaving a mode ----
 
-// leavePane returns from a focused terminal pane to navigation mode.
-func (m *model) leavePane() {
-	m.exitScrollback() // snaps the pane's offset back while m.active is still set
-	m.mode = modeList
-	m.clearStatus()
-	m.reader.Reset()
-}
-
 // armLeader opens the leader on the pane the keyboard is in. No timer starts.
 func (m *model) armLeader() {
 	m.chords.leaderAlias = m.active
@@ -764,8 +860,7 @@ func (m *model) handleLeader(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	if isTabDigit(key) {
-		m.selectTab(alias, int(key[0]-'1'), editing)
-		return m, nil
+		return m, m.gotoTab(alias, int(key[0]-'1'))
 	}
 
 	return m.doLeader(m.binds.Action(keys.Leader, key, m.cfg.VimKeys), alias, editing)
@@ -776,11 +871,7 @@ func (m *model) handleLeader(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *model) doLeader(a keys.Action, alias string, editing bool) (tea.Model, tea.Cmd) {
 	switch a {
 	case keys.LeaderOut:
-		if editing {
-			m.leaveEditor()
-		} else {
-			m.leavePane()
-		}
+		m.toSidebar()
 		return m, nil
 
 	case keys.LeaderVSCode:
@@ -788,23 +879,27 @@ func (m *model) doLeader(a keys.Action, alias string, editing bool) (tea.Model, 
 			break
 		}
 		// Leaving is part of it: VS Code takes over.
-		m.leavePane()
+		m.takeToSidebar()
 		m.openVSCodeAt(alias)
 		return m, nil
 
 	case keys.LeaderBrowser:
-		// An editor already stands beside its browser; the tree is one key away there.
-		if editing {
-			break
-		}
 		h, ok := m.hostByAlias(alias)
 		if !ok {
 			return m, nil
+		}
+		// Only a shell tab has a directory to follow; anywhere else it is the files tab.
+		if s := m.sessions[alias]; m.mode != modeShell && s != nil && s.browser != nil && !s.dead {
+			return m, m.jumpTo(target{alias: alias, kind: targetBrowser})
 		}
 		return m, m.browseShellCwd(h)
 
 	case keys.LeaderPalette:
 		m.openPalette()
+		return m, nil
+
+	case keys.LeaderSidebar:
+		m.toggleSidebar()
 		return m, nil
 
 	case keys.LeaderHelp:
@@ -825,29 +920,19 @@ func (m *model) doLeader(a keys.Action, alias string, editing bool) (tea.Model, 
 		return m, nil
 
 	case keys.LeaderTree:
-		if !m.focusTree() {
-			m.setStatus(statusWarn, "no sftp browser on %s · ctrl+o f opens one", alias)
-		}
+		m.leaderTree(alias)
 		return m, nil
 
 	case keys.LeaderToShell:
-		if !editing && m.mode != modeDrawer {
-			break
-		}
-		h, ok := m.hostByAlias(alias)
-		if !ok {
-			return m, nil
-		}
-		m.reader.Reset()
-		return m, m.openShell(h, false)
+		return m, m.lastShell(alias)
 
 	case keys.LeaderLast:
 		return m, m.backToLastHost()
 
+	case keys.LeaderNextHost, keys.LeaderPrevHost:
+		return m, m.stepHost(stepOf(a == keys.LeaderNextHost))
+
 	case keys.LeaderShell:
-		if editing {
-			break
-		}
 		h, ok := m.hostByAlias(alias)
 		if !ok {
 			return m, nil
@@ -858,58 +943,46 @@ func (m *model) doLeader(a keys.Action, alias string, editing bool) (tea.Model, 
 	return m, nil
 }
 
+// leaderTree is one key for the tree box, in steps, as ctrl+o j is for the panel. On an
+// editor tab it puts the keyboard in the tree, and from the tree hides it; hidden, it shows
+// it again with the keyboard in it. On the files tab it moves the tree between the sidebar
+// and the content area. From a shell tab, or in a window with no docked sidebar, it is the
+// way to the tree.
+func (m *model) leaderTree(alias string) {
+	s := m.sessions[alias]
+	if s == nil || s.browser == nil {
+		m.setStatus(statusWarn, "no sftp browser on %s · ctrl+o f opens one", alias)
+		return
+	}
+	switch f := m.frontOf(s); {
+	case f == tabEditor && m.docked() && !m.treeHidden && !m.browsing():
+		m.focusTree()
+	case f == tabEditor && m.docked():
+		m.toggleTree()
+		if !m.treeHidden {
+			m.focusTree()
+		}
+	case f == tabFiles:
+		m.toggleTree()
+	default:
+		m.focusTree()
+	}
+}
+
+// stepOf is the direction a next/previous pair steps in.
+func stepOf(next bool) int {
+	if next {
+		return 1
+	}
+	return -1
+}
+
 // isTabDigit reports whether key names a tab. 0 is not one: it opens a new shell.
 func isTabDigit(key string) bool {
 	return len(key) == 1 && key[0] >= '1' && key[0] <= '9'
 }
 
-// selectTab moves to tab i of alias; not focusShell, which would resize every shell.
-func (m *model) selectTab(alias string, i int, editing bool) {
-	s := m.sessions[alias]
-	if s == nil || s.dead {
-		return
-	}
-	if editing {
-		if i < len(s.editors) {
-			s.setEditor(i)
-		}
-		return
-	}
-	if i < len(s.shells) {
-		s.activeSh = i
-	}
-}
-
-// gotoShell focuses shell i of alias from the host list.
-func (m *model) gotoShell(alias string, i int) (tea.Model, tea.Cmd) {
-	s := m.sessions[alias]
-	if s == nil || s.dead || i >= len(s.shells) {
-		return m, nil
-	}
-	s.activeSh = i
-	m.focusShell(alias)
-	return m, nil
-}
-
-// leaveBrowser hands the keyboard back to the host list; the column stays on screen.
-func (m *model) leaveBrowser() {
-	m.mode = modeList
-	m.clearStatus()
-	m.reader.Reset()
-}
-
-// leaveEditor hands the keyboard to the tree column, or the host list if it is gone.
-func (m *model) leaveEditor() {
-	m.mode = modeList
-	m.clearStatus()
-	m.reader.Reset()
-	if s := m.sessions[m.active]; s != nil && s.browser != nil {
-		m.mode = modeBrowser
-		return
-	}
-}
-
-// leaveAll drops every pane mode, handing the keyboard back to the host list.
+// leaveAll puts no host in front and hands the keyboard to the sidebar.
 func (m *model) leaveAll() {
 	m.active = ""
 	m.mode = modeList

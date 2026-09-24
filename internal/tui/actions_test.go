@@ -159,11 +159,11 @@ func TestPaletteFiltersAndRuns(t *testing.T) {
 func TestPaletteMatchesTheKey(t *testing.T) {
 	m := newNavModel(1)
 	m.openPalette()
-	m.palette.query = "esc esc"
+	m.palette.query = "/"
 	m.filterPalette()
 
-	if !has(m.palette.items, "quit hop") {
-		t.Fatalf("esc esc matched %v", labels(m.palette.items))
+	if !has(m.palette.items, "filter the hosts") {
+		t.Fatalf("/ matched %v", labels(m.palette.items))
 	}
 }
 
@@ -210,11 +210,11 @@ func TestActionRowsCarryTheirKey(t *testing.T) {
 	}
 }
 
-// Right-click moves the cursor and opens the menu in one gesture; row 3 is the first host.
+// Right-click moves the cursor and opens the menu in one gesture.
 func TestRightClickOpensTheMenu(t *testing.T) {
 	m := newMouseModel(4)
 
-	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 4, Y: 5, Button: tea.MouseRight}, action: actPress})
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 4, Y: m.listFirstRow() + 2, Button: tea.MouseRight}, action: actPress})
 	if !m.menu.open {
 		t.Fatal("right-click did not open the menu")
 	}
@@ -226,7 +226,7 @@ func TestRightClickOpensTheMenu(t *testing.T) {
 	}
 
 	// While the menu is up the pointer belongs to it.
-	m.handleMouse(click(4, 3))
+	m.handleMouse(click(4, 4))
 	if m.cursor != 2 || !m.menu.open {
 		t.Fatalf("a click reached the list under the menu (cursor=%d open=%v)", m.cursor, m.menu.open)
 	}
@@ -257,7 +257,7 @@ func TestMenuIsAnchoredToItsRow(t *testing.T) {
 	m.openHostMenu()
 	card, _, y = m.menuAt()
 	if y+lipgloss.Height(card) > m.menuBottom() {
-		t.Fatalf("menu covers the status bar: row %d + %d lines > %d", y, lipgloss.Height(card), m.menuBottom())
+		t.Fatalf("menu covers the footer: row %d + %d lines > %d", y, lipgloss.Height(card), m.menuBottom())
 	}
 	if row := m.cursorScreenRow(); y <= row && y+lipgloss.Height(card) > row {
 		t.Fatalf("menu at row %d hides the host row %d it belongs to", y, row)
@@ -280,7 +280,7 @@ func TestContextActionsFollowTheMode(t *testing.T) {
 
 	m.mode = modeEditor
 	editor := m.contextActions()
-	if !has(editor, "back to the file browser") || has(editor, "download the file") {
+	if !has(editor, "focus the tree") || has(editor, "download the file") {
 		t.Fatalf("editor mode: %v", labels(editor))
 	}
 

@@ -21,7 +21,7 @@ func TestHelpOpensOnTheModeYouAreIn(t *testing.T) {
 		mode paneMode
 		want string
 	}{
-		{modeList, "LIST"},
+		{modeList, "SIDEBAR"},
 		{modeShell, "SHELL"},
 		{modeScrollback, "SHELL"}, // history has no keyboard of its own; it is the shell's
 		{modeBrowser, "SFTP BROWSER"},
@@ -72,7 +72,7 @@ func TestHelpNamesItsOwnKey(t *testing.T) {
 	left, right, _ := helpModel().helpFor(modeList)
 	for _, sec := range append(left, right...) {
 		want, ok := map[string]string{
-			"LIST":         "?",
+			"SIDEBAR":      "?",
 			"SHELL":        "ctrl+o ?",
 			"SFTP BROWSER": "?",
 			"EDITOR":       "ctrl+o ?",
@@ -102,7 +102,7 @@ func TestHelpMarksWhereYouAre(t *testing.T) {
 		t.Fatalf("the card does not mark the section it opened on:\n%s", card)
 	}
 	// A list section scrolled out of view is behind the browser's too.
-	if i, j := strings.Index(card, "SFTP BROWSER"), strings.Index(card, "LIST"); i < 0 || (j >= 0 && i > j) {
+	if i, j := strings.Index(card, "SFTP BROWSER"), strings.Index(card, "SIDEBAR"); i < 0 || (j >= 0 && i > j) {
 		t.Fatalf("the browser section is not ahead of the list's on a card opened from the browser:\n%s", card)
 	}
 }

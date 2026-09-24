@@ -13,7 +13,6 @@ code:
   - internal/tui/importer.go
   - internal/tui/details.go
   - internal/tui/pin.go
-  - internal/tui/list.go
 relationships: []
 ---
 

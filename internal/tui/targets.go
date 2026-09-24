@@ -1,14 +1,15 @@
 package tui
 
 // Targets are the places on a connected host the keyboard can be put back into: a shell
-// tab, the browser, an editor tab, the terminal panel. The switcher, the session bar and
-// entering a host all land on one, so all three go back to the same place the same way.
+// tab, the browser, an editor tab, the terminal panel. Go to, the sidebar and entering a
+// host all land on one, so all three go back to the same place the same way.
 
 import (
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -52,6 +53,11 @@ func (m *model) here() (target, bool) {
 		if s.browser == nil {
 			return target{}, false
 		}
+		// The tree column is part of the editor tab it stands beside.
+		if m.frontOf(s) == tabEditor {
+			t.kind, t.id = targetEditor, s.editor().id
+			break
+		}
 		t.kind = targetBrowser
 	case modeEditor:
 		if s.editor() == nil {
@@ -79,9 +85,38 @@ func (m *model) noteTarget() {
 	if m.used == nil {
 		m.used = make(map[target]int)
 	}
+	if m.usedAt == nil {
+		m.usedAt = make(map[target]time.Time)
+	}
 	m.useSeq++
 	m.used[t] = m.useSeq
+	m.usedAt[t] = m.now()
 	m.current = t
+	m.forgetClosed()
+}
+
+// forgetClosed drops the stamps and tab order of tabs that have closed. Ids are never
+// reused, so a stale entry can do no harm, but a long-lived session opening many short
+// shells would otherwise make every sidebar redraw slower.
+func (m *model) forgetClosed() {
+	open := make(map[target]bool)
+	for alias, s := range m.sessions {
+		ts := m.openTargets(alias)
+		if s.dead {
+			// Its tabs are still drawn, greyed, until it is reconnected or dropped.
+			ts = m.hostTabs(alias)
+		}
+		for _, t := range ts {
+			open[t] = true
+		}
+		s.order = slices.DeleteFunc(s.order, func(t target) bool { return !open[t] })
+	}
+	for t := range m.used {
+		if t.kind != targetHost && !open[t] {
+			delete(m.used, t)
+			delete(m.usedAt, t)
+		}
+	}
 }
 
 // sessionAliases is every host with a session, in the host list's order; a session the list
@@ -103,23 +138,48 @@ func (m *model) sessionAliases() []string {
 	return append(out, rest...)
 }
 
-// openTargets is what is open on alias, in the order the session bar draws it. A dead
-// session has nothing to land on: reaching it goes through its host, which reconnects.
+// hostTabs is alias's tabs in the order they were opened, which is the order the sidebar
+// lists them under their host and what the leader's digits count. Unlike openTargets it
+// names a dropped host's tabs too, so the sidebar can show what went.
+func (m *model) hostTabs(alias string) []target {
+	s := m.sessions[alias]
+	if s == nil {
+		return nil
+	}
+	var open []target
+	for _, sh := range s.shells {
+		open = append(open, target{alias: alias, kind: targetShell, id: sh.id})
+	}
+	if s.browser != nil {
+		open = append(open, target{alias: alias, kind: targetBrowser})
+	}
+	for _, e := range s.editors {
+		open = append(open, target{alias: alias, kind: targetEditor, id: e.id})
+	}
+	tabs := make([]target, 0, len(open))
+	for _, t := range s.order {
+		if slices.Contains(open, t) && !slices.Contains(tabs, t) {
+			tabs = append(tabs, t)
+		}
+	}
+	// A tab opened by a path that did not note it still gets a place, at the end.
+	for _, t := range open {
+		if !slices.Contains(tabs, t) {
+			tabs = append(tabs, t)
+		}
+	}
+	return tabs
+}
+
+// openTargets is everything on alias the keyboard can be put back into: its tabs, then the
+// terminal panel and the tunnels. A dead session has nothing to land on: reaching it goes
+// through its host, which reconnects.
 func (m *model) openTargets(alias string) []target {
 	s := m.sessions[alias]
 	if s == nil || s.dead {
 		return nil
 	}
-	var ts []target
-	for _, sh := range s.shells {
-		ts = append(ts, target{alias: alias, kind: targetShell, id: sh.id})
-	}
-	if s.browser != nil {
-		ts = append(ts, target{alias: alias, kind: targetBrowser})
-	}
-	for _, e := range s.editors {
-		ts = append(ts, target{alias: alias, kind: targetEditor, id: e.id})
-	}
+	ts := m.hostTabs(alias)
 	if s.drawer != nil {
 		ts = append(ts, target{alias: alias, kind: targetDrawer})
 	}
@@ -127,6 +187,23 @@ func (m *model) openTargets(alias string) []target {
 		ts = append(ts, target{alias: alias, kind: targetTunnels})
 	}
 	return ts
+}
+
+// frontTarget is the tab the host in front shows, which the sidebar marks.
+func (m *model) frontTarget() (target, bool) {
+	s := m.sessions[m.active]
+	t := target{alias: m.active}
+	switch m.frontOf(s) {
+	case tabShell:
+		t.kind, t.id = targetShell, s.shell().id
+	case tabFiles:
+		t.kind = targetBrowser
+	case tabEditor:
+		t.kind, t.id = targetEditor, s.editor().id
+	default:
+		return target{}, false
+	}
+	return t, true
 }
 
 // lastPlace is where entering alias lands: the target last used there, or else its shell,
@@ -213,6 +290,8 @@ func (m *model) jumpTo(t target) tea.Cmd {
 		s.activeSh = slices.IndexFunc(s.shells, func(sh *shellTab) bool { return sh.id == t.id })
 		m.mode = modeShell
 	case targetBrowser:
+		// Said outright: the browser's keys alone could also be the editor tab's tree column.
+		s.front = tabFiles
 		m.mode = modeBrowser
 	case targetEditor:
 		s.focusTab(s.findEditorID(t.id))
@@ -282,4 +361,137 @@ func (m *model) targetLabel(t target) string {
 // findEditorID returns the index of the tab with the given id, or -1.
 func (s *session) findEditorID(id int) int {
 	return slices.IndexFunc(s.editors, func(e *editorTab) bool { return e.id == id })
+}
+
+// ---- moving between tabs and hosts ----
+
+// gotoTab lands on tab i of alias, counted from 0 in the order the sidebar lists them.
+func (m *model) gotoTab(alias string, i int) tea.Cmd {
+	s := m.sessions[alias]
+	if s == nil || s.dead {
+		return nil
+	}
+	tabs := m.hostTabs(alias)
+	if i < 0 || i >= len(tabs) {
+		return nil
+	}
+	return m.jumpTo(tabs[i])
+}
+
+// stepTab moves delta tabs along the host in front's tabs, wrapping at both ends. From the
+// terminal panel the tab it sits under is the one stepped from.
+func (m *model) stepTab(delta int) tea.Cmd {
+	s := m.sessions[m.active]
+	if s == nil || s.dead {
+		return nil
+	}
+	tabs := m.hostTabs(m.active)
+	if len(tabs) < 2 {
+		return nil
+	}
+	i := 0
+	if t, ok := m.frontTarget(); ok {
+		i = max(slices.Index(tabs, t), 0)
+	}
+	return m.jumpTo(tabs[cycle(i, delta, len(tabs))])
+}
+
+// stepHost moves delta hosts along the open ones, in the sidebar's order, wrapping at both
+// ends. With no host in front the first step lands on the first or last of them.
+func (m *model) stepHost(delta int) tea.Cmd {
+	aliases := m.sessionAliases()
+	if len(aliases) == 0 {
+		m.setStatus(statusWarn, "no host is connected")
+		return nil
+	}
+	i := slices.Index(aliases, m.active)
+	switch {
+	case i < 0 && delta > 0:
+		i, delta = 0, 0
+	case i < 0:
+		i, delta = len(aliases)-1, 0
+	}
+	return m.showHost(aliases[cycle(i, delta, len(aliases))])
+}
+
+// showHost brings alias to the front on its last place. A dropped host is shown as it is,
+// with what reconnecting would open again: stepping onto a red host never dials by itself.
+func (m *model) showHost(alias string) tea.Cmd {
+	s := m.sessions[alias]
+	if s == nil || !s.dead {
+		return m.jumpTo(target{alias: alias})
+	}
+	m.exitScrollback()
+	m.reader.Reset()
+	m.clearSelection()
+	m.active = alias
+	m.mode = modeFor(m.frontOf(s))
+	m.clearStatus()
+	m.relayout()
+	return nil
+}
+
+// modeFor is the mode whose keys drive tab kind f.
+func modeFor(f tabKind) paneMode {
+	switch f {
+	case tabFiles:
+		return modeBrowser
+	case tabEditor:
+		return modeEditor
+	}
+	return modeShell
+}
+
+// lastShell lands on the shell tab of alias used last, starting one when it has none.
+func (m *model) lastShell(alias string) tea.Cmd {
+	s := m.sessions[alias]
+	h, ok := m.hostByAlias(alias)
+	if !ok {
+		return nil
+	}
+	if s == nil || s.dead || len(s.shells) == 0 {
+		m.reader.Reset()
+		return m.openShell(h, false)
+	}
+	best, seen := target{alias: alias, kind: targetShell, id: s.shells[0].id}, -1
+	for _, sh := range s.shells {
+		t := target{alias: alias, kind: targetShell, id: sh.id}
+		if n := m.used[t]; n > seen {
+			best, seen = t, n
+		}
+	}
+	return m.jumpTo(best)
+}
+
+// usedAgo is how long ago the keyboard was last in t, "" for never.
+func (m *model) usedAgo(t target) string {
+	at, ok := m.usedAt[t]
+	if !ok {
+		return ""
+	}
+	switch d := m.now().Sub(at); {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
+}
+
+// recentPlaces is up to n places across every connected host, the one used last first —
+// what the content area offers with no host in front.
+func (m *model) recentPlaces(n int) []target {
+	var ts []target
+	for _, alias := range m.sessionAliases() {
+		for _, t := range m.openTargets(alias) {
+			if t.kind != targetTunnels && m.used[t] > 0 {
+				ts = append(ts, t)
+			}
+		}
+	}
+	slices.SortStableFunc(ts, func(a, b target) int { return m.used[b] - m.used[a] })
+	return ts[:min(len(ts), n)]
 }

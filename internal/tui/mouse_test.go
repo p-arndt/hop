@@ -8,7 +8,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss"
 
 	"hop/internal/config"
 	"hop/internal/filebrowser"
@@ -19,7 +18,7 @@ import (
 	"hop/internal/terminal"
 )
 
-// newMouseModel builds a navigation-mode model with n hosts, a 32-column sidebar and 15 list rows.
+// newMouseModel builds a model with n hosts and the keyboard in a docked 32-column sidebar.
 func newMouseModel(n int) *model {
 	hosts := make([]store.Host, n)
 	filtered := make([]int, n)
@@ -47,7 +46,7 @@ func wheel(x, y int, up bool) mouseEvt {
 	return mouseEvt{Mouse: tea.Mouse{X: x, Y: y, Button: b}, action: actWheel}
 }
 
-// The whole of hop's hit-testing: which of the four regions a cell belongs to.
+// The whole of hop's hit-testing: which of the regions a cell belongs to.
 func TestZoneAt(t *testing.T) {
 	m := newMouseModel(3)
 
@@ -56,7 +55,7 @@ func TestZoneAt(t *testing.T) {
 		x, y int
 		want zone
 	}{
-		{"the header row", 4, 0, zoneHeader},
+		{"the sidebar's top row", 4, 0, zoneList},
 		{"a host row", 4, 3, zoneList},
 		{"the sidebar's last column", 31, 5, zoneList},
 		{"the pane's first column", 32, 5, zonePane},
@@ -95,13 +94,14 @@ func TestWheelOverList(t *testing.T) {
 
 func TestClickSelectsHost(t *testing.T) {
 	m := newMouseModel(6)
+	first := m.listFirstRow()
 
-	m.handleMouse(click(4, 5)) // the third host row
+	m.handleMouse(click(4, first+2)) // the third host row
 	if m.cursor != 2 {
 		t.Fatalf("cursor = %d after clicking the third row, want 2", m.cursor)
 	}
 
-	m.handleMouse(click(4, 2)) // the HOSTS heading
+	m.handleMouse(click(4, first-1)) // the HOSTS heading
 	if m.cursor != 2 {
 		t.Fatalf("a click on the heading moved the cursor to %d", m.cursor)
 	}
@@ -109,7 +109,8 @@ func TestClickSelectsHost(t *testing.T) {
 	// With a filter on, every row is one lower.
 	m.filter = "h"
 	m.applyFilter()
-	m.handleMouse(click(4, 4))
+	m.recomputeLayout()
+	m.handleMouse(click(4, first+1))
 	if m.cursor != 0 {
 		t.Fatalf("cursor = %d after clicking the first row under a filter prompt, want 0", m.cursor)
 	}
@@ -117,32 +118,43 @@ func TestClickSelectsHost(t *testing.T) {
 
 func TestClickSelectsScrolledHost(t *testing.T) {
 	m := newMouseModel(30)
-	m.cursor = 20 // listRows() == 15, so the window starts at 6
+	m.cursor = 20
+	rows := m.listRows()
 
-	if start := m.listStart(m.listRows()); start != 6 {
-		t.Fatalf("listStart = %d, want 6", start)
+	if start := m.listStart(rows); start != 20-rows+1 {
+		t.Fatalf("listStart = %d, want %d", start, 20-rows+1)
 	}
-	m.handleMouse(click(4, 3))
-	if m.cursor != 6 {
-		t.Fatalf("cursor = %d after clicking the top row of a scrolled list, want 6", m.cursor)
+	m.handleMouse(click(4, m.listFirstRow()))
+	if m.cursor != 20-rows+1 {
+		t.Fatalf("cursor = %d after clicking the top row of a scrolled list, want %d", m.cursor, 20-rows+1)
 	}
 }
 
-// A second click on the same host connects to it; clicks on different hosts are two selections.
+// A second click on a host with nothing open connects to it; clicks on different hosts are
+// two selections.
 func TestDoubleClickConnects(t *testing.T) {
 	t.Run("same row", func(t *testing.T) {
 		m := newMouseModel(3)
-		m.handleMouse(click(4, 4))
-		m.handleMouse(click(4, 4))
+		y := m.listFirstRow() + 1
+		m.handleMouse(click(4, y))
+		m.handleMouse(click(4, y))
 		if !m.connecting["hb"] {
 			t.Fatal("a double-click did not start a connect")
 		}
 	})
 
+	t.Run("one click", func(t *testing.T) {
+		m := newMouseModel(3)
+		m.handleMouse(click(4, m.listFirstRow()+1))
+		if len(m.connecting) != 0 {
+			t.Fatalf("one click on a host with nothing open dialled it: %v", m.connecting)
+		}
+	})
+
 	t.Run("different rows", func(t *testing.T) {
 		m := newMouseModel(3)
-		m.handleMouse(click(4, 3))
-		m.handleMouse(click(4, 4))
+		m.handleMouse(click(4, m.listFirstRow()))
+		m.handleMouse(click(4, m.listFirstRow()+1))
 		if len(m.connecting) != 0 {
 			t.Fatalf("clicks on two different hosts started a connect: %v", m.connecting)
 		}
@@ -150,9 +162,10 @@ func TestDoubleClickConnects(t *testing.T) {
 
 	t.Run("outside the window", func(t *testing.T) {
 		m := newMouseModel(3)
-		m.handleMouse(click(4, 4))
+		y := m.listFirstRow() + 1
+		m.handleMouse(click(4, y))
 		m.chords.click = time.Now().Add(-2 * doubleClickWindow)
-		m.handleMouse(click(4, 4))
+		m.handleMouse(click(4, y))
 		if len(m.connecting) != 0 {
 			t.Fatalf("two clicks a window apart started a connect: %v", m.connecting)
 		}
@@ -160,7 +173,7 @@ func TestDoubleClickConnects(t *testing.T) {
 
 	t.Run("a third click is not a second double", func(t *testing.T) {
 		m := newMouseModel(3)
-		m.handleMouse(click(4, 4))
+		m.handleMouse(click(4, m.listFirstRow()+1))
 		if !m.clickChord(zoneList, 1) {
 			t.Fatal("the second click on a host did not complete a double")
 		}
@@ -172,14 +185,15 @@ func TestDoubleClickConnects(t *testing.T) {
 	// The list re-scrolls around the cursor, so the chord is keyed on the host, not the row.
 	t.Run("the same row, a different host", func(t *testing.T) {
 		m := newMouseModel(30)
-		m.cursor = 20 // the window starts at 6; the top row is host 6
+		m.cursor = 20
+		top := 20 - m.listRows() + 1
 
-		m.handleMouse(click(4, 3))
-		if m.cursor != 6 {
-			t.Fatalf("cursor = %d after the first click, want host 6", m.cursor)
+		m.handleMouse(click(4, m.listFirstRow()))
+		if m.cursor != top {
+			t.Fatalf("cursor = %d after the first click, want host %d", m.cursor, top)
 		}
-		// Selecting host 6 scrolled the window back to the top, so row 3 is now host 0.
-		m.handleMouse(click(4, 3))
+		// Selecting that host scrolled the window back to the top, so the row is now host 0.
+		m.handleMouse(click(4, m.listFirstRow()))
 		if m.cursor != 0 {
 			t.Fatalf("cursor = %d after the second click, want host 0", m.cursor)
 		}
@@ -189,6 +203,8 @@ func TestDoubleClickConnects(t *testing.T) {
 	})
 }
 
+// A click on a host with nothing open takes the keyboard into the sidebar, the host in
+// front staying where it is.
 func TestClickInSidebarLeavesThePane(t *testing.T) {
 	for _, mode := range []string{"focused", "browsing", "editing"} {
 		t.Run(mode, func(t *testing.T) {
@@ -204,7 +220,7 @@ func TestClickInSidebarLeavesThePane(t *testing.T) {
 				m.mode = modeEditor
 			}
 
-			m.handleMouse(click(4, 3))
+			m.handleMouse(click(4, m.listFirstRow()+1))
 
 			if !m.listHasFocus() {
 				t.Fatal("a click in the sidebar left the keyboard in the pane")
@@ -230,32 +246,20 @@ func TestModalCardSwallowsMouse(t *testing.T) {
 
 // paneLocal maps a screen cell into the pane's content box and rejects the cells outside it.
 func TestPaneLocal(t *testing.T) {
-	m := newMouseModel(3) // listWidth 32, paneW 66, paneH 16
+	m := newMouseModel(3) // listWidth 32, paneW 66, paneH 17
 
-	x, y, ok := m.paneLocal(33, 2)
+	x, y, ok := m.paneLocal(33, 1)
 	if !ok || x != 0 || y != 0 {
-		t.Fatalf("paneLocal(33, 2) = %d, %d, %v; want the content origin 0, 0, true", x, y, ok)
+		t.Fatalf("paneLocal(33, 1) = %d, %d, %v; want the content origin 0, 0, true", x, y, ok)
 	}
-	if _, _, ok := m.paneLocal(32, 2); ok {
+	if _, _, ok := m.paneLocal(32, 1); ok {
 		t.Fatal("the pane's left border was mapped into its content")
 	}
-	if _, _, ok := m.paneLocal(33, 1); ok {
+	if _, _, ok := m.paneLocal(33, 0); ok {
 		t.Fatal("the pane's top border was mapped into its content")
 	}
-	if _, _, ok := m.paneLocal(99, 2); ok {
+	if _, _, ok := m.paneLocal(99, 3); ok {
 		t.Fatal("a cell past the pane's right edge was mapped into its content")
-	}
-}
-
-func TestClickIntoPaneTakesTheKeyboard(t *testing.T) {
-	m := newMouseModel(3)
-	m.active = "ha"
-	m.sessions["ha"] = &session{shells: []*shellTab{{id: 1, pane: fakePane()}}}
-
-	m.handleMouse(click(40, 6))
-
-	if !m.focused() {
-		t.Fatal("a click on the pane did not focus the shell")
 	}
 }
 
@@ -274,50 +278,6 @@ func TestMouseOnDeadPaneDoesNothing(t *testing.T) {
 	}
 }
 
-// A click on a tab pill switches to it; the gaps between pills belong to neither.
-func TestTabAt(t *testing.T) {
-	m := newMouseModel(3)
-	names := []string{"one", "two", "three"}
-
-	// Walk the strip rather than hard-coding columns, so the mapping is checked against the render.
-	pills := tabPills(names, 0)
-	col := 0
-	for i := range pills {
-		got, ok := m.tabAt(names, 0, col, m.paneW)
-		if !ok || got != i {
-			t.Fatalf("tabAt at column %d = %d, %v; want tab %d", col, got, ok, i)
-		}
-		col += lipgloss.Width(pills[i])
-		if _, ok := m.tabAt(names, 0, col, m.paneW); ok && i < len(pills)-1 {
-			t.Fatalf("the gap at column %d was claimed by a tab", col)
-		}
-		col++ // the separating space
-	}
-	if _, ok := m.tabAt(names, 0, m.paneW-1, m.paneW); ok {
-		t.Fatal("the empty run past the last pill was claimed by a tab")
-	}
-}
-
-func TestClickShellTab(t *testing.T) {
-	m := newMouseModel(3)
-	m.active = "ha"
-	m.mode = modeShell
-	s := &session{shells: []*shellTab{
-		{id: 1, pane: fakePane()}, {id: 2, pane: fakePane()}, {id: 3, pane: fakePane()},
-	}}
-	m.sessions["ha"] = s
-
-	// The strip is content row 0, which is screen row 2.
-	names := shellTabNames(s)
-	pills := tabPills(names, 0)
-	x := lipgloss.Width(pills[0]) + 1 // the second pill's first column
-	m.handleMouse(click(33+x, 2))
-
-	if s.activeSh != 1 {
-		t.Fatalf("activeSh = %d after clicking the second tab, want 1", s.activeSh)
-	}
-}
-
 func TestDoubleClickInBrowserOpens(t *testing.T) {
 	br, err := filebrowser.New(
 		fbtest.Stub{Dir: "/srv", Entries: []sftpx.Entry{{Name: "logs", IsDir: true}, {Name: "app.conf", Size: 12}}},
@@ -330,10 +290,12 @@ func TestDoubleClickInBrowserOpens(t *testing.T) {
 	m.active = "ha"
 	m.mode = modeBrowser
 	m.sessions["ha"] = &session{browser: br}
+	m.relayout()
 
-	// The browser's first entry: content row 2 (path header, rule), so screen row 4.
-	m.handleMouse(click(40, 4))
-	m.handleMouse(click(40, 4))
+	// The browser's first entry: row 2 of the tree box (path header, rule).
+	x, y := m.frame.tree.x+2, m.frame.tree.y+1+2
+	m.handleMouse(click(x, y))
+	m.handleMouse(click(x, y))
 
 	if br.Path() != "/srv/logs" {
 		t.Fatalf("browser path = %q after double-clicking a directory, want /srv/logs", br.Path())
@@ -494,7 +456,8 @@ func TestWheelOnAltScreenSendsArrowKeys(t *testing.T) {
 	}
 }
 
-// treeMouseModel is newMouseModel wide enough for all three columns, with a browser and a shell.
+// treeMouseModel is newMouseModel with a browser, a shell and an open file, the editor tab in
+// front with its tree box under the hosts.
 func treeMouseModel(t *testing.T) (*model, *session) {
 	t.Helper()
 	m := newMouseModel(3)
@@ -505,118 +468,127 @@ func treeMouseModel(t *testing.T) (*model, *session) {
 	if err != nil {
 		t.Fatalf("build browser: %v", err)
 	}
-	// An open file is what gives the browser a column of its own.
 	s := &session{browser: br, shells: []*shellTab{{id: 1, pane: fakePane()}},
-		editors: []*editorTab{{id: 1, name: "app.conf", path: "/srv/app.conf", pane: fakePane()}}}
+		editors: []*editorTab{{id: 1, name: "app.conf", path: "/srv/app.conf", pane: fakePane()}}, front: tabEditor}
 	m.sessions["ha"] = s
 	m.active, m.mode = "ha", modeBrowser
-	m.relayout()
-	if m.treeWidth() == 0 {
-		t.Fatal("the tree column is not on screen, so nothing here is being tested")
+	m.Update(nil)
+	if !m.treeBoxOn() {
+		t.Fatal("the tree box is not on screen, so nothing here is being tested")
 	}
 	return m, s
 }
 
-// The tree and the files, each starting where the one left of it ends.
-func TestZoneAtWithTheTreeColumn(t *testing.T) {
+// treeEntry is the screen cell of the tree's first entry: row 2 of the box, under the path
+// and its rule.
+func treeEntry(m *model) (int, int) { return m.frame.tree.x + 2, m.frame.tree.y + 1 + 2 }
+
+// contentCell is a cell well inside the content area.
+func contentCell(m *model) (int, int) { return m.frame.content.x + 4, m.frame.content.y + 4 }
+
+// The tree box is under the hosts in the sidebar, and the content beside both.
+func TestZoneAtWithTheTreeBox(t *testing.T) {
 	m, _ := treeMouseModel(t)
-	lw, tw := m.listWidth(), m.treeWidth()
+	tr := m.frame.tree
 
 	cases := []struct {
 		name string
-		x    int
+		x, y int
 		want zone
 	}{
-		{"the tree column's first", lw, zoneTree},
-		{"its last", lw + tw - 1, zoneTree},
-		{"the content area's first", lw + tw, zonePane},
-		{"its last", m.width - 1, zonePane},
+		{"the hosts box's last row", 0, tr.y - 1, zoneList},
+		{"the tree box's first row", 0, tr.y, zoneTree},
+		{"its last column", tr.w - 1, tr.y + 2, zoneTree},
+		{"its last row", 4, tr.y + tr.h - 1, zoneTree},
+		{"the content area's first column", tr.w, tr.y + 2, zonePane},
+		{"its last", m.width - 1, tr.y + 2, zonePane},
 	}
 	for _, c := range cases {
-		if got := m.zoneAt(c.x, 5); got != c.want {
-			t.Errorf("%s: zoneAt(%d, 5) = %v, want %v", c.name, c.x, got, c.want)
+		if got := m.zoneAt(c.x, c.y); got != c.want {
+			t.Errorf("%s: zoneAt(%d, %d) = %v, want %v", c.name, c.x, c.y, got, c.want)
 		}
 	}
 }
 
-// A click is translated through the column's border and the header before the browser is asked.
-func TestTreeLocalTranslatesPerColumn(t *testing.T) {
+// A click is translated through the tree box's border before the browser is asked.
+func TestTreeLocalTranslatesThroughTheBox(t *testing.T) {
 	m, _ := treeMouseModel(t)
-	lw, tw := m.listWidth(), m.treeWidth()
+	tr := m.frame.tree
 
-	x, y, ok := m.treeLocal(lw+1, 2)
+	x, y, ok := m.treeLocal(tr.x+1, tr.y+1)
 	if !ok || x != 0 || y != 0 {
-		t.Fatalf("treeLocal at the column's content origin = %d, %d, %v; want 0, 0, true", x, y, ok)
+		t.Fatalf("treeLocal at the box's content origin = %d, %d, %v; want 0, 0, true", x, y, ok)
 	}
-	if _, _, ok := m.treeLocal(lw, 2); ok {
-		t.Fatal("the column's left border was mapped into its content")
+	if _, _, ok := m.treeLocal(tr.x, tr.y+1); ok {
+		t.Fatal("the box's left border was mapped into its content")
 	}
-	if _, _, ok := m.treeLocal(lw+tw-1, 2); ok {
-		t.Fatal("the column's right border was mapped into its content")
+	if _, _, ok := m.treeLocal(tr.x+tr.w-1, tr.y+1); ok {
+		t.Fatal("the box's right border was mapped into its content")
 	}
-	if _, _, ok := m.treeLocal(lw+1, 1); ok {
-		t.Fatal("the column's top border was mapped into its content")
+	if _, _, ok := m.treeLocal(tr.x+1, tr.y); ok {
+		t.Fatal("the box's top border was mapped into its content")
 	}
 }
 
-func TestClickingAColumnFocusesIt(t *testing.T) {
+func TestClickingABoxFocusesIt(t *testing.T) {
 	m, s := treeMouseModel(t)
 	m.mode = modeEditor
 
-	// The browser's first entry: content row 2, so screen row 4, in the tree column.
-	m.handleMouse(click(m.listWidth()+2, 4))
+	m.handleMouse(click(treeEntry(m)))
 	if !m.browsing() {
-		t.Fatal("a click in the tree column did not give it the keyboard")
+		t.Fatal("a click in the tree box did not give it the keyboard")
 	}
 	if i, ok := s.browser.RowAt(2); !ok || i != 0 {
 		t.Fatalf("browser row 2 = %d, %v; the listing is not where the test thinks", i, ok)
 	}
 
-	// And back the other way: a click on the content area takes the keyboard out of the column.
-	m.handleMouse(click(m.listWidth()+m.treeWidth()+4, 6))
+	// And back the other way: a click on the content area takes the keyboard out of the tree.
+	m.handleMouse(click(contentCell(m)))
 	if !m.editing() {
 		t.Fatal("a click on the content area did not take the keyboard out of the tree")
 	}
-	if s.browser == nil || m.treeWidth() == 0 {
-		t.Fatal("crossing back took the tree column off the screen")
+	if !m.treeBoxOn() {
+		t.Fatal("crossing back took the tree box off the screen")
 	}
 }
 
-func TestWheelDoesNotFocusTheTreeColumn(t *testing.T) {
+func TestWheelDoesNotFocusTheTreeBox(t *testing.T) {
 	m, _ := treeMouseModel(t)
 	m.mode = modeShell
+	m.jumpTo(target{alias: "ha", kind: targetEditor, id: 1})
+	m.mode = modeEditor
 
-	m.handleMouse(wheel(m.listWidth()+2, 5, false))
+	x, y := treeEntry(m)
+	m.handleMouse(wheel(x, y, false))
 
 	if m.browsing() {
-		t.Fatal("a wheel notch over the tree column gave it the keyboard")
+		t.Fatal("a wheel notch over the tree box gave it the keyboard")
 	}
 }
 
-func TestDoubleClickInTheTreeColumnOpens(t *testing.T) {
+func TestDoubleClickInTheTreeBoxOpens(t *testing.T) {
 	m, s := treeMouseModel(t)
 	m.mode = modeBrowser
 
-	x := m.listWidth() + 2
-	m.handleMouse(click(x, 4))
-	m.handleMouse(click(x, 4))
+	m.handleMouse(click(treeEntry(m)))
+	m.handleMouse(click(treeEntry(m)))
 
 	if s.browser.Path() != "/srv/logs" {
-		t.Fatalf("browser path = %q after double-clicking a directory in the column, want /srv/logs",
+		t.Fatalf("browser path = %q after double-clicking a directory in the tree box, want /srv/logs",
 			s.browser.Path())
 	}
 }
 
-func TestClicksInTwoColumnsAreNotADouble(t *testing.T) {
+func TestClicksInTwoBoxesAreNotADouble(t *testing.T) {
 	m, s := treeMouseModel(t)
 	m.mode = modeBrowser
 
-	m.handleMouse(click(m.listWidth()+2, 4))
-	m.handleMouse(click(m.listWidth()+m.treeWidth()+4, 4))
-	m.handleMouse(click(m.listWidth()+2, 4))
+	m.handleMouse(click(treeEntry(m)))
+	m.handleMouse(click(contentCell(m)))
+	m.handleMouse(click(treeEntry(m)))
 
 	if s.browser.Path() != "/srv" {
-		t.Fatalf("browser path = %q; clicks in two columns completed a double", s.browser.Path())
+		t.Fatalf("browser path = %q; clicks in two boxes completed a double", s.browser.Path())
 	}
 }
 
@@ -632,7 +604,7 @@ func TestContentLocalAcrossASplit(t *testing.T) {
 	s.splitEd = 1
 	m.relayout()
 
-	base, w := m.listWidth()+m.treeWidth(), m.splitHalf()
+	base, w := m.frame.content.x, m.splitHalf()
 	cases := []struct {
 		name  string
 		x     int
@@ -647,52 +619,25 @@ func TestContentLocalAcrossASplit(t *testing.T) {
 		{"its last", base + 2*w + 2, true, w - 1, true},
 	}
 	for _, c := range cases {
-		right, lx, _, ok := m.contentLocal(c.x, 2)
+		right, lx, _, ok := m.contentLocal(c.x, 3)
 		if ok != c.ok || (ok && (right != c.right || lx != c.lx)) {
-			t.Errorf("%s: contentLocal(%d, 2) = %v, %d, %v; want %v, %d, %v",
+			t.Errorf("%s: contentLocal(%d, 3) = %v, %d, %v; want %v, %d, %v",
 				c.name, c.x, right, lx, ok, c.right, c.lx, c.ok)
 		}
 	}
 
 	// The pointer picks between the halves the way it picks between the columns.
 	m.mode = modeEditor
-	m.handleMouse(click(base+1, 6))
+	m.handleMouse(click(base+1, 7))
 	if s.splitRight {
 		t.Fatal("a click in the left half left the keyboard in the right one")
 	}
 	if got := s.editor(); got == nil || got.name != "a.conf" {
 		t.Fatalf("the keyboard is on %v, want the left half's a.conf", got)
 	}
-	m.handleMouse(click(base+w+3, 6))
+	m.handleMouse(click(base+w+3, 7))
 	if !s.splitRight {
 		t.Fatal("a click in the right half did not move the keyboard there")
-	}
-}
-
-// Each half draws the same tab names, so a click on a strip is measured for the half pointed at.
-func TestClickOnASplitHalfsTabStrip(t *testing.T) {
-	m, s := treeMouseModel(t)
-	s.editors = []*editorTab{
-		{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()},
-		{id: 2, name: "b.conf", path: "/etc/b.conf", pane: fakePane()},
-	}
-	t.Cleanup(s.closeEditors)
-	s.openSplit()
-	s.splitEd = 1
-	m.mode = modeEditor
-	m.relayout()
-
-	base, w := m.listWidth()+m.treeWidth(), m.splitHalf()
-	// The right half's strip, on its second pill; screen row 2 is content row 0.
-	pills := tabPills(editorTabNames(s), 1)
-	x := base + w + 3 + lipgloss.Width(pills[0]) + 1
-	m.handleMouse(click(x, 2))
-
-	if s.splitEd != 1 {
-		t.Fatalf("splitEd = %d after clicking the right half's second pill, want 1", s.splitEd)
-	}
-	if s.activeEd != 0 {
-		t.Fatalf("activeEd = %d; a click on one half's strip moved the other half", s.activeEd)
 	}
 }
 
@@ -730,7 +675,7 @@ func TestLayoutKeysDoNotEscapeAnOpenQuestion(t *testing.T) {
 				t.Fatalf("mode = %v, want the keyboard still in the question", m.mode)
 			}
 			if m.treeHidden {
-				t.Fatal("the key collapsed the tree column from inside a question")
+				t.Fatal("the key hid the tree box from inside a question")
 			}
 		})
 	}

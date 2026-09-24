@@ -6,23 +6,23 @@ group: Browsing mode
 label: Browsing mode
 ---
 
-[[enter]] on a file opens it in an editor **inside hop**, beside the browser column — the
-[files view](#sidebar) — with a tab strip above it listing every open file. The tree stays on
-screen.
+[[enter]] on a file opens it in an editor **inside hop**, in the content area, with its path
+above it. The tree stays on screen in the [sidebar](#sidebar), under the hosts, and every open
+file is a tab under its host there.
 
 | Key | Action |
 | --- | --- |
 | [[shift+→]] [[shift+←]] | next / previous tab (wraps) |
 | [[ctrl+o]] [[1]] … [[9]] | go straight to that tab, without leaving |
-| [[ctrl+o]] [[o]] | back to the file browser |
+| [[ctrl+o]] [[o]] | the sidebar |
 | `:q` (i.e. quit the editor) | close the tab |
-| [[ctrl+o]] [[t]] | back to the tree, without closing anything ([[alt+t]] where your terminal sends it) |
-| [[ctrl+o]] [[s]] | this host's shell, full width |
+| [[ctrl+o]] [[t]] | into the tree, without closing anything — again from there hides the tree box ([[alt+t]] where your terminal sends it) |
+| [[ctrl+o]] [[s]] | this host's last shell |
 | [[ctrl+o]] [[j]] | show / hide the terminal panel under the files |
 | [[ctrl+o]] [[+]] / [[ctrl+o]] [[-]] | size the terminal panel: after the first, [[+]] [[-]] [[↑]] [[↓]] keep going until any other key — or drag its top edge |
 | [[ctrl+\]] | close the split, keeping the file you are reading |
-| [[ctrl+t]] | hide / show the tree column |
-| [[esc]] [[esc]] | back to the file browser (two presses within 400 ms) |
+| [[ctrl+t]] | hide / show the tree box — the file keeps its size either way |
+| [[esc]] [[esc]] | the sidebar, cursor on this file (two presses within 400 ms) |
 | [[alt+←]]/[[alt+→]], [[alt+h]]/[[alt+l]], [[alt+1]]…[[alt+9]] | aliases, where your terminal sends them |
 | *everything else* | sent to the remote editor |
 
@@ -37,15 +37,15 @@ If the remote `$EDITOR` is unset (it usually is over SSH, since the rc-file that
 never sourced for a non-interactive command), hop probes the remote `PATH` for `nvim`,
 `vim`, `vi`, then `nano`, falling back to `vi` — POSIX requires it to exist.
 
-Tabs are independent editor processes, so leaving with [[ctrl+o]] [[o]] keeps them all
+Tabs are independent editor processes, so leaving with a double [[esc]] keeps them all
 running: come back and every file is where you left it, cursor included.
 
 ## Two files side by side
 
 [[\]] in the browser opens the file **beside** the current one instead of behind it,
-splitting the content area into two halves with their own tab strips. [[tab]]/[[ctrl+o]] [[t]] pass
-the keyboard between tree and content; [[shift+→]]/[[shift+←]] cycle the tabs of whichever
-half has it. The same file is never shown in both halves — asking for one that is already
+splitting the content area into two halves, each with its file's path above it.
+[[tab]]/[[ctrl+o]] [[t]] pass the keyboard between tree and content; [[shift+→]]/[[shift+←]]
+cycle the tabs of whichever half has it. The same file is never shown in both halves — asking for one that is already
 open just focuses the half it is in. A content area too narrow to give each half a readable
 22 columns declines the split rather than drawing two unreadable ones.
 

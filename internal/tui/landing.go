@@ -40,7 +40,11 @@ func (m *model) shellLanded(msg connectedMsg) (tea.Model, tea.Cmd) {
 		s.client = msg.client
 	}
 	s.shells = append(s.shells, msg.tab)
-	s.activeSh = len(s.shells) - 1
+	s.noteOpened(target{alias: msg.alias, kind: targetShell, id: msg.tab.id})
+	if !msg.restore {
+		// A restored shell must not take the front from the tab the reconnect put there.
+		s.activeSh = len(s.shells) - 1
+	}
 	m.armClipboard(msg.tab.pane)
 	m.st.Touch(msg.alias)
 	m.reloadHosts()
@@ -100,10 +104,7 @@ func (m *model) shellExited(msg shellExitedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.active == msg.alias && m.focused() {
-		m.mode = modeList
-		if s.browser != nil {
-			m.mode = modeBrowser
-		}
+		return m, m.landElsewhere(msg.alias)
 	}
 	return m, nil
 }
@@ -132,6 +133,7 @@ func (m *model) browserLanded(msg browserOpenedMsg) (tea.Model, tea.Cmd) {
 		s.browser.Close()
 	}
 	s.browser = msg.browser
+	s.noteOpened(target{alias: msg.alias, kind: targetBrowser})
 	if msg.client != nil {
 		s.client = msg.client
 	}
@@ -146,6 +148,7 @@ func (m *model) browserLanded(msg browserOpenedMsg) (tea.Model, tea.Cmd) {
 	// A restored browser does not take the keyboard; the shell restored first has it.
 	if !msg.restore {
 		m.active = msg.alias
+		s.front = tabFiles
 		m.mode = modeBrowser
 		if msg.client != nil && msg.client.NewHostKey != "" {
 			m.setStatus(statusWarn, "%s: new host key trusted (%s)", msg.alias, msg.client.NewHostKey)
@@ -176,6 +179,7 @@ func (m *model) editorLanded(msg editorOpenedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	s.editors = append(s.editors, msg.tab)
+	s.noteOpened(target{alias: msg.alias, kind: targetEditor, id: msg.tab.id})
 	// openFile already moved the focused half when opening beside another file.
 	s.setEditor(len(s.editors) - 1)
 	m.armClipboard(msg.tab.pane)
@@ -197,4 +201,37 @@ func (m *model) abandonSplit(alias string) {
 	}
 	s.collapseSplit()
 	m.relayout()
+}
+
+// landElsewhere puts the keyboard on the host's last place once the tab it was in has gone,
+// or in the sidebar when nothing is left to land on.
+func (m *model) landElsewhere(alias string) tea.Cmd {
+	if t, ok := m.lastPlace(alias); ok {
+		return m.jumpTo(t)
+	}
+	m.mode = modeList
+	m.relayout()
+	return nil
+}
+
+// editorExited drops a remote editor's tab once it has ended, by ":q" or by the sidebar.
+func (m *model) editorExited(msg editorExitedMsg) (tea.Model, tea.Cmd) {
+	s := m.sessions[msg.alias]
+	if s == nil {
+		return m, nil
+	}
+	// On a connection that has gone this is the channel being cut, not ":q". See shellExited.
+	if s.deadConnection() {
+		m.markDead(msg.alias, lostReason(s))
+		return m, nil
+	}
+	if !s.dropEditor(msg.id) {
+		return m, nil
+	}
+	// A tab closing out of a split may also have collapsed it, so the halves are re-measured either way.
+	m.relayout()
+	if len(s.editors) == 0 && m.editing() && m.active == msg.alias {
+		return m, m.landElsewhere(msg.alias)
+	}
+	return m, nil
 }

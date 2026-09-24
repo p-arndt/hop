@@ -1,8 +1,8 @@
 package tui
 
 // The terminal panel: a shell under the files, the way an IDE keeps one under its editor.
-// It is its own shell rather than one of the host's tabs, so the shell view's shells keep
-// their full size whatever the panel does.
+// It is its own shell rather than one of the host's tabs, so the shell tabs keep their full
+// size whatever the panel does.
 
 import (
 	"strings"
@@ -65,6 +65,7 @@ func (m *model) toggleDrawer() tea.Cmd {
 		if s.browser != nil {
 			dir = s.browser.CursorDir()
 		}
+		m.frontFiles(s)
 		return m.startDrawer(s, dir)
 	}
 	m.relayout()
@@ -78,11 +79,18 @@ func (m *model) drawerHere(dir string) tea.Cmd {
 		return nil
 	}
 	if s.drawer == nil {
+		m.frontFiles(s)
 		return m.startDrawer(s, dir)
 	}
 	s.drawerOpen = true
 	m.focusDrawer()
 	m.relayout()
+	// Typed into a live shell, where a control byte acts before any quoting can: a name
+	// holding ^C and a newline would run the rest as a command.
+	if strings.ContainsFunc(dir, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		m.setStatus(statusWarn, "not changing into a directory whose name holds control characters")
+		return nil
+	}
 	if !s.drawer.pane.SendLine("cd -- " + shellQuote(dir)) {
 		m.setStatus(statusWarn, "the terminal is running a full-screen program; not changing its directory")
 	}
@@ -109,7 +117,9 @@ func (m *model) drawerLanded(msg drawerLandedMsg) (tea.Model, tea.Cmd) {
 	}
 	s.drawer, s.drawerOpen = msg.tab, true
 	m.armClipboard(msg.tab.pane)
-	if m.active == msg.alias && m.filesView() {
+	// Only a keyboard still on the files is handed over: one that went to the sidebar while
+	// the shell was starting is in the middle of something else.
+	if m.active == msg.alias && (m.mode == modeBrowser || m.mode == modeEditor) {
 		m.focusDrawer()
 	}
 	m.clearStatus()
@@ -144,14 +154,28 @@ func (m *model) focusDrawer() {
 	m.clearSelection()
 }
 
-// focusFiles hands the keyboard back to what is above the panel.
+// frontFiles brings the tab the panel sits under to the front: from a shell tab that is the
+// editor used last, or the files tab.
+func (m *model) frontFiles(s *session) {
+	if f := m.frontOf(s); f == tabFiles || f == tabEditor {
+		return
+	}
+	s.front = tabFiles
+	if s.editor() != nil {
+		s.front = tabEditor
+	}
+	m.mode = modeFor(s.front)
+	m.relayout()
+}
+
+// focusFiles hands the keyboard back to the tab above the panel.
 func (m *model) focusFiles() {
 	s := m.sessions[m.active]
 	m.reader.Reset()
-	switch {
-	case s != nil && s.editor() != nil:
+	switch m.frontOf(s) {
+	case tabEditor:
 		m.mode = modeEditor
-	case s != nil && s.browser != nil:
+	case tabFiles:
 		m.mode = modeBrowser
 	default:
 		m.mode = modeList
@@ -166,7 +190,7 @@ func (m *model) handleDrawerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.armLeader()
 		return m, nil
 	case keys.PaneLeave:
-		m.focusFiles()
+		m.toSidebar()
 		return m, nil
 	}
 	if s != nil && s.drawer != nil {
@@ -203,7 +227,7 @@ func (m *model) mouseDrawer(msg mouseEvt) (tea.Model, tea.Cmd) {
 	}
 	p := s.drawer.pane
 	if wheelDir(msg.Button) != 0 && !p.MouseEnabled() {
-		// The panel keeps no history of its own; the shell view is where scrollback lives.
+		// The panel keeps no history of its own; a shell tab is where scrollback lives.
 		return m, nil
 	}
 	if m.remoteOwnsPointer(p, msg) {
@@ -243,8 +267,8 @@ func (m *model) dragDrawerEdge(msg mouseEvt) (tea.Model, tea.Cmd) {
 	case actRelease:
 		m.resizingDrawer = false
 	case actPress, actMotion:
-		// The body's last row is 1+bodyHeight-1; the edge at y leaves the panel the rows below it.
-		m.resizeDrawer(1 + m.bodyHeight() - msg.Y)
+		// The body's last row is bodyHeight-1; the edge at y leaves the panel the rows below it.
+		m.resizeDrawer(m.bodyHeight() - msg.Y)
 	}
 	return m, nil
 }
@@ -252,7 +276,7 @@ func (m *model) dragDrawerEdge(msg mouseEvt) (tea.Model, tea.Cmd) {
 // renderDrawer draws the panel: a header naming where the shell is, then the shell.
 func (m *model) renderDrawer(s *session, r rect) string {
 	p := s.drawer.pane
-	head := accentText.Render("terminal")
+	head := dimStyle.Render("terminal")
 	if cwd := p.Cwd(); cwd != "" {
 		head += dimStyle.Render(" · " + stripControl(cwd))
 	}

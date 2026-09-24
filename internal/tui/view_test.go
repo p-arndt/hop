@@ -241,7 +241,7 @@ func TestNewShellFromAFocusedPane(t *testing.T) {
 	m.sessions["web1"] = &session{}
 	m.active, m.mode = "web1", modeShell
 
-	if foot := m.renderFooter(); !strings.Contains(foot, "leader") {
+	if foot := m.renderFooter(); !strings.Contains(foot, "ctrl+o") {
 		t.Fatalf("the focused pane's footer does not name the leader:\n%s", foot)
 	}
 	m.handleKey(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})

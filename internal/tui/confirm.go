@@ -8,15 +8,24 @@ import (
 	"hop/internal/store"
 )
 
-// confirmUI is the delete-confirmation card's state: the alias captured when it was armed,
-// so the question still names the right host after the list underneath has moved.
+// confirmUI is the confirmation card's state: the host to delete, or the editor tab to
+// close, captured when it was armed so the question still names the right one after the
+// list underneath has moved.
 type confirmUI struct {
 	open  bool
 	alias string
+	// tab is set when the card asks about closing an editor rather than deleting a host.
+	tab target
 }
 
 func (m *model) openConfirmDelete(h store.Host) {
 	m.confirm = confirmUI{open: true, alias: h.Alias}
+	m.status = ""
+}
+
+// openConfirmCloseTab asks before an editor goes: closing it throws away unsaved work.
+func (m *model) openConfirmCloseTab(t target) {
+	m.confirm = confirmUI{open: true, alias: t.alias, tab: t}
 	m.status = ""
 }
 
@@ -29,6 +38,13 @@ func (m *model) closeConfirm() {
 func (m *model) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "enter":
+		if t := m.confirm.tab; t.alias != "" {
+			m.closeConfirm()
+			m.cursorTab = target{}
+			_, cmd := m.editorExited(editorExitedMsg{alias: t.alias, id: t.id})
+			m.buildRows()
+			return m, cmd
+		}
 		m.confirmDelete()
 	case "n", "esc", "q":
 		m.closeConfirm()
@@ -72,6 +88,17 @@ func (m *model) confirmInnerW() int {
 func (m *model) renderConfirm() string {
 	w := m.confirmInnerW()
 	var b strings.Builder
+
+	if t := m.confirm.tab; t.alias != "" {
+		b.WriteString(truncate(titleStyle.Render("CLOSE FILE"), w))
+		b.WriteString("\n\n")
+		body := dimStyle.Render("Close ") + accentText.Render(m.tabLabel(t)) +
+			dimStyle.Render("? Unsaved changes are lost.")
+		b.WriteString(truncate(body, w))
+		b.WriteString("\n\n")
+		b.WriteString(truncate(keyHint("y", "close")+"  "+keyHint("n", "cancel"), w))
+		return cardBox.Width(w + 2*cardPadX).Render(b.String())
+	}
 
 	b.WriteString(truncate(titleStyle.Render("DELETE HOST"), w))
 	b.WriteString("\n\n")

@@ -105,8 +105,13 @@ func TestTunnelDashboardShowsDefinitionsAndRuntimeState(t *testing.T) {
 			t.Fatalf("details card does not contain %q:\n%s", want, details)
 		}
 	}
-	if row := m.renderRow(m.hosts[0], nil, true, 50); !strings.Contains(row, "⇄1") {
-		t.Fatalf("host row has no running-tunnel badge: %q", row)
+	m.active = "web1"
+	m.buildRows()
+	if !m.rowOf(0, target{alias: "web1", kind: targetTunnels}) {
+		t.Fatal("the sidebar has no tunnels line under the host")
+	}
+	if row := m.renderTabRow(target{alias: "web1", kind: targetTunnels}, false, 30); !strings.Contains(row, "⇄ 1 tunnel") {
+		t.Fatalf("the tunnels line does not count them: %q", row)
 	}
 }
 

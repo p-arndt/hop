@@ -14,7 +14,8 @@ VPN does not leave a pane quietly frozen.
 | [[r]] [[enter]] | reconnect: dial again and reopen what was open |
 | [[d]] [[x]] | drop the session — the pane goes, the host is idle again |
 | [[?]] | the key card |
-| [[ctrl+o]] [[esc]] [[q]] | back to the host list, leaving the pane on screen |
+| [[esc]] [[q]] | the sidebar, leaving the pane on screen |
+| [[ctrl+o]] | the [leader](#leader): the other tabs and hosts are still a chord away |
 
 The pane keeps the last screen the host drew, under a banner saying what happened, so the
 command that was running is still there to read. Nothing is forwarded to the far end, because

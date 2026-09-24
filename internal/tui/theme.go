@@ -16,7 +16,6 @@ import (
 var accent = lipgloss.Color(config.DefaultAccent)
 
 const (
-	colInk    = lipgloss.Color("16")  // text on an accent fill
 	colBright = lipgloss.Color("231") // text on a raised fill
 	colText   = lipgloss.Color("252")
 	colDim    = lipgloss.Color("245")
@@ -36,10 +35,8 @@ const (
 
 var (
 	// Chrome.
-	headerBadge = lipgloss.NewStyle().Bold(true).Foreground(colInk).Background(accent).Padding(0, 1)
 	subtitle    = lipgloss.NewStyle().Foreground(colDim)
 	footerStyle = lipgloss.NewStyle().Foreground(colDim).Padding(0, 1)
-	statusBar   = lipgloss.NewStyle().Foreground(colDim).Background(colSurface).Padding(0, 1)
 
 	// Panes.
 	paneBorder = lipgloss.NewStyle().
@@ -49,12 +46,6 @@ var (
 	paneBorderActive = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(accent)
-
-	// An unfocused column: border and unstyled body both dim.
-	paneBorderIdle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colFaint).
-			Foreground(colFaint)
 
 	// Text.
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
@@ -76,12 +67,7 @@ var (
 	matchStyle = lipgloss.NewStyle().Bold(true).Underline(true).Foreground(accent)
 
 	// Pills.
-	chipStyle   = lipgloss.NewStyle().Bold(true).Foreground(accent).Background(colRaised).Padding(0, 1)
 	keycapStyle = lipgloss.NewStyle().Foreground(colBright).Background(colRaised).Padding(0, 1)
-
-	// Tabs.
-	tabActive   = lipgloss.NewStyle().Bold(true).Foreground(colInk).Background(accent).Padding(0, 1)
-	tabInactive = lipgloss.NewStyle().Foreground(colDim).Background(colSurface).Padding(0, 1)
 
 	// Status dots.
 	connectedDot = greenText.Render("●")
@@ -129,15 +115,12 @@ func setAccent(color string) {
 	}
 	accent = lipgloss.Color(color)
 
-	headerBadge = headerBadge.Background(accent)
 	paneBorderActive = paneBorderActive.BorderForeground(accent)
 	titleStyle = titleStyle.Foreground(accent)
 	accentText = accentText.Foreground(accent)
 	selectedAliasStyle = selectedAliasStyle.Foreground(accent)
 	selBar = accentText.Render("▎")
 	matchStyle = matchStyle.Foreground(accent)
-	chipStyle = chipStyle.Foreground(accent)
-	tabActive = tabActive.Background(accent)
 	cardBox = cardBox.BorderForeground(accent)
 	menuBox = menuBox.BorderForeground(accent)
 	settingsLabelSel = settingsLabelSel.Foreground(accent)

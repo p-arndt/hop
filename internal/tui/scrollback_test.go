@@ -53,7 +53,7 @@ func TestLeaveClearsScrolling(t *testing.T) {
 	t.Run("leavePane", func(t *testing.T) {
 		m := newPaneModel()
 		m.mode = modeScrollback
-		m.leavePane()
+		m.toSidebar()
 		if m.scrolling() {
 			t.Fatal("leavePane left scrollback armed")
 		}

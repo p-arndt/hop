@@ -25,7 +25,8 @@ being left → closed only by disconnecting the host or emptying it.
 
 ### Mode
 
-**Is:** where the keystrokes go — list, shell, scrollback, browser, editor.
+**Is:** where the keystrokes go — the sidebar, a shell, scrollback, the browser, an editor,
+the terminal panel.
 
 **Is not:** what is drawn. A mode says nothing about layout. And it is not
 [[keyboard]]'s *layer*, though each mode selects one.
@@ -41,30 +42,31 @@ is holding.
 
 ### Layout
 
-**Is:** the arrangement facts — total width, the list column, the tree column, the
-content area, the split.
+**Is:** the arrangement facts — total width, the [[Sidebar]] and its two boxes, the
+[[Content area]], the terminal panel, the split.
 
-**Rule:** a resize, a column toggle or a change of [[View]] writes it. Pane sizes depend
-on the window and the session alone, never on which host is in front or where the keyboard is.
+**Rule:** a resize, the dock or tree toggle, or a change of [[Tab in front]] writes it. Pane
+sizes depend on the window, the session and those two toggles alone, never on which host is
+in front or where the keyboard is.
 
 **In code:** the embedded `layout` struct; `recomputeLayout`, `relayout`, `syncView`.
 
-### View
+### Tab in front
 
-**Is:** what a host in front shows: the **shell view** (one shell at full width) or the
-**files view** (the tree beside the open files, or the browser alone at full width).
+**Is:** the tab of the host in front that the [[Content area]] shows: a [[Shell tab]], the
+[[Files tab]] or an [[Editor tab]]. The keyboard decides it where it can — a shell's keys
+mean its shell tab — and the sidebar having the keyboard changes nothing.
 
-**Is not:** a [[Mode]]. The mode says where the keys go; the view says what is drawn. In the
-host list the view is the one the host was last in.
+**Is not:** a [[Mode]]. The mode says where the keys go; the tab in front says what is drawn.
 
-**In code:** `model.filesView`, `session.filesView`.
+**In code:** `session.front`, `frontOf`, `front()`, `frontTarget`.
 
 ### Terminal panel
 
-**Is:** a shell under the files in the files view, the way an IDE keeps one under its
+**Is:** a shell under the files tab or an editor tab, the way an IDE keeps one under its
 editor. One per session, started on demand in the directory under the tree's cursor.
 
-**Is not:** a [[Shell tab]]. It is its own shell, so the shell view's tabs are never resized
+**Is not:** a [[Shell tab]]. It is its own shell, so the shell tabs are never resized
 by it and it is never resized by them. Hiding it keeps it running.
 
 **Rule:** its height is a share of the body the user sets (drag the edge, `ctrl+o +`/`-`),
@@ -74,22 +76,25 @@ held between its floor and the files' floor.
 
 ### Rect / frame
 
-**Is:** a rectangle of screen (`rect`) and the set of rectangles one host's content is
-drawn into (`frame`), including its two halves when split.
+**Is:** a rectangle of screen (`rect`) and the set of rectangles the body is drawn into
+(`frame`): the hosts box, the tree box, the content area and its two halves when split, the
+terminal panel, and whether the hosts box floats.
+
+**Rule:** one frame feeds both the drawing and the pointer; a test holds them together.
 
 **In code:** `internal/tui/layout.go`.
 
 ### Column
 
-**Is:** one vertical region of the screen: the sidebar, the host list, the file tree,
-the content area.
+**Is:** one vertical region of the screen: the [[Sidebar]] or the [[Content area]]. There
+are never more than two.
 
-**Rule:** a column that does not fit is not drawn. The tree is a column only beside open
-files and only from 92 columns up (a quarter of the window, 30 to 44 wide, plus 62 for the files).
+**Rule:** a column that does not fit is not drawn. The sidebar is a column from 94 columns
+up (32 for it, 62 for the content), unless the user hid it.
 
 ### Split
 
-**Is:** the content area divided into two halves, each with its own tab strip, so two
+**Is:** the content area divided into two halves, each with its file's path above it, so two
 files are readable side by side.
 
 **Rule:** closing the split **keeps the file you were reading**, not the half that
@@ -99,9 +104,11 @@ happened to be focused.
 
 ### Tab
 
-**Is:** one named thing inside a session's content area — a shell tab or an editor tab.
+**Is:** one named thing a host holds that the content area can show — a shell tab, the files
+tab, an editor tab. Listed under its host in the sidebar in the order it was opened, which
+the leader's digits count.
 
-**In code:** `shellTab`, `editorTab`; the strip is rendered by `tabs.go`.
+**In code:** `shellTab`, `editorTab`, the browser; `hostTabs`, `session.order`.
 
 ### Shell tab
 
@@ -118,6 +125,19 @@ default dir, typed as the startup line's `cd`. There is no second mechanism.
 
 **In code:** the `startDir` of `shellCmd` / `openBrowserCmd`; `openShellIn`, `openBrowserAt`.
 
+### Files tab
+
+**Is:** the host's SFTP browser as a tab. Its tree is in the sidebar's [[Tree box]] and the
+content area shows a [[Preview]]; with no docked sidebar the tree takes the content area.
+
+### Preview
+
+**Is:** the first 64 KiB of the file under the tree's cursor, read when the cursor stops on
+it, off the UI's goroutine. A directory, a binary, a device or anything larger is described
+instead of read.
+
+**In code:** `internal/filebrowser/preview.go`, read through `sftpx.Client.ReadHead`.
+
 ### Editor tab
 
 **Is:** `${EDITOR:-vi}` running on a remote pty against one remote file. Nothing was
@@ -125,15 +145,16 @@ downloaded to open it.
 
 **Is not:** a local editor. That is the VS Code action, which is a different thing.
 
-### Status bar
+### Crumb
 
-**Is:** the permanent line above the footer naming the host, the mode, the directory or
-file, and the machine behind the alias.
+**Is:** the footer's left side, naming the host, the tab and the directory or file the
+keyboard is at — or, in the sidebar, the host and tab under the cursor.
 
 **Rule:** it is never optional and never scrolls away — it is the answer to "where are
-my keystrokes going".
+my keystrokes going". A transient status borrows its place while it lasts; crumbs that do
+not fit go whole from the end.
 
-**In code:** `internal/tui/status.go`.
+**In code:** `footerLeft`, `crumbs` in `internal/tui/status.go`.
 
 ### Status (line) / generation
 
@@ -177,27 +198,17 @@ last place is the one stamped last that is still open.
 
 ### Switcher
 
-**Is:** the card over every target on every connected host, most recently used first, then
-every host — connected ones first — narrowed by typing over alias, path and name. `enter`
-lands exactly on the row. With no query the cursor starts on the row after where the
-keyboard is, so opening it and pressing `enter` goes back.
+**Is:** the card over every target on every connected host, then every host — called
+**go to** on screen. With no query it is a tree: each open host and what is open on it,
+numbered as the leader's digits count them, then the hosts with nothing open. Typing
+flattens it into one list, most recently used first, narrowed over alias, path and name.
+`enter` lands exactly on the row. With no query the cursor starts on the place used last
+that is not where the keyboard is, so opening it and pressing `enter` goes back.
 
 **Is not:** the host list's filter, which narrows the column in place; nor the palette,
 which lists actions, not places.
 
 **In code:** `hostSwitchUI`, `openHostSwitch`, `switchRows` in `internal/tui/hostswitch.go`.
-
-### Session bar
-
-**Is:** the header row: the host in front and a chip per target open on it, the keyboard's
-highlighted, then the other connected hosts. With no host in front, every connected host.
-Every chip is a way to its target.
-
-**Rule:** laid out once (`sessionBar`) and read by both the renderer and the pointer, so what
-is clicked is what is drawn. The far end gives way to a "+N" that opens the [[Switcher]]; the
-keyboard's chip gives way last. A transient status takes the right side while it lasts.
-
-**In code:** `internal/tui/sessionbar.go`.
 
 ### Last host
 
@@ -210,9 +221,42 @@ alt-tab style, landing on its [[Last place]].
 
 ### Sidebar
 
-**Is:** the host list: a column while no host is in front, drawn **over** the host's view
-while one is. On screen exactly while it has the keyboard.
+**Is:** the left column: the host list in its [[Hosts box]] and, under a files tab or an
+editor tab, the [[Tree box]]. Every host is a row; the host in front is **opened out** into
+its tabs and its tunnels, and any other can be opened out with `→`.
 
-**Is not:** toggled by a key any more; [[Switcher]] is the way to hop without it.
+**Rule:** **docked** — a column beside the content — whenever the window has 94 columns and
+the user has not hidden it (`ctrl+o b`). Otherwise it **floats** over the content while it
+has the keyboard, and is off screen the rest of the time. Its width never depends on where
+the keyboard is.
 
-**In code:** `sidebarOn`, `sidebarFloats`, `listWidth`.
+**In code:** `docked`, `listWidth`, `sidebarFloats`, `sidebarOn`, `toggleSidebar`; the rows
+in `buildRows` and `renderList`.
+
+### Hosts box
+
+**Is:** the sidebar's box of host and tab rows. Alone it takes the body; with the tree box
+under it, it takes what its rows need up to 40% of the body.
+
+**In code:** `frame.list`, `hostsBoxH`.
+
+### Tree box
+
+**Is:** the sidebar's box under the hosts that holds the [[Files tab]]'s tree, on the files
+tab and on an editor tab. `ctrl+o t` hides it and brings it back.
+
+**In code:** `frame.tree`, `treeInSidebar`, `treeBoxOn`.
+
+### Content area
+
+**Is:** the column beside the sidebar: the [[Tab in front]], or with no host in front the
+[[Recent places]] and the details of the host under the cursor.
+
+**In code:** `frame.content`, `renderRight`.
+
+### Recent places
+
+**Is:** the places used last across every host, offered in the content area while no host
+is in front. The cursor reaches them by going up from the first host.
+
+**In code:** `recentPlaces`, `model.recent`, `recentAt`, `renderStart`.

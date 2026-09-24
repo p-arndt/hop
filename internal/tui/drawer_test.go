@@ -98,17 +98,16 @@ func TestShiftSMovesTheRunningPanel(t *testing.T) {
 	}
 }
 
-// The shell view's shell keeps its size whatever the panel does.
-func TestThePanelNeverResizesTheShellView(t *testing.T) {
+// A shell tab keeps its size whatever the panel does.
+func TestThePanelNeverResizesAShellTab(t *testing.T) {
 	stubDrawer(t)
-	m, s := drawerModel(t)
-	before, _ := m.shellSize(len(s.shells))
-	_, beforeH := m.shellSize(len(s.shells))
+	m, _ := drawerModel(t)
+	before, beforeH := m.shellSize()
 
 	_, cmd := m.handleKey(key(t, "`"))
 	run(t, m, cmd)
 
-	if w, h := m.shellSize(len(s.shells)); w != before || h != beforeH {
+	if w, h := m.shellSize(); w != before || h != beforeH {
 		t.Fatalf("the shell would be %dx%d with the panel up, want %dx%d", w, h, before, beforeH)
 	}
 }
@@ -226,5 +225,43 @@ func TestThePanelIsHeldBetweenTheFloors(t *testing.T) {
 	m.resizeDrawer(0)
 	if m.frame.drawer.h < drawerMinRows {
 		t.Fatalf("the panel shrank to %d rows, want at least %d", m.frame.drawer.h, drawerMinRows)
+	}
+}
+
+// A directory whose name holds control bytes is never typed into the panel's shell: ^C and
+// a carriage return in it would run the rest as a command.
+func TestThePanelRefusesADirectoryWithControlBytes(t *testing.T) {
+	stubDrawer(t)
+	m, s := drawerModel(t)
+	_, cmd := m.handleKey(key(t, "`"))
+	run(t, m, cmd)
+
+	m.drawerHere("/tmp/a\x03touch pwned\r")
+
+	if !strings.Contains(m.status, "control characters") {
+		t.Fatalf("status = %q, want the refusal named", m.status)
+	}
+	if s.drawer == nil {
+		t.Fatal("the panel went away")
+	}
+}
+
+// A panel landing after the keyboard went to the sidebar leaves the keyboard there.
+func TestALatePanelDoesNotTakeTheSidebarsKeyboard(t *testing.T) {
+	stubDrawer(t)
+	m, s := drawerModel(t)
+	_, cmd := m.handleKey(key(t, "`"))
+
+	press(t, m, "esc", "esc")
+	if m.mode != modeList {
+		t.Fatalf("mode = %s after esc esc, want the sidebar", modeName(m.mode))
+	}
+	run(t, m, cmd)
+
+	if s.drawer == nil {
+		t.Fatal("the panel did not land")
+	}
+	if m.mode != modeList {
+		t.Fatalf("mode = %s, want the keyboard left in the sidebar", modeName(m.mode))
 	}
 }

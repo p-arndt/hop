@@ -197,17 +197,17 @@ func TestClickWithSections(t *testing.T) {
 	m.handleKey(key(t, "p"))
 	m.recomputeLayout()
 
-	// Rows: header (0), border (1), then #PINNED, c, #HOSTS, a, b.
-	if _, ok := m.listRowAt(2); ok {
+	// Rows: the border (0), then #PINNED, c, #HOSTS, a, b.
+	if _, ok := m.listRowAt(1); ok {
 		t.Fatal("a click on the PINNED heading selected a host")
 	}
-	if i, ok := m.listRowAt(3); !ok || m.hosts[m.filtered[i]].Alias != "c" {
+	if r, ok := m.listRowAt(2); !ok || m.hosts[m.filtered[r.fi]].Alias != "c" {
 		t.Fatalf("the row under the PINNED heading is not the pinned host (ok=%v)", ok)
 	}
-	if _, ok := m.listRowAt(4); ok {
+	if _, ok := m.listRowAt(3); ok {
 		t.Fatal("a click on the HOSTS heading selected a host")
 	}
-	if i, ok := m.listRowAt(6); !ok || m.hosts[m.filtered[i]].Alias != "b" {
+	if r, ok := m.listRowAt(5); !ok || m.hosts[m.filtered[r.fi]].Alias != "b" {
 		t.Fatalf("the last row is not the last host (ok=%v)", ok)
 	}
 }

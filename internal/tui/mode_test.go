@@ -89,7 +89,7 @@ func TestModeTransitionsAreExclusive(t *testing.T) {
 		{"focusShell", func(m *model, _ *session) { m.focusShell("web") }, modeShell},
 		{"enterScrollback", func(m *model, s *session) { m.enterScrollback(s) }, modeScrollback},
 		{"exitScrollback", func(m *model, _ *session) { m.exitScrollback() }, modeShell},
-		{"leavePane", func(m *model, _ *session) { m.leavePane() }, modeList},
+		{"toSidebar", func(m *model, _ *session) { m.toSidebar() }, modeList},
 		{"clickIntoPane", func(m *model, s *session) { m.clickIntoPane(s, false) }, modeShell},
 		{"backToList", func(m *model, _ *session) { m.backToList() }, modeList},
 	}
@@ -107,7 +107,7 @@ func TestLeavingFromScrollbackClearsBoth(t *testing.T) {
 		name string
 		do   func(m *model)
 	}{
-		{"leavePane", func(m *model) { m.leavePane() }},
+		{"toSidebar", func(m *model) { m.toSidebar() }},
 		{"backToList", func(m *model) { m.backToList() }},
 		{"leaveAll", func(m *model) { m.leaveAll() }},
 	} {
@@ -122,22 +122,24 @@ func TestLeavingFromScrollbackClearsBoth(t *testing.T) {
 	}
 }
 
-// The browser and the editor are one step apart in both directions.
+// The browser and the editor are one step apart in both directions, and the sidebar one
+// step from either, with esc the way back.
 func TestBrowserEditorRoundTrip(t *testing.T) {
 	m, s := editorModel(t, "a.conf")
 	s.browser = &filebrowser.Browser{}
 	wantMode(t, m, modeEditor)
 
-	m.leaveEditor()
+	m.focusTree()
 	wantMode(t, m, modeBrowser)
 
 	// Opening the file that is already open goes straight back to its tab.
 	m.openFile("web", filebrowser.OpenFileMsg{Path: "/etc/a.conf", Name: "a.conf"})
 	wantMode(t, m, modeEditor)
 
-	s.browser = nil
-	m.leaveEditor()
+	m.toSidebar()
 	wantMode(t, m, modeList)
+	m.backFromSidebar()
+	wantMode(t, m, modeEditor)
 }
 
 // A dropped connection takes the keyboard out of scrollback.
@@ -150,7 +152,8 @@ func TestConnectionLossLeavesScrollback(t *testing.T) {
 	wantMode(t, m, modeShell)
 }
 
-// Tree and file are on screen together; the mode says only which one the keys reach.
+// Tree and file are on screen together; the mode says only which one the keys reach. From
+// the file, ctrl+o t puts the keyboard back in the tree.
 func TestFocusCrossesTheColumns(t *testing.T) {
 	m, s := columnModel(t, 200, 34)
 	s.editors = []*editorTab{{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()}}
@@ -159,8 +162,8 @@ func TestFocusCrossesTheColumns(t *testing.T) {
 
 	m.handleKey(key(t, "tab"))
 	wantMode(t, m, modeEditor)
-	if m.treeWidth() == 0 {
-		t.Fatal("focusing the file collapsed the tree column, want it left on screen")
+	if !m.treeBoxOn() {
+		t.Fatal("focusing the file took the tree box off screen, want it left there")
 	}
 
 	m.handleKey(ctrlO())
@@ -171,11 +174,12 @@ func TestFocusCrossesTheColumns(t *testing.T) {
 	}
 }
 
-// Both columns are drawn whichever one holds the keyboard.
+// The tree box and the file are both drawn whichever one holds the keyboard.
 func TestBothColumnsAreDrawn(t *testing.T) {
 	m, s := columnModel(t, 200, 34)
 	s.editors = []*editorTab{{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()}}
 	t.Cleanup(s.closeEditors)
+	s.front = tabEditor
 
 	for _, mode := range []paneMode{modeBrowser, modeEditor} {
 		m.mode = mode

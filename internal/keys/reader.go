@@ -2,8 +2,8 @@ package keys
 
 import "time"
 
-// doubleEscWindow is how long after an esc a second esc means "leave the pane".
-const doubleEscWindow = 400 * time.Millisecond
+// DoubleEscWindow is how long after an esc a second esc means "leave the pane".
+const DoubleEscWindow = 400 * time.Millisecond
 
 // now is a variable so a test can drive a chord's window without sleeping through it.
 var now = time.Now

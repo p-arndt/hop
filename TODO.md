@@ -37,7 +37,7 @@ file tracks *what*, not *why*.
 - [x] **Batch ops with one progress line** (`3/7 · name.txt`): stop at the first failure, name what got through, leave the rest marked for the same keystroke.
 - [x] **Copy/move to a target** (`t`, `c`, `v`) via `sftpx.Copy`/`Move`, recursive, symlinks recreated rather than followed. A move onto an existing name is refused, not silently overwritten.
 - [x] **The browser is a column** (`internal/tui/layout.go`): tree and file on screen together, `tab`/`alt+t` for the keyboard, `ctrl+t` to collapse, full-pane fallback below 96 columns.
-- [x] **Two files side by side** (`\`): the content area splits into two halves with their own tab strips.
+- [x] **Two files side by side** (`\`): the content area splits into two halves, each with its file's path above it.
 - [x] **Shell ↔ browser on the same host:** `ctrl+o f` shows the browser at the shell's cwd (the open one moves there); `S` in the browser opens a shell tab in the directory under the cursor.
 - [ ] Recursive upload/download of a *local* directory tree; more than one transfer at a time.
 - [ ] Cancel a transfer in flight (needs `context.Context` in `sftpx`).
@@ -68,15 +68,21 @@ file tracks *what*, not *why*.
 - [x] Cursor visible; event-driven redraw; visual pass (keycap pills, status dots, accent bar, badges).
 - [x] **Settings popover** (`,`) over `internal/config`, applied live on save.
 - [x] **Scrollback UI:** `shift+↑` / `shift+pgup` with vim + page motions; `esc`/`q`/`ctrl+o` return to live.
-- [x] **Two views per host** (layout B): the shell view is one shell at full width, the files view the tree beside the open files; the host list floats over the view instead of resizing it, so no pane reflows. `ctrl+b` goes back to the remote; `ctrl+o t` / `ctrl+o s` cross from an editor.
+- [x] **Two views per host** (layout B, since replaced by the sidebar with everything): the shell view is one shell at full width, the files view the tree beside the open files; the host list floats over the view instead of resizing it, so no pane reflows. `ctrl+b` goes back to the remote; `ctrl+o t` / `ctrl+o s` cross from an editor.
 - [x] **Terminal panel** under the files (`` ` `` / `ctrl+o j`): its own shell, `S` cds it to the cursor directory, resizable by dragging its edge or `ctrl+o +`/`-`.
-- [x] **Getting back to anything** (`tui/targets.go`, `tui/sessionbar.go`): the switcher (`ctrl+o space`, `p`) lists every shell tab, browser, editor tab and panel on every host, most recent first, then the hosts; the header is a clickable session bar; entering a host lands on its last place instead of its shell.
+- [x] **Getting back to anything** (`tui/targets.go`): go to (`ctrl+o space`, `p`) lists every shell tab, browser, editor tab and panel on every host, then the hosts — a tree with no query, a ranked list while typing; entering a host lands on its last place instead of its shell.
+- [x] **The sidebar with everything** (layout S1, `tui/layout.go`, `tui/list.go`): no header; at most two columns. The sidebar is docked from 94 columns and floats over the content below that (or when hidden with `ctrl+o b` / `shift+b`); the host in front is opened out into its tabs and tunnels; on a files or editor tab the tree sits in a box under the hosts; the files tab previews the file under the cursor (64 KiB cap, `sftpx.ReadHead`). `esc esc` from any pane puts the keyboard in the sidebar on the current place, `esc` gives it back; clicks on tab and host rows land there. Pink marks only where the keyboard is.
+- [x] **`esc` never quits hop**: the list's `esc esc` quit binding is gone; `q`/`ctrl+c` in the sidebar quit.
+- [x] **Host stepping** (`ctrl+o ←`/`→`, `h`/`l`) along the open hosts; `ctrl+o 1`–`9` and `shift+←`/`→` across all of a host's tabs.
+- [ ] **File search in go to:** typing in `ctrl+o space` should also find files on the host in front by name, not only what is already open.
+- [ ] Decide on a single-chord way into the sidebar (`ctrl+space` is taken by macOS input switching).
+- [ ] Remember a hidden sidebar across runs, if it turns out people keep it hidden.
 - [x] **Host list keymap trimmed** to step keys via `keymap.Scope`.
 - [x] **Mouse support** routed by region (`tui/mouse.go`); a remote asking for the mouse gets it verbatim.
 - [x] **Mouse text selection** over shells, scrollback and editors → clipboard on release; `ctrl+g` hands reporting back.
 - [x] **Copy out of vim:** `shift+drag` selects with hop over a program that has the mouse (hinted once); XTGETTCAP `Ms` is answered so nvim's `"+y` goes out as OSC 52.
 - [x] **Close the SFTP browser** (`q`): editor tabs stay; an emptied session disconnects.
-- [x] **Host switcher** (`ctrl+o space` in a pane, `p` in the browser): fuzzy card over every host, sessions first; `enter` lands in its shell.
+- [x] **Host switcher** (`ctrl+o space` in a pane, `p` in the browser): fuzzy card over every host, sessions first; `enter` lands in its shell. Now go to.
 - [x] **Last host** (`ctrl+o tab`): alt-tab between the two most recent hosts, back into the mode each was showing.
 - [x] **Selection past one screenful:** the wheel scrolls under a live drag, a drag held at a pane edge autoscrolls, and a selection rides the text it was made on. On the alt screen the wheel is sent on as `↑`/`↓`.
 - [x] **Drag autoscroll** past a pane's top/bottom row, into scrollback and back.
@@ -85,8 +91,7 @@ file tracks *what*, not *why*.
 - [x] **One mode enum:** `model.mode` is a single `paneMode`; old flag names survive as predicates.
 - [x] **One action registry** (`tui/actions.go`): context menu, palette (`ctrl+k`) and details grid all render from it; running a row replays its key.
 - [x] **Guidance profiles** (`keys`/`hybrid`/`guided`): visibility only, asked once, editable at `,`.
-- [x] **Status bar + fitting footer:** host › mode › location, tab chips right; per-mode footer core plus extras, dropping whole hints. `?` opens the card on your section.
-- [x] **`esc` `esc` quits from the host list**; a single `esc` still just drops the selection.
+- [x] **One-row footer:** the crumb (host › tab › location, or a transient status) left, the per-mode legend right, dropping whole hints and whole crumbs. `?` opens the card on your section.
 - [ ] Narrow-terminal handling: header/footer truncation and min-size behavior.
 
 ## ⚙️ Config & distribution

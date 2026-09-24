@@ -41,20 +41,6 @@ type startedShell struct {
 	calls int
 }
 
-func stubExtraShell(t *testing.T) *startedShell {
-	t.Helper()
-	rec := &startedShell{}
-	prev := extraShellCmd
-	extraShellCmd = func(alias, startDir string, _ *sshx.Client, id, _, _ int, _ chan struct{}, restore bool) tea.Cmd {
-		rec.dir, rec.calls = startDir, rec.calls+1
-		return func() tea.Msg {
-			return connectedMsg{alias: alias, tab: &shellTab{id: id, pane: fakePane()}, restore: restore}
-		}
-	}
-	t.Cleanup(func() { extraShellCmd = prev })
-	return rec
-}
-
 // shellOn builds a model focused on web's shell; dir is what that shell reported, "" for nothing.
 func shellOn(t *testing.T, dir string, browser bool) (*model, *session) {
 	t.Helper()
@@ -198,14 +184,4 @@ func TestBrowseHereIntoAnUnlistableDirectorySaysSo(t *testing.T) {
 	if m.statusKind != statusErr || !strings.Contains(m.status, "permission denied") {
 		t.Fatalf("status = %q (kind %v), want the listing error", m.status, m.statusKind)
 	}
-}
-
-// browsingOn builds a model with the keyboard in web's browser over /srv, holding app/ and notes.txt.
-func browsingOn(t *testing.T) (*model, *session) {
-	t.Helper()
-	m, s, _ := deadModel(t, 1, false)
-	s.browser = fakeBrowserWith(t, "/srv",
-		sftpx.Entry{Name: "app", IsDir: true}, sftpx.Entry{Name: "notes.txt"})
-	m.mode = modeBrowser
-	return m, s
 }

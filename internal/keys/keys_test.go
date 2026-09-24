@@ -129,6 +129,23 @@ func TestOverrideMovesABinding(t *testing.T) {
 	}
 }
 
+// The leader is one key: rebinding it moves it in every layer that answers it, so the
+// footer's single leader keycap is true wherever it is drawn.
+func TestOverridingTheLeaderMovesItEverywhere(t *testing.T) {
+	m, errs := New(map[string]string{string(LeaderKey): "ctrl+a"})
+	if len(errs) != 0 {
+		t.Fatalf("New: %v", errs)
+	}
+	for _, l := range []Layer{Pane, Browser, Editor, DeadPane, List} {
+		if got := m.Action(l, "ctrl+a", false); got != LeaderKey {
+			t.Errorf("ctrl+a in %s = %q, want the leader", l, got)
+		}
+		if got := m.Action(l, "ctrl+o", false); got == LeaderKey {
+			t.Errorf("ctrl+o is still the leader in %s", l)
+		}
+	}
+}
+
 // A rebound key is drawn as itself, not with the default's symbol.
 func TestOverrideDropsTheSymbol(t *testing.T) {
 	if got := Defaults().Keycap(PaneNextTab); got != "shift+→" {
@@ -195,5 +212,19 @@ func TestSpaceIsNormalized(t *testing.T) {
 	}
 	if got := m.Action(List, "space", true); got != Menu {
 		t.Fatalf("space after the refused override = %q, want %q", got, Menu)
+	}
+}
+
+// esc never quits hop: no layer binds quitting to esc, alone or doubled.
+func TestEscNeverQuits(t *testing.T) {
+	for _, b := range Defaults().bindings {
+		if b.Action != Quit {
+			continue
+		}
+		for _, k := range b.Keys {
+			if strings.Contains(k, "esc") {
+				t.Fatalf("%s quits hop in the %s layer", k, b.Layer)
+			}
+		}
 	}
 }

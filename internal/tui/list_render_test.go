@@ -40,7 +40,8 @@ func TestRenderStripsControlSequencesFromHostFields(t *testing.T) {
 		if !strings.Contains(tc.out, "web") || !strings.Contains(tc.out, "one") {
 			t.Errorf("%s dropped the printable alias remainder:\n%q", tc.name, tc.out)
 		}
-		if !strings.Contains(tc.out, "host") || !strings.Contains(tc.out, "name") {
+		// The sidebar row names the host by its alias alone; the details spell out the rest.
+		if tc.name == "renderDetails" && (!strings.Contains(tc.out, "host") || !strings.Contains(tc.out, "name")) {
 			t.Errorf("%s dropped the printable hostname remainder:\n%q", tc.name, tc.out)
 		}
 		if strings.ContainsRune(tc.out, '\x07') {

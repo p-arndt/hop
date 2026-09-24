@@ -15,7 +15,7 @@ import (
 // detailsMaxW keeps the two fact columns close enough to still read as pairs.
 const detailsMaxW = 74
 
-// renderDetails is the card shown in the right pane when no session is on screen.
+// renderDetails is the host under the cursor, shown in the content area with no host in front.
 func (m *model) renderDetails(w int) string {
 	h, ok := m.selectedHost()
 	if !ok {
@@ -30,7 +30,7 @@ func (m *model) renderDetails(w int) string {
 	b.WriteString("\n")
 
 	// Host fields can arrive from an untrusted SSH config or a paste.
-	title := titleStyle.Render(stripControl(h.Alias))
+	title := aliasStyle.Render(stripControl(h.Alias))
 	badge := m.hostBadge(h)
 	gap := max(inner-lipgloss.Width(title)-lipgloss.Width(badge), 1)
 	b.WriteString(pad)
@@ -100,16 +100,16 @@ func (m *model) renderDetails(w int) string {
 		b.WriteString("\n")
 	}
 
-	if s := m.sessions[h.Alias]; s != nil {
-		if parts := s.summary(); len(parts) > 0 {
+	if open := m.openLines(h.Alias, inner); len(open) > 0 {
+		b.WriteString(pad)
+		b.WriteString(sectionCap.Render("OPEN"))
+		b.WriteString("\n")
+		for _, l := range open {
 			b.WriteString(pad)
-			b.WriteString(sectionCap.Render("OPEN"))
+			b.WriteString(l)
 			b.WriteString("\n")
-			b.WriteString(pad)
-			b.WriteString(accentText.Render("▸ "))
-			b.WriteString(dimStyle.Render(strings.Join(parts, faint.Render(" · "))))
-			b.WriteString("\n\n")
 		}
+		b.WriteString("\n")
 	}
 
 	// Guidance decides how much of the keyboard the card spells out (see internal/config).
@@ -133,6 +133,40 @@ func (m *model) renderDetails(w int) string {
 	b.WriteString(keyHint(m.binds.Keycap(keys.Help), "every key hop knows"))
 
 	return clampLines(b.String(), w)
+}
+
+// openLines is what is open on alias as the details show it: its tabs numbered as the
+// leader's digits count them, then the terminal panel, the one enter goes back to marked.
+func (m *model) openLines(alias string, w int) []string {
+	s := m.sessions[alias]
+	if s == nil {
+		return nil
+	}
+	last, hasLast := m.lastPlace(alias)
+	tabs := m.hostTabs(alias)
+	var out []string
+	line := func(num string, t target, label string) {
+		mark := ""
+		if hasLast && t == last {
+			mark = dimStyle.Render("  ← last")
+		}
+		room := max(w-lipgloss.Width(num)-lipgloss.Width(mark), 4)
+		style := dimStyle
+		if s.dead {
+			style = faint
+		}
+		out = append(out, faint.Render(num)+style.Render(truncate(label, room))+mark)
+	}
+	for i, t := range tabs {
+		line(strconv.Itoa(i+1)+" ", t, m.tabLabel(t))
+	}
+	if s.drawer != nil {
+		line("  ", target{alias: alias, kind: targetDrawer}, "▭ terminal")
+	}
+	if n := len(s.tunnels); n > 0 {
+		out = append(out, "  "+dimStyle.Render(fmt.Sprintf("⇄ %d %s", n, plural(n, "tunnel", "tunnels"))))
+	}
+	return out
 }
 
 func (m *model) hostBadge(h store.Host) string {
@@ -172,7 +206,7 @@ func (m *model) renderNoHost(w int) string {
 	var b strings.Builder
 	b.WriteString("\n\n")
 	b.WriteString("  ")
-	b.WriteString(titleStyle.Render("hop"))
+	b.WriteString(aliasStyle.Render("hop"))
 	b.WriteString(dimStyle.Render(" — jump between your servers"))
 	b.WriteString("\n\n")
 	if len(m.hosts) == 0 {

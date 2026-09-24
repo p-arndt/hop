@@ -1,7 +1,7 @@
 package tui
 
 // The host list: reloading, filtering, and the row model the sidebar, the scrollbar and
-// the mouse all measure in.
+// the mouse all measure in. Its rows are the hosts and, under an opened-out host, its tabs.
 
 import (
 	"sort"
@@ -39,7 +39,7 @@ func (m *model) reloadHostsSelecting(alias string) {
 	}
 	for i, idx := range m.filtered {
 		if m.hosts[idx].Alias == alias {
-			m.cursor = i
+			m.cursor, m.cursorTab, m.recentAt = i, target{}, 0
 			return
 		}
 	}
@@ -118,10 +118,21 @@ func (m *model) pinnedFirst() {
 	m.filtered = append(m.filtered[:0], sorted...)
 }
 
+// recentRows is how many recent places the content area offers with no host in front.
+const recentRows = 5
+
 // buildRows assumes m.filtered is already in section order; a section with no matches gets
-// no heading, so a filter never draws an empty block.
+// no heading, so a filter never draws an empty block. Under each open host go its tabs, in
+// the order they were opened, then its tunnels. The recent places are not rows of the
+// sidebar: with no host in front the content area offers them, and only while nothing
+// narrows the list, since a filter is a search for a host.
 func (m *model) buildRows() {
 	m.rows = m.rows[:0]
+	m.recent = nil
+	if m.active == "" && !m.filtering && strings.TrimSpace(m.filter) == "" {
+		m.recent = m.recentPlaces(recentRows)
+	}
+	m.recentAt = min(m.recentAt, len(m.recent))
 
 	pinned, matched := 0, 0
 	for _, h := range m.hosts {
@@ -136,41 +147,229 @@ func (m *model) buildRows() {
 	}
 	if pinned == 0 {
 		for i := range m.filtered {
-			m.rows = append(m.rows, listRow{fi: i})
+			m.hostRows(i)
 		}
-		return
+	} else {
+		if matched > 0 {
+			m.rows = append(m.rows, listRow{heading: "PINNED", count: matched, total: pinned})
+		}
+		for i := 0; i < matched; i++ {
+			m.hostRows(i)
+		}
+		if rest := len(m.filtered) - matched; rest > 0 {
+			m.rows = append(m.rows, listRow{heading: "HOSTS", count: rest, total: len(m.hosts) - pinned})
+			for i := matched; i < len(m.filtered); i++ {
+				m.hostRows(i)
+			}
+		}
 	}
 
-	if matched > 0 {
-		m.rows = append(m.rows, listRow{heading: "PINNED", count: matched, total: pinned})
+	// The cursor rides its entry: a tab that closed, or a host folded up under it, puts it
+	// back on the host.
+	if m.cursorTab.alias != "" && !m.rowOf(m.cursor, m.cursorTab) {
+		m.cursorTab = target{}
 	}
-	for i := 0; i < matched; i++ {
-		m.rows = append(m.rows, listRow{fi: i})
+}
+
+// hostRows appends the host at filtered index fi and, while it is opened out, its tabs and
+// its tunnels.
+func (m *model) hostRows(fi int) {
+	m.rows = append(m.rows, listRow{fi: fi})
+	alias := m.hosts[m.filtered[fi]].Alias
+	if !m.expanded(alias) {
+		return
 	}
-	if rest := len(m.filtered) - matched; rest > 0 {
-		m.rows = append(m.rows, listRow{heading: "HOSTS", count: rest, total: len(m.hosts) - pinned})
-		for i := matched; i < len(m.filtered); i++ {
-			m.rows = append(m.rows, listRow{fi: i})
+	for _, t := range m.hostTabs(alias) {
+		m.rows = append(m.rows, listRow{fi: fi, tab: t})
+	}
+	if s := m.sessions[alias]; !s.dead && len(s.tunnels) > 0 {
+		m.rows = append(m.rows, listRow{fi: fi, tab: target{alias: alias, kind: targetTunnels}})
+	}
+}
+
+// rowOf reports whether a row for the host at fi and tab t is drawn.
+func (m *model) rowOf(fi int, t target) bool {
+	for _, r := range m.rows {
+		if r.heading == "" && r.fi == fi && r.tab == t {
+			return true
 		}
 	}
+	return false
 }
 
 // hasSections is true exactly when something is pinned.
 func (m *model) hasSections() bool {
-	return len(m.rows) > len(m.filtered)
+	for _, r := range m.rows {
+		if r.heading != "" {
+			return true
+		}
+	}
+	return false
 }
 
-// cursorRow is the cursor's position in row space, headings included.
+// ---- opening a host out ----
+
+// expanded reports whether alias shows its tabs under it: the host in front does, the
+// others do not, unless the user said otherwise since the host in front last changed. A
+// host with neither tabs nor tunnels has nothing to show.
+func (m *model) expanded(alias string) bool {
+	s := m.sessions[alias]
+	if len(m.hostTabs(alias)) == 0 && (s == nil || s.dead || len(s.tunnels) == 0) {
+		return false
+	}
+	if open, ok := m.fold[alias]; ok {
+		return open
+	}
+	return alias == m.active
+}
+
+// setExpanded opens alias out or folds it up, and rebuilds the rows to match.
+func (m *model) setExpanded(alias string, open bool) {
+	if m.fold == nil {
+		m.fold = make(map[string]bool)
+	}
+	m.fold[alias] = open
+	m.buildRows()
+}
+
+// collapseSelected is ← in the sidebar: from a tab the cursor goes up to its host; on an
+// open host, the host folds up.
+func (m *model) collapseSelected() {
+	if m.cursorTab.alias != "" {
+		m.cursorTab = target{}
+		return
+	}
+	if h, ok := m.selectedHost(); ok && m.expanded(h.Alias) {
+		m.setExpanded(h.Alias, false)
+	}
+}
+
+// ---- the cursor ----
+
+// cursorRow is the cursor's position in row space, headings included; 0 while it stands on
+// a recent place in the content area.
 func (m *model) cursorRow() int {
+	if m.recentAt > 0 {
+		return 0
+	}
 	for i, r := range m.rows {
-		if r.heading == "" && r.fi == m.cursor {
+		if r.heading == "" && r.fi == m.cursor && r.tab == m.cursorTab {
 			return i
 		}
 	}
 	return 0
 }
 
+// selectRow stands the cursor on row r: a host or one of its tabs.
+func (m *model) selectRow(r listRow) {
+	m.cursor, m.cursorTab, m.recentAt = r.fi, r.tab, 0
+}
+
+// selectPlace stands the cursor on t — the row of its tab when one is drawn, else its host.
+func (m *model) selectPlace(t target) {
+	for i, idx := range m.filtered {
+		if m.hosts[idx].Alias != t.alias {
+			continue
+		}
+		m.cursor, m.cursorTab, m.recentAt = i, target{}, 0
+		if t.kind != targetHost && m.rowOf(i, t) {
+			m.cursorTab = t
+		}
+		return
+	}
+}
+
+// stepCursor moves the cursor delta rows over hosts and tabs alike. With no host in front
+// the recent places sit above the first host, so going up from it lands on them.
+func (m *model) stepCursor(delta int) {
+	if m.recentAt > 0 {
+		m.recentAt += delta
+		switch {
+		case m.recentAt < 1:
+			m.recentAt = 1
+		case m.recentAt > len(m.recent):
+			m.recentAt = 0
+			m.cursor, m.cursorTab = 0, target{}
+			if r, ok := m.firstRow(); ok {
+				m.selectRow(r)
+			}
+		}
+		return
+	}
+	i := m.cursorRow()
+	for n := 0; n < abs(delta); n++ {
+		next, ok := m.nextRow(i, sign(delta))
+		if !ok {
+			if delta < 0 && len(m.recent) > 0 {
+				m.recentAt = len(m.recent)
+			}
+			return
+		}
+		i = next
+		m.selectRow(m.rows[i])
+	}
+}
+
+// nextRow is the first row after i going dir that is not a heading.
+func (m *model) nextRow(i, dir int) (int, bool) {
+	for j := i + dir; j >= 0 && j < len(m.rows); j += dir {
+		if m.rows[j].heading == "" {
+			return j, true
+		}
+	}
+	return i, false
+}
+
+// firstRow is the first row that is not a heading.
+func (m *model) firstRow() (listRow, bool) {
+	if i, ok := m.nextRow(-1, 1); ok {
+		return m.rows[i], true
+	}
+	return listRow{}, false
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+func sign(n int) int {
+	switch {
+	case n < 0:
+		return -1
+	case n > 0:
+		return 1
+	}
+	return 0
+}
+
+// selectedRecent is the recent place under the cursor, false while it is in the sidebar.
+func (m *model) selectedRecent() (target, bool) {
+	if m.recentAt < 1 || m.recentAt > len(m.recent) {
+		return target{}, false
+	}
+	return m.recent[m.recentAt-1], true
+}
+
+// selectedPlace is where enter on the cursor goes: a recent place, a tab, or the host.
+func (m *model) selectedPlace() (target, bool) {
+	if t, ok := m.selectedRecent(); ok {
+		return t, true
+	}
+	if m.cursorTab.alias != "" {
+		return m.cursorTab, true
+	}
+	h, ok := m.selectedHost()
+	return target{alias: h.Alias}, ok
+}
+
+// selectedHost is the host under the cursor — for a tab or a recent place, the host it is on.
 func (m *model) selectedHost() (store.Host, bool) {
+	if t, ok := m.selectedRecent(); ok {
+		return m.hostByAlias(t.alias)
+	}
 	if m.cursor < 0 || m.cursor >= len(m.filtered) {
 		return store.Host{}, false
 	}
@@ -192,7 +391,9 @@ func (m *model) hostByAlias(alias string) (store.Host, bool) {
 }
 
 func (m *model) clampCursor() {
-	m.cursor = clamp(m.cursor, 0, len(m.filtered)-1)
+	if c := clamp(m.cursor, 0, len(m.filtered)-1); c != m.cursor {
+		m.cursor, m.cursorTab = c, target{}
+	}
 }
 
 // clamp holds v inside [lo, hi], returning lo for an empty range.

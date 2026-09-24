@@ -30,12 +30,20 @@ var browserHelpActions = []keys.Action{
 	keys.BrowserCopy, keys.BrowserMoveTo,
 	keys.BrowserRename, keys.BrowserDelete, keys.BrowserMkdir, keys.BrowserSort,
 	keys.BrowserRefresh, keys.BrowserFocusPane, keys.BrowserSplit, keys.BrowserShell, keys.BrowserDrawer, keys.BrowserGrow, keys.BrowserShrink, keys.BrowserTree,
+	keys.BrowserNextTab, keys.BrowserPrevTab, keys.LeaderKey,
 	keys.BrowserHosts, keys.BrowserPalette, keys.BrowserHelp, keys.BrowserLeave, keys.BrowserClose,
 }
 
 // editorHelpActions is the editor section's, on the same terms.
 var editorHelpActions = []keys.Action{
-	keys.EditorNextTab, keys.EditorFocusTree, keys.EditorUnsplit, keys.BrowserTree,
+	keys.EditorLeave, keys.EditorFocusTree, keys.EditorUnsplit, keys.BrowserTree,
+}
+
+// tabHelpChords is the leader's way around tabs and hosts, the same from every tab.
+var tabHelpChords = []keys.Action{
+	keys.LeaderNextHost, keys.LeaderPrevHost, keys.LeaderHosts, keys.LeaderLast,
+	keys.LeaderShell, keys.LeaderToShell, keys.LeaderBrowser, keys.LeaderTree, keys.LeaderDrawer,
+	keys.LeaderGrow, keys.LeaderShrink, keys.LeaderOut, keys.LeaderSidebar, keys.LeaderPalette,
 }
 
 // helpRows renders bindings from one layer in the order given, skipping unbound ids.
@@ -71,7 +79,8 @@ func (m *model) chordRange(label string) []row {
 }
 
 func (m *model) helpLeft() []helpSection {
-	list := m.helpRows(keys.List, keys.Up, keys.Down, keys.PageUp, keys.PageDown)
+	list := m.helpRows(keys.List, keys.Up, keys.Down, keys.PageUp, keys.PageDown,
+		keys.Out, keys.Back, keys.SidebarDock)
 	if !m.cfg.VimKeys {
 		list = append(list, row{"j k h l", "vim keys: off — " + m.binds.Keycap(keys.Settings) + " to turn on"})
 	}
@@ -86,14 +95,21 @@ func (m *model) helpLeft() []helpSection {
 		m.binds.Keycap(keys.HostPinUp) + " " + m.binds.Keycap(keys.HostPinDown),
 		"move a pinned host in its section"})
 	host = append(host, m.helpRows(keys.List, keys.HostDrop, keys.HostReconnec, keys.Settings)...)
-	host = append(host, row{"1…9", "straight to that shell"})
+	host = append(host, row{"1…9", "straight to that tab"})
+
+	tabs := m.chordRange("straight to that tab")
+	tabs = append(tabs, m.helpRows(keys.Pane, keys.PaneNextTab, keys.PanePrevTab)...)
+	for _, id := range tabHelpChords {
+		tabs = append(tabs, m.chord(id)...)
+	}
 
 	return []helpSection{
-		{"LIST", list, modeList},
+		{"SIDEBAR", list, modeList},
+		{"TABS AND HOSTS", tabs, modeAny},
 		{"HOST", host, modeAny},
 		{"MOUSE", append([]row{
 			{"wheel", "move / scroll what you point at"},
-			{"click", "select it, or take the keyboard"},
+			{"click", "go to a tab or an open host; else select it"},
 			{"double-click", "open it — as " + m.binds.Keycap(keys.In)},
 			{"drag in a pane", "select text; copies on release"},
 		}, m.helpRows(keys.Global, keys.Mouse)...), modeAny},
@@ -101,34 +117,16 @@ func (m *model) helpLeft() []helpSection {
 }
 
 func (m *model) helpRight() []helpSection {
-	shell := m.chord(keys.LeaderOut)
-	shell = append(shell, m.helpRows(keys.Pane, keys.PaneLeave, keys.PaneNextTab)...)
-	shell = append(shell, m.chordRange("straight to that shell")...)
-	shell = append(shell, m.chord(keys.LeaderShell)...)
-	shell = append(shell, m.chord(keys.LeaderBrowser)...)
-	shell = append(shell, m.chord(keys.LeaderTree)...)
+	shell := m.helpRows(keys.Pane, keys.LeaderKey, keys.PaneLeave, keys.PaneNewShell)
 	shell = append(shell, m.chord(keys.LeaderVSCode)...)
-	shell = append(shell, m.chord(keys.LeaderHosts)...)
-	shell = append(shell, m.chord(keys.LeaderLast)...)
-	shell = append(shell, m.chord(keys.LeaderPalette)...)
 	shell = append(shell, m.chord(keys.LeaderHelp)...)
-	shell = append(shell, m.helpRows(keys.Pane, keys.PaneScroll)...)
+	shell = append(shell, m.helpRows(keys.Pane, keys.PaneScroll, keys.PaneScrollPg)...)
 	shell = append(shell, row{"…anything", "goes to the remote shell"})
 
 	browser := m.helpRows(keys.Browser, browserHelpActions...)
 
 	editor := []row{{":q", "close the tab"}}
 	editor = append(editor, m.helpRows(keys.Editor, editorHelpActions...)...)
-	editor = append(editor, m.chordRange("straight to that tab")...)
-	editor = append(editor, m.chord(keys.LeaderTree)...)
-	editor = append(editor, m.chord(keys.LeaderDrawer)...)
-	editor = append(editor, m.chord(keys.LeaderGrow)...)
-	editor = append(editor, m.chord(keys.LeaderShrink)...)
-	editor = append(editor, m.chord(keys.LeaderToShell)...)
-	editor = append(editor, m.chord(keys.LeaderHosts)...)
-	editor = append(editor, m.chord(keys.LeaderLast)...)
-	editor = append(editor, m.chord(keys.LeaderPalette)...)
-	editor = append(editor, m.chord(keys.LeaderOut)...)
 	editor = append(editor, m.chord(keys.LeaderHelp)...)
 	editor = append(editor, row{"…anything", "goes to the remote editor"})
 

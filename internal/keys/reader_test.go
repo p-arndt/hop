@@ -55,7 +55,7 @@ func TestReaderSequenceWindow(t *testing.T) {
 	}
 
 	r.Read(m, Pane, "esc", true)
-	advance(doubleEscWindow + time.Millisecond)
+	advance(DoubleEscWindow + time.Millisecond)
 	got := r.Read(m, Pane, "esc", true)
 	if got.Action != None || !got.Pending {
 		t.Fatalf("esc after the window = %+v, want a fresh pending esc", got)
@@ -96,13 +96,18 @@ func TestReaderPassesThroughUnboundKeys(t *testing.T) {
 
 // A prefix key reports its own action and arms the sequence in the same read.
 func TestReaderPrefixKeepsItsSoloMeaning(t *testing.T) {
-	m := Defaults()
+	// No shipped layer binds a key both alone and as a prefix any more — esc esc no longer
+	// quits the list — so the table is built here.
+	m := build([]Binding{
+		{Action: Back, Layer: List, Keys: []string{"esc"}},
+		{Action: Quit, Layer: List, Keys: []string{"esc esc"}, Window: DoubleEscWindow},
+	})
 	clock(t, time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC))
 	var r Reader
 
 	got := r.Read(m, List, "esc", true)
 	if got.Action != Back || !got.Pending {
-		t.Fatalf("first esc in the list = %+v, want %q and a pending chord", got, Back)
+		t.Fatalf("first esc = %+v, want %q and a pending chord", got, Back)
 	}
 	if got := r.Read(m, List, "esc", true); got.Action != Quit {
 		t.Fatalf("second esc = %+v, want %q", got, Quit)

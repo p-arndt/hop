@@ -448,7 +448,7 @@
         <li><div class="grp">The three modes</div></li>
         <li><a href="#modes">How they fit together</a></li>
         <li><div class="grp">Navigation mode</div></li>
-        <li><a href="#hostlist">Host list</a></li>
+        <li><a href="#hostlist">Sidebar keys</a></li>
         <li><a href="#import">SSH config import</a></li>
         <li><a href="#hostkeys">Host keys &amp; auth</a></li>
         <li><div class="grp">Terminal mode</div></li>
@@ -463,7 +463,7 @@
         <li><a href="#actions">Actions</a></li>
         <li><a href="#tunnels">Tunnels</a></li>
         <li><a href="#reconnect">Reconnecting</a></li>
-        <li><a href="#sidebar">Views</a></li>
+        <li><a href="#sidebar">Sidebar</a></li>
         <li><a href="#settings">Settings</a></li>
         <li><a href="#mouse">Mouse</a></li>
         <li><a href="#rest">The rest of the keyboard</a></li>
@@ -709,30 +709,30 @@
 
     <section id="modes">
       <h2>The three modes</h2>
-      <p>Every mode returns to the host list — from a pane with <kbd>ctrl+o</kbd> <kbd>o</kbd>, from the browser
-      with <kbd>ctrl+o</kbd>, and from either with a double <kbd>esc</kbd> inside 400 ms. In the list itself
-      <kbd>esc</kbd> <kbd>esc</kbd> is the last level out: it quits hop.</p>
-      <p>Two rows along the bottom say where you are and what to press. The <strong>status bar</strong> carries the
-      place: the host, what you are doing on it, and the thing you are doing it to — the directory
-      a shell is standing in, the file an editor tab holds, the listing the browser shows — with
-      <code>user@host:port</code> and the tab count at its right-hand end. The <strong>footer</strong> below it is the key
-      legend, and it is deliberately short: it names the keys the mode cannot be worked without,
-      adds more as the window gets wider, and leaves the full table to <kbd>?</kbd> (the
-      <a href="#cards">key card</a>), which opens on the section for the mode you are in.</p>
-      <div class="modes"><div class="mode"><b>Navigation</b><span>the host list is focused (the default)</span><span class="who">keys go to hop</span><ul class="modelinks"><li><a href="#hostlist">Host list</a></li><li><a href="#import">SSH config import</a></li><li><a href="#hostkeys">Host keys</a></li></ul></div><div class="mode"><b>Terminal</b><span>you connected with <code>enter</code> or <code>s</code></span><span class="who">keys go to the <strong>remote shell</strong></span><ul class="modelinks"><li><a href="#terminal">Shells</a></li><li><a href="#scrollback">Scrollback</a></li></ul></div><div class="mode"><b>Browsing</b><span>you opened the SFTP browser with <code>f</code></span><span class="who">keys go to hop</span><ul class="modelinks"><li><a href="#browser">File browser</a></li><li><a href="#editor">Editor tabs</a></li></ul></div></div>
+      <p>Every mode returns to the <a href="#sidebar">sidebar</a> — a double <kbd>esc</kbd> inside 400 ms from any
+      pane, the browser or an editor, or <kbd>ctrl+o</kbd> <kbd>o</kbd> behind the leader. The cursor lands on
+      where you were, and <kbd>esc</kbd> in the sidebar goes straight back there. <strong><kbd>esc</kbd> never quits
+      hop</strong>: <kbd>q</kbd> or <kbd>ctrl+c</kbd> in the sidebar does.</p>
+      <p>One row along the bottom says where you are and what to press. On the left, the <strong>crumb</strong>
+      names the place — the host, the tab, and the thing it is at: the directory a shell is
+      standing in, the file an editor tab holds, the listing the browser shows. A message such as
+      <em>connected</em> takes that side for the few seconds it is up. On the right is the key legend,
+      and it is deliberately short: it names the keys the mode cannot be worked without, adds more
+      as the window gets wider, and leaves the full table to <kbd>?</kbd> (the <a href="#cards">key card</a>), which
+      opens on the section for the mode you are in.</p>
+      <div class="modes"><div class="mode"><b>Navigation</b><span>the sidebar has the keyboard (the default)</span><span class="who">keys go to hop</span><ul class="modelinks"><li><a href="#hostlist">Sidebar keys</a></li><li><a href="#import">SSH config import</a></li><li><a href="#hostkeys">Host keys</a></li></ul></div><div class="mode"><b>Terminal</b><span>you connected with <code>enter</code> or <code>s</code></span><span class="who">keys go to the <strong>remote shell</strong></span><ul class="modelinks"><li><a href="#terminal">Shells</a></li><li><a href="#scrollback">Scrollback</a></li></ul></div><div class="mode"><b>Browsing</b><span>you opened the SFTP browser with <code>f</code></span><span class="who">keys go to hop</span><ul class="modelinks"><li><a href="#browser">File browser</a></li><li><a href="#editor">Editor tabs</a></li></ul></div></div>
       <p>Nothing here has to be memorised first. <kbd>space</kbd> opens the <a href="#actions">action menu</a> on the
       host under the cursor and <kbd>ctrl+k</kbd> the palette for whatever mode you are in — both list
       what is possible <em>and</em> the key that does it, and how much hop keeps on screen without being
       asked is one setting (see <a href="#actions">Guidance</a>).</p>
-      <p>Everything else works in <strong>all</strong> of them: the <a href="#sidebar">host list over any view</a>, the
+      <p>Everything else works in <strong>all</strong> of them: the <a href="#sidebar">sidebar beside every tab</a>, the
       <a href="#settings">settings popover</a>, the <a href="#tunnels">tunnels</a>, the <a href="#mouse">mouse</a> and the optional
       <a href="#vim">vim keys</a>.</p>
       <p><strong>Two rules explain most of the keyboard:</strong></p>
       <ul>
-      <li><strong>Inside a pane, <kbd>ctrl+o</kbd> is <a href="#leader">hop&rsquo;s leader</a>.</strong> It does nothing on its own and it
-      is on no clock — it opens a menu in the footer and waits. <kbd>ctrl+o</kbd> <kbd>o</kbd> goes <strong>out</strong>.</li>
-      <li><strong>Outside a pane</strong> — in the browser, in a card — <kbd>ctrl+o</kbd> simply goes back. There is no
-      remote program competing for keys there, so there is nothing to lead.</li>
+      <li><strong>In a pane and in the browser, <kbd>ctrl+o</kbd> is <a href="#leader">hop&rsquo;s leader</a>.</strong> It does nothing on
+      its own and it is on no clock — it opens a menu in the footer and waits. <kbd>ctrl+o</kbd> <kbd>o</kbd>
+      goes to the sidebar.</li>
       <li><strong>Inside a pane, everything else is the remote&rsquo;s.</strong> hop reserves as few keys as it can,
       because every one it takes is one the shell or editor no longer gets.</li>
       </ul>
@@ -740,7 +740,7 @@
 
     <section id="hostlist">
       <p class="sectlabel">Navigation mode</p>
-      <h2>Navigation — the host list</h2>
+      <h2>Navigation — the sidebar</h2>
       <div class="tablewrap"><table class="keytable">
       <thead>
       <tr>
@@ -751,7 +751,7 @@
       <tbody>
       <tr>
       <td><kbd>↓</kbd> <kbd>↑</kbd></td>
-      <td>move</td>
+      <td>move — over the hosts and the tabs of an opened-out host alike</td>
       </tr>
       <tr>
       <td><kbd>pgdn</kbd> <kbd>pgup</kbd></td>
@@ -759,11 +759,27 @@
       </tr>
       <tr>
       <td><kbd>enter</kbd> <kbd>→</kbd></td>
-      <td>connect (opens a terminal pane), or go back to where you were on it — the same tab, file or panel</td>
+      <td>go there: on a tab, that tab; on a host, back to where you were on it — the same tab, file or panel — connecting first if it is not</td>
       </tr>
       <tr>
-      <td><kbd>esc</kbd> <kbd>←</kbd></td>
-      <td>back — leave the details view</td>
+      <td><kbd>→</kbd></td>
+      <td>open the host out into its tabs; on an open host, step into them</td>
+      </tr>
+      <tr>
+      <td><kbd>←</kbd></td>
+      <td>from a tab, back up to its host; on an open host, fold it up</td>
+      </tr>
+      <tr>
+      <td><kbd>esc</kbd></td>
+      <td>give the keyboard back to where it was, with nothing changed</td>
+      </tr>
+      <tr>
+      <td><kbd>shift+b</kbd></td>
+      <td>hide the sidebar, giving its width to the content — or dock it again</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+o</kbd></td>
+      <td>the <a href="#leader">leader</a>, as in a pane — <kbd>ctrl+o</kbd> <kbd>space</kbd> for go to, <kbd>ctrl+o</kbd> <kbd>→</kbd> for the next host</td>
       </tr>
       <tr>
       <td><kbd>s</kbd></td>
@@ -775,7 +791,7 @@
       </tr>
       <tr>
       <td><kbd>1</kbd> … <kbd>9</kbd></td>
-      <td>go straight to that shell of the host under the cursor</td>
+      <td>go straight to that tab of the host under the cursor</td>
       </tr>
       <tr>
       <td><kbd>f</kbd></td>
@@ -804,6 +820,10 @@
       <tr>
       <td><kbd>a</kbd> <kbd>e</kbd> <kbd>x</kbd></td>
       <td>add / edit / delete a host (delete asks first)</td>
+      </tr>
+      <tr>
+      <td><kbd>x</kbd> on a tab row</td>
+      <td>close that tab: the files tab and a shell go at once, an editor asks first since unsaved changes would be lost</td>
       </tr>
       <tr>
       <td><kbd>p</kbd></td>
@@ -841,17 +861,15 @@
       <td><kbd>q</kbd> <kbd>ctrl+c</kbd></td>
       <td>quit</td>
       </tr>
-      <tr>
-      <td><kbd>esc</kbd> <kbd>esc</kbd></td>
-      <td>quit (two presses within 400 ms — one esc only drops the selected host)</td>
-      </tr>
       </tbody>
       </table></div>
-      <p>With <a href="#vim">vim keys</a> on, <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>l</kbd> connects as <kbd>enter</kbd> does, and <kbd>h</kbd> goes
-      back as <kbd>esc</kbd> does.</p>
+      <p><kbd>esc</kbd> never quits: a second one straight after the first is the same <kbd>esc</kbd>, and with no
+      host in front there is nowhere to go back to, so it does nothing.</p>
+      <p>With <a href="#vim">vim keys</a> on, <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>l</kbd> opens a host out as <kbd>→</kbd> does, and <kbd>h</kbd>
+      folds it up as <kbd>←</kbd> does.</p>
       <details class="why"><summary>Why the jump keys belong to the browser, not the list</summary><p>The list binds the <strong>step</strong> keys and nothing more. The jumps and the ctrl chords — <kbd>gg</kbd>,
       <kbd>G</kbd>, <kbd>H</kbd>/<kbd>M</kbd>/<kbd>L</kbd>, <kbd>ctrl+d</kbd>/<kbd>ctrl+u</kbd>/<kbd>ctrl+f</kbd> — belong to the file browser,
-      which walks directories that actually run past a screen. The host list does not scroll, so
+      which walks directories that actually run past a screen. The sidebar rarely scrolls, so
       each of them landed a <kbd>j</kbd> or two from where the cursor already was, while holding a letter
       the list wants as a command. Paging is <kbd>pgdn</kbd>/<kbd>pgup</kbd>.</p></details>
       <figure style="max-width:34rem"><img src="assets/screens/keys.png" alt="The keys card listing every binding hop binds" width="1500" height="800" loading="lazy" decoding="async"><figcaption><strong>Every key hop binds</strong> — <kbd>?</kbd>. It lists the keyboard you actually have, with vim motions
@@ -925,20 +943,20 @@
       </thead>
       <tbody>
       <tr>
-      <td><kbd>ctrl+o</kbd> <kbd>o</kbd></td>
-      <td><strong>out</strong> — back to hop</td>
+      <td><kbd>esc</kbd> <kbd>esc</kbd></td>
+      <td>the <a href="#sidebar">sidebar</a>, cursor on this shell (two presses within 400 ms)</td>
       </tr>
       <tr>
-      <td><kbd>esc</kbd> <kbd>esc</kbd></td>
-      <td>back to hop (two presses within 400 ms)</td>
+      <td><kbd>ctrl+o</kbd> <kbd>o</kbd></td>
+      <td>the sidebar, sending nothing to the shell</td>
       </tr>
       <tr>
       <td><kbd>shift+→</kbd> <kbd>shift+←</kbd></td>
-      <td>next / previous shell on this host (wraps)</td>
+      <td>next / previous tab on this host (wraps)</td>
       </tr>
       <tr>
       <td><kbd>ctrl+o</kbd> <kbd>1</kbd> … <kbd>9</kbd></td>
-      <td>go straight to that shell, without leaving the pane</td>
+      <td>go straight to that tab, without leaving the pane</td>
       </tr>
       <tr>
       <td><kbd>ctrl+o</kbd> <kbd>0</kbd></td>
@@ -967,17 +985,17 @@
       </tbody>
       </table></div>
       <h3 id="several-shells-on-one-host">Several shells on one host</h3>
-      <div class="shots" style="grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)"><div><p><kbd>S</kbd> in the host list, or <kbd>ctrl+o</kbd> <kbd>0</kbd> from inside the pane, opens another shell on a
+      <div class="shots" style="grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)"><div><p><kbd>S</kbd> in the sidebar, or <kbd>ctrl+o</kbd> <kbd>0</kbd> from inside the pane, opens another shell on a
       host you are already connected to. It is a second <strong>channel</strong> on the connection hop already
-      holds — no new handshake, no second authentication — and it appears as a tab strip above the
-      pane, which shows up only once there is a second shell to switch to. The new shell arrives
-      focused.</p>
+      holds — no new handshake, no second authentication — and it appears as another tab under
+      its host in the <a href="#sidebar">sidebar</a>. The new shell arrives focused, at the full size of the
+      content area, the same as the first.</p>
       <p>Type <code>exit</code> to close a shell: its tab goes away, the rest keep running. When the last one
-      exits, the connection is done and the host goes back to idle in the list — unless its SFTP
+      exits, the connection is done and the host goes back to idle in the sidebar — unless its SFTP
       browser, an editor tab or a tunnel is still open on it, which keeps the connection alive.
       <kbd>d</kbd> still tears down the whole host at once.</p></div>
-      <figure><img src="assets/screens/shells.png" alt="Two shells on one host shown as a tab strip" width="1500" height="800" loading="lazy" decoding="async"><figcaption>Two shells, one connection — no second handshake.</figcaption></figure></div>
-      <details class="why"><summary>Why <kbd>←</kbd> is not a way out</summary><p><kbd>←</kbd> backs out of a host in the list and out of a directory in the browser, but inside a
+      <figure><img src="assets/screens/shells.png" alt="Two shells on one host" width="1500" height="800" loading="lazy" decoding="async"><figcaption>Two shells, one connection — no second handshake.</figcaption></figure></div>
+      <details class="why"><summary>Why <kbd>←</kbd> is not a way out</summary><p><kbd>←</kbd> folds a host up in the sidebar and backs out of a directory in the browser, but inside a
       shell it is the <strong>shell&rsquo;s key, always</strong>. It moves the readline cursor back over a typo, it is
       what word motions and every full-screen program are built on, and hop taking it — even at
       what hop believes is an empty prompt — breaks editing on every server you connect to. hop
@@ -1013,11 +1031,15 @@
       <tbody>
       <tr>
       <td><kbd>o</kbd></td>
-      <td>out — back to hop</td>
+      <td>the <a href="#sidebar">sidebar</a>, cursor on where you are — what a double <kbd>esc</kbd> does</td>
       </tr>
       <tr>
       <td><kbd>1</kbd> … <kbd>9</kbd></td>
-      <td>that tab, selected <strong>in place</strong></td>
+      <td>that tab of this host, counted as the sidebar lists them</td>
+      </tr>
+      <tr>
+      <td><kbd>→</kbd> <kbd>←</kbd></td>
+      <td>the next / previous open host, on its last place (<kbd>l</kbd> / <kbd>h</kbd> too)</td>
       </tr>
       <tr>
       <td><kbd>0</kbd></td>
@@ -1025,7 +1047,7 @@
       </tr>
       <tr>
       <td><kbd>f</kbd></td>
-      <td>this directory in the <a href="#browser">file browser</a> — the open one moves there</td>
+      <td>the files tab — from a shell, at the shell&rsquo;s directory; the open browser moves there</td>
       </tr>
       <tr>
       <td><kbd>c</kbd></td>
@@ -1037,15 +1059,19 @@
       </tr>
       <tr>
       <td><kbd>t</kbd></td>
-      <td>the file tree, if the host has a browser open — the <a href="#sidebar">files view</a></td>
+      <td>the tree: from an editor, into the tree box; from the tree, hides it; hidden, shows it again with the keyboard in it</td>
       </tr>
       <tr>
       <td><kbd>s</kbd></td>
-      <td>from an editor tab: this host&rsquo;s shell — the <a href="#sidebar">shell view</a></td>
+      <td>this host&rsquo;s last shell</td>
+      </tr>
+      <tr>
+      <td><kbd>b</kbd></td>
+      <td>hide / show the <a href="#sidebar">sidebar</a> beside the content</td>
       </tr>
       <tr>
       <td><kbd>space</kbd></td>
-      <td>the <strong>switcher</strong>: every shell, browser, editor tab and terminal panel open on every host, then every host — type to narrow, <kbd>enter</kbd> lands exactly there</td>
+      <td><strong>go to</strong>: everything open on every host, then every host — type to narrow, <kbd>enter</kbd> lands exactly there</td>
       </tr>
       <tr>
       <td><kbd>tab</kbd></td>
@@ -1072,21 +1098,23 @@
       open hop has the keyboard, and a program that received the tail of an abandoned chord would
       act on a key you were not typing at it. The leader also outranks <kbd>ctrl+g</kbd>, which is otherwise
       held in every mode.</p>
-      <p><strong>Getting back to anything.</strong> <kbd>ctrl+o</kbd> <kbd>space</kbd> raises the switcher over whatever you are
-      in. It lists everything open on every connected host — each shell tab with its directory,
-      the browser, each editor tab by path, the terminal panel, a host&rsquo;s tunnels — most recently
-      used first, so <kbd>ctrl+o</kbd> <kbd>space</kbd> <kbd>enter</kbd> goes back to the place before this one. Below
-      them come the hosts: connected ones first, then the rest in the list&rsquo;s order. Typing narrows
-      all of it by host, path or name, the way <kbd>/</kbd> narrows the list. <kbd>enter</kbd> lands exactly on
+      <p><strong>Getting back to anything.</strong> <kbd>ctrl+o</kbd> <kbd>space</kbd> raises <strong>go to</strong> over whatever you are
+      in. With nothing typed it is a tree: every open host with what is open on it under it —
+      each shell tab with its directory, the browser, each editor tab by path, the terminal panel,
+      its tunnels — numbered as <kbd>ctrl+o</kbd> <kbd>1</kbd> … <kbd>9</kbd> count them, then the hosts with nothing
+      open. The cursor starts on the place you were in before this one, so <kbd>ctrl+o</kbd> <kbd>space</kbd>
+      <kbd>enter</kbd> goes back there. Typing flattens it into one list, most recently used first,
+      narrowed by host, path or name the way <kbd>/</kbd> narrows the sidebar. <kbd>enter</kbd> lands exactly on
       the row: that shell tab, that file, the panel. A host row lands where you last were on that
       host, connects one that has no session, and reconnects one that dropped; <kbd>esc</kbd> closes the
       card and changes nothing. <kbd>ctrl+o</kbd> <kbd>tab</kbd> is alt-tab for hosts: it goes back to the host
-      you were on before this one, on the tab you left it on, and a second press comes back. The
-      <a href="#browser">file browser</a> opens the same switcher with <kbd>p</kbd>.</p>
+      you were on before this one, on the tab you left it on, and a second press comes back.
+      <kbd>ctrl+o</kbd> <kbd>→</kbd> and <kbd>ctrl+o</kbd> <kbd>←</kbd> step along the open hosts in the sidebar&rsquo;s order. The
+      <a href="#browser">file browser</a> opens go to with <kbd>p</kbd>.</p>
       <details class="why"><summary>Why the leader does nothing on its own</summary><p>This is the tmux and wezterm arrangement, and the reason for it is worth stating: a leader
       that <em>also acts</em> forces a timeout, and every value for that timeout is wrong — too short and
       the chords are unreachable, too long and leaving feels broken. Earlier versions of hop tried
-      both and neither worked. Paying one extra keystroke for <code>out</code> buys back all of the timing.</p></details>
+      both and neither worked. Paying one extra keystroke to leave buys back all of the timing.</p></details>
     </section>
 
     <section id="scrollback">
@@ -1176,7 +1204,7 @@
       <tr>
       <td><kbd>esc</kbd> <kbd>esc</kbd> (fast)</td>
       <td><kbd>esc</kbd></td>
-      <td>leaves the pane on the second</td>
+      <td>hands the keyboard to the sidebar on the second</td>
       </tr>
       <tr>
       <td><kbd>esc</kbd> … pause … <kbd>esc</kbd></td>
@@ -1190,10 +1218,12 @@
       </tr>
       </tbody>
       </table></div>
-      <div class="note"><p><strong>The trade-off:</strong> if you mash <kbd>esc</kbd> twice quickly in vim, you will land back in the host
-      list. The shell will have seen one of those escapes, which in normal mode is a harmless
-      no-op, so nothing is lost — press <kbd>enter</kbd> or <kbd>s</kbd> to drop straight back into the session.
-      If that bothers you, <kbd>ctrl+o</kbd> <kbd>o</kbd> leaves and sends nothing to the remote at all.</p></div>
+      <div class="note"><p><strong>The trade-off:</strong> if you mash <kbd>esc</kbd> twice quickly in vim, you will land in the sidebar.
+      The shell will have seen one of those escapes, which in normal mode is a harmless no-op, so
+      nothing is lost — <kbd>esc</kbd> drops you straight back into the pane, and a double <kbd>esc</kbd> in the
+      sidebar does the same rather than sending an <kbd>esc</kbd> on. If that bothers you, <kbd>ctrl+o</kbd>
+      <kbd>o</kbd> goes to the sidebar and sends nothing to the remote at all. However many times you
+      press it, <kbd>esc</kbd> never quits hop.</p></div>
     </section>
 
     <section id="browser">
@@ -1297,7 +1327,11 @@
       </tr>
       <tr>
       <td><kbd>p</kbd></td>
-      <td>the <a href="#leader">switcher</a>: any tab, file or host, most recent first</td>
+      <td><a href="#leader">go to</a>: any tab, file or host</td>
+      </tr>
+      <tr>
+      <td><kbd>shift+→</kbd> <kbd>shift+←</kbd></td>
+      <td>next / previous tab on this host</td>
       </tr>
       <tr>
       <td><kbd>ctrl+k</kbd></td>
@@ -1313,19 +1347,19 @@
       </tr>
       <tr>
       <td><kbd>ctrl+t</kbd></td>
-      <td>hide / show the tree column</td>
+      <td>move the tree between the sidebar and the content area</td>
       </tr>
       <tr>
       <td><kbd>ctrl+o</kbd></td>
-      <td>back to hop</td>
+      <td>the <a href="#leader">leader</a>, as in a shell</td>
       </tr>
       <tr>
       <td><kbd>esc</kbd> <kbd>esc</kbd></td>
-      <td>back to hop (two presses within 400 ms)</td>
+      <td>the <a href="#sidebar">sidebar</a> (two presses within 400 ms)</td>
       </tr>
       <tr>
       <td><kbd>q</kbd></td>
-      <td><strong>close</strong> the browser — open files stay, and with nothing else open the connection goes too</td>
+      <td><strong>close</strong> the files tab — open files stay, and with nothing else open the connection goes too</td>
       </tr>
       </tbody>
       </table></div>
@@ -1365,15 +1399,17 @@
       intuition. <kbd>v</kbd> is free by comparison whenever source and target share a filesystem, because
       that is a rename the server does by itself; only across a mount boundary does it fall back to
       the same copy.</p></details>
-      <p>The browser is the <a href="#sidebar">files view</a>: alone it has the whole window; once a file is
-      open it becomes a <strong>column</strong> beside it, and <kbd>tab</kbd> and <kbd>ctrl+o</kbd> <kbd>t</kbd> pass the keyboard
-      between the two. <kbd>ctrl+t</kbd> gives the column&rsquo;s width back to the file. The column is a quarter
-      of the window (30 to 44 columns); below 92 columns there is no room for both, and the browser
-      goes back to filling the view while it has the keyboard.</p>
+      <p>The browser is the <strong>files tab</strong>. Where the window has room for the <a href="#sidebar">sidebar</a>, the
+      tree lives there, in a box under the hosts, and the content area beside it previews the file
+      under the cursor — the first 64 KiB of it, read on demand, with directories, binaries and
+      anything larger described rather than read. On an editor tab the same tree box stays under
+      the hosts beside the open file, and <kbd>tab</kbd> and <kbd>ctrl+o</kbd> <kbd>t</kbd> pass the keyboard between
+      the two. Below 94 columns there is no docked sidebar, and the files tab draws the tree across
+      the content area instead.</p>
       <details class="why"><summary>Why <kbd>←</kbd> walks the tree instead of leaving</summary><p><kbd>←</kbd> is pure motion: it collapses the directory you are in, steps out to its parent, and
-      only at the top of the tree does it pop back to hop. The directory you open in is usually your
-      home directory — so a <kbd>←</kbd> that left straight away would drop you back to hop exactly when
-      you meant to go up to <code>/home</code>. Leaving is otherwise always explicit: <kbd>ctrl+o</kbd>, <kbd>q</kbd> to close it for good, or a
+      only at the top of the tree does it stop. The directory you open in is usually your home
+      directory — so a <kbd>←</kbd> that left straight away would drop you out exactly when you meant to
+      go up to <code>/home</code>. Leaving is otherwise always explicit: <kbd>ctrl+o</kbd> <kbd>o</kbd>, <kbd>q</kbd> to close it for good, or a
       <a href="#doubleesc">double esc</a> — though unlike in a pane, a lone <kbd>esc</kbd> here is swallowed rather
       than forwarded.</p></details>
     </section>
@@ -1381,9 +1417,9 @@
     <section id="editor">
       <p class="sectlabel">Browsing mode</p>
       <h2>Editing — editor tabs</h2>
-      <p><kbd>enter</kbd> on a file opens it in an editor <strong>inside hop</strong>, beside the browser column — the
-      <a href="#sidebar">files view</a> — with a tab strip above it listing every open file. The tree stays on
-      screen.</p>
+      <p><kbd>enter</kbd> on a file opens it in an editor <strong>inside hop</strong>, in the content area, with its path
+      above it. The tree stays on screen in the <a href="#sidebar">sidebar</a>, under the hosts, and every open
+      file is a tab under its host there.</p>
       <div class="tablewrap"><table class="keytable">
       <thead>
       <tr>
@@ -1402,7 +1438,7 @@
       </tr>
       <tr>
       <td><kbd>ctrl+o</kbd> <kbd>o</kbd></td>
-      <td>back to the file browser</td>
+      <td>the sidebar</td>
       </tr>
       <tr>
       <td><code>:q</code> (i.e. quit the editor)</td>
@@ -1410,11 +1446,11 @@
       </tr>
       <tr>
       <td><kbd>ctrl+o</kbd> <kbd>t</kbd></td>
-      <td>back to the tree, without closing anything (<kbd>alt+t</kbd> where your terminal sends it)</td>
+      <td>into the tree, without closing anything — again from there hides the tree box (<kbd>alt+t</kbd> where your terminal sends it)</td>
       </tr>
       <tr>
       <td><kbd>ctrl+o</kbd> <kbd>s</kbd></td>
-      <td>this host&rsquo;s shell, full width</td>
+      <td>this host&rsquo;s last shell</td>
       </tr>
       <tr>
       <td><kbd>ctrl+o</kbd> <kbd>j</kbd></td>
@@ -1430,11 +1466,11 @@
       </tr>
       <tr>
       <td><kbd>ctrl+t</kbd></td>
-      <td>hide / show the tree column</td>
+      <td>hide / show the tree box — the file keeps its size either way</td>
       </tr>
       <tr>
       <td><kbd>esc</kbd> <kbd>esc</kbd></td>
-      <td>back to the file browser (two presses within 400 ms)</td>
+      <td>the sidebar, cursor on this file (two presses within 400 ms)</td>
       </tr>
       <tr>
       <td><kbd>alt+←</kbd>/<kbd>alt+→</kbd>, <kbd>alt+h</kbd>/<kbd>alt+l</kbd>, <kbd>alt+1</kbd>…<kbd>alt+9</kbd></td>
@@ -1454,13 +1490,13 @@
       <p>If the remote <code>$EDITOR</code> is unset (it usually is over SSH, since the rc-file that sets it is
       never sourced for a non-interactive command), hop probes the remote <code>PATH</code> for <code>nvim</code>,
       <code>vim</code>, <code>vi</code>, then <code>nano</code>, falling back to <code>vi</code> — POSIX requires it to exist.</p>
-      <p>Tabs are independent editor processes, so leaving with <kbd>ctrl+o</kbd> <kbd>o</kbd> keeps them all
+      <p>Tabs are independent editor processes, so leaving with a double <kbd>esc</kbd> keeps them all
       running: come back and every file is where you left it, cursor included.</p>
       <h3 id="two-files-side-by-side">Two files side by side</h3>
       <p><kbd>\</kbd> in the browser opens the file <strong>beside</strong> the current one instead of behind it,
-      splitting the content area into two halves with their own tab strips. <kbd>tab</kbd>/<kbd>ctrl+o</kbd> <kbd>t</kbd> pass
-      the keyboard between tree and content; <kbd>shift+→</kbd>/<kbd>shift+←</kbd> cycle the tabs of whichever
-      half has it. The same file is never shown in both halves — asking for one that is already
+      splitting the content area into two halves, each with its file&rsquo;s path above it.
+      <kbd>tab</kbd>/<kbd>ctrl+o</kbd> <kbd>t</kbd> pass the keyboard between tree and content; <kbd>shift+→</kbd>/<kbd>shift+←</kbd>
+      cycle the tabs of whichever half has it. The same file is never shown in both halves — asking for one that is already
       open just focuses the half it is in. A content area too narrow to give each half a readable
       22 columns declines the split rather than drawing two unreadable ones.</p>
       <p><kbd>ctrl+\</kbd> folds the split back to one box, keeping whichever file the half you were in was
@@ -1607,7 +1643,8 @@
       the <a href="#import">SSH config import</a>, so the forwards you already have keep working. Editing a
       running definition stops the old one on save, and a <a href="#reconnect">reconnect</a> puts the set that
       was running back up.</p>
-      <p>The status dot in the host list shows <code>⇄2</code> when two tunnels are up on that host.</p>
+      <p>The sidebar shows <code>⇄ 2 tunnels</code> under a host that has two up, and <kbd>enter</kbd> on that line
+      opens its manager.</p>
     </section>
 
     <section id="reconnect">
@@ -1636,8 +1673,12 @@
       <td>the key card</td>
       </tr>
       <tr>
-      <td><kbd>ctrl+o</kbd> <kbd>esc</kbd> <kbd>q</kbd></td>
-      <td>back to the host list, leaving the pane on screen</td>
+      <td><kbd>esc</kbd> <kbd>q</kbd></td>
+      <td>the sidebar, leaving the pane on screen</td>
+      </tr>
+      <tr>
+      <td><kbd>ctrl+o</kbd></td>
+      <td>the <a href="#leader">leader</a>: the other tabs and hosts are still a chord away</td>
       </tr>
       </tbody>
       </table></div>
@@ -1651,40 +1692,63 @@
 
     <section id="sidebar">
       <p class="sectlabel">Every mode</p>
-      <h2>Views and the host list</h2>
-      <p>A host in front has two <strong>views</strong>, and the screen never shows more than one of them:</p>
+      <h2>The sidebar and the content area</h2>
+      <p>hop&rsquo;s screen is at most <strong>two columns</strong>: the <strong>sidebar</strong> on the left and the <strong>content area</strong>
+      beside it, with one row of footer under both. There is no header.</p>
+      <p>The sidebar is the host list. Every host is in it, pinned ones first. The host <strong>in front</strong> —
+      the one the content area shows — is opened out (▾): under it are its tabs in the order you
+      opened them, <code>$ app</code> for a shell by the directory it stands in, <code>▤ files</code> for the SFTP
+      browser, <code>✎ nginx.conf</code> for each open file, then <code>⇄ 2 tunnels</code> if it has any. The tab the
+      content area shows is bold, with a bar (▌) while the keyboard is in it. Other connected hosts are folded up (▸) with a green
+      dot and how many tabs they hold; a dropped one has a red dot; a host with nothing open is
+      dim, with a hollow one.</p>
+      <p>What the content area shows is decided by the tab in front:</p>
       <ul>
-      <li><strong>the shell view</strong> — one shell, the whole width of the window. No list, no tree beside it.</li>
-      <li><strong>the files view</strong> — the SFTP tree beside the open files. With no file open, the browser
-      takes the whole width itself.</li>
+      <li><strong>a shell tab</strong> — that shell, the whole content area.</li>
+      <li><strong>an editor tab</strong> — the open file, with the <a href="#editor">terminal panel</a> under it if you asked
+      for one. The file tree sits in the sidebar, in a box of its own <strong>under the hosts</strong>.</li>
+      <li><strong>the files tab</strong> — the same tree box in the sidebar, and in the content area a <strong>preview</strong>
+      of the file under the tree&rsquo;s cursor.</li>
       </ul>
-      <p><kbd>ctrl+o</kbd> <kbd>f</kbd> crosses from the shell to the files on the same host, <kbd>ctrl+o</kbd> <kbd>t</kbd> and
-      <kbd>ctrl+o</kbd> <kbd>s</kbd> from an editor tab. hop remembers which view each host was in, and more:
-      entering a host — <kbd>enter</kbd> in the list, a host in the switcher, <kbd>ctrl+o</kbd> <kbd>tab</kbd> — lands
-      on the <strong>last place</strong> you were on it, the same shell tab, file, browser or panel. Only an
-      explicit new shell (<kbd>ctrl+o</kbd> <kbd>0</kbd>, <kbd>S</kbd> in the list) opens another shell.</p>
-      <p>The top row is the <strong>session bar</strong>. With a host in front it names that host, then a chip for
-      everything open on it — shells, the browser, each file, the panel, a tunnel count — with the
-      one that has the keyboard highlighted, and the other connected hosts on the right with their
-      status dots. With no host in front it lists every connected host. Click a chip or a host to
-      go there, exactly as the switcher would; when the row is too narrow the far end gives way to
-      a <strong>+N</strong>, which opens the switcher. A status message such as <em>connected</em> takes the right side
-      for the few seconds it is up.</p>
-      <p>The files view has a <strong>terminal panel</strong> under the files, the way an IDE keeps one under its
-      editor: <kbd>`</kbd> in the tree or <kbd>ctrl+o</kbd> <kbd>j</kbd> shows it and moves into it, the same key inside
-      it puts it away, and a double <kbd>esc</kbd> hands the keys back to the files. <kbd>S</kbd> on an entry puts
-      the panel in that directory — a running panel is told to <code>cd</code> there, so its history stays.
-      Drag its top edge to resize it. From the keyboard, <kbd>+</kbd> and <kbd>-</kbd> in the tree size it
-      directly; from the panel or an editor, <kbd>ctrl+o</kbd> <kbd>+</kbd> or <kbd>ctrl+o</kbd> <kbd>-</kbd> starts sizing, and
-      <kbd>+</kbd> <kbd>-</kbd> <kbd>↑</kbd> <kbd>↓</kbd> keep going until any other key. It starts at a bit under half the height. It is a shell of its own, not one of the shell view&rsquo;s tabs, so neither ever resizes the other.</p>
-      <p>The <strong>host list</strong> is a column only when no host is in front. Once one is, going back to the
-      list (<kbd>ctrl+o</kbd> <kbd>o</kbd>, <kbd>ctrl+o</kbd> in the browser, a double <kbd>esc</kbd>) draws it <strong>over</strong> the view
-      instead — the host&rsquo;s view stays where it is underneath, and nothing is resized. For hopping
-      without the list at all there is the switcher, <kbd>ctrl+o</kbd> <kbd>space</kbd>.</p>
-      <details class="why"><summary>Why the list floats instead of taking a column</summary><p>A column that comes and goes resizes every pane beside it, and a remote vim or <code>less</code>
-      redraws on each resize. With the list drawn over the view, a shell keeps one width however
-      often you go to the list and back — and a single shell gets the whole window, which is what
-      you opened it for. <kbd>ctrl+b</kbd> is not hop&rsquo;s any more either: a remote <code>tmux</code> gets its prefix.</p></details>
+      <p>A double <kbd>esc</kbd> from a shell, an editor, the tree or the panel puts the keyboard in the
+      sidebar, with the cursor on the tab you were in. <kbd>↑</kbd> <kbd>↓</kbd> walk hosts and tabs alike,
+      <kbd>enter</kbd> goes there — a tab exactly, a host back to where you were on it, connecting first
+      if it is not — <kbd>→</kbd> opens a host out and <kbd>←</kbd> folds it up. <kbd>esc</kbd> gives the keyboard back
+      with nothing changed; a double <kbd>esc</kbd> there does the same, and <strong><kbd>esc</kbd> never quits hop</strong>
+      (<kbd>q</kbd> does). <kbd>ctrl+o</kbd> <kbd>o</kbd> is the same trip from inside a pane, sending nothing to the
+      remote. Every <a href="#hostlist">host key</a> works on a host row: <kbd>/</kbd> to filter, <kbd>e</kbd> to edit,
+      <kbd>S</kbd> for another shell, <kbd>t</kbd> for its tunnels, <kbd>space</kbd> for its menu. Clicking a tab row
+      goes to that tab, and clicking an open host goes to it.</p>
+      <p>With <strong>no host in front</strong> — when hop starts, or after the one in front was closed — the
+      content area lists the <strong>recent places</strong> across every host, which <kbd>↑</kbd> from the first host
+      reaches and <kbd>enter</kbd> lands on, then the details of the host under the cursor: how to reach
+      it, what is open on it, and which of those was the last place.</p>
+      <p>The files have a <strong>terminal panel</strong> under them, the way an IDE keeps one under its editor:
+      <kbd>`</kbd> in the tree or <kbd>ctrl+o</kbd> <kbd>j</kbd> shows it and moves into it, the same key inside it puts
+      it away. <kbd>S</kbd> on an entry puts the panel in that directory — a running panel is told to <code>cd</code>
+      there, so its history stays. Drag its top edge to resize it. From the keyboard, <kbd>+</kbd> and <kbd>-</kbd>
+      in the tree size it directly; from the panel or an editor, <kbd>ctrl+o</kbd> <kbd>+</kbd> or <kbd>ctrl+o</kbd> <kbd>-</kbd>
+      starts sizing, and <kbd>+</kbd> <kbd>-</kbd> <kbd>↑</kbd> <kbd>↓</kbd> keep going until any other key. It starts at a bit
+      under half the height. It is a shell of its own, not one of the host&rsquo;s shell tabs, so neither
+      ever resizes the other.</p>
+      <p><kbd>ctrl+o</kbd> <kbd>t</kbd> is the tree&rsquo;s key: from a file it puts the keyboard in the tree box, from the
+      tree it hides the box, and hidden it brings it back with the keyboard in it. The hosts box
+      takes what its rows need, up to 40% of the height, so the tree always keeps a usable one.</p>
+      <p><strong>A narrow window</strong> — under 94 columns — has no room for the sidebar beside the content.
+      There the sidebar is off screen until a double <kbd>esc</kbd>, and then floats <strong>over</strong> the content
+      rather than pushing it aside. The files tab draws its tree across the content area, and an
+      editor tab is the file alone.</p>
+      <p><strong>Hiding it.</strong> <kbd>ctrl+o</kbd> <kbd>b</kbd> — or <kbd>shift+b</kbd> in the sidebar — gives the sidebar&rsquo;s width
+      to the content in a window that has room for both, and the same key docks it again. Hidden,
+      it behaves as it does in a narrow window: a double <kbd>esc</kbd> floats it over the content, and
+      <kbd>esc</kbd> puts it away. Hiding and docking resize the panes once, because you asked; nothing
+      else ever does.</p>
+      <details class="why"><summary>Why the sidebar never changes size</summary><p>A column that comes and goes resizes every pane beside it, and a remote vim or <code>less</code>
+      redraws on each resize. So the sidebar&rsquo;s width is decided by the window and by
+      <kbd>ctrl+o</kbd> <kbd>b</kbd>, never by where the keyboard is: docked, it is always there; too narrow or
+      hidden, it floats over the content and resizes nothing. A shell keeps one size however often you go to the sidebar and back. And there are
+      never more than two columns — the tree lives in the sidebar, under the hosts, rather than in a
+      third column between the hosts and the file.</p></details>
     </section>
 
     <section id="settings">
@@ -1809,8 +1873,8 @@
       <tbody>
       <tr>
       <td>wheel</td>
-      <td>the host list</td>
-      <td>moves the selection, one host a notch</td>
+      <td>the sidebar</td>
+      <td>moves the cursor, one row a notch</td>
       </tr>
       <tr>
       <td>wheel</td>
@@ -1829,18 +1893,33 @@
       </tr>
       <tr>
       <td>click</td>
-      <td>the host list</td>
-      <td>stands on that host — and, from a pane, hands the keyboard back</td>
+      <td>a tab under a host in the sidebar</td>
+      <td>goes to that tab, as <kbd>enter</kbd> on it does</td>
       </tr>
       <tr>
       <td>click</td>
-      <td>a pane the list has the keyboard in</td>
-      <td>takes it: the pointer&rsquo;s <kbd>s</kbd> or <kbd>f</kbd></td>
+      <td>a host with something open, or a dropped one</td>
+      <td>goes to it — where you last were, or its reconnect screen; nothing dials</td>
       </tr>
       <tr>
       <td>click</td>
-      <td>a tab strip</td>
-      <td>switches to that shell or file tab</td>
+      <td>a host with nothing open</td>
+      <td>stands on it, the keyboard in the sidebar</td>
+      </tr>
+      <tr>
+      <td>click</td>
+      <td>a box the keyboard is not in</td>
+      <td>takes it: the tree, the file, the shell, the panel</td>
+      </tr>
+      <tr>
+      <td>click</td>
+      <td>a recent place, with no host in front</td>
+      <td>goes there</td>
+      </tr>
+      <tr>
+      <td>drag</td>
+      <td>the terminal panel&rsquo;s top edge</td>
+      <td>resizes the panel</td>
       </tr>
       <tr>
       <td>drag</td>
@@ -1864,7 +1943,7 @@
       </tr>
       <tr>
       <td>double-click</td>
-      <td>a host, or a browser entry</td>
+      <td>a host with nothing open, or a browser entry</td>
       <td>opens it — <kbd>enter</kbd>, by pointing</td>
       </tr>
       </tbody>
@@ -1920,10 +1999,10 @@
       <p class="sectlabel">Every mode</p>
       <h2>Vim keys</h2>
       <p><strong>Off until you turn them on</strong>, in the settings popover (<kbd>,</kbd> → <em>Vim keys</em>). Off, they are
-      not bound to anything else either: a stray <kbd>l</kbd> in the host list does nothing at all.
+      not bound to anything else either: a stray <kbd>l</kbd> in the sidebar does nothing at all.
       <kbd>pgdn</kbd>/<kbd>pgup</kbd> are <em>not</em> part of the switch — they page without being vim, so turning vim
       off never costs you a way to page.</p>
-      <div class="shots" style="grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))"><div><h4 id="the-host-list--step-keys-only">The host list — step keys only</h4>
+      <div class="shots" style="grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))"><div><h4 id="the-sidebar--step-keys-only">The sidebar — step keys only</h4>
       <div class="tablewrap"><table class="keytable">
       <thead>
       <tr>
@@ -1938,11 +2017,11 @@
       </tr>
       <tr>
       <td><kbd>l</kbd></td>
-      <td>connect — as <kbd>enter</kbd> does</td>
+      <td>open a host out — as <kbd>→</kbd> does</td>
       </tr>
       <tr>
       <td><kbd>h</kbd></td>
-      <td>back — as <kbd>esc</kbd> does</td>
+      <td>fold it up — as <kbd>←</kbd> does</td>
       </tr>
       </tbody>
       </table></div></div>
@@ -1985,7 +2064,7 @@
       <li><strong>The two views bind different amounts of the keyboard</strong>, never different meanings. A key
       the list binds does there what it does in the browser.</li>
       <li><strong><kbd>gg</kbd> is a real two-key motion</strong> — in the browser. A lone <kbd>g</kbd> arms it; any other key
-      in between cancels it. In the host list it is not bound.</li>
+      in between cancels it. In the sidebar it is not bound.</li>
       <li><strong><kbd>ctrl+b</kbd> is not a motion anywhere.</strong> In a pane it belongs to the remote program.</li>
       <li><strong>Half and full pages are viewport-relative</strong>, matching vim, and clamped to at least one
       row so they still work in a very short terminal.</li>
@@ -2354,45 +2433,49 @@
 {"s":"Where things live","h":"","a":"#files","t":"Upgrading from a version that kept its hosts in SQLite? The first start converts \u003cconfig dir\u003e/hop/hop.db into the files above and leaves the database behind as hop.db.bak. Nothing deletes it."},
 {"s":"The three modes","h":"","a":"#modes","t":"The three modes"},
 {"s":"The three modes","h":"","a":"#modes","t":"How they fit together"},
-{"s":"The three modes","h":"","a":"#modes","t":"Every mode returns to the host list — from a pane with ctrl+o o, from the browser with ctrl+o, and from either with a double esc inside 400 ms. In the list itself esc esc is the last level out: it quits hop."},
-{"s":"The three modes","h":"","a":"#modes","t":"Two rows along the bottom say where you are and what to press. The status bar carries the place: the host, what you are doing on it, and the thing you are doing it to — the directory a shell is standing in, the file an editor tab holds, the listing the browser shows — with user@host:port and the tab count at its right-hand end. The footer below it is the key legend, and it is deliberately short: it names the keys the mode cannot be worked without, adds more as the window gets wider, and leaves the full table to ? (the key card), which opens on the section for the mode you are in."},
+{"s":"The three modes","h":"","a":"#modes","t":"Every mode returns to the sidebar — a double esc inside 400 ms from any pane, the browser or an editor, or ctrl+o o behind the leader. The cursor lands on where you were, and esc in the sidebar goes straight back there. esc never quits hop: q or ctrl+c in the sidebar does."},
+{"s":"The three modes","h":"","a":"#modes","t":"One row along the bottom says where you are and what to press. On the left, the crumb names the place — the host, the tab, and the thing it is at: the directory a shell is standing in, the file an editor tab holds, the listing the browser shows. A message such as connected takes that side for the few seconds it is up. On the right is the key legend, and it is deliberately short: it names the keys the mode cannot be worked without, adds more as the window gets wider, and leaves the full table to ? (the key card), which opens on the section for the mode you are in."},
 {"s":"The three modes","h":"","a":"#modes","t":"Nothing here has to be memorised first. space opens the action menu on the host under the cursor and ctrl+k the palette for whatever mode you are in — both list what is possible and the key that does it, and how much hop keeps on screen without being asked is one setting (see Guidance)."},
-{"s":"The three modes","h":"","a":"#modes","t":"Everything else works in all of them: the host list over any view, the settings popover, the tunnels, the mouse and the optional vim keys."},
+{"s":"The three modes","h":"","a":"#modes","t":"Everything else works in all of them: the sidebar beside every tab, the settings popover, the tunnels, the mouse and the optional vim keys."},
 {"s":"The three modes","h":"","a":"#modes","t":"Two rules explain most of the keyboard:"},
-{"s":"The three modes","h":"","a":"#modes","t":"Inside a pane, ctrl+o is hop’s leader. It does nothing on its own and it is on no clock — it opens a menu in the footer and waits. ctrl+o o goes out."},
-{"s":"The three modes","h":"","a":"#modes","t":"Outside a pane — in the browser, in a card — ctrl+o simply goes back. There is no remote program competing for keys there, so there is nothing to lead."},
+{"s":"The three modes","h":"","a":"#modes","t":"In a pane and in the browser, ctrl+o is hop’s leader. It does nothing on its own and it is on no clock — it opens a menu in the footer and waits. ctrl+o o goes to the sidebar."},
 {"s":"The three modes","h":"","a":"#modes","t":"Inside a pane, everything else is the remote’s. hop reserves as few keys as it can, because every one it takes is one the shell or editor no longer gets."},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"Navigation — the host list"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"Host list"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"Key · Action"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"↓ ↑ · move"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"pgdn pgup · a full page down / up"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"enter → · connect (opens a terminal pane), or go back to where you were on it — the same tab, file or panel"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"esc ← · back — leave the details view"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"s · focus the existing session for this host"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"S · open another shell on this host, alongside the ones already open"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"1 … 9 · go straight to that shell of the host under the cursor"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"f · open the SFTP browser"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"t · start all defined tunnels, or stop them when any are running"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"T · manage this host’s tunnel definitions"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"o · open the host in VS Code Remote, in the directory its shell is standing in"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"d · disconnect the session"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"r · reconnect a session whose connection dropped, reopening what it held"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"a e x · add / edit / delete a host (delete asks first)"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"p · pin the host to the PINNED section at the top, or unpin it"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"shift+k shift+j · move a pinned host up / down inside that section"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"i · import hosts from an OpenSSH config (~/.ssh/config by default)"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"/ · filter hosts (enter applies, esc clears)"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"space · the action menu for this host — everything above, with its key beside it"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"ctrl+k · the palette: every action, searchable"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":", ? · settings / the keys card"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"ctrl+g · hand the mouse to your terminal (and take it back)"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"q ctrl+c · quit"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"esc esc · quit (two presses within 400 ms — one esc only drops the selected host)"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"With vim keys on, j/k move, l connects as enter does, and h goes back as esc does."},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"Why the jump keys belong to the browser, not the list"},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"The list binds the step keys and nothing more. The jumps and the ctrl chords — gg, G, H/M/L, ctrl+d/ctrl+u/ctrl+f — belong to the file browser, which walks directories that actually run past a screen. The host list does not scroll, so each of them landed a j or two from where the cursor already was, while holding a letter the list wants as a command. Paging is pgdn/pgup."},
-{"s":"Navigation — the host list","h":"","a":"#hostlist","t":"Every key hop binds — ?. It lists the keyboard you actually have, with vim motions included only if you turned them on."},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"Navigation — the sidebar"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"Sidebar keys"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"Key · Action"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"↓ ↑ · move — over the hosts and the tabs of an opened-out host alike"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"pgdn pgup · a full page down / up"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"enter → · go there: on a tab, that tab; on a host, back to where you were on it — the same tab, file or panel — connecting first if it is not"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"→ · open the host out into its tabs; on an open host, step into them"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"← · from a tab, back up to its host; on an open host, fold it up"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"esc · give the keyboard back to where it was, with nothing changed"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"shift+b · hide the sidebar, giving its width to the content — or dock it again"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"ctrl+o · the leader, as in a pane — ctrl+o space for go to, ctrl+o → for the next host"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"s · focus the existing session for this host"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"S · open another shell on this host, alongside the ones already open"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"1 … 9 · go straight to that tab of the host under the cursor"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"f · open the SFTP browser"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"t · start all defined tunnels, or stop them when any are running"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"T · manage this host’s tunnel definitions"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"o · open the host in VS Code Remote, in the directory its shell is standing in"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"d · disconnect the session"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"r · reconnect a session whose connection dropped, reopening what it held"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"a e x · add / edit / delete a host (delete asks first)"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"x on a tab row · close that tab: the files tab and a shell go at once, an editor asks first since unsaved changes would be lost"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"p · pin the host to the PINNED section at the top, or unpin it"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"shift+k shift+j · move a pinned host up / down inside that section"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"i · import hosts from an OpenSSH config (~/.ssh/config by default)"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"/ · filter hosts (enter applies, esc clears)"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"space · the action menu for this host — everything above, with its key beside it"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"ctrl+k · the palette: every action, searchable"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":", ? · settings / the keys card"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"ctrl+g · hand the mouse to your terminal (and take it back)"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"q ctrl+c · quit"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"esc never quits: a second one straight after the first is the same esc, and with no host in front there is nowhere to go back to, so it does nothing."},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"With vim keys on, j/k move, l opens a host out as → does, and h folds it up as ← does."},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"Why the jump keys belong to the browser, not the list"},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"The list binds the step keys and nothing more. The jumps and the ctrl chords — gg, G, H/M/L, ctrl+d/ctrl+u/ctrl+f — belong to the file browser, which walks directories that actually run past a screen. The sidebar rarely scrolls, so each of them landed a j or two from where the cursor already was, while holding a letter the list wants as a command. Paging is pgdn/pgup."},
+{"s":"Navigation — the sidebar","h":"","a":"#hostlist","t":"Every key hop binds — ?. It lists the keyboard you actually have, with vim motions included only if you turned them on."},
 {"s":"Import — the SSH config card","h":"","a":"#import","t":"Import — the SSH config card"},
 {"s":"Import — the SSH config card","h":"","a":"#import","t":"SSH config import"},
 {"s":"Import — the SSH config card","h":"","a":"#import","t":"i opens the import card, a modal like the rest: one field, pre-filled with ~/.ssh/config, so the usual answer is a single enter."},
@@ -2410,10 +2493,10 @@
 {"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"Terminal — a live shell on a remote host"},
 {"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"Shells"},
 {"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"Key · Action"},
-{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"ctrl+o o · out — back to hop"},
-{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"esc esc · back to hop (two presses within 400 ms)"},
-{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"shift+→ shift+← · next / previous shell on this host (wraps)"},
-{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"ctrl+o 1 … 9 · go straight to that shell, without leaving the pane"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"esc esc · the sidebar, cursor on this shell (two presses within 400 ms)"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"ctrl+o o · the sidebar, sending nothing to the shell"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"shift+→ shift+← · next / previous tab on this host (wraps)"},
+{"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"ctrl+o 1 … 9 · go straight to that tab, without leaving the pane"},
 {"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"ctrl+o 0 · open another shell on this host, without leaving the pane"},
 {"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"ctrl+o c · open this directory in VS Code Remote"},
 {"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"shift+↑ shift+pgup · scroll back into the pane’s history"},
@@ -2421,11 +2504,11 @@
 {"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"alt+0, alt+←/alt+→, alt+1…alt+9 · aliases for the above, where your terminal sends them"},
 {"s":"Terminal — a live shell on a remote host","h":"","a":"#terminal","t":"everything else · sent to the remote shell"},
 {"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"Several shells on one host"},
-{"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"S in the host list, or ctrl+o 0 from inside the pane, opens another shell on a host you are already connected to. It is a second channel on the connection hop already holds — no new handshake, no second authentication — and it appears as a tab strip above the pane, which shows up only once there is a second shell to switch to. The new shell arrives focused."},
-{"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"Type exit to close a shell: its tab goes away, the rest keep running. When the last one exits, the connection is done and the host goes back to idle in the list — unless its SFTP browser, an editor tab or a tunnel is still open on it, which keeps the connection alive. d still tears down the whole host at once."},
+{"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"S in the sidebar, or ctrl+o 0 from inside the pane, opens another shell on a host you are already connected to. It is a second channel on the connection hop already holds — no new handshake, no second authentication — and it appears as another tab under its host in the sidebar. The new shell arrives focused, at the full size of the content area, the same as the first."},
+{"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"Type exit to close a shell: its tab goes away, the rest keep running. When the last one exits, the connection is done and the host goes back to idle in the sidebar — unless its SFTP browser, an editor tab or a tunnel is still open on it, which keeps the connection alive. d still tears down the whole host at once."},
 {"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"Two shells, one connection — no second handshake."},
 {"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"Why ← is not a way out"},
-{"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"← backs out of a host in the list and out of a directory in the browser, but inside a shell it is the shell’s key, always. It moves the readline cursor back over a typo, it is what word motions and every full-screen program are built on, and hop taking it — even at what hop believes is an empty prompt — breaks editing on every server you connect to. hop sees keystrokes going out and pixels coming back, not the buffer readline is holding, so anything it could not count left it thinking the prompt was bare when it was not."},
+{"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"← folds a host up in the sidebar and backs out of a directory in the browser, but inside a shell it is the shell’s key, always. It moves the readline cursor back over a typo, it is what word motions and every full-screen program are built on, and hop taking it — even at what hop believes is an empty prompt — breaks editing on every server you connect to. hop sees keystrokes going out and pixels coming back, not the buffer readline is holding, so anything it could not count left it thinking the prompt was bare when it was not."},
 {"s":"Terminal — a live shell on a remote host","h":"Several shells on one host","a":"#several-shells-on-one-host","t":"alt+o is deliberately unbound for the same family of reasons: a terminal sends it as esc then o, which is vim’s “leave insert mode, open a line”."},
 {"s":"Terminal — a live shell on a remote host","h":"The cursor","a":"#the-cursor","t":"The cursor"},
 {"s":"Terminal — a live shell on a remote host","h":"The cursor","a":"#the-cursor","t":"The pane draws the cursor itself — the emulator hands hop cells, not a cursor — and draws the one the remote asked for: a block, an underline or a bar (DECSCUSR, what vim switches between as you enter and leave insert mode), and no cursor at all while the program has it hidden (DECTCEM), the way a full-screen program hides it while it paints. A bar has no half-cell to stand in, so it is drawn as the thinnest glyph there is in place of the character; a full reset, and a program leaving the alternate screen, put the block back rather than leaving its shape behind."},
@@ -2434,24 +2517,26 @@
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"The leader"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"ctrl+o inside a pane has no effect of its own, and no timeout. It opens the leader, the footer becomes the menu, and hop waits as long as you take:"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"after ctrl+o ·"},
-{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"o · out — back to hop"},
-{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"1 … 9 · that tab, selected in place"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"o · the sidebar, cursor on where you are — what a double esc does"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"1 … 9 · that tab of this host, counted as the sidebar lists them"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"→ ← · the next / previous open host, on its last place (l / h too)"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"0 · another shell on this host"},
-{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"f · this directory in the file browser — the open one moves there"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"f · the files tab — from a shell, at the shell’s directory; the open browser moves there"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"c · this directory in VS Code Remote"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"j · show / hide the terminal panel under the files — pressed inside it, hides it"},
-{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"t · the file tree, if the host has a browser open — the files view"},
-{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"s · from an editor tab: this host’s shell — the shell view"},
-{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"space · the switcher: every shell, browser, editor tab and terminal panel open on every host, then every host — type to narrow, enter lands exactly there"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"t · the tree: from an editor, into the tree box; from the tree, hides it; hidden, shows it again with the keyboard in it"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"s · this host’s last shell"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"b · hide / show the sidebar beside the content"},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"space · go to: everything open on every host, then every host — type to narrow, enter lands exactly there"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"tab · back to the last host, on the tab it was showing — press it again to come back"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"ctrl+k · the palette — this pane’s chords, searchable"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"? · the key card"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"anything else · closes the leader and does nothing"},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"f and c follow the directory the shell reports as you cd. A shell that has not reported one (a login shell hop could not hook, or one still starting) leaves f opening the browser where it would anyway, and the status line says so."},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"A key that names no chord is swallowed, not passed to the remote: while the leader is open hop has the keyboard, and a program that received the tail of an abandoned chord would act on a key you were not typing at it. The leader also outranks ctrl+g, which is otherwise held in every mode."},
-{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"Getting back to anything. ctrl+o space raises the switcher over whatever you are in. It lists everything open on every connected host — each shell tab with its directory, the browser, each editor tab by path, the terminal panel, a host’s tunnels — most recently used first, so ctrl+o space enter goes back to the place before this one. Below them come the hosts: connected ones first, then the rest in the list’s order. Typing narrows all of it by host, path or name, the way / narrows the list. enter lands exactly on the row: that shell tab, that file, the panel. A host row lands where you last were on that host, connects one that has no session, and reconnects one that dropped; esc closes the card and changes nothing. ctrl+o tab is alt-tab for hosts: it goes back to the host you were on before this one, on the tab you left it on, and a second press comes back. The file browser opens the same switcher with p."},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"Getting back to anything. ctrl+o space raises go to over whatever you are in. With nothing typed it is a tree: every open host with what is open on it under it — each shell tab with its directory, the browser, each editor tab by path, the terminal panel, its tunnels — numbered as ctrl+o 1 … 9 count them, then the hosts with nothing open. The cursor starts on the place you were in before this one, so ctrl+o space enter goes back there. Typing flattens it into one list, most recently used first, narrowed by host, path or name the way / narrows the sidebar. enter lands exactly on the row: that shell tab, that file, the panel. A host row lands where you last were on that host, connects one that has no session, and reconnects one that dropped; esc closes the card and changes nothing. ctrl+o tab is alt-tab for hosts: it goes back to the host you were on before this one, on the tab you left it on, and a second press comes back. ctrl+o → and ctrl+o ← step along the open hosts in the sidebar’s order. The file browser opens go to with p."},
 {"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"Why the leader does nothing on its own"},
-{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"This is the tmux and wezterm arrangement, and the reason for it is worth stating: a leader that also acts forces a timeout, and every value for that timeout is wrong — too short and the chords are unreachable, too long and leaving feels broken. Earlier versions of hop tried both and neither worked. Paying one extra keystroke for out buys back all of the timing."},
+{"s":"The leader — [[ctrl+o]]","h":"","a":"#leader","t":"This is the tmux and wezterm arrangement, and the reason for it is worth stating: a leader that also acts forces a timeout, and every value for that timeout is wrong — too short and the chords are unreachable, too long and leaving feels broken. Earlier versions of hop tried both and neither worked. Paying one extra keystroke to leave buys back all of the timing."},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Scrolling back through history"},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"Scrollback"},
 {"s":"Scrolling back through history","h":"","a":"#scrollback","t":"shift+↑ pauses the live shell and steps one line up into its scrollback; shift+pgup does it a page at a time. Both are deliberately chords a bare shell never sends, and both decline (falling through to the shell) when there is nothing to show: on the alt screen a full-screen program owns its own scrolling. The footer advertises shift+↑ scrollback exactly when the key is live."},
@@ -2473,10 +2558,10 @@
 {"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"A lone esc is still forwarded to the shell. hop cannot know a second esc is coming without swallowing the first one and waiting out the timer, which would put a 400 ms lag on every esc you press in vim. So the rule is:"},
 {"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"You press · The shell receives · hop does"},
 {"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"esc · esc · arms the window"},
-{"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"esc esc (fast) · esc · leaves the pane on the second"},
+{"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"esc esc (fast) · esc · hands the keyboard to the sidebar on the second"},
 {"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"esc … pause … esc · esc esc · nothing"},
 {"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"esc j esc · esc j esc · nothing — any key breaks the chord"},
-{"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"The trade-off: if you mash esc twice quickly in vim, you will land back in the host list. The shell will have seen one of those escapes, which in normal mode is a harmless no-op, so nothing is lost — press enter or s to drop straight back into the session. If that bothers you, ctrl+o o leaves and sends nothing to the remote at all."},
+{"s":"How double-esc works, and what it costs","h":"","a":"#doubleesc","t":"The trade-off: if you mash esc twice quickly in vim, you will land in the sidebar. The shell will have seen one of those escapes, which in normal mode is a harmless no-op, so nothing is lost — esc drops you straight back into the pane, and a double esc in the sidebar does the same rather than sending an esc on. If that bothers you, ctrl+o o goes to the sidebar and sends nothing to the remote at all. However many times you press it, esc never quits hop."},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"Browsing — the SFTP file browser"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"File browser"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"Key · Action"},
@@ -2502,14 +2587,15 @@
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"+ (=) - · a taller / shorter terminal panel"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"← backspace · collapse, or step out to the parent"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"r · refresh the listing"},
-{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"p · the switcher: any tab, file or host, most recent first"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"p · go to: any tab, file or host"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"shift+→ shift+← · next / previous tab on this host"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+k · the palette: everything the browser can do, searchable"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":", · settings"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"? · the key card"},
-{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+t · hide / show the tree column"},
-{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+o · back to hop"},
-{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"esc esc · back to hop (two presses within 400 ms)"},
-{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"q · close the browser — open files stay, and with nothing else open the connection goes too"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+t · move the tree between the sidebar and the content area"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"ctrl+o · the leader, as in a shell"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"esc esc · the sidebar (two presses within 400 ms)"},
+{"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"q · close the files tab — open files stay, and with nothing else open the connection goes too"},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"With vim keys on the browser keeps the whole motion set (the host list only the step keys): j/k, gg, G, H/M/L, ctrl+d/ctrl+u, ctrl+f, plus l to descend and h to back out."},
 {"s":"Browsing — the SFTP file browser","h":"","a":"#browser","t":"Anything that needs an answer — a name to rename to, a local path to upload, a yes before an overwrite — asks on the status line, and while the question is up every key is its answer: a , typed into a filename is a comma, not the settings popover. enter answers, esc cancels, ctrl+u clears the line."},
 {"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"Marks and the target"},
@@ -2520,32 +2606,32 @@
 {"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"Transfers run off the UI, so a large file no longer freezes the browser — the status line becomes a progress line until it lands, counting 3/7 · name.txt through a batch. Deleting asks first, and so does overwriting a file that is already in your download directory."},
 {"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"Why a copy costs more than a download"},
 {"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"A remote-to-remote copy has no shortcut. SFTP has no server-side copy — OpenSSH added a copy-data extension, but the Go client hop uses does not speak it — so hop reads every byte down to your machine and writes it back up the same connection. Copying a file across a remote disk therefore costs twice what downloading it costs, which is the opposite of the intuition. v is free by comparison whenever source and target share a filesystem, because that is a rename the server does by itself; only across a mount boundary does it fall back to the same copy."},
-{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"The browser is the files view: alone it has the whole window; once a file is open it becomes a column beside it, and tab and ctrl+o t pass the keyboard between the two. ctrl+t gives the column’s width back to the file. The column is a quarter of the window (30 to 44 columns); below 92 columns there is no room for both, and the browser goes back to filling the view while it has the keyboard."},
+{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"The browser is the files tab. Where the window has room for the sidebar, the tree lives there, in a box under the hosts, and the content area beside it previews the file under the cursor — the first 64 KiB of it, read on demand, with directories, binaries and anything larger described rather than read. On an editor tab the same tree box stays under the hosts beside the open file, and tab and ctrl+o t pass the keyboard between the two. Below 94 columns there is no docked sidebar, and the files tab draws the tree across the content area instead."},
 {"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"Why ← walks the tree instead of leaving"},
-{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"← is pure motion: it collapses the directory you are in, steps out to its parent, and only at the top of the tree does it pop back to hop. The directory you open in is usually your home directory — so a ← that left straight away would drop you back to hop exactly when you meant to go up to /home. Leaving is otherwise always explicit: ctrl+o, q to close it for good, or a double esc — though unlike in a pane, a lone esc here is swallowed rather than forwarded."},
+{"s":"Browsing — the SFTP file browser","h":"Marks and the target","a":"#marks-and-the-target","t":"← is pure motion: it collapses the directory you are in, steps out to its parent, and only at the top of the tree does it stop. The directory you open in is usually your home directory — so a ← that left straight away would drop you out exactly when you meant to go up to /home. Leaving is otherwise always explicit: ctrl+o o, q to close it for good, or a double esc — though unlike in a pane, a lone esc here is swallowed rather than forwarded."},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"Editing — editor tabs"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"Editor tabs"},
-{"s":"Editing — editor tabs","h":"","a":"#editor","t":"enter on a file opens it in an editor inside hop, beside the browser column — the files view — with a tab strip above it listing every open file. The tree stays on screen."},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"enter on a file opens it in an editor inside hop, in the content area, with its path above it. The tree stays on screen in the sidebar, under the hosts, and every open file is a tab under its host there."},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"Key · Action"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"shift+→ shift+← · next / previous tab (wraps)"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+o 1 … 9 · go straight to that tab, without leaving"},
-{"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+o o · back to the file browser"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+o o · the sidebar"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":":q (i.e. quit the editor) · close the tab"},
-{"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+o t · back to the tree, without closing anything (alt+t where your terminal sends it)"},
-{"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+o s · this host’s shell, full width"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+o t · into the tree, without closing anything — again from there hides the tree box (alt+t where your terminal sends it)"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+o s · this host’s last shell"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+o j · show / hide the terminal panel under the files"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+o + / ctrl+o - · size the terminal panel: after the first, + - ↑ ↓ keep going until any other key — or drag its top edge"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+\\ · close the split, keeping the file you are reading"},
-{"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+t · hide / show the tree column"},
-{"s":"Editing — editor tabs","h":"","a":"#editor","t":"esc esc · back to the file browser (two presses within 400 ms)"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"ctrl+t · hide / show the tree box — the file keeps its size either way"},
+{"s":"Editing — editor tabs","h":"","a":"#editor","t":"esc esc · the sidebar, cursor on this file (two presses within 400 ms)"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"alt+←/alt+→, alt+h/alt+l, alt+1…alt+9 · aliases, where your terminal sends them"},
 {"s":"Editing — editor tabs","h":"","a":"#editor","t":"everything else · sent to the remote editor"},
 {"s":"Editing — editor tabs","h":"How it works","a":"#how-it-works","t":"How it works"},
 {"s":"Editing — editor tabs","h":"How it works","a":"#how-it-works","t":"The editor runs on the remote host, not locally: hop opens a second SSH channel on the connection it already has and runs ${EDITOR:-vi} \u003cfile\u003e on a pty, then renders that pty in a pane exactly as it renders a remote shell. There is no download and no copy — you are editing the real file, and :w writes straight back to the server."},
 {"s":"Editing — editor tabs","h":"How it works","a":"#how-it-works","t":"If the remote $EDITOR is unset (it usually is over SSH, since the rc-file that sets it is never sourced for a non-interactive command), hop probes the remote PATH for nvim, vim, vi, then nano, falling back to vi — POSIX requires it to exist."},
-{"s":"Editing — editor tabs","h":"How it works","a":"#how-it-works","t":"Tabs are independent editor processes, so leaving with ctrl+o o keeps them all running: come back and every file is where you left it, cursor included."},
+{"s":"Editing — editor tabs","h":"How it works","a":"#how-it-works","t":"Tabs are independent editor processes, so leaving with a double esc keeps them all running: come back and every file is where you left it, cursor included."},
 {"s":"Editing — editor tabs","h":"Two files side by side","a":"#two-files-side-by-side","t":"Two files side by side"},
-{"s":"Editing — editor tabs","h":"Two files side by side","a":"#two-files-side-by-side","t":"\\ in the browser opens the file beside the current one instead of behind it, splitting the content area into two halves with their own tab strips. tab/ctrl+o t pass the keyboard between tree and content; shift+→/shift+← cycle the tabs of whichever half has it. The same file is never shown in both halves — asking for one that is already open just focuses the half it is in. A content area too narrow to give each half a readable 22 columns declines the split rather than drawing two unreadable ones."},
+{"s":"Editing — editor tabs","h":"Two files side by side","a":"#two-files-side-by-side","t":"\\ in the browser opens the file beside the current one instead of behind it, splitting the content area into two halves, each with its file’s path above it. tab/ctrl+o t pass the keyboard between tree and content; shift+→/shift+← cycle the tabs of whichever half has it. The same file is never shown in both halves — asking for one that is already open just focuses the half it is in. A content area too narrow to give each half a readable 22 columns declines the split rather than drawing two unreadable ones."},
 {"s":"Editing — editor tabs","h":"Two files side by side","a":"#two-files-side-by-side","t":"ctrl+\\ folds the split back to one box, keeping whichever file the half you were in was showing — it is the counterpart to \\, and it closes the split, not the file: every tab stays open and every editor keeps running. Closing the last tab in a half folds the split back too, but that is the long way round."},
 {"s":"Editing — editor tabs","h":"Editing locally instead","a":"#editing-locally-instead","t":"Editing locally instead"},
 {"s":"Editing — editor tabs","h":"Editing locally instead","a":"#editing-locally-instead","t":"o is the escape hatch for files a terminal editor is no good for — a PDF, an image. It downloads the file to a scratch directory under the system temp dir and hands that copy to the desktop (start on Windows, open on macOS, xdg-open elsewhere), returning immediately so hop stays usable. Unlike enter, this edits a local copy: nothing is written back to the remote host. d downloads without opening anything."},
@@ -2580,7 +2666,7 @@
 {"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"t · the manager · close the card and start or stop the whole set"},
 {"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"esc · the manager · close"},
 {"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"A definition is a direction (local or remote), a bind address and port, and the host and port to reach on the far side. LocalForward and RemoteForward lines are picked up by the SSH config import, so the forwards you already have keep working. Editing a running definition stops the old one on save, and a reconnect puts the set that was running back up."},
-{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"The status dot in the host list shows ⇄2 when two tunnels are up on that host."},
+{"s":"Tunnels — port forwarding","h":"","a":"#tunnels","t":"The sidebar shows ⇄ 2 tunnels under a host that has two up, and enter on that line opens its manager."},
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"When a connection drops"},
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"Reconnecting"},
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"Drops are found with keepalive probes rather than silence, so a suspended laptop or a dead VPN does not leave a pane quietly frozen."},
@@ -2588,20 +2674,26 @@
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"r enter · reconnect: dial again and reopen what was open"},
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"d x · drop the session — the pane goes, the host is idle again"},
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"? · the key card"},
-{"s":"When a connection drops","h":"","a":"#reconnect","t":"ctrl+o esc q · back to the host list, leaving the pane on screen"},
+{"s":"When a connection drops","h":"","a":"#reconnect","t":"esc q · the sidebar, leaving the pane on screen"},
+{"s":"When a connection drops","h":"","a":"#reconnect","t":"ctrl+o · the leader: the other tabs and hosts are still a chord away"},
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"The pane keeps the last screen the host drew, under a banner saying what happened, so the command that was running is still there to read. Nothing is forwarded to the far end, because there is no far end."},
 {"s":"When a connection drops","h":"","a":"#reconnect","t":"Shell tabs, the browser’s directory and the running tunnels come back on reconnect. Editor tabs do not — an editor holds a buffer, and reopening the file on a fresh pty would look like nothing was lost — and the status says how many were left behind."},
-{"s":"Views and the host list","h":"","a":"#sidebar","t":"Views and the host list"},
-{"s":"Views and the host list","h":"","a":"#sidebar","t":"Views"},
-{"s":"Views and the host list","h":"","a":"#sidebar","t":"A host in front has two views, and the screen never shows more than one of them:"},
-{"s":"Views and the host list","h":"","a":"#sidebar","t":"the shell view — one shell, the whole width of the window. No list, no tree beside it."},
-{"s":"Views and the host list","h":"","a":"#sidebar","t":"the files view — the SFTP tree beside the open files. With no file open, the browser takes the whole width itself."},
-{"s":"Views and the host list","h":"","a":"#sidebar","t":"ctrl+o f crosses from the shell to the files on the same host, ctrl+o t and ctrl+o s from an editor tab. hop remembers which view each host was in, and more: entering a host — enter in the list, a host in the switcher, ctrl+o tab — lands on the last place you were on it, the same shell tab, file, browser or panel. Only an explicit new shell (ctrl+o 0, S in the list) opens another shell."},
-{"s":"Views and the host list","h":"","a":"#sidebar","t":"The top row is the session bar. With a host in front it names that host, then a chip for everything open on it — shells, the browser, each file, the panel, a tunnel count — with the one that has the keyboard highlighted, and the other connected hosts on the right with their status dots. With no host in front it lists every connected host. Click a chip or a host to go there, exactly as the switcher would; when the row is too narrow the far end gives way to a +N, which opens the switcher. A status message such as connected takes the right side for the few seconds it is up."},
-{"s":"Views and the host list","h":"","a":"#sidebar","t":"The files view has a terminal panel under the files, the way an IDE keeps one under its editor: ` in the tree or ctrl+o j shows it and moves into it, the same key inside it puts it away, and a double esc hands the keys back to the files. S on an entry puts the panel in that directory — a running panel is told to cd there, so its history stays. Drag its top edge to resize it. From the keyboard, + and - in the tree size it directly; from the panel or an editor, ctrl+o + or ctrl+o - starts sizing, and + - ↑ ↓ keep going until any other key. It starts at a bit under half the height. It is a shell of its own, not one of the shell view’s tabs, so neither ever resizes the other."},
-{"s":"Views and the host list","h":"","a":"#sidebar","t":"The host list is a column only when no host is in front. Once one is, going back to the list (ctrl+o o, ctrl+o in the browser, a double esc) draws it over the view instead — the host’s view stays where it is underneath, and nothing is resized. For hopping without the list at all there is the switcher, ctrl+o space."},
-{"s":"Views and the host list","h":"","a":"#sidebar","t":"Why the list floats instead of taking a column"},
-{"s":"Views and the host list","h":"","a":"#sidebar","t":"A column that comes and goes resizes every pane beside it, and a remote vim or less redraws on each resize. With the list drawn over the view, a shell keeps one width however often you go to the list and back — and a single shell gets the whole window, which is what you opened it for. ctrl+b is not hop’s any more either: a remote tmux gets its prefix."},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"The sidebar and the content area"},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"Sidebar"},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"hop’s screen is at most two columns: the sidebar on the left and the content area beside it, with one row of footer under both. There is no header."},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"The sidebar is the host list. Every host is in it, pinned ones first. The host in front — the one the content area shows — is opened out (▾): under it are its tabs in the order you opened them, $ app for a shell by the directory it stands in, ▤ files for the SFTP browser, ✎ nginx.conf for each open file, then ⇄ 2 tunnels if it has any. The tab the content area shows is bold, with a bar (▌) while the keyboard is in it. Other connected hosts are folded up (▸) with a green dot and how many tabs they hold; a dropped one has a red dot; a host with nothing open is dim, with a hollow one."},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"What the content area shows is decided by the tab in front:"},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"a shell tab — that shell, the whole content area."},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"an editor tab — the open file, with the terminal panel under it if you asked for one. The file tree sits in the sidebar, in a box of its own under the hosts."},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"the files tab — the same tree box in the sidebar, and in the content area a preview of the file under the tree’s cursor."},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"A double esc from a shell, an editor, the tree or the panel puts the keyboard in the sidebar, with the cursor on the tab you were in. ↑ ↓ walk hosts and tabs alike, enter goes there — a tab exactly, a host back to where you were on it, connecting first if it is not — → opens a host out and ← folds it up. esc gives the keyboard back with nothing changed; a double esc there does the same, and esc never quits hop (q does). ctrl+o o is the same trip from inside a pane, sending nothing to the remote. Every host key works on a host row: / to filter, e to edit, S for another shell, t for its tunnels, space for its menu. Clicking a tab row goes to that tab, and clicking an open host goes to it."},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"With no host in front — when hop starts, or after the one in front was closed — the content area lists the recent places across every host, which ↑ from the first host reaches and enter lands on, then the details of the host under the cursor: how to reach it, what is open on it, and which of those was the last place."},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"The files have a terminal panel under them, the way an IDE keeps one under its editor: ` in the tree or ctrl+o j shows it and moves into it, the same key inside it puts it away. S on an entry puts the panel in that directory — a running panel is told to cd there, so its history stays. Drag its top edge to resize it. From the keyboard, + and - in the tree size it directly; from the panel or an editor, ctrl+o + or ctrl+o - starts sizing, and + - ↑ ↓ keep going until any other key. It starts at a bit under half the height. It is a shell of its own, not one of the host’s shell tabs, so neither ever resizes the other."},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"ctrl+o t is the tree’s key: from a file it puts the keyboard in the tree box, from the tree it hides the box, and hidden it brings it back with the keyboard in it. The hosts box takes what its rows need, up to 40% of the height, so the tree always keeps a usable one."},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"A narrow window — under 94 columns — has no room for the sidebar beside the content. There the sidebar is off screen until a double esc, and then floats over the content rather than pushing it aside. The files tab draws its tree across the content area, and an editor tab is the file alone."},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"Hiding it. ctrl+o b — or shift+b in the sidebar — gives the sidebar’s width to the content in a window that has room for both, and the same key docks it again. Hidden, it behaves as it does in a narrow window: a double esc floats it over the content, and esc puts it away. Hiding and docking resize the panes once, because you asked; nothing else ever does."},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"Why the sidebar never changes size"},
+{"s":"The sidebar and the content area","h":"","a":"#sidebar","t":"A column that comes and goes resizes every pane beside it, and a remote vim or less redraws on each resize. So the sidebar’s width is decided by the window and by ctrl+o b, never by where the keyboard is: docked, it is always there; too narrow or hidden, it floats over the content and resizes nothing. A shell keeps one size however often you go to the sidebar and back. And there are never more than two columns — the tree lives in the sidebar, under the hosts, rather than in a third column between the hosts and the file."},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"Settings — the popover"},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"Settings"},
 {"s":"Settings — the popover","h":"","a":"#settings","t":", opens the settings card, floating over whatever is on screen. It works from the host list, from a pane and from the file browser. It is modal: while it is up, keys go to it."},
@@ -2630,18 +2722,21 @@
 {"s":"The mouse","h":"","a":"#mouse","t":"Mouse"},
 {"s":"The mouse","h":"","a":"#mouse","t":"Every gesture is an existing binding reached by pointing, so nothing is mouse-only."},
 {"s":"The mouse","h":"","a":"#mouse","t":"Gesture · Where · What it does"},
-{"s":"The mouse","h":"","a":"#mouse","t":"wheel · the host list · moves the selection, one host a notch"},
+{"s":"The mouse","h":"","a":"#mouse","t":"wheel · the sidebar · moves the cursor, one row a notch"},
 {"s":"The mouse","h":"","a":"#mouse","t":"wheel · a shell pane · pauses into its scrollback, three lines a notch"},
 {"s":"The mouse","h":"","a":"#mouse","t":"wheel · a full-screen program · ↑ / ↓, three of them a notch — it keeps no scrollback here"},
 {"s":"The mouse","h":"","a":"#mouse","t":"wheel · the SFTP browser · moves the cursor three entries a notch"},
-{"s":"The mouse","h":"","a":"#mouse","t":"click · the host list · stands on that host — and, from a pane, hands the keyboard back"},
-{"s":"The mouse","h":"","a":"#mouse","t":"click · a pane the list has the keyboard in · takes it: the pointer’s s or f"},
-{"s":"The mouse","h":"","a":"#mouse","t":"click · a tab strip · switches to that shell or file tab"},
+{"s":"The mouse","h":"","a":"#mouse","t":"click · a tab under a host in the sidebar · goes to that tab, as enter on it does"},
+{"s":"The mouse","h":"","a":"#mouse","t":"click · a host with something open, or a dropped one · goes to it — where you last were, or its reconnect screen; nothing dials"},
+{"s":"The mouse","h":"","a":"#mouse","t":"click · a host with nothing open · stands on it, the keyboard in the sidebar"},
+{"s":"The mouse","h":"","a":"#mouse","t":"click · a box the keyboard is not in · takes it: the tree, the file, the shell, the panel"},
+{"s":"The mouse","h":"","a":"#mouse","t":"click · a recent place, with no host in front · goes there"},
+{"s":"The mouse","h":"","a":"#mouse","t":"drag · the terminal panel’s top edge · resizes the panel"},
 {"s":"The mouse","h":"","a":"#mouse","t":"drag · a pane · selects text; it lands on the clipboard when you let go"},
 {"s":"The mouse","h":"","a":"#mouse","t":"shift+drag · a pane whose program has the mouse · selects with hop anyway, and copies"},
 {"s":"The mouse","h":"","a":"#mouse","t":"wheel while dragging · a pane · scrolls under the selection, which grows to follow"},
 {"s":"The mouse","h":"","a":"#mouse","t":"drag to the top / bottom row · a pane · keeps scrolling by itself while you hold it there"},
-{"s":"The mouse","h":"","a":"#mouse","t":"double-click · a host, or a browser entry · opens it — enter, by pointing"},
+{"s":"The mouse","h":"","a":"#mouse","t":"double-click · a host with nothing open, or a browser entry · opens it — enter, by pointing"},
 {"s":"The mouse","h":"","a":"#mouse","t":"A selection is not limited to the screenful it started on: while the button is down the wheel scrolls the view under it and the selection grows, and a drag held against the top or bottom row of the pane scrolls by itself until you let go. A selection also rides the text it was made on, so scrolling leaves the highlight over the same words. Anything you type takes it down."},
 {"s":"The mouse","h":"","a":"#mouse","t":"A remote program that asks for the mouse (vim with set mouse=a, htop) gets the pointer verbatim instead, so a drag in vim becomes a visual selection that copies nothing. Hold shift as you press to select with hop instead — the first plain drag says so on the status line. The cards are keyboard-only. ctrl+g hands mouse reporting back to your terminal for a moment — for a selection spanning the sidebar and a pane, or anything else that wants your terminal’s own pointer."},
 {"s":"The rest of the keyboard","h":"","a":"#rest","t":"The rest of the keyboard"},
@@ -2660,12 +2755,12 @@
 {"s":"The rest of the keyboard","h":"macOS and the alt keys","a":"#macos-and-the-alt-keys","t":"VS Code’s terminal — \"terminal.integrated.macOptionIsMeta\": true"},
 {"s":"The rest of the keyboard","h":"macOS and the alt keys","a":"#macos-and-the-alt-keys","t":"This is also why shift+k/shift+j reorder pinned hosts, why the mouse toggle is ctrl+g, and why the tree is ctrl+o t from an editor rather than alt+t alone."},
 {"s":"Vim keys","h":"","a":"#vim","t":"Vim keys"},
-{"s":"Vim keys","h":"","a":"#vim","t":"Off until you turn them on, in the settings popover (, → Vim keys). Off, they are not bound to anything else either: a stray l in the host list does nothing at all. pgdn/pgup are not part of the switch — they page without being vim, so turning vim off never costs you a way to page."},
-{"s":"Vim keys","h":"The host list — step keys only","a":"#the-host-list--step-keys-only","t":"The host list — step keys only"},
-{"s":"Vim keys","h":"The host list — step keys only","a":"#the-host-list--step-keys-only","t":"Key · Action"},
-{"s":"Vim keys","h":"The host list — step keys only","a":"#the-host-list--step-keys-only","t":"j k · move down / up"},
-{"s":"Vim keys","h":"The host list — step keys only","a":"#the-host-list--step-keys-only","t":"l · connect — as enter does"},
-{"s":"Vim keys","h":"The host list — step keys only","a":"#the-host-list--step-keys-only","t":"h · back — as esc does"},
+{"s":"Vim keys","h":"","a":"#vim","t":"Off until you turn them on, in the settings popover (, → Vim keys). Off, they are not bound to anything else either: a stray l in the sidebar does nothing at all. pgdn/pgup are not part of the switch — they page without being vim, so turning vim off never costs you a way to page."},
+{"s":"Vim keys","h":"The sidebar — step keys only","a":"#the-sidebar--step-keys-only","t":"The sidebar — step keys only"},
+{"s":"Vim keys","h":"The sidebar — step keys only","a":"#the-sidebar--step-keys-only","t":"Key · Action"},
+{"s":"Vim keys","h":"The sidebar — step keys only","a":"#the-sidebar--step-keys-only","t":"j k · move down / up"},
+{"s":"Vim keys","h":"The sidebar — step keys only","a":"#the-sidebar--step-keys-only","t":"l · open a host out — as → does"},
+{"s":"Vim keys","h":"The sidebar — step keys only","a":"#the-sidebar--step-keys-only","t":"h · fold it up — as ← does"},
 {"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"The browser — the whole motion set"},
 {"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"Key · Action"},
 {"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"j k · move down / up"},
@@ -2676,7 +2771,7 @@
 {"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"l / h · enter a directory / up one directory"},
 {"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"The rules the two sets follow"},
 {"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"The two views bind different amounts of the keyboard, never different meanings. A key the list binds does there what it does in the browser."},
-{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"gg is a real two-key motion — in the browser. A lone g arms it; any other key in between cancels it. In the host list it is not bound."},
+{"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"gg is a real two-key motion — in the browser. A lone g arms it; any other key in between cancels it. In the sidebar it is not bound."},
 {"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"ctrl+b is not a motion anywhere. In a pane it belongs to the remote program."},
 {"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"Half and full pages are viewport-relative, matching vim, and clamped to at least one row so they still work in a very short terminal."},
 {"s":"Vim keys","h":"The browser — the whole motion set","a":"#the-browser--the-whole-motion-set","t":"The cursor never leaves the visible window. Every motion re-clamps the scroll offset; TestCursorStaysVisible pins that invariant."},

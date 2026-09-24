@@ -9,11 +9,11 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// box is one drawn box: its border columns, its zone, and which half of a split it is.
+// box is one drawn box: where it is, its zone, and which half of a split it is.
 type box struct {
-	lo, hi int
-	z      zone
-	right  bool
+	r     rect
+	z     zone
+	right bool
 }
 
 // layoutCase is one window size crossed with one arrangement of the columns.
@@ -25,18 +25,31 @@ type layoutCase struct {
 
 // ---- the arrangements ----
 
-// withTree gives the active session a browser beside an open file, which is what puts the
-// tree column on screen.
+// withTree gives the active session a browser and an open file, the keyboard in the tree
+// box of the editor tab.
 func withTree(t *testing.T, m *model) {
 	t.Helper()
 	s := &session{browser: fakeBrowser(t, "/srv"), editors: []*editorTab{{id: 1, name: "a.conf", path: "/etc/a.conf", pane: fakePane()}}}
 	t.Cleanup(s.closeEditors)
+	s.front = tabEditor
 	m.sessions["web1"] = s
 	m.active, m.mode = "web1", modeBrowser
 	m.relayout()
 }
 
-// withShell is a session that costs no tree column: the content area takes all the list leaves.
+// withFiles is the files tab: the tree in the sidebar beside a preview when there is room,
+// else the tree in the content area.
+func withFiles(t *testing.T, m *model) {
+	t.Helper()
+	s := &session{browser: fakeBrowser(t, "/srv"), shells: []*shellTab{{id: 1, pane: fakePane()}}}
+	t.Cleanup(s.closeShells)
+	s.front = tabFiles
+	m.sessions["web1"] = s
+	m.active, m.mode = "web1", modeBrowser
+	m.relayout()
+}
+
+// withShell is a session with no browser: the content area is its shell.
 func withShell(t *testing.T, m *model) {
 	t.Helper()
 	s := &session{shells: []*shellTab{{id: 1, pane: fakePane()}}}
@@ -46,7 +59,7 @@ func withShell(t *testing.T, m *model) {
 	m.relayout()
 }
 
-// withEditors opens two files, optionally split across the content area and beside a tree column.
+// withEditors opens two files, optionally split across the content area and with a browser.
 func withEditors(t *testing.T, m *model, tree, split bool) {
 	t.Helper()
 	s := &session{editors: []*editorTab{
@@ -85,30 +98,40 @@ func withSplitShell(t *testing.T, m *model) {
 	m.relayout()
 }
 
-// treeThreshold is the width at which the tree column first fits beside the files.
-const treeThreshold = treeColMin + minContentWidth
+// dockThreshold is the width at which the sidebar first docks beside the content.
+const dockThreshold = sidebarWidth + minContentWidth
 
-// splitThreshold is the width at which the content area first halves with no sidebar or tree.
+// splitThreshold is the width at which the content area first halves with no sidebar.
 const splitThreshold = 2 * minSplitHalf
 
-// layoutCases crosses every column state with the widths where the layout changes its mind.
+// layoutCases crosses every box state with the widths where the layout changes its mind.
 func layoutCases() []layoutCase {
 	editors := func(tree, split bool) func(*testing.T, *model) {
 		return func(t *testing.T, m *model) { withEditors(t, m, tree, split) }
 	}
+	inSidebar := func(setup func(*testing.T, *model)) func(*testing.T, *model) {
+		return func(t *testing.T, m *model) {
+			setup(t, m)
+			m.toSidebar()
+		}
+	}
 	return []layoutCase{
-		{"tree beside a file", 200, 60, withTree},
-		{"tree collapsed", 200, 60, func(t *testing.T, m *model) {
+		{"tree under the hosts, beside a file", 200, 60, withTree},
+		{"tree hidden", 200, 60, func(t *testing.T, m *model) {
 			withTree(t, m)
 			m.toggleTree()
 		}},
 		{"no browser on the session", 200, 60, withShell},
 		{"no session at all", 200, 60, func(*testing.T, *model) {}},
+		{"the files tab and its preview", 200, 60, withFiles},
+		{"the files tab, too narrow to dock", dockThreshold - 1, 34, withFiles},
 
-		{"one column short of the tree", treeThreshold - 1, 34, withTree},
-		{"exactly the tree's worth", treeThreshold, 34, withTree},
-		{"one column over", treeThreshold + 1, 34, withTree},
-		{"the classic 80 columns, inline", 80, 24, withTree},
+		{"one column short of docking", dockThreshold - 1, 34, withTree},
+		{"exactly docking's worth", dockThreshold, 34, withTree},
+		{"one column over", dockThreshold + 1, 34, withTree},
+		{"the classic 80 columns", 80, 24, withTree},
+		{"the classic 80 columns, keyboard in the floating sidebar", 80, 24, inSidebar(withShell)},
+		{"docked, keyboard in the sidebar", 120, 34, inSidebar(withTree)},
 
 		{"split beside the tree", 200, 60, editors(true, true)},
 		{"split with no tree", 200, 60, editors(false, true)},
@@ -127,79 +150,38 @@ func layoutCases() []layoutCase {
 // ---- reading the frame ----
 
 // frameOf renders the model and hands back the screen with the styling stripped.
-func frameOf(m *model) []string {
+func frameOf(m *model) [][]rune {
 	lines := strings.Split(m.View().Content, "\n")
+	out := make([][]rune, len(lines))
 	for i, ln := range lines {
-		lines[i] = ansi.Strip(ln)
+		out[i] = []rune(ansi.Strip(ln))
 	}
-	return lines
+	return out
 }
 
-// drawnBoxes reads the boxes off the first body row, which holds nothing but their tops.
-func drawnBoxes(t *testing.T, frame []string) []box {
-	t.Helper()
-	var boxes []box
-	open := -1
-	for i, r := range []rune(frame[1]) {
-		switch r {
-		case '╭':
-			if open >= 0 {
-				t.Fatalf("a box opened at column %d while one was still open at %d:\n%s", i, open, frame[1])
-			}
-			open = i
-		case '╮':
-			if open < 0 {
-				t.Fatalf("a box closed at column %d with none open:\n%s", i, frame[1])
-			}
-			boxes = append(boxes, box{lo: open, hi: i})
-			open = -1
+// boxes is every box the frame says is drawn, with the zone the pointer should find there,
+// on top first: a floating sidebar is over the content.
+func boxes(m *model) []box {
+	var out []box
+	add := func(r rect, z zone, right bool) {
+		if !r.empty() {
+			out = append(out, box{r: r, z: z, right: right})
 		}
 	}
-	if open >= 0 {
-		t.Fatalf("the box opened at column %d never closed:\n%s", open, frame[1])
+	add(m.frame.list, zoneList, false)
+	add(m.frame.tree, zoneTree, false)
+	add(m.frame.drawer, zoneDrawer, false)
+	add(m.frame.left, zonePane, false)
+	if !m.frame.right.empty() {
+		add(m.frame.right, zonePane, true)
 	}
-	return boxes
+	return out
 }
 
-// wantBoxes is where the layout arithmetic says the boxes are, in outer coordinates.
-func wantBoxes(m *model) []box {
-	var boxes []box
-	base := 0
-	if lw := m.listWidth(); lw > 0 {
-		boxes = append(boxes, box{lo: 0, hi: lw - 1, z: zoneList})
-		base = lw
-	}
-	if tw := m.treeWidth(); tw > 0 {
-		boxes = append(boxes, box{lo: base, hi: base + tw - 1, z: zoneTree})
-		base += tw
-	}
-	// contentIsSplit, not splitOn: what is drawn is what the renderer's switch decides.
-	if m.contentIsSplit() {
-		w := m.splitHalf()
-		return append(boxes,
-			box{lo: base, hi: base + w + 1, z: zonePane},
-			box{lo: base + w + 2, hi: base + 2*w + 3, z: zonePane, right: true})
-	}
-	return append(boxes, box{lo: base, hi: base + m.paneW + 1, z: zonePane})
-}
-
-// layoutBoxes is the drawn boxes labelled with what the layout says each one is.
-func layoutBoxes(t *testing.T, m *model) []box {
-	t.Helper()
-	drawn, want := drawnBoxes(t, frameOf(m)), wantBoxes(m)
-	if len(drawn) != len(want) {
-		t.Fatalf("the frame holds %d boxes, want %d (%v vs %v)", len(drawn), len(want), drawn, want)
-	}
-	for i := range drawn {
-		drawn[i].z, drawn[i].right = want[i].z, want[i].right
-	}
-	return drawn
-}
-
-// boxAt returns the box containing screen column x, or false for a column no box covers.
-func boxAt(boxes []box, x int) (box, bool) {
-	for _, b := range boxes {
-		if x >= b.lo && x <= b.hi {
+// boxAt returns the top box containing the cell, or false for a cell no box covers.
+func boxAt(bs []box, x, y int) (box, bool) {
+	for _, b := range bs {
+		if b.r.contains(x, y) {
 			return b, true
 		}
 	}
@@ -244,8 +226,9 @@ func TestVeryNarrowWindowsStillFitTheirTerminal(t *testing.T) {
 	}
 }
 
-// The sidebar is what gives way, and only when it has to.
-func TestTheSidebarYieldsBeforeTheFrameOverruns(t *testing.T) {
+// Where the sidebar floats, it is what gives way, and only when it has to; the content box
+// always reaches the window's edge.
+func TestTheFloatingSidebarYieldsBeforeTheFrameOverruns(t *testing.T) {
 	for _, c := range []struct {
 		w        int
 		wantList int
@@ -256,8 +239,7 @@ func TestTheSidebarYieldsBeforeTheFrameOverruns(t *testing.T) {
 	} {
 		m := viewModel(c.w, 12)
 		withShell(t, m)
-		m.leavePane()
-		m.recomputeLayout()
+		m.toSidebar()
 		if got := m.frame.list.w; got != c.wantList {
 			t.Errorf("at %d columns the list is %d wide, want %d", c.w, got, c.wantList)
 		}
@@ -267,22 +249,28 @@ func TestTheSidebarYieldsBeforeTheFrameOverruns(t *testing.T) {
 	}
 }
 
-// The boxes the renderer drew are the boxes the layout describes, in the same order.
+// Every box the frame names is drawn where it says: its four corners are on screen at its
+// four corners. The frame is what the pointer reads, so this is drawing and clicks agreeing.
 func TestDrawnBoxesMatchTheLayout(t *testing.T) {
 	for _, c := range layoutCases() {
 		t.Run(c.name, func(t *testing.T) {
 			m := viewModel(c.w, c.h)
 			c.setup(t, m)
+			screen := frameOf(m)
 
-			drawn, want := drawnBoxes(t, frameOf(m)), wantBoxes(m)
-			if len(drawn) != len(want) {
-				t.Fatalf("%dx%d: the frame holds %d boxes, want %d (%v vs %v)",
-					c.w, c.h, len(drawn), len(want), drawn, want)
-			}
-			for i := range want {
-				if drawn[i].lo != want[i].lo || drawn[i].hi != want[i].hi {
-					t.Fatalf("%dx%d: box %d is drawn at columns %d..%d, want %d..%d",
-						c.w, c.h, i, drawn[i].lo, drawn[i].hi, want[i].lo, want[i].hi)
+			for _, b := range boxes(m) {
+				r := b.r
+				for _, corner := range []struct {
+					x, y int
+					want rune
+				}{
+					{r.x, r.y, '╭'}, {r.x + r.w - 1, r.y, '╮'},
+					{r.x, r.y + r.h - 1, '╰'}, {r.x + r.w - 1, r.y + r.h - 1, '╯'},
+				} {
+					if got := screen[corner.y][corner.x]; got != corner.want {
+						t.Fatalf("%dx%d: the %v box %+v has %q at (%d, %d), want %q:\n%s",
+							c.w, c.h, b.z, r, got, corner.x, corner.y, corner.want, string(screen[corner.y]))
+					}
 				}
 			}
 		})
@@ -291,68 +279,54 @@ func TestDrawnBoxesMatchTheLayout(t *testing.T) {
 
 // ---- the renderer and the hit-testing agree ----
 
-// Every body cell reports the zone of its box; anything no box covers falls to the content area.
+// Every body cell reports the zone of the box drawn there; a cell no box covers falls to the
+// content area.
 func TestZoneAtMatchesTheDrawnBoxes(t *testing.T) {
 	for _, c := range layoutCases() {
 		t.Run(c.name, func(t *testing.T) {
 			m := viewModel(c.w, c.h)
 			c.setup(t, m)
-			boxes := layoutBoxes(t, m)
+			bs := boxes(m)
 
-			for y := 1; y <= m.bodyHeight(); y++ {
+			for y := 0; y < m.bodyHeight(); y++ {
 				for x := 0; x < m.width; x++ {
 					want := zonePane
-					if b, ok := boxAt(boxes, x); ok {
+					if b, ok := boxAt(bs, x, y); ok {
 						want = b.z
 					}
 					if got := m.zoneAt(x, y); got != want {
-						t.Fatalf("%dx%d: zoneAt(%d, %d) = %v, want %v — the cell was drawn in a %v box",
-							c.w, c.h, x, y, got, want, want)
+						t.Fatalf("%dx%d: zoneAt(%d, %d) = %v, want %v", c.w, c.h, x, y, got, want)
 					}
 				}
 			}
-			if got := m.zoneAt(0, 0); got != zoneHeader {
-				t.Fatalf("the top row is %v, want zoneHeader", got)
-			}
-			if got := m.zoneAt(0, m.bodyHeight()+1); got != zoneFooter {
+			if got := m.zoneAt(0, m.bodyHeight()); got != zoneFooter {
 				t.Fatalf("the row under the body is %v, want zoneFooter", got)
 			}
-			if got := m.zoneAt(m.width, 1); got != zoneNone {
+			if got := m.zoneAt(m.width, 0); got != zoneNone {
 				t.Fatalf("a column past the window is %v, want zoneNone", got)
 			}
 		})
 	}
 }
 
-// treeLocal answers for the inside of the tree column's box and nowhere else.
+// treeLocal answers for the inside of the tree box and nowhere else.
 func TestTreeLocalCoversTheTreeBoxInterior(t *testing.T) {
 	for _, c := range layoutCases() {
 		t.Run(c.name, func(t *testing.T) {
 			m := viewModel(c.w, c.h)
 			c.setup(t, m)
-			boxes := layoutBoxes(t, m)
+			tree := m.frame.tree
 
-			tree, hasTree := box{}, false
-			for _, b := range boxes {
-				if b.z == zoneTree {
-					tree, hasTree = b, true
-				}
-			}
-
-			for y := 1; y <= m.bodyHeight(); y++ {
+			for y := 0; y < m.bodyHeight(); y++ {
 				for x := 0; x < m.width; x++ {
 					lx, ly, ok := m.treeLocal(x, y)
-					// The interior is the box less its borders; the listing's rows are paneH.
-					want := hasTree && x > tree.lo && x < tree.hi && y >= 2 && y-2 < m.paneH
+					want := !tree.empty() && x > tree.x && x < tree.x+tree.w-1 && y > tree.y && y < tree.y+tree.h-1
 					if ok != want {
 						t.Fatalf("%dx%d: treeLocal(%d, %d) ok = %v, want %v", c.w, c.h, x, y, ok, want)
 					}
-					if !ok {
-						continue
-					}
-					if lx != x-tree.lo-1 || ly != y-2 {
+					if ok && (lx != x-tree.x-1 || ly != y-tree.y-1) {
 						t.Fatalf("%dx%d: treeLocal(%d, %d) = (%d, %d), want (%d, %d)",
-							c.w, c.h, x, y, lx, ly, x-tree.lo-1, y-2)
+							c.w, c.h, x, y, lx, ly, x-tree.x-1, y-tree.y-1)
 					}
 				}
 			}
@@ -366,29 +340,25 @@ func TestContentLocalCoversTheContentBoxInteriors(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			m := viewModel(c.w, c.h)
 			c.setup(t, m)
-			boxes := layoutBoxes(t, m)
 
-			for y := 1; y <= m.bodyHeight(); y++ {
+			for y := 0; y < m.bodyHeight(); y++ {
 				for x := 0; x < m.width; x++ {
 					gotRight, lx, ly, ok := m.contentLocal(x, y)
 
 					var in box
 					inside := false
-					for _, b := range boxes {
-						if b.z == zonePane && x > b.lo && x < b.hi {
+					for _, b := range boxes(m) {
+						r := b.r
+						if b.z == zonePane && x > r.x && x < r.x+r.w-1 && y > r.y && y < r.y+r.h-1 {
 							in, inside = b, true
 						}
 					}
-					inside = inside && y >= 2 && y-2 < m.paneH
 					if ok != inside {
 						t.Fatalf("%dx%d: contentLocal(%d, %d) ok = %v, want %v", c.w, c.h, x, y, ok, inside)
 					}
-					if !ok {
-						continue
-					}
-					if gotRight != in.right || lx != x-in.lo-1 || ly != y-2 {
+					if ok && (gotRight != in.right || lx != x-in.r.x-1 || ly != y-in.r.y-1) {
 						t.Fatalf("%dx%d: contentLocal(%d, %d) = (%v, %d, %d), want (%v, %d, %d)",
-							c.w, c.h, x, y, gotRight, lx, ly, in.right, x-in.lo-1, y-2)
+							c.w, c.h, x, y, gotRight, lx, ly, in.right, x-in.r.x-1, y-in.r.y-1)
 					}
 				}
 			}
@@ -404,7 +374,7 @@ func TestSplitDividerBelongsToNeitherHalf(t *testing.T) {
 		t.Fatal("the content area is not split; the test is not looking at a divider")
 	}
 
-	base, w := m.listWidth()+m.treeWidth(), m.splitHalf()
+	base, w := m.frame.content.x, m.splitHalf()
 	for _, x := range []int{base + w + 1, base + w + 2} {
 		if _, _, _, ok := m.contentLocal(x, 3); ok {
 			t.Fatalf("column %d is on the divider, and contentLocal claimed it", x)
@@ -418,40 +388,36 @@ func TestSplitDividerBelongsToNeitherHalf(t *testing.T) {
 	}
 }
 
-// Below the width that can pay for the host list, hop behaves as though it were collapsed.
+// Below the width that can pay for even a floating sidebar, there is none to show.
 func TestTooNarrowForTheSidebarReadsAsCollapsed(t *testing.T) {
 	for _, w := range []int{24, 27} {
 		m := viewModel(w, 12)
 		withShell(t, m)
+		m.toSidebar()
 
 		if m.sidebarOn() {
 			t.Fatalf("at %d columns the sidebar reports itself on screen", w)
 		}
-		screen := ansi.Strip(m.View().Content)
-		if strings.Contains(screen, "HOSTS") {
+		if screen := ansi.Strip(m.View().Content); strings.Contains(screen, "HOSTS") {
 			t.Fatalf("at %d columns the host list is drawn after all", w)
-		}
-		// Asked of the hint, not the rendered row: a footer this narrow has no room to print it.
-		if got := m.listWidth(); got != 0 {
-			t.Fatalf("at %d columns the list is %d columns wide, want 0", w, got)
 		}
 	}
 }
 
-// The threshold is a threshold: one column over it the list is back as the user left it.
+// The threshold is a threshold: one column over it the floating sidebar is back.
 func TestTheSidebarComesBackWhenTheWindowCanPayForIt(t *testing.T) {
 	m := viewModel(24, 12)
 	withShell(t, m)
+	m.toSidebar()
 	if m.sidebarOn() {
 		t.Fatal("24 columns cannot pay for the sidebar")
 	}
 
 	m.update(tea.WindowSizeMsg{Width: 28, Height: 12})
-	m.leavePane()
 	m.recomputeLayout()
 
-	if !m.sidebarOn() {
-		t.Fatal("28 columns can pay for the sidebar and it did not come back")
+	if !m.sidebarOn() || !m.frame.floats {
+		t.Fatal("28 columns can pay for a floating sidebar and it did not come back")
 	}
 	if got := m.frame.list.w; got != 16 {
 		t.Fatalf("the restored list is %d columns wide, want its floor of 16", got)

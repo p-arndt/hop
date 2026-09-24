@@ -56,7 +56,7 @@ func selModel(t *testing.T, screen, marker string) (*model, func() string) {
 // dragEvents builds the three events one drag arrives as: press, motion, release.
 func dragEvents(x1, y1, x2, y2 int) []mouseEvt {
 	// The sidebar's outer width plus the borders - the inverse of paneLocal.
-	const dx, dy = 33, 2
+	const dx, dy = 33, 1
 	return []mouseEvt{
 		{Mouse: tea.Mouse{X: x1 + dx, Y: y1 + dy, Button: tea.MouseLeft}, action: actPress},
 		{Mouse: tea.Mouse{X: x2 + dx, Y: y2 + dy, Button: tea.MouseLeft}, action: actMotion},
@@ -145,7 +145,7 @@ func TestWheelDuringDragExtendsTheSelection(t *testing.T) {
 	p := m.sessions["ha"].shell().pane
 
 	m.handleMouse(dragEvents(0, 5, 0, 5)[0]) // press, five rows down
-	m.handleMouse(wheel(33, 2+5, true))      // and a notch back into history
+	m.handleMouse(wheel(33, 1+5, true))      // and a notch back into history
 
 	if !m.scrolling() {
 		t.Fatal("the wheel did not pause the shell into its history")
@@ -164,7 +164,7 @@ func TestWheelDuringDragExtendsTheSelection(t *testing.T) {
 		t.Fatalf("head row = %d, want 5 — the pointer did not move", m.sel.head.Y)
 	}
 
-	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 33 + 6, Y: 2 + 5, Button: tea.MouseLeft}, action: actRelease})
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 33 + 6, Y: 1 + 5, Button: tea.MouseLeft}, action: actRelease})
 	if got := countLines(copied()); got != wheelStep+1 {
 		t.Fatalf("copied %d lines (%q), want %d", got, copied(), wheelStep+1)
 	}
@@ -306,7 +306,7 @@ func TestDragReleasedOutsideThePaneEnds(t *testing.T) {
 	m.handleMouse(events[0])
 	m.handleMouse(events[1])
 	// ...and the button comes up over the sidebar.
-	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 4, Y: 5, Button: tea.MouseLeft}, action: actRelease})
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 4, Y: 4, Button: tea.MouseLeft}, action: actRelease})
 
 	if m.sel.dragging {
 		t.Fatal("a drag released outside the pane is still live")
@@ -337,7 +337,7 @@ func longScreen(n int) (string, string) {
 
 // motion builds the event a drag in progress arrives as, in pane-content coordinates.
 func motion(x, y int) mouseEvt {
-	const dx, dy = 33, 2
+	const dx, dy = 33, 1
 	return mouseEvt{Mouse: tea.Mouse{X: x + dx, Y: y + dy, Button: tea.MouseLeft}, action: actMotion}
 }
 
@@ -470,7 +470,7 @@ func TestDragOverSidebarKeepsSelection(t *testing.T) {
 	m, _ := selModel(t, "sudo apt update\r\n", "sudo apt update")
 
 	m.handleMouse(dragEvents(0, 0, 0, 0)[0])
-	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 4, Y: 4, Button: tea.MouseLeft}, action: actMotion})
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 4, Y: 3, Button: tea.MouseLeft}, action: actMotion})
 
 	if !m.sel.active || !m.sel.dragging {
 		t.Fatal("crossing the sidebar cleared the drag")
@@ -486,9 +486,9 @@ func TestSelectionTallerThanThePaneCopiesEveryRow(t *testing.T) {
 
 	// Press on the last row, then wheel back into history so the anchor travels past the bottom.
 	m.handleMouse(dragEvents(0, m.paneH-1, 0, m.paneH-1)[0])
-	m.handleMouse(wheel(33, 2+m.paneH-1, true))
-	m.handleMouse(wheel(33, 2+m.paneH-1, true))
-	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 33, Y: 2, Button: tea.MouseLeft}, action: actRelease})
+	m.handleMouse(wheel(33, m.paneH, true))
+	m.handleMouse(wheel(33, m.paneH, true))
+	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 33, Y: 0, Button: tea.MouseLeft}, action: actRelease})
 
 	want := m.paneH + 2*wheelStep
 	if got := countLines(copied()); got != want {

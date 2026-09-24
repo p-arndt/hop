@@ -30,14 +30,15 @@ label: Browsing mode
 | [[+]] ([[=]]) [[-]] | a taller / shorter terminal panel |
 | [[←]] [[backspace]] | collapse, or step out to the parent |
 | [[r]] | refresh the listing |
-| [[p]] | the [switcher](#leader): any tab, file or host, most recent first |
+| [[p]] | [go to](#leader): any tab, file or host |
+| [[shift+→]] [[shift+←]] | next / previous tab on this host |
 | [[ctrl+k]] | the [palette](#actions): everything the browser can do, searchable |
 | [[,]] | settings |
 | [[?]] | the key card |
-| [[ctrl+t]] | hide / show the tree column |
-| [[ctrl+o]] | back to hop |
-| [[esc]] [[esc]] | back to hop (two presses within 400 ms) |
-| [[q]] | **close** the browser — open files stay, and with nothing else open the connection goes too |
+| [[ctrl+t]] | move the tree between the sidebar and the content area |
+| [[ctrl+o]] | the [leader](#leader), as in a shell |
+| [[esc]] [[esc]] | the [sidebar](#sidebar) (two presses within 400 ms) |
+| [[q]] | **close** the files tab — open files stay, and with nothing else open the connection goes too |
 
 With [vim keys](#vim) on the browser keeps the *whole* motion set (the host list only the
 step keys): [[j]]/[[k]], [[gg]], [[G]], [[H]]/[[M]]/[[L]], [[ctrl+d]]/[[ctrl+u]],
@@ -87,17 +88,19 @@ that is a rename the server does by itself; only across a mount boundary does it
 the same copy.
 :::
 
-The browser is the [files view](#sidebar): alone it has the whole window; once a file is
-open it becomes a **column** beside it, and [[tab]] and [[ctrl+o]] [[t]] pass the keyboard
-between the two. [[ctrl+t]] gives the column's width back to the file. The column is a quarter
-of the window (30 to 44 columns); below 92 columns there is no room for both, and the browser
-goes back to filling the view while it has the keyboard.
+The browser is the **files tab**. Where the window has room for the [sidebar](#sidebar), the
+tree lives there, in a box under the hosts, and the content area beside it previews the file
+under the cursor — the first 64 KiB of it, read on demand, with directories, binaries and
+anything larger described rather than read. On an editor tab the same tree box stays under
+the hosts beside the open file, and [[tab]] and [[ctrl+o]] [[t]] pass the keyboard between
+the two. Below 94 columns there is no docked sidebar, and the files tab draws the tree across
+the content area instead.
 
 :::why not="readme" Why [[←]] walks the tree instead of leaving
 [[←]] is pure motion: it collapses the directory you are in, steps out to its parent, and
-only at the top of the tree does it pop back to hop. The directory you open in is usually your
-home directory — so a [[←]] that left straight away would drop you back to hop exactly when
-you meant to go up to `/home`. Leaving is otherwise always explicit: [[ctrl+o]], [[q]] to close it for good, or a
+only at the top of the tree does it stop. The directory you open in is usually your home
+directory — so a [[←]] that left straight away would drop you out exactly when you meant to
+go up to `/home`. Leaving is otherwise always explicit: [[ctrl+o]] [[o]], [[q]] to close it for good, or a
 [double esc](#doubleesc) — though unlike in a pane, a lone [[esc]] here is swallowed rather
 than forwarded.
 :::

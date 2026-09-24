@@ -73,9 +73,20 @@ meaning.
 ### Escape hatch
 
 **Is:** the binding that always gets the user out of a pane, whatever they have
-rebound. Double-`esc` and the reserved `ctrl+o`.
+rebound. Double-`esc` and the reserved `ctrl+o`. Out of a pane is the sidebar, never out of
+hop.
 
 **Rule:** it survives every override. Non-negotiable.
+
+### Back
+
+**Is:** `esc` in the list layer: the keyboard goes back to where it was before the sidebar
+took it.
+
+**Is not:** quit. A second `esc` straight after is the same back, and with nowhere to go back
+to it does nothing.
+
+**In code:** `keys.Back`; `backFromSidebar`, `escGuard` in `internal/tui/keys.go`.
 
 ### Normalize
 

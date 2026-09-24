@@ -10,7 +10,7 @@ code:
   - internal/tui/layout.go
   - internal/tui/view.go
   - internal/tui/session.go
-  - internal/tui/tabs.go
+  - internal/tui/list.go
   - internal/tui/keys.go
   - internal/tui/status.go
   - internal/tui/commands.go
@@ -19,7 +19,6 @@ code:
   - internal/tui/palette.go
   - internal/tui/hostswitch.go
   - internal/tui/targets.go
-  - internal/tui/sessionbar.go
   - internal/tui/help.go
   - internal/tui/settings.go
   - internal/tui/confirm.go
@@ -57,8 +56,9 @@ relationships:
 ## Purpose
 
 **Where am I, and where are my keystrokes going?** workspace owns everything the user
-sees at once: which host is in front, what is beside it, which tab has the keyboard,
-and the status line that answers that question permanently.
+sees at once: which host is in front, which of its tabs the content area shows, whether
+the keyboard is there or in the sidebar, and the crumb that answers that question
+permanently.
 
 It is also the context that makes hop's other promise true — **leaving a pane never
 tears down what is inside it.** A session is what hop holds open for one host: its
@@ -111,41 +111,53 @@ The terms live in [`language.md`](language.md).
   to another host never closes a shell, an editor, a browser or a tunnel.
 - **Closing is explicit and narrow.** `q` in the browser closes the browser and nothing
   else: its editor tabs are channels of their own and may hold unsaved work. The
-  connection goes only when that leaves the session empty.
-- **A hop does not go through the list.** From a shell or an editor the switcher is one
-  chord away (`ctrl+o space`), and the last host another (`ctrl+o tab`), so moving between
-  servers never costs leaving the pane first. In a pane only the leader reaches them: a bare
-  key belongs to the remote program.
-- **Everything open is one move away.** The switcher lists every target on every connected
-  host, most recently used first, and lands exactly on the one chosen — that shell tab, that
-  file, the panel. With no query `enter` goes back to the place before this one.
-- **Entering a host lands on its last place.** The host list's `enter`, a host in the switcher
-  or the session bar, and `ctrl+o tab` all go back to the target last used there — or, if
-  that has closed, the one used before it, then its shell, browser or editor. Only an
+  connection goes only when that leaves the session empty. `x` on a tab row of the sidebar
+  closes that one tab the same way; an editor asks first, since unsaved work would go with it.
+- **A hop is three keys.** A double `esc` from any pane, the tree or the panel puts the
+  keyboard in the sidebar on the tab it was in; `↑`/`↓` and `enter` (or `→`) land anywhere. For
+  hopping without the sidebar, go to is one chord away (`ctrl+o space`), the last host
+  another (`ctrl+o tab`), and the neighbouring open hosts `ctrl+o ←`/`→`. In a pane only
+  the leader and the double `esc` reach them: a bare key belongs to the remote program.
+- **`esc` never quits hop.** In the sidebar it gives the keyboard back to where it was with
+  nothing changed, a second one straight after is the same `esc` rather than a stray key for
+  the pane, and with nowhere to go it does nothing. Quitting is `q` or `ctrl+c` there.
+- **Everything open is one move away.** Go to lists every target on every connected host
+  and lands exactly on the one chosen — that shell tab, that file, the panel. With no query
+  it is a tree of the open hosts and what is under each, its cursor on the place before
+  this one, so `enter` goes back there; typing flattens it into one ranked list.
+- **Entering a host lands on its last place.** The sidebar's `enter` on a host, a host in go
+  to, a click on an open host, and `ctrl+o tab` all go back to the target last used there —
+  or, if that has closed, the one used before it, then its shell, browser or editor. Only an
   explicit new-shell action opens another shell.
 - **The last host is the one in front before the current one**, changing only when the host
   in front does. With no last host, or none with a session left, hop says so and stays put;
   one whose connection dropped is reconnected.
-- **The header shows what is open, and every chip is a way there.** The session bar is laid
-  out once and hit-tested against the same cells; it degrades by dropping from its far end
-  to a "+N", and a transient status borrows its right side rather than losing its place.
-- **The user always knows where their keystrokes go.** The status bar is permanent
-  screen space, directly above the keys that act on it, naming the host, the mode, the
-  file or directory, and the machine behind the alias.
-- **At most two boxes, and a pane keeps one size.** A host in front shows one view: its
-  shell at full width, or the tree beside its open files. The host list floats over the
-  view rather than resizing it, so going to the list and back never reflows a remote program.
+- **The sidebar shows what is open, and every row is a way there.** The host in front is
+  opened out into its tabs, in the order they were opened; the other open hosts are folded
+  up with a count. The rows are built once (`buildRows`) and read by both the renderer and
+  the pointer, so what is clicked is what is drawn.
+- **The user always knows where their keystrokes go.** The footer's crumb is permanent
+  screen space, beside the keys that act on it, naming the host, the tab and the file or
+  directory; a transient status borrows it while it lasts. The accent marks only where the
+  keyboard is: the focused box's border, the sidebar's cursor, and the marker on the tab in
+  front while the keyboard is in it. Everything else is grey.
+- **At most two columns, and a pane keeps one size.** The sidebar and the content area, and
+  nothing between them: the tree lives in the sidebar, under the hosts. The sidebar's width
+  is decided by the window and by the user's own dock toggle, never by where the keyboard
+  is; where it is not docked it floats over the content while it has the keyboard, so going
+  to the sidebar and back never reflows a remote program.
 - **The terminal panel belongs to the files.** It needs a browser or an open file to sit
   under, goes when the browser closes with no file left, and moving it with `S` sends a
   `cd` to the running shell rather than starting another — never onto the alternate screen.
 - **Mode says where keystrokes go, and only that** — not what is drawn. Layout and
-  focus are separate facts.
-- **Layout degrades, it does not break.** Below the width a column needs, the browser
-  falls back to a full pane; the host list gives way; the split refuses to open. hop never
-  renders a broken screen because the terminal is small.
-- **A column that is not on screen does not take keys.** The host list off screen —
-  collapsed, or the window too narrow — holds no selection, so its keys go quiet; and
-  anything that hands the keyboard back to it reveals it first when the window allows.
+  focus are separate facts: the keyboard going to the sidebar leaves the content area
+  showing exactly what it showed.
+- **Layout degrades, it does not break.** Below the width a docked sidebar needs, it floats
+  and the tree takes the content area; below what even a floating one needs, it gives way;
+  the split refuses to open. hop never renders a broken screen because the terminal is small.
+- **A column that is not on screen does not take keys.** The sidebar off screen — a window
+  too narrow even to float it — holds no selection, so its keys go quiet; and anything that
+  hands the keyboard back to it reveals it first when the window allows.
 - **The cursor rides its entry** across a sort, a refresh or a tree collapse. The user's
   place is not lost by hop's own bookkeeping.
 - **Every remote-derived string is stripped of control characters** before it reaches a

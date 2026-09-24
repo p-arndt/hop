@@ -63,7 +63,8 @@ func key(t *testing.T, name string) tea.KeyPressMsg {
 	return msg
 }
 
-// newNavModel builds a navigation-mode model with n hosts, listRows() == 15 and vim keys on.
+// newNavModel builds a model with n hosts, the keyboard in the sidebar, listRows() == 16
+// and vim keys on.
 func newNavModel(n int) *model {
 	hosts := make([]store.Host, n)
 	for i := range hosts {
@@ -84,8 +85,8 @@ func TestNavVimMotions(t *testing.T) {
 		{"j moves down", []string{"j"}, 1},
 		{"k clamps at top", []string{"k", "k"}, 0},
 		{"j clamps at bottom", []string{"pgdown", "pgdown", "j"}, 29},
-		{"pgdown pages", []string{"pgdown"}, 15},
-		{"pgup pages back", []string{"pgdown", "pgdown", "pgup"}, 14},
+		{"pgdown pages", []string{"pgdown"}, 16},
+		{"pgup pages back", []string{"pgdown", "pgdown", "pgup"}, 13},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -205,24 +206,33 @@ func TestNavMotionsOnEmptyList(t *testing.T) {
 	}
 }
 
-// left/h/esc are the back key in navigation mode: they drop the details view.
+// esc in the sidebar gives the keyboard back to the host in front, and with none there is
+// nowhere to go: it stays, and nothing is dropped or quit.
 func TestNavBackKeys(t *testing.T) {
-	for _, k := range []string{"esc", "left", "h"} {
-		t.Run(k, func(t *testing.T) {
-			m := newNavModel(30)
-			m.active = "web1"
-			m.status = "connected to web1"
+	t.Run("back to the shell", func(t *testing.T) {
+		m := newNavModel(30)
+		m.sessions = map[string]*session{"h0": {shells: []*shellTab{{id: 1, pane: fakePane()}}}}
+		m.active = "h0"
+		m.status = "connected to h0"
 
-			m.handleKey(key(t, k))
+		m.handleKey(key(t, "esc"))
 
-			if m.active != "" {
-				t.Fatalf("active = %q, want empty", m.active)
-			}
-			if m.status != "" {
-				t.Fatalf("status = %q, want empty", m.status)
-			}
-		})
-	}
+		if m.mode != modeShell || m.active != "h0" {
+			t.Fatalf("mode = %v, active = %q; want h0's shell", m.mode, m.active)
+		}
+		if m.status != "" {
+			t.Fatalf("status = %q, want empty", m.status)
+		}
+	})
+	t.Run("nowhere to go", func(t *testing.T) {
+		m := newNavModel(30)
+		if _, cmd := m.handleKey(key(t, "esc")); cmd != nil {
+			t.Fatal("esc with no host in front ran a command")
+		}
+		if m.mode != modeList {
+			t.Fatalf("mode = %v, want the sidebar", m.mode)
+		}
+	})
 }
 
 func TestNavForwardKeysOnEmptyList(t *testing.T) {
@@ -349,17 +359,22 @@ func TestBrowsingSlowDoubleEscStays(t *testing.T) {
 	}
 }
 
-func TestBrowsingCtrlOLeaves(t *testing.T) {
+// ctrl+o in the browser is the leader, as in every pane, and breaks a half-typed double esc.
+func TestBrowsingCtrlOIsTheLeader(t *testing.T) {
 	m := newBrowseModel()
 
 	m.handleKey(key(t, "esc"))
 	m.handleKey(key(t, "ctrl+o"))
 
-	if m.browsing() {
-		t.Fatal("ctrl+o did not leave the browser")
+	if !m.leaderArmed() || !m.browsing() {
+		t.Fatal("ctrl+o in the browser did not arm the leader")
 	}
 	if m.reader.Pending() {
-		t.Fatal("lastEsc not reset on leaving the browser")
+		t.Fatal("the half-typed double esc survived the leader")
+	}
+	m.handleKey(key(t, "o"))
+	if m.mode != modeList {
+		t.Fatal("ctrl+o o did not take the keyboard to the sidebar")
 	}
 }
 

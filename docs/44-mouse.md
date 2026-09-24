@@ -10,18 +10,21 @@ Every gesture is an existing binding reached by pointing, so nothing is mouse-on
 
 | Gesture | Where | What it does |
 | --- | --- | --- |
-| wheel | the host list | moves the selection, one host a notch |
+| wheel | the sidebar | moves the cursor, one row a notch |
 | wheel | a shell pane | pauses into its [scrollback](#scrollback), three lines a notch |
 | wheel | a full-screen program | [[↑]] / [[↓]], three of them a notch — it keeps no scrollback here |
 | wheel | the SFTP browser | moves the cursor three entries a notch |
-| click | the host list | stands on that host — and, from a pane, hands the keyboard back |
-| click | a pane the list has the keyboard in | takes it: the pointer's [[s]] or [[f]] |
-| click | a tab strip | switches to that shell or file tab |
+| click | a tab under a host in the sidebar | goes to that tab, as [[enter]] on it does |
+| click | a host with something open, or a dropped one | goes to it — where you last were, or its reconnect screen; nothing dials |
+| click | a host with nothing open | stands on it, the keyboard in the sidebar |
+| click | a box the keyboard is not in | takes it: the tree, the file, the shell, the panel |
+| click | a recent place, with no host in front | goes there |
+| drag | the terminal panel's top edge | resizes the panel |
 | drag | a pane | selects text; it lands on the clipboard when you let go |
 | shift+drag | a pane whose program has the mouse | selects with hop anyway, and copies |
 | wheel *while dragging* | a pane | scrolls under the selection, which grows to follow |
 | drag to the top / bottom row | a pane | keeps scrolling by itself while you hold it there |
-| double-click | a host, or a browser entry | opens it — [[enter]], by pointing |
+| double-click | a host with nothing open, or a browser entry | opens it — [[enter]], by pointing |
 
 A selection is not limited to the screenful it started on: while the button is down the
 wheel scrolls the view under it and the selection grows, and a drag held against the top or

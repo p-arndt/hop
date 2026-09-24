@@ -25,4 +25,5 @@ the [SSH config import](#import), so the forwards you already have keep working.
 running definition stops the old one on save, and a [reconnect](#reconnect) puts the set that
 was running back up.
 
-The status dot in the host list shows `⇄2` when two tunnels are up on that host.
+The sidebar shows `⇄ 2 tunnels` under a host that has two up, and [[enter]] on that line
+opens its manager.

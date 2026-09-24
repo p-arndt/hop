@@ -2,33 +2,55 @@ package tui
 
 import (
 	"fmt"
+	"path"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ---- status bar ----
+// ---- the crumb ----
 
 var statusSep = faint.Render(" › ")
 
-// renderStatus draws the bar: crumbs left, target and chips right, always exactly m.width
-// wide so the fill reaches both edges.
-func (m *model) renderStatus() string {
-	inner := max(m.width-2, 0)
+// footerLeft is the footer's left side at w cells: a transient status while one is up —
+// it must not be lost, and it speaks for the moment — else the crumb, which says where the
+// keystrokes go: the host, the tab, the path.
+func (m *model) footerLeft(w int) string {
+	if st := m.styledStatus(w); st != "" {
+		return st
+	}
+	return m.statusCrumbs(w)
+}
 
-	right := m.statusChips()
-	// The crumbs yield to the target: the path is what gets elided on a narrow window.
-	left := m.statusCrumbs(max(inner-lipgloss.Width(right)-2, 8))
-
-	gap := max(inner-lipgloss.Width(left)-lipgloss.Width(right), 0)
-	line := truncate(left+strings.Repeat(" ", gap)+right, inner)
-	return statusBar.Width(m.width).Render(line)
+// styledStatus colors the status line by statusKind rather than by wording.
+func (m *model) styledStatus(w int) string {
+	if m.status == "" || w <= 0 {
+		return ""
+	}
+	icon, style := "·", dimStyle
+	switch m.statusKind {
+	case statusOK:
+		icon, style = "✓", greenText
+	case statusWarn:
+		icon, style = "!", yellowText
+	case statusErr:
+		icon, style = "✗", redText
+	}
+	return style.Render(truncate(icon+" "+m.status, w))
 }
 
 // statusCrumbs renders the trail, eliding the last crumb from the left since the tail of a
-// path says more than its root.
+// path says more than its root. Crumbs that do not fit go whole from the end: a word cut in
+// half cannot be read.
 func (m *model) statusCrumbs(w int) string {
 	crumbs, tail := m.crumbs()
+	// Every tail is a remote path or cwd, so a directory's name could carry an escape.
+	tail = stripControl(tail)
+	for len(crumbs) > 1 && lipgloss.Width(strings.Join(crumbs, statusSep)) > w {
+		crumbs, tail = crumbs[:len(crumbs)-1], ""
+	}
 
 	head := strings.Join(crumbs, statusSep)
 	if tail == "" {
@@ -44,90 +66,53 @@ func (m *model) statusCrumbs(w int) string {
 // is the one statusCrumbs cuts.
 func (m *model) crumbs() ([]string, string) {
 	s := m.sessions[m.active]
+	host := aliasStyle.Render(stripControl(m.active))
 
 	switch {
-	case s != nil && s.dead && m.active != "":
-		return []string{aliasStyle.Render(m.active), redText.Render("disconnected")}, ""
+	case m.mode == modeList || s == nil:
+		crumbs := []string{dimStyle.Render("hosts")}
+		if h, ok := m.selectedHost(); ok {
+			crumbs = append(crumbs, aliasStyle.Render(stripControl(h.Alias)))
+		}
+		if t, ok := m.selectedPlace(); ok && t.kind != targetHost && t.kind != targetTunnels {
+			crumbs = append(crumbs, dimStyle.Render(m.tabLabel(t)))
+		}
+		return crumbs, ""
 
-	case m.mode == modeDrawer && s != nil && s.drawer != nil:
-		return []string{aliasStyle.Render(m.active), dimStyle.Render("terminal")}, s.drawer.pane.Cwd()
+	case s.dead:
+		return []string{host, redText.Render("disconnected")}, ""
 
-	case m.editing() && s != nil && s.editor() != nil:
+	case m.mode == modeDrawer && s.drawer != nil:
+		return []string{host, dimStyle.Render("terminal")}, s.drawer.pane.Cwd()
+
+	case m.editing() && s.editor() != nil:
 		ed := s.editor()
-		// The path, not the name: two tabs on config.yaml in different directories are
+		// The directory as the tail: two tabs on config.yaml in different directories are
 		// otherwise the same crumb.
-		return []string{aliasStyle.Render(m.active), dimStyle.Render("edit")}, ed.path
+		return []string{host, dimStyle.Render(stripControl(ed.name))}, path.Dir(ed.path)
 
-	case m.browsing() && s != nil && s.browser != nil:
-		return []string{aliasStyle.Render(m.active), dimStyle.Render("sftp")}, s.browser.Path()
+	case m.browsing() && s.browser != nil:
+		return []string{host, dimStyle.Render("files")}, s.browser.Path()
 
-	case m.scrolling() && m.active != "":
-		return []string{aliasStyle.Render(m.active), dimStyle.Render("scrollback")}, ""
-
-	case m.focused() && m.active != "":
+	case m.focused() && s.shell() != nil:
+		name := dimStyle.Render(m.shellName(s))
+		if m.scrolling() {
+			p := s.shell().pane
+			return []string{host, name, accentText.Bold(true).Render(
+				fmt.Sprintf("scrollback ⇅ %d/%d", p.ScrollOffset(), p.ScrollbackLen()))}, ""
+		}
 		// The cwd arrives over OSC 7 and only from a shell that emits it, so a quiet shell
-		// gets the word instead of a stale path.
-		if cwd := m.shellCwd(m.active); cwd != "" {
-			return []string{aliasStyle.Render(m.active)}, cwd
-		}
-		return []string{aliasStyle.Render(m.active), dimStyle.Render("shell")}, ""
+		// gets its name alone rather than a stale path.
+		return []string{host, name}, m.shellCwd(m.active)
 	}
-
-	crumbs := []string{dimStyle.Render("hosts")}
-	if h, ok := m.selectedHost(); ok {
-		crumbs = append(crumbs, aliasStyle.Render(h.Alias))
-	}
-	return crumbs, ""
+	return []string{host}, ""
 }
 
-// statusChips is the right-hand end: which of several tabs is up, and the machine as
-// user@host:port.
-func (m *model) statusChips() string {
-	var chips []string
-	s := m.sessions[m.active]
-
-	switch {
-	case m.scrolling() && s != nil && s.shell() != nil:
-		p := s.shell().pane
-		chips = append(chips, accentText.Bold(true).Render(fmt.Sprintf("⇅ %d/%d", p.ScrollOffset(), p.ScrollbackLen())))
-	case m.editing() && s != nil && len(s.editors) > 1:
-		// The half the keyboard is in, since that is the file the crumbs to the left name.
-		chips = append(chips, chipStyle.Render(
-			fmt.Sprintf("file %d/%d", s.editorIndex(s.focusedHalf())+1, len(s.editors))))
-	case m.focused() && s != nil && len(s.shells) > 1:
-		chips = append(chips, chipStyle.Render(fmt.Sprintf("shell %d/%d", s.activeSh+1, len(s.shells))))
-	}
-
-	if t := m.statusTarget(); t != "" {
-		chips = append(chips, faint.Render(t))
-	}
-	return strings.Join(chips, " ")
-}
-
-// statusTarget is user@host:port for the host the screen is about, omitting the parts that
-// carry no information.
-func (m *model) statusTarget() string {
-	alias := m.active
-	if alias == "" || !m.inPane() {
-		h, ok := m.selectedHost()
-		if !ok {
-			return ""
-		}
-		alias = h.Alias
-	}
-	h, ok := m.hostByAlias(alias)
-	if !ok || h.HostName == "" {
-		return ""
-	}
-
-	t := h.HostName
-	if h.User != "" {
-		t = h.User + "@" + t
-	}
-	if h.Port != 0 && h.Port != 22 {
-		t = fmt.Sprintf("%s:%d", t, h.Port)
-	}
-	return t
+// shellName is the shell tab in front as the crumb names it, numbered among the shells.
+func (m *model) shellName(s *session) string {
+	sh := s.shell()
+	i := slices.Index(s.shells, sh)
+	return "shell " + strconv.Itoa(i+1)
 }
 
 // elideLeft cuts s to w keeping its end, marking the cut with a leading ellipsis.

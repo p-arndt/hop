@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -228,5 +229,27 @@ func TestLastPlaceFallsBackToShellBrowserEditor(t *testing.T) {
 	s.closeShells()
 	if lp, _ := m.lastPlace("ha"); lp.kind != targetBrowser {
 		t.Fatalf("last place = %+v, want the browser", lp)
+	}
+}
+
+// A closed tab leaves no trace in the recency stamps or the tab order.
+func TestClosedTabsAreForgotten(t *testing.T) {
+	m, s := placesModel(t)
+	m.width, m.height = 160, 40
+	m.Update(nil)
+	ed := target{alias: "ha", kind: targetEditor, id: 11}
+	pick(t, m, ed)
+	if _, ok := m.used[ed]; !ok {
+		t.Fatal("the editor was never stamped")
+	}
+
+	m.editorExited(editorExitedMsg{alias: "ha", id: 11})
+	pick(t, m, target{alias: "ha", kind: targetBrowser})
+
+	if _, ok := m.used[ed]; ok {
+		t.Fatal("the closed editor's stamp was kept")
+	}
+	if slices.Contains(s.order, ed) {
+		t.Fatal("the closed editor is still in the tab order")
 	}
 }

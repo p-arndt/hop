@@ -131,8 +131,9 @@ func TestDeadPaneKeyboard(t *testing.T) {
 	}
 
 	m.handleKey(key(t, "ctrl+o"))
+	m.handleKey(key(t, "o"))
 	if m.focused() || m.active != "web" {
-		t.Fatalf("focused = %v, active = %q; want the list focused with the pane still shown",
+		t.Fatalf("focused = %v, active = %q; want the sidebar focused with the pane still shown",
 			m.focused(), m.active)
 	}
 }
@@ -350,7 +351,7 @@ func wideDeadModel(t *testing.T, shells int, browser bool) (*model, *session, *s
 	return m, s, cli
 }
 
-// Regression: a reconnect built the browser at the content area's width, not the tree column's.
+// Regression: a reconnect built the browser at the content area's width, not the tree box's.
 func TestReconnectBuildsTheBrowserAtTheColumnWidth(t *testing.T) {
 	m, _, _ := wideDeadModel(t, 0, true)
 	size := watchBrowserSize(t)
@@ -362,7 +363,7 @@ func TestReconnectBuildsTheBrowserAtTheColumnWidth(t *testing.T) {
 	}
 
 	if gotW, gotH := size(); gotW != wantW || gotH != wantH {
-		t.Fatalf("browser built at %dx%d, want the tree column's %dx%d — the content area is %d wide",
+		t.Fatalf("browser built at %dx%d, want the tree box's %dx%d — the content area is %d wide",
 			gotW, gotH, wantW, wantH, m.paneW)
 	}
 }

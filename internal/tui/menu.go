@@ -104,7 +104,7 @@ const menuChrome = 6
 
 // menuPlace keeps the anchored row visible: it is the list that gives way, not the anchor.
 func (m *model) menuPlace() (start, rows, y int) {
-	const top = 1 // the first body row, under the screen header
+	const top = 0 // the first body row: there is no header
 
 	below := m.menuBottom() - (m.menu.row + 1)
 	above := m.menu.row - top
@@ -123,8 +123,8 @@ func (m *model) menuPlace() (start, rows, y int) {
 	return start, rows, y
 }
 
-// menuBottom keeps the menu clear of the status bar and the footer.
-func (m *model) menuBottom() int { return max(m.height-2, 1) }
+// menuBottom keeps the menu clear of the footer.
+func (m *model) menuBottom() int { return max(m.height-1, 1) }
 
 // menuAt indents by two cells to leave the anchored row's accent bar showing.
 func (m *model) menuAt() (card string, x, y int) {

@@ -147,7 +147,7 @@ func (m *model) reconnect(h store.Host) tea.Cmd {
 		return m.withSpinner(startTunnelsCmd(h, nil, "", m.prompter(h.Alias), defs, true))
 	}
 	m.nextShID++
-	cols, rows := m.shellSize(1)
+	cols, rows := m.shellSize()
 	return m.withSpinner(connectCmd(h, "", m.prompter(h.Alias), false, m.nextShID, cols, rows, m.notify))
 }
 
@@ -171,7 +171,7 @@ func (m *model) applyPlan(alias string) tea.Cmd {
 	var cmds []tea.Cmd
 	for i := len(s.shells); i < plan.shells; i++ {
 		m.nextShID++
-		cols, rows := m.shellSize(i + 1)
+		cols, rows := m.shellSize()
 		cmds = append(cmds, shellCmd(alias, h.DefaultDir, s.client, m.nextShID, cols, rows, m.notify, true))
 	}
 	if plan.browser && s.browser == nil {
@@ -267,12 +267,14 @@ func (m *model) handleDeadPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.reconnect(h)
 
+	case keys.LeaderKey:
+		// The leader still works here, so the other tabs and hosts are a chord away.
+		m.armLeader()
+
 	case keys.DeadLeave:
 		// A single esc is enough: the double-tap exists to leave a remote program an esc of
 		// its own, and there is no longer a program to leave one to.
-		m.mode = modeList
-		m.reader.Reset()
-		m.clearStatus()
+		m.toSidebar()
 
 	case keys.DeadHelp:
 		m.openHelp()

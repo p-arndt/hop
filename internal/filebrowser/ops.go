@@ -159,6 +159,8 @@ func (b *Browser) refresh() bool {
 	b.pruneTarget()
 	b.focusPath(at)
 	b.clearNote()
+	// A refresh is how the user says a file may have changed; the preview is read again.
+	b.preview = preview{seq: b.preview.seq}
 	return true
 }
 

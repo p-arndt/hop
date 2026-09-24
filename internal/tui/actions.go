@@ -72,6 +72,7 @@ var globalSpecs = []spec{
 	{id: keys.HostImport},
 	{id: keys.Filter},
 	{id: keys.Settings},
+	{id: keys.SidebarDock},
 	{id: keys.Help},
 	{id: keys.Quit},
 }
@@ -100,6 +101,12 @@ var browserSpecs = []spec{
 	{id: keys.BrowserGrow},
 	{id: keys.BrowserShrink},
 	{id: keys.BrowserTree},
+	{id: keys.BrowserNextTab},
+	{id: keys.BrowserPrevTab},
+	nextHostSpec,
+	prevHostSpec,
+	lastHostSpec,
+	sidebarSpec,
 	{id: keys.BrowserLeave},
 	{id: keys.BrowserClose},
 	{id: keys.BrowserHosts},
@@ -107,14 +114,25 @@ var browserSpecs = []spec{
 	{id: keys.BrowserHelp},
 }
 
-// hostsSpec and lastHostSpec are the leader's way between hosts, in a shell and an editor
-// alike. The last host is offered only while there is one to land on.
+// hostsSpec, lastHostSpec and the host steps are the leader's way between hosts, from every
+// tab alike. The last host is offered only while there is one to land on, a step only while
+// there is another host to step to.
 var (
 	hostsSpec    = spec{id: keys.LeaderHosts, leader: true}
 	lastHostSpec = spec{id: keys.LeaderLast, leader: true, ok: func(m *model) bool {
 		return m.last != "" && m.sessions[m.last] != nil
 	}}
+	nextHostSpec = spec{id: keys.LeaderNextHost, leader: true, ok: twoHosts}
+	prevHostSpec = spec{id: keys.LeaderPrevHost, leader: true, ok: twoHosts}
+	sidebarSpec  = spec{id: keys.LeaderSidebar, leader: true}
+	// drawerSpec is offered wherever there are files for the panel to sit under.
+	drawerSpec = spec{id: keys.LeaderDrawer, leader: true, ok: func(m *model) bool {
+		s := m.sessions[m.active]
+		return s != nil && (s.browser != nil || len(s.editors) > 0)
+	}}
 )
+
+func twoHosts(m *model) bool { return len(m.sessions) > 1 }
 
 // paneSpecs is a live shell's, mostly chords: an unreserved key belongs to the remote.
 func (m *model) paneSpecs() []spec {
@@ -126,10 +144,14 @@ func (m *model) paneSpecs() []spec {
 			s := m.sessions[m.active]
 			return s != nil && s.browser != nil
 		}},
+		drawerSpec,
 		{id: keys.PaneNextTab},
 		{id: keys.PanePrevTab},
 		hostsSpec,
 		lastHostSpec,
+		nextHostSpec,
+		prevHostSpec,
+		sidebarSpec,
 	}
 	// The same conditions the chords themselves check, so the palette never offers a key
 	// that would decline.
@@ -145,21 +167,26 @@ func (m *model) paneSpecs() []spec {
 
 // editorSpecs is an open editor tab's; ":q" is the remote editor's, so it is not here.
 var editorSpecs = []spec{
-	{id: keys.LeaderOut, label: "back to the file browser", leader: true},
+	{id: keys.LeaderOut, leader: true},
 	{id: keys.EditorNextTab},
 	{id: keys.EditorPrevTab},
 	{id: keys.EditorFocusTree},
 	{id: keys.LeaderTree, leader: true},
+	{id: keys.LeaderBrowser, leader: true},
 	{id: keys.LeaderDrawer, leader: true},
 	{id: keys.LeaderGrow, leader: true, ok: func(m *model) bool { return m.drawerOnScreen() > 0 }},
 	{id: keys.LeaderShrink, leader: true, ok: func(m *model) bool { return m.drawerOnScreen() > 0 }},
 	{id: keys.LeaderToShell, leader: true},
+	{id: keys.LeaderShell, leader: true},
 	{id: keys.EditorUnsplit, ok: func(m *model) bool {
 		s := m.sessions[m.active]
 		return s != nil && s.split
 	}},
 	hostsSpec,
 	lastHostSpec,
+	nextHostSpec,
+	prevHostSpec,
+	sidebarSpec,
 	{id: keys.LeaderHelp, leader: true},
 }
 

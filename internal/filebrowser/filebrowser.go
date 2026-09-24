@@ -129,6 +129,9 @@ type Browser struct {
 
 	// xfer is the transfer in flight, if any. See transfer.go.
 	xfer *transfer
+
+	// preview is the file under the cursor, as the files tab shows it. See preview.go.
+	preview preview
 }
 
 // New builds a Browser starting in startDir, or the remote home when empty or unlistable.
@@ -264,8 +267,14 @@ func (b *Browser) Do(a keys.Action) tea.Cmd {
 	return nil
 }
 
-// Update takes the transfer messages the model routes back here by alias.
-func (b *Browser) Update(msg Msg) tea.Cmd { return b.handleTransferMsg(msg.Body) }
+// Update takes the transfer and preview messages the model routes back here by alias.
+func (b *Browser) Update(msg Msg) tea.Cmd {
+	if p, ok := msg.Body.(previewLoadedMsg); ok {
+		b.previewLanded(p)
+		return nil
+	}
+	return b.handleTransferMsg(msg.Body)
+}
 
 // send wraps a browser message as the command that delivers it.
 func (b *Browser) send(body any) tea.Cmd {

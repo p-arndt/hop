@@ -74,6 +74,12 @@ these words, appear in this context's code, tests, APIs, commits and prompts.**
   tells the user which rebindings it could not honour.
 - **The escape hatch always survives.** No override can leave the user unable to get
   out of a pane.
+- **`esc` never quits.** No layer binds quitting to `esc`, alone or doubled; quitting is
+  `q` and `ctrl+c`, in the list layer only. A double `esc` leaves a pane for the sidebar, and
+  `esc` there goes back — never further out than the program.
+- **An action bound in several layers is rebound through its first row**, so the shell
+  pane's leader comes first in the table: rebinding `pane.leader` moves the leader of the
+  shell pane, which is the one the escape hatch guards.
 - **Key names are normalised** (notably `space`) so a config file and the app agree on
   what was written.
 - **A binding must work on the terminals users actually have.** On macOS, `alt+<key>`

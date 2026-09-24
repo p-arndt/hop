@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"hop/internal/keys"
 	"hop/internal/terminal"
 )
 
@@ -19,7 +20,6 @@ type zone int
 
 const (
 	zoneNone zone = iota
-	zoneHeader
 	zoneList
 	zoneTree
 	zonePane
@@ -27,16 +27,13 @@ const (
 	zoneFooter
 )
 
-// zoneAt must mirror the layout arithmetic View composes with; a collapsed column has
-// outer width 0, so its cells fall to the column on its right.
+// zoneAt reads the frame View composes with; a box that is not drawn has outer width 0, so
+// its cells fall to the box beside it. A floating sidebar is asked first, being on top.
 func (m *model) zoneAt(x, y int) zone {
 	if x < 0 || y < 0 || x >= m.width || y >= m.height {
 		return zoneNone
 	}
-	switch {
-	case y == 0:
-		return zoneHeader
-	case y >= 1+m.bodyHeight():
+	if y >= m.bodyHeight() {
 		return zoneFooter
 	}
 	switch {
@@ -132,8 +129,6 @@ func (m *model) routeMouse(msg mouseEvt) (tea.Model, tea.Cmd) {
 		return m.mousePane(msg)
 	}
 	switch m.zoneAt(msg.X, msg.Y) {
-	case zoneHeader:
-		return m.clickBar(msg)
 	case zoneList:
 		return m.mouseList(msg)
 	case zoneTree:
@@ -182,13 +177,11 @@ func (m *model) mouseList(msg mouseEvt) (tea.Model, tea.Cmd) {
 	switch msg.Button {
 	case tea.MouseWheelUp:
 		m.clearSelection()
-		m.cursor--
-		m.clampCursor()
+		m.stepCursor(-1)
 
 	case tea.MouseWheelDown:
 		m.clearSelection()
-		m.cursor++
-		m.clampCursor()
+		m.stepCursor(1)
 
 	case tea.MouseLeft:
 		if msg.action != actPress {
@@ -205,83 +198,84 @@ func (m *model) mouseList(msg mouseEvt) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// clickList stands the cursor on the clicked host, entering it on a double-click.
+// clickList lands where the clicked row says: a tab, or a host that is open or dropped,
+// in one click. A host with nothing open only takes the cursor, and a second click dials
+// it, so a stray click never opens a connection.
 func (m *model) clickList(msg mouseEvt) (tea.Model, tea.Cmd) {
 	m.clearSelection()
-	m.backToList()
 
-	i, ok := m.listRowAt(msg.Y)
+	r, ok := m.listRowAt(msg.Y)
 	if !ok {
+		m.backToList()
 		return m, nil
 	}
-	double := m.clickChord(zoneList, i)
-	m.cursor = i
+	if r.tab.alias != "" {
+		m.chords.click = time.Time{}
+		return m, m.jumpTo(r.tab)
+	}
+	alias := m.hosts[m.filtered[r.fi]].Alias
+	if m.sessions[alias] != nil {
+		m.chords.click = time.Time{}
+		return m, m.showHost(alias)
+	}
+	double := m.clickChord(zoneList, r.fi)
+	m.backToList()
+	m.selectRow(r)
 	if !double {
 		return m, nil
 	}
-	h, ok := m.selectedHost()
-	if !ok {
-		return m, nil
-	}
-	return m, m.enterHost(h)
+	return m.move(keys.In)
 }
 
 // rightClickList opens the context menu on the clicked host, standing the cursor on it
 // first since the menu acts on the selected host.
 func (m *model) rightClickList(msg mouseEvt) (tea.Model, tea.Cmd) {
 	m.clearSelection()
+	// Read before the keyboard moves: the rows scroll to where the keyboard is.
+	r, ok := m.listRowAt(msg.Y)
 	m.backToList()
-
-	i, ok := m.listRowAt(msg.Y)
 	if !ok {
 		return m, nil
 	}
-	m.cursor = i
+	m.selectRow(r)
 	m.openHostMenu()
 	return m, nil
 }
 
-// listRowAt maps a screen row to an index into m.filtered, or false when the row holds no
-// host.
-func (m *model) listRowAt(y int) (int, bool) {
+// listRowAt maps a screen row to the host or tab drawn there, or false when the row holds
+// neither.
+func (m *model) listRowAt(y int) (listRow, bool) {
 	first := m.listFirstRow()
 	rows := m.listRows()
 	if y < first || y >= first+rows {
-		return 0, false
+		return listRow{}, false
 	}
 	i := m.listStart(rows) + (y - first)
 	if i < 0 || i >= len(m.rows) {
-		return 0, false
+		return listRow{}, false
 	}
 	if m.rows[i].heading != "" {
-		return 0, false
+		return listRow{}, false
 	}
-	return m.rows[i].fi, true
+	return m.rows[i], true
 }
 
 // listFirstRow is the screen row the first host row is drawn on; must track renderList's
 // arithmetic, and is shared with the context menu's anchoring.
 func (m *model) listFirstRow() int {
-	first := 2 + m.listTitleRows()
-	if m.filtering || m.filter != "" {
-		first++
-	}
-	return first
+	return m.frame.list.y + 1 + m.sidebarChrome()
 }
 
-// backToList hands the keyboard back to the host list, keeping the active session on
-// screen.
+// backToList hands the keyboard to the sidebar, keeping the host in front on screen.
 func (m *model) backToList() {
 	if m.listHasFocus() {
 		return
 	}
-	m.exitScrollback()
-	m.mode = modeList
-	m.clearStatus()
-	m.reader.Reset()
+	m.takeToSidebar()
+	m.recomputeLayout()
 }
 
-// ---- the tree column ----
+// ---- the tree box ----
 
 func (m *model) mouseTree(msg mouseEvt) (tea.Model, tea.Cmd) {
 	s := m.sessions[m.active]
@@ -307,15 +301,18 @@ func (m *model) mouseTree(msg mouseEvt) (tea.Model, tea.Cmd) {
 	return m.mouseBrowser(s, msg, x, y)
 }
 
-// treeLocal maps a screen cell into the tree column's content box, which is the space the
+// treeLocal maps a screen cell into the tree box's interior, which is the space the
 // browser's RowAt and Select are measured in.
 func (m *model) treeLocal(x, y int) (int, int, bool) { return m.frame.tree.inner(x, y) }
 
 // ---- the content area ----
 
 func (m *model) mousePane(msg mouseEvt) (tea.Model, tea.Cmd) {
+	if m.active == "" {
+		return m.mouseStart(msg)
+	}
 	s := m.sessions[m.active]
-	if m.active == "" || s == nil || s.dead {
+	if s == nil || s.dead {
 		return m, nil
 	}
 
@@ -360,6 +357,20 @@ func (m *model) mousePane(msg mouseEvt) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// mouseStart is the pointer over the content area with no host in front: a click on a
+// recent place lands there.
+func (m *model) mouseStart(msg mouseEvt) (tea.Model, tea.Cmd) {
+	if msg.Button != tea.MouseLeft || msg.action != actPress {
+		return m, nil
+	}
+	_, _, y, ok := m.contentLocal(msg.X, msg.Y)
+	if i := y - recentTop; !ok || i < 0 || i >= len(m.recent) {
+		return m, nil
+	}
+	m.clearSelection()
+	return m, m.jumpTo(m.recent[y-recentTop])
+}
+
 // contentLocal maps a screen cell into the content area: which half it landed in, and
 // where inside that half's box. (0, 0) is the tab strip when there is one.
 func (m *model) contentLocal(x, y int) (bool, int, int, bool) {
@@ -390,19 +401,16 @@ func (m *model) clickIntoPane(s *session, right bool) {
 	// A click that crossed columns spends any pending double, or pointing at a file and
 	// back at the tree row you came from would open that row.
 	m.chords.click = time.Time{}
-	switch {
-	case m.browserInContent(s):
-		m.mode = modeBrowser
-	case !m.filesView() && s.shell() != nil:
+	switch f := m.front(); {
+	case f == tabShell:
 		m.focusShell(m.active)
-	case s.editorAt(right) != nil:
+	case f == tabEditor && s.editorAt(right) != nil:
 		if m.contentIsSplit() {
 			s.splitRight = right
 		}
 		m.mode = modeEditor
-	case s.shell() != nil:
-		m.focusShell(m.active)
-	case s.browser != nil:
+	case f == tabFiles:
+		// The preview takes no keys; a click on it is a click on the files tab.
 		m.mode = modeBrowser
 	}
 }
@@ -410,20 +418,6 @@ func (m *model) clickIntoPane(s *session, right bool) {
 // mouseShell is the pointer over a focused shell pane.
 func (m *model) mouseShell(s *session, msg mouseEvt, x, y int) (tea.Model, tea.Cmd) {
 	h := m.paneH
-	if len(s.shells) > 1 {
-		// A drag passing over the strip is still a drag.
-		if y == 0 && !m.sel.dragging {
-			if msg.Button == tea.MouseLeft && msg.action == actPress {
-				if i, ok := m.tabAt(shellTabNames(s), s.activeSh, x, m.paneW); ok {
-					m.clearSelection()
-					s.activeSh = i
-				}
-			}
-			return m, nil
-		}
-		y--
-		h--
-	}
 	p := s.shell().pane
 
 	// A drag held against the top or bottom row scrolls the view under it.
@@ -623,16 +617,9 @@ func (m *model) mouseSelect(msg mouseEvt, x, y int, view string, box rect) (tea.
 // mouseEditor is the pointer over an editor tab. hop keeps no history for it, so an editor
 // that has not asked for the mouse is not scrolled.
 func (m *model) mouseEditor(s *session, msg mouseEvt, x, y int) (tea.Model, tea.Cmd) {
-	// Both halves draw the same names against a different open tab, so the strip has to be
-	// measured for the half being pointed at.
+	// Row 0 is the file's path, which takes no pointer; a drag passing over it is still a drag.
 	right := s.focusedHalf()
-	if y == 0 {
-		if msg.Button == tea.MouseLeft && msg.action == actPress {
-			if i, ok := m.tabAt(editorTabNames(s), s.editorIndex(right), x, m.contentW(s)); ok {
-				m.clearSelection()
-				s.setEditor(i)
-			}
-		}
+	if y == 0 && !m.sel.dragging {
 		return m, nil
 	}
 	p := s.editor().pane

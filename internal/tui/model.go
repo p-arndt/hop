@@ -33,7 +33,7 @@ const (
 	modeScrollback
 	modeBrowser
 	modeEditor
-	// modeDrawer is the terminal panel under the files: a shell, but the files view's.
+	// modeDrawer is the terminal panel under the files: a shell, but not a shell tab.
 	modeDrawer
 )
 
@@ -45,7 +45,7 @@ func (f *focus) browsing() bool { return f.mode == modeBrowser }
 
 func (f *focus) editing() bool { return f.mode == modeEditor }
 
-// inPane reports whether any column holds the keyboard, i.e. the host list does not.
+// inPane reports whether a tab holds the keyboard, i.e. the sidebar does not.
 func (f *focus) inPane() bool { return f.mode != modeList }
 
 // layout is embedded so m.width and m.paneW keep reading as before; only a resize or a column toggle writes it.
@@ -56,6 +56,9 @@ type layout struct {
 	drawerPct int
 	// treeHidden is session-only, never a persisted setting.
 	treeHidden bool
+	// sidebarHidden undocks the sidebar in a window that has room for it, so the content
+	// takes the whole width and the sidebar floats while it has the keyboard. Session-only.
+	sidebarHidden bool
 	// shape is what the panes were last sized for; see syncView.
 	shape  layoutShape
 	width  int
@@ -68,6 +71,9 @@ type layout struct {
 // focus is where the keyboard is and what the pointer is holding. Also embedded.
 type focus struct {
 	chords chordState
+	// footerChords remembers which drawn hints are leader chords, and their parts, so the
+	// footer can gather them behind one leader keycap. See legend.
+	footerChords map[string]chordPart
 	// sel stands in for the terminal's own selection, which never happens because hop reports the mouse.
 	sel selection
 	// resizingDrawer is a drag on the terminal panel's top edge, which moves the edge.
@@ -77,15 +83,25 @@ type focus struct {
 	sizingDrawer bool
 	// dragGen numbers the autoscroll chains a drag starts, so a tick armed for a stale edge is dropped.
 	dragGen int
-	// active is the alias of the session shown in the right pane ("" means navigation/details mode).
+	// active is the alias of the host in front ("" means none: the content area shows the
+	// recent places and the details of the host under the cursor).
 	active string
 	mode   paneMode
+	// back is where the keyboard was before the sidebar took it, which esc returns it to;
+	// backOK is false when it came from nowhere. See toSidebar.
+	back   paneMode
+	backOK bool
+	// escGuard swallows an esc that is the second of a double esc whose first one already
+	// left the sidebar, so esc esc there means what esc means rather than reaching the pane.
+	escGuard time.Time
 	// shown is the host in front; last is the one before it. See noteHost.
 	shown string
 	last  string
 	// used stamps each target with when the keyboard was last in it, from useSeq; current is
-	// the one it is in now. See noteTarget.
+	// the one it is in now. See noteTarget. usedAt is the same moment on the clock, for the
+	// "4m ago" go to and the recent places show; the order is used's.
 	used    map[target]int
+	usedAt  map[target]time.Time
 	useSeq  int
 	current target
 }
@@ -101,10 +117,20 @@ type model struct {
 	filtered   []int
 	highlights map[int][]int
 
-	// rows is the sidebar's draw order with headings interleaved; the cursor stays an index into filtered.
+	// rows is the host list's draw order with headings interleaved; the cursor stays an index into filtered.
 	rows []listRow
 
 	cursor int
+	// cursorTab is the tab row under its host the cursor stands on, zero on the host's own row.
+	cursorTab target
+	// fold is the user's word on which hosts show their tabs; see expanded.
+	fold map[string]bool
+
+	// recent is the recent places the content area offers with no host in front, rebuilt
+	// with rows; recentAt is the one the cursor stands on, counted from 1, and 0 while it is
+	// in the sidebar.
+	recent   []target
+	recentAt int
 
 	// binds is the keys registry with the user's config applied; handlers and legends both resolve against it.
 	binds keys.Map
@@ -248,10 +274,27 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.syncView()
 	// After syncView, which can still move the keyboard off a panel that went.
 	m.noteTarget()
+	// The sidebar is always on screen, and what is open on every host is in it.
+	m.buildRows()
+	if m.ready && m.layoutShape() != m.shape {
+		// The rows decide how tall the hosts box is, and so the tree box under it.
+		m.relayout()
+	}
+	if p := m.previewCmd(); p != nil {
+		cmd = tea.Batch(cmd, p)
+	}
 	if m.statusGen != gen && m.status != "" {
 		cmd = tea.Batch(cmd, expireStatusCmd(m.statusGen))
 	}
 	return next, cmd
+}
+
+// previewCmd loads the files tab's preview when the entry under the tree's cursor changed.
+func (m *model) previewCmd() tea.Cmd {
+	if !m.previewOn() {
+		return nil
+	}
+	return m.sessions[m.active].browser.PreviewCmd()
 }
 
 func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -333,24 +376,7 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.editorLanded(msg)
 
 	case editorExitedMsg:
-		s := m.sessions[msg.alias]
-		if s == nil {
-			return m, nil
-		}
-		// On a connection that has gone this is the channel being cut, not ":q". See shellExited.
-		if s.deadConnection() {
-			m.markDead(msg.alias, lostReason(s))
-			return m, nil
-		}
-		if !s.dropEditor(msg.id) {
-			return m, nil
-		}
-		// A tab closing out of a split may also have collapsed it, so the halves are re-measured either way.
-		if len(s.editors) == 0 && m.editing() && m.active == msg.alias {
-			m.leaveEditor()
-		}
-		m.relayout()
-		return m, nil
+		return m.editorExited(msg)
 
 	case pasteFlushMsg:
 		// Only if nothing was typed since this flush was armed: a key in between armed one of its own.

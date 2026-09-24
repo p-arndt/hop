@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strconv"
 
 	tea "charm.land/bubbletea/v2"
@@ -37,13 +38,36 @@ type session struct {
 	drawer     *shellTab
 	drawerOpen bool
 
-	// filesView is the view the host was last in, which the host list shows it in.
-	filesView bool
+	// front is the tab that fills the body while this host is in front; see frontOf. The
+	// zero value means "not chosen yet", which settles on the first tab there is.
+	front tabKind
+
+	// order is the tabs in the order they were opened, which the sidebar keeps. Entries
+	// for tabs that have closed are skipped when read, never trusted; see hostTabs.
+	order []target
 
 	// dead keeps the session: the panes still hold the last screen, and it is what 'r' reconnects.
 	dead bool
 	// lostWhy is what the transport reported when it went, for the banner. Often empty.
 	lostWhy string
+}
+
+// tabKind is which of a host's tabs fills the body: one of its shells, its files tab (the
+// sftp browser), or one of its editors. Which shell or editor is the session's activeSh
+// and activeEd.
+type tabKind int
+
+const (
+	tabNone tabKind = iota
+	tabShell
+	tabFiles
+	tabEditor
+)
+
+// noteOpened puts t after the host's other tabs: a tab that opens again moves to the end.
+func (s *session) noteOpened(t target) {
+	s.order = slices.DeleteFunc(s.order, func(o target) bool { return o == t })
+	s.order = append(s.order, t)
 }
 
 // shellTab is one interactive shell; the id is stable across tab removals, so an exit maps back to its tab.
@@ -277,10 +301,10 @@ func (m *model) openShell(h store.Host, extra bool) tea.Cmd {
 	m.connecting[h.Alias] = true
 
 	if s != nil && s.client != nil {
-		cols, rows := m.shellSize(len(s.shells) + 1)
+		cols, rows := m.shellSize()
 		return m.withSpinner(extraShellCmd(h.Alias, h.DefaultDir, s.client, m.nextShID, cols, rows, m.notify, false))
 	}
-	cols, rows := m.shellSize(1)
+	cols, rows := m.shellSize()
 	return m.withSpinner(connectCmd(h, "", m.prompter(h.Alias), extra, m.nextShID, cols, rows, m.notify))
 }
 
@@ -292,7 +316,7 @@ func (m *model) openShellTrusting(h store.Host, extra bool, fingerprint string) 
 	m.nextShID++
 	m.setStatus(statusInfo, "connecting to %s…", h.Alias)
 	m.connecting[h.Alias] = true
-	cols, rows := m.shellSize(1)
+	cols, rows := m.shellSize()
 	return m.withSpinner(connectCmd(h, fingerprint, m.prompter(h.Alias), extra, m.nextShID, cols, rows, m.notify))
 }
 
@@ -437,13 +461,16 @@ func (m *model) disconnect(alias string) {
 	m.setStatus(statusOK, "disconnected %s", alias)
 }
 
-// closeBrowser shuts the active host's SFTP browser. Its editor tabs are channels of their
-// own and may hold unsaved work, so they stay; the connection goes only once nothing is left on it.
-func (m *model) closeBrowser() {
-	alias := m.active
+// closeBrowser shuts the active host's files tab. See closeFilesOn.
+func (m *model) closeBrowser() tea.Cmd { return m.closeFilesOn(m.active) }
+
+// closeFilesOn shuts alias's files tab. Its editor tabs are channels of their own and may
+// hold unsaved work, so they stay; the connection goes only once nothing is left on it. A
+// keyboard in the tree lands on the host's last place.
+func (m *model) closeFilesOn(alias string) tea.Cmd {
 	s := m.sessions[alias]
 	if s == nil || s.browser == nil {
-		return
+		return nil
 	}
 	s.browser.Close()
 	s.browser = nil
@@ -451,22 +478,68 @@ func (m *model) closeBrowser() {
 		// Nothing left for the panel to sit under.
 		s.closeDrawer()
 	}
-	m.reader.Reset()
+	front := m.active == alias
+	if front && m.browsing() {
+		m.reader.Reset()
+	}
 
 	if s.empty() {
 		s.close()
 		delete(m.sessions, alias)
-		m.leaveAll()
-		m.setStatus(statusOK, "closed the sftp browser and disconnected %s", alias)
-		return
+		if front {
+			m.leaveAll()
+		}
+		m.setStatus(statusOK, "closed the files tab and disconnected %s", alias)
+		return nil
 	}
-	m.mode = modeList
-	if s.editor() != nil {
-		m.mode = modeEditor
-	}
-	// The tree column went with it; the editors are owed its width.
+	// The tree went with it; the editors are owed its room.
 	m.relayout()
-	m.setStatus(statusOK, "closed the sftp browser on %s", alias)
+	var cmd tea.Cmd
+	if front && m.browsing() {
+		cmd = m.landElsewhere(alias)
+	}
+	m.setStatus(statusOK, "closed the files tab on %s", alias)
+	return cmd
+}
+
+// closableUnderCursor is the tab x would close: the tab row or recent place under the
+// sidebar's cursor, when it is a shell, the files or an editor.
+func (m *model) closableUnderCursor() (target, bool) {
+	t := m.cursorTab
+	if r, ok := m.selectedRecent(); ok {
+		t = r
+	}
+	switch t.kind {
+	case targetShell, targetBrowser, targetEditor:
+		return t, t.alias != ""
+	}
+	return target{}, false
+}
+
+// closeTab is x on a tab row of the sidebar: the tab goes as if it had ended by itself, so
+// the host's emptying and the keyboard's landing follow the same rules. An editor asks first.
+func (m *model) closeTab(t target) tea.Cmd {
+	s := m.sessions[t.alias]
+	if s == nil || s.dead {
+		return nil
+	}
+	var cmd tea.Cmd
+	switch t.kind {
+	case targetShell:
+		_, cmd = m.shellExited(shellExitedMsg{alias: t.alias, id: t.id})
+	case targetBrowser:
+		cmd = m.closeFilesOn(t.alias)
+	case targetEditor:
+		if s.findEditorID(t.id) >= 0 {
+			m.openConfirmCloseTab(t)
+		}
+		return nil
+	default:
+		return nil
+	}
+	m.cursorTab = target{}
+	m.buildRows()
+	return cmd
 }
 
 // splitOpen answers keys.BrowserSplit via the browser's ActivateBeside, so a directory still opens in place.

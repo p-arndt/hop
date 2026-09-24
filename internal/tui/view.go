@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -28,16 +30,19 @@ func (m *model) View() tea.View {
 	if r := m.frame.drawer; !r.empty() {
 		body = lipgloss.JoinVertical(lipgloss.Left, body, m.renderDrawer(m.sessions[m.active], r))
 	}
-	if r := m.frame.tree; !r.empty() {
-		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderTree(r), body)
-	}
 	r := m.frame.list
-	if !r.empty() && !m.sidebarFloats() {
-		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderList(r.w, r.h), body)
+	if !r.empty() && !m.frame.floats {
+		side := m.renderList(r.w, r.h)
+		if t := m.frame.tree; !t.empty() {
+			side = lipgloss.JoinVertical(lipgloss.Left, side, m.renderTree(t))
+		}
+		body = lipgloss.JoinHorizontal(lipgloss.Top, side, body)
 	}
 
-	screen := lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), body, m.renderStatus(), m.renderFooter())
-	if !r.empty() && m.sidebarFloats() {
+	screen := lipgloss.JoinVertical(lipgloss.Left, body, m.renderFooter())
+	if !r.empty() && m.frame.floats {
+		// Over the content, which keeps its size: a narrow window shows the sidebar only
+		// while it has the keyboard.
 		screen = overlay(screen, m.renderList(r.w, r.h), r.x, r.y)
 	}
 
@@ -111,35 +116,15 @@ func (m *model) modalCard() string {
 	return ""
 }
 
-// ---- header ----
+// ---- the tree box ----
 
-// styledStatus colors the status line by statusKind rather than by wording.
-func (m *model) styledStatus() string {
-	if m.status == "" {
-		return ""
-	}
-	icon, style := "·", dimStyle
-	switch m.statusKind {
-	case statusOK:
-		icon, style = "✓", greenText
-	case statusWarn:
-		icon, style = "!", yellowText
-	case statusErr:
-		icon, style = "✗", redText
-	}
-	return style.Render(truncate(icon+" "+m.status, max(m.width/2, 20)))
-}
-
-// ---- the tree column ----
-
-// browserInContent: the files view with no column for the browser draws it in the content
-// area — while it has the keyboard, or when there is no open file to show instead.
+// browserInContent: the files tab with no tree box in the sidebar draws the tree across the
+// content area.
 func (m *model) browserInContent(s *session) bool {
-	return s != nil && s == m.sessions[m.active] && m.treeInline() &&
-		(m.browsing() || s.editor() == nil)
+	return s != nil && s == m.sessions[m.active] && !s.dead && m.front() == tabFiles && !m.treeBoxOn()
 }
 
-// renderTree draws the SFTP column; the border says whether the keyboard is in it.
+// renderTree draws the sidebar's tree box; the border says whether the keyboard is in it.
 func (m *model) renderTree(r rect) string {
 	s := m.sessions[m.active]
 	if s == nil || s.browser == nil {
@@ -151,12 +136,12 @@ func (m *model) renderTree(r rect) string {
 		Render(clampLines(fitLines(s.browser.View(), innerH), innerW))
 }
 
-// columnStyle accents a body column while it holds the keyboard, and dims it otherwise.
+// columnStyle accents a box while it holds the keyboard; every other box is grey.
 func columnStyle(active bool) lipgloss.Style {
 	if active {
 		return paneBorderActive
 	}
-	return paneBorderIdle
+	return paneBorder
 }
 
 // ---- the content area ----
@@ -164,86 +149,64 @@ func columnStyle(active bool) lipgloss.Style {
 // contentIsSplit mirrors renderRight's switch: does the content area draw two boxes?
 func (m *model) contentIsSplit() bool {
 	s := m.sessions[m.active]
-	if !m.splitOn(s) {
-		return false
-	}
-	// The renderRight arms that draw one full-width box, in the order that decides which wins.
-	switch {
-	case s.dead && m.active != "":
-		return false
-	case m.browserInContent(s):
-		return false
-	case !m.filesView() && s.shell() != nil:
-		return false
-	}
-	return s.editor() != nil
+	return m.front() == tabEditor && !s.dead && m.splitOn(s) && s.editor() != nil
 }
 
-// renderRight draws what the active session shows in the content area. Every arm that
-// draws a box is mirrored in contentIsSplit.
+// renderRight draws what the tab in front shows in the content area; with no host in front,
+// the recent places and the details of the host under the cursor. Every arm that draws a box
+// is mirrored in contentIsSplit.
 func (m *model) renderRight(h int) string {
 	innerH := max(h-2, 1)
 	s := m.sessions[m.active]
 
+	switch f := m.front(); {
+	case f == tabNone:
+		return m.contentBox(m.listHasFocus() && m.recentAt > 0, m.paneW, innerH, m.renderStart(m.paneW))
+
 	// Inactive border even when focused: the accent would promise a live shell.
-	if s != nil && s.dead && m.active != "" {
-		return m.contentBox(false, m.paneW, innerH, m.deadBanner(s)+"\n"+m.deadContent(s))
-	}
+	case s.dead:
+		return m.deadBox(s, innerH)
 
-	switch {
-	// No column to put it in, so the browser takes the content area. See treeWidth.
-	case m.browserInContent(s):
-		return m.contentBox(m.browsing(), m.paneW, innerH, s.browser.View())
-
-	case m.active != "" && !m.filesView() && s != nil && s.shell() != nil:
+	case f == tabShell:
 		return m.renderShellPane(s, innerH)
 
-	case s != nil && s.editor() != nil:
+	case f == tabEditor:
 		return m.renderEditorPanes(s, innerH)
 
-	case m.active != "" && s != nil && s.shell() != nil:
-		return m.renderShellPane(s, innerH)
+	case m.browserInContent(s):
+		return m.contentBox(m.browsing(), m.paneW, innerH, s.browser.View())
 	}
-
-	return m.contentBox(false, m.paneW, innerH, m.renderDetails(m.paneW))
+	return m.contentBox(false, m.paneW, innerH, s.browser.PreviewView(m.paneW, innerH))
 }
 
 // contentBox draws one box of the content area. Clipping the width matters: lipgloss wraps
 // an over-wide line, which would grow the screen past the window.
 func (m *model) contentBox(active bool, w, innerH int, content string) string {
-	style := paneBorder
-	switch {
-	case active:
-		style = paneBorderActive
-	case !m.frame.tree.empty():
-		style = paneBorderIdle
-	}
-	return style.Width(w).Height(innerH).Render(clampLines(fitLines(content, innerH), w))
+	return columnStyle(active).Width(w).Height(innerH).Render(clampLines(fitLines(content, innerH), w))
 }
 
-// renderShellPane draws a live shell in the content area, with its strip of tabs once
-// there is a second one to switch to.
+// renderShellPane draws a shell tab. It has no strip of its own: the sidebar names it.
 func (m *model) renderShellPane(s *session, innerH int) string {
 	content := s.shell().pane.View()
 	if m.focused() && m.scrolling() {
 		content = s.shell().pane.ViewScrollback()
 	}
-	// Before the tab strip, so the selection's rows match the coordinates the drag used.
-	content = m.selectedView(content)
-	if len(s.shells) > 1 {
-		content = m.renderShellTabs(s) + "\n" + content
-	}
-	return m.contentBox(m.focused(), m.paneW, innerH, content)
+	return m.contentBox(m.focused(), m.paneW, innerH, m.selectedView(content))
+}
+
+// editorTitle is the row over an editor: the file's path, since the sidebar has only room
+// for its name.
+func editorTitle(ed *editorTab, w int) string {
+	return dimStyle.Render(elideLeft(stripControl(ed.path), w))
 }
 
 // renderEditorPanes draws the open files: one box, or two side by side while split.
 func (m *model) renderEditorPanes(s *session, innerH int) string {
 	if !m.contentIsSplit() {
 		// Asked of contentIsSplit rather than splitOn so this box and the frame agree.
-		half := s.focusedHalf()
-		ed := s.editorAt(half)
+		ed := s.editorAt(s.focusedHalf())
 		return m.contentBox(m.editing(), m.paneW, innerH,
-			m.renderEditorTabs(s, half)+"\n"+m.selectedView(ed.pane.View()))
+			editorTitle(ed, m.paneW)+"\n"+m.selectedView(ed.pane.View()))
 	}
 
 	w := m.frame.left.innerW()
@@ -258,43 +221,73 @@ func (m *model) renderEditorPanes(s *session, innerH int) string {
 		if focused {
 			view = m.selectedView(view)
 		}
-		return m.contentBox(focused, w, innerH, m.renderEditorTabs(s, right)+"\n"+view)
+		return m.contentBox(focused, w, innerH, editorTitle(ed, w)+"\n"+view)
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, half(false), half(true))
 }
 
-// deadBanner sits on the pane rather than the status line, which expires after a few seconds.
-func (m *model) deadBanner(s *session) string {
-	head := redText.Bold(true).Render("⚠ connection lost")
+// deadBox is a dropped host's body: what went, and what reconnecting will put back. It says
+// so on the body rather than the status, which expires after a few seconds.
+func (m *model) deadBox(s *session, innerH int) string {
+	var b strings.Builder
+	head := redText.Bold(true).Render(stripControl(m.active) + " is disconnected")
 	if s.lostWhy != "" {
 		head += faint.Render(" · " + stripControl(s.lostWhy))
 	}
-	ways := m.hint(keys.DeadPane, keys.DeadReconnect, "reconnect") + "  " +
-		m.hint(keys.DeadPane, keys.DeadDrop, "drop")
-	gap := max(m.paneW-lipgloss.Width(head)-lipgloss.Width(ways), 1)
-	return truncate(head+strings.Repeat(" ", gap)+ways, m.paneW)
+	b.WriteString("\n" + head + "\n\n")
+
+	plan := s.plan(false)
+	lines := reopenLines(plan)
+	if len(lines) == 0 {
+		b.WriteString(dimStyle.Render("Nothing is left open on this connection.") + "\n")
+	} else {
+		b.WriteString(dimStyle.Render("Reconnecting opens again:") + "\n")
+		for _, l := range lines {
+			b.WriteString("  " + l + "\n")
+		}
+	}
+	if plan.editors > 0 {
+		b.WriteString(faint.Render(fmt.Sprintf("  %d %s not reopened: a fresh editor would lose unsaved work",
+			plan.editors, plural(plan.editors, "editor is", "editors are"))) + "\n")
+	}
+	b.WriteString("\n" + strings.Join(compact([]string{
+		m.hint(keys.DeadPane, keys.DeadReconnect, "reconnect"),
+		m.hint(keys.DeadPane, keys.DeadDrop, "drop"),
+		m.chordHint(keys.LeaderLast, "last host"),
+		m.hint(keys.DeadPane, keys.DeadLeave, "hosts"),
+	}), "  "))
+
+	// Indented as a block rather than centred line by line, so the list stays a list.
+	pad := strings.Repeat(" ", max((m.paneW-60)/2, 1))
+	return m.contentBox(false, m.paneW, innerH, indentBlock(b.String(), pad))
 }
 
-// deadContent is the frozen view the session was showing when its connection went.
-func (m *model) deadContent(s *session) string {
-	switch {
-	case m.editing() && s.editor() != nil:
-		return m.renderEditorTabs(s, s.focusedHalf()) + "\n" + s.editor().pane.View()
-	// Only in the narrow fallback; with a column the browser is drawn beside this pane.
-	case m.treeInline() && m.browsing() && s.browser != nil:
-		return s.browser.View()
-	case s.shell() != nil:
-		content := s.shell().pane.View()
-		if len(s.shells) > 1 {
-			content = m.renderShellTabs(s) + "\n" + content
-		}
-		return content
-	case s.editor() != nil:
-		return m.renderEditorTabs(s, s.focusedHalf()) + "\n" + s.editor().pane.View()
-	case m.treeInline() && s.browser != nil:
-		return s.browser.View()
+// reopenLines is what a reconnect would put back, one line each.
+func reopenLines(plan reconnectPlan) []string {
+	var out []string
+	// Numbered only: a restored shell starts in the host's default directory, not where
+	// the lost one had got to.
+	for i := range plan.shells {
+		out = append(out, "$ shell "+strconv.Itoa(i+1))
 	}
-	return "\n" + dimStyle.Render("  Nothing is left open on this connection.")
+	if plan.browser {
+		out = append(out, stripControl("▤ files · "+plan.browserDir))
+	}
+	if n := len(plan.tunnels); n > 0 {
+		out = append(out, fmt.Sprintf("⇄ %d %s", n, plural(n, "tunnel", "tunnels")))
+	}
+	return out
+}
+
+// indentBlock prefixes every line of s with pad.
+func indentBlock(s, pad string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		if l != "" {
+			lines[i] = pad + l
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // ---- footer ----
@@ -324,7 +317,31 @@ func (m *model) chordHint(id keys.Action, word string) string {
 	if !ok || lead == "" || b.Keycap() == "" {
 		return ""
 	}
-	return keyHint(lead+" "+b.Keycap(), word)
+	return m.chordOf(lead, b.Keycap(), word)
+}
+
+// chordPart is a leader chord's own key and its word, without the leader.
+type chordPart struct{ key, word string }
+
+// chordOf draws a chord as its two keystrokes and remembers its parts, so a footer with
+// several of them can say the leader once. Elsewhere the drawn hint is used as it is.
+func (m *model) chordOf(lead, key, word string) string {
+	h := keyHint(lead+" "+key, word)
+	if m.footerChords == nil {
+		m.footerChords = make(map[string]chordPart)
+	}
+	m.footerChords[h] = chordPart{key: key, word: word}
+	return h
+}
+
+// chordKeys is a leader chord as the two keystrokes it is, "" when either is unbound.
+func (m *model) chordKeys(id keys.Action) string {
+	lead := m.binds.Keycap(keys.LeaderKey)
+	b, ok := m.binds.BindingIn(keys.Leader, id)
+	if !ok || lead == "" || b.Keycap() == "" {
+		return ""
+	}
+	return lead + " " + b.Keycap()
 }
 
 // leaderRange is the digits behind the leader — a range rather than a binding.
@@ -333,7 +350,7 @@ func (m *model) leaderRange(word string) string {
 	if lead == "" {
 		return ""
 	}
-	return keyHint(lead+" 1-9", word)
+	return m.chordOf(lead, "1-9", word)
 }
 
 // compact drops the hints that resolved to nothing.
@@ -349,10 +366,30 @@ func compact(hints []string) []string {
 
 // renderFooter is the key legend, cut to what this mode cannot be worked without. The full
 // table is the help card, which opens on the section for the mode you are in.
+//
+// The footer is one row: the crumb (or a transient status) on the left, the legend on the
+// right. The crumb is held to a third of the row while the legend is measured, then gets
+// back whatever the legend left over.
 func (m *model) renderFooter() string {
 	core, extra, help := m.footerHints()
-	return m.footerLine(core, extra, help)
+	room := max(m.width-2, 0)
+	reserve := min(lipgloss.Width(m.footerLeft(room)), max(room/3, footerCrumbMin))
+	legend := m.footerLine(core, extra, help, max(room-reserve-footerGap, 0))
+	leftW := room
+	if legend != "" {
+		leftW = room - lipgloss.Width(legend) - footerGap
+	}
+	left := m.footerLeft(max(leftW, 0))
+	gap := max(room-lipgloss.Width(left)-lipgloss.Width(legend), 0)
+	return footerStyle.Render(truncate(left+strings.Repeat(" ", gap)+legend, room))
 }
+
+// footerCrumbMin is the least the crumb is held to while the legend is measured, and
+// footerGap what stands between the two.
+const (
+	footerCrumbMin = 16
+	footerGap      = 2
+)
 
 // footerArm is one row of the legend's table. The arms are ordered and the first match wins:
 // several predicates are true at once by design, so the order is the rule, not a listing.
@@ -389,8 +426,13 @@ var footerCardArms = []footerArm{
 		hints: fixedHints(keyHint("y", "trust"), keyHint("n", "cancel")),
 	},
 	{
-		when:  func(m *model) bool { return m.confirm.open },
-		hints: fixedHints(keyHint("y", "delete"), keyHint("n", "cancel")),
+		when: func(m *model) bool { return m.confirm.open },
+		hints: func(m *model) ([]string, []string) {
+			if m.confirm.tab.alias != "" {
+				return []string{keyHint("y", "close"), keyHint("n", "cancel")}, nil
+			}
+			return []string{keyHint("y", "delete"), keyHint("n", "cancel")}, nil
+		},
 	},
 	{
 		when:  func(m *model) bool { return m.palette.open },
@@ -447,33 +489,40 @@ var footerCardArms = []footerArm{
 	{
 		when: (*model).leaderArmed,
 		hints: func(m *model) ([]string, []string) {
-			menu := []string{
-				accentText.Render("leader"),
-				m.hint(keys.Leader, keys.LeaderOut, "out"),
-				keyHint("1-9", "tab"),
-				m.hint(keys.Leader, keys.LeaderShell, "new shell"),
-				m.hint(keys.Leader, keys.LeaderBrowser, "browse here"),
-			}
-			// Named only where it would work: without a cwd the chord opens the host's default.
-			if m.shellCwd(m.chords.leaderAlias) != "" {
-				menu = append(menu, m.hint(keys.Leader, keys.LeaderVSCode, "vs code here"))
-			}
-			if s := m.sessions[m.chords.leaderAlias]; s != nil && s.browser != nil && !m.editing() {
-				menu = append(menu, m.hint(keys.Leader, keys.LeaderTree, "tree"))
-			}
-			if m.editing() || m.mode == modeDrawer {
-				menu = append(menu, m.hint(keys.Leader, keys.LeaderDrawer, "terminal"),
-					m.hint(keys.Leader, keys.LeaderToShell, "shell"))
-				if m.drawerOnScreen() > 0 {
-					menu = append(menu, m.hint(keys.Leader, keys.LeaderGrow, "taller"),
-						m.hint(keys.Leader, keys.LeaderShrink, "shorter"))
-				}
+			alias := m.chords.leaderAlias
+			s := m.sessions[alias]
+			menu := []string{accentText.Render("leader"), keyHint("1-9", "tab")}
+			if twoHosts(m) {
+				// With one open host the step lands where it started.
+				menu = append(menu, keyHint(m.binds.Keycap(keys.LeaderPrevHost)+m.binds.Keycap(keys.LeaderNextHost), "host"))
 			}
 			menu = append(menu, m.hint(keys.Leader, keys.LeaderHosts, "go to"))
 			if lastHostSpec.ok(m) {
 				menu = append(menu, m.hint(keys.Leader, keys.LeaderLast, "last host"))
 			}
 			menu = append(menu,
+				m.hint(keys.Leader, keys.LeaderShell, "new shell"),
+				m.hint(keys.Leader, keys.LeaderBrowser, "files"))
+			if m.mode != modeShell {
+				menu = append(menu, m.hint(keys.Leader, keys.LeaderToShell, "shell"))
+			}
+			// Named only where it would work: without a cwd the chord opens the host's default.
+			if m.mode == modeShell && m.shellCwd(alias) != "" {
+				menu = append(menu, m.hint(keys.Leader, keys.LeaderVSCode, "vs code here"))
+			}
+			if s != nil && s.browser != nil {
+				menu = append(menu, m.hint(keys.Leader, keys.LeaderTree, "tree"))
+			}
+			if s != nil && (s.browser != nil || len(s.editors) > 0) {
+				menu = append(menu, m.hint(keys.Leader, keys.LeaderDrawer, "terminal"))
+			}
+			if m.drawerOnScreen() > 0 {
+				menu = append(menu, m.hint(keys.Leader, keys.LeaderGrow, "taller"),
+					m.hint(keys.Leader, keys.LeaderShrink, "shorter"))
+			}
+			menu = append(menu,
+				m.hint(keys.Leader, keys.LeaderOut, "hosts"),
+				m.hint(keys.Leader, keys.LeaderSidebar, "sidebar"),
 				m.hint(keys.Leader, keys.LeaderPalette, "actions"),
 				m.hint(keys.Leader, keys.LeaderHelp, "keys"),
 				dimStyle.Render("any other key cancels"))
@@ -482,30 +531,29 @@ var footerCardArms = []footerArm{
 	},
 }
 
-// footerModeArms are the modes hop's own keyboard is in. Each keeps the way out, what the
 // editorExtras is the editor arm's extra hints. Unsplit is named only while there is a split,
 // since naming a key that would decline is worse than not naming it.
 func (m *model) editorExtras() []string {
-	// The chord, not alt+t: a Mac terminal never sends alt.
-	extra := []string{m.chordHint(keys.LeaderTree, "tree"), m.chordHint(keys.LeaderDrawer, "terminal"), m.chordHint(keys.LeaderToShell, "shell")}
+	extra := []string{m.chordHint(keys.LeaderDrawer, "terminal"), m.chordHint(keys.LeaderToShell, "shell")}
 	if s := m.sessions[m.active]; s != nil && s.split {
 		extra = append(extra, m.hint(keys.Editor, keys.EditorUnsplit, "unsplit"))
 	}
-	return append(extra, m.leaderRange("jump"), m.chordHint(keys.LeaderHosts, "go to"))
+	return append(extra, m.leaderRange("tab"), m.chordHint(keys.LeaderHosts, "go to"),
+		m.hint(keys.Editor, keys.EditorLeave, "hosts"))
 }
 
 // footerModeArms are the modes hop's own keyboard is in. Unlike the cards these keep the
-// sidebar hint, the help key and the guidance trim. The last row always matches.
+// help key and the guidance trim. The last row always matches.
 var footerModeArms = []footerArm{
 	{
-		// Above the mode arms it would fall into: a dropped connection outranks its pane's view.
+		// Above the mode arms it would fall into: a dropped connection outranks its pane's tab.
 		when: func(m *model) bool { return m.active != "" && m.inPane() && m.activeDead() },
 		hints: func(m *model) ([]string, []string) {
 			return []string{
 				m.hint(keys.DeadPane, keys.DeadReconnect, "reconnect"),
 				m.hint(keys.DeadPane, keys.DeadDrop, "drop session"),
-				m.hint(keys.DeadPane, keys.DeadLeave, "back"),
-			}, nil
+				m.hint(keys.DeadPane, keys.DeadLeave, "hosts"),
+			}, []string{m.chordHint(keys.LeaderLast, "last host")}
 		},
 	},
 	{
@@ -513,7 +561,7 @@ var footerModeArms = []footerArm{
 		hints: func(m *model) ([]string, []string) {
 			return []string{
 				m.chordHint(keys.LeaderDrawer, "hide"),
-				m.hint(keys.Pane, keys.PaneLeave, "files"),
+				m.hint(keys.Pane, keys.PaneLeave, "hosts"),
 				m.chordHint(keys.LeaderTree, "tree"),
 			}, []string{m.chordHint(keys.LeaderGrow, "taller"), m.chordHint(keys.LeaderShrink, "shorter"),
 				m.chordHint(keys.LeaderToShell, "shell"), m.chordHint(keys.LeaderHosts, "go to")}
@@ -523,8 +571,8 @@ var footerModeArms = []footerArm{
 		when: func(m *model) bool { return m.editing() && m.active != "" },
 		hints: func(m *model) ([]string, []string) {
 			return []string{
-				m.chordHint(keys.LeaderOut, "browser"),
 				keyHint(":q", "close"), // the remote editor's key, not hop's
+				m.chordHint(keys.LeaderTree, "tree"),
 				m.hint(keys.Editor, keys.EditorNextTab, "tab"),
 			}, m.editorExtras()
 		},
@@ -533,14 +581,17 @@ var footerModeArms = []footerArm{
 		when: func(m *model) bool { return m.browsing() && m.active != "" },
 		hints: func(m *model) ([]string, []string) {
 			return []string{
-				m.hint(keys.Browser, keys.BrowserLeave, "back"),
+				m.hint(keys.Browser, keys.In, "open"),
 				m.hint(keys.Browser, keys.BrowserClose, "close"),
-				m.hint(keys.Browser, keys.In, "edit"),
+				m.hint(keys.Browser, keys.BrowserDrawer, "terminal"),
 			}, []string{
+				m.hint(keys.Browser, keys.BrowserHosts, "go to"),
+				m.hint(keys.Browser, keys.BrowserLeave, "hosts"),
+				m.hint(keys.Browser, keys.BrowserNextTab, "tab"),
 				m.hint(keys.Browser, keys.BrowserDownload, "download"),
+				m.hint(keys.Browser, keys.BrowserUpload, "upload"),
 				m.hint(keys.Browser, keys.BrowserFocusPane, "focus file"),
 				m.hint(keys.Browser, keys.BrowserSplit, "open beside"),
-				m.hint(keys.Browser, keys.BrowserDrawer, "terminal"),
 				m.hint(keys.Browser, keys.BrowserShell, "terminal here"),
 				// A copy is three keys nobody guesses, so the selection and target are named.
 				m.hint(keys.Browser, keys.BrowserMark, "mark"),
@@ -550,7 +601,6 @@ var footerModeArms = []footerArm{
 				m.hint(keys.Browser, keys.BrowserPalette, "actions"),
 				m.hint(keys.Browser, keys.Out, "up"),
 				m.hint(keys.Browser, keys.BrowserMarkAll, "mark all"),
-				m.hint(keys.Browser, keys.BrowserUpload, "upload"),
 				m.hint(keys.Browser, keys.BrowserOpen, "open local"),
 				m.hint(keys.Browser, keys.BrowserDelete, "delete"),
 				m.hint(keys.Browser, keys.BrowserRename, "rename"),
@@ -558,6 +608,7 @@ var footerModeArms = []footerArm{
 				m.hint(keys.Browser, keys.BrowserSort, "sort"),
 				m.hint(keys.Browser, keys.BrowserRefresh, "refresh"),
 				m.hint(keys.Browser, keys.BrowserTree, "tree"),
+				m.hint(keys.Browser, keys.LeaderKey, "leader"),
 			}
 		},
 	},
@@ -585,41 +636,73 @@ var footerModeArms = []footerArm{
 		},
 	},
 	{
-		// Everything else, which is the host list.
+		// Everything else, which is the sidebar.
 		when:  func(*model) bool { return true },
 		hints: (*model).listHints,
 	},
 }
 
-// shellHints is a live shell's legend; three of its keys are offered only where they work.
+// shellHints is a live shell's legend: the ways out of it, since everything else it does is
+// the remote's. Three of its keys are offered only where they work.
 func (m *model) shellHints() (core, extra []string) {
 	core = []string{
-		m.chordHint(keys.LeaderOut, "back"),
-		m.hint(keys.Pane, keys.LeaderKey, "leader"),
+		m.chordHint(keys.LeaderHosts, "go to"),
+		m.chordHint(keys.LeaderBrowser, "files"),
 	}
-	s := m.sessions[m.active]
-	if s != nil && len(s.shells) > 1 {
-		core = append(core, m.hint(keys.Pane, keys.PaneNextTab, "shell"))
-		extra = append(extra, m.leaderRange("jump"))
+	if len(m.hostTabs(m.active)) > 1 {
+		core = append(core, m.hint(keys.Pane, keys.PaneNextTab, "tab"))
+		extra = append(extra, m.leaderRange("tab"))
 	}
-	extra = append(extra, m.chordHint(keys.LeaderBrowser, "browse here"))
+	extra = append(extra, m.hint(keys.Pane, keys.PaneLeave, "hosts"), m.chordHint(keys.LeaderShell, "new shell"))
+	if lastHostSpec.ok(m) {
+		extra = append(extra, m.chordHint(keys.LeaderLast, "last host"))
+	}
+	if len(m.sessions) > 1 {
+		extra = append(extra, m.hostStepHint())
+	}
 	// The same conditions the chords check, so a wide window never names a key that declines.
 	if m.shellCwd(m.active) != "" {
 		extra = append(extra, m.chordHint(keys.LeaderVSCode, "vs code here"))
 	}
+	s := m.sessions[m.active]
 	if s != nil && s.shell() != nil && !s.shell().pane.AltScreen() && s.shell().pane.ScrollbackLen() > 0 {
 		extra = append(extra, m.hint(keys.Pane, keys.PaneScroll, "scrollback"))
 	}
-	return core, append(extra, m.chordHint(keys.LeaderHosts, "go to"), m.hint(keys.Pane, keys.PaneLeave, "back"))
+	return core, append(extra, m.hint(keys.Pane, keys.LeaderKey, "leader"))
 }
 
-// listHints is the host list's legend, and the only one that changes with what is under the
-// cursor. The menu key stands in for every per-host key below it.
+// hostStepHint is the leader's pair of host keys as one hint.
+func (m *model) hostStepHint() string {
+	lead := m.binds.Keycap(keys.LeaderKey)
+	prev, next := m.binds.Keycap(keys.LeaderPrevHost), m.binds.Keycap(keys.LeaderNextHost)
+	if lead == "" || prev == "" || next == "" {
+		return ""
+	}
+	return m.chordOf(lead, prev+next, "host")
+}
+
+// listHints is the sidebar's legend, and the only one that changes with what is under the
+// cursor. The menu key stands in for every per-host key below it. With a host in front the
+// way back to it comes first.
 func (m *model) listHints() (core, extra []string) {
+	enter := "connect"
+	if t, ok := m.selectedPlace(); ok && (t.kind != targetHost || m.sessions[t.alias] != nil) {
+		enter = "go"
+	}
 	core = []string{
-		m.hint(keys.List, keys.In, "connect"),
+		m.hint(keys.List, keys.In, enter),
 		m.hint(keys.List, keys.Menu, "actions"),
 		m.hint(keys.List, keys.Filter, "filter"),
+	}
+	if m.sessions[m.active] != nil {
+		core = []string{
+			m.hint(keys.List, keys.In, enter),
+			m.hint(keys.List, keys.Back, "back"),
+		}
+	}
+	if _, ok := m.closableUnderCursor(); ok {
+		// On a tab row the delete key closes the tab, so the legend says that instead.
+		core = append(core, m.hint(keys.List, keys.HostDelete, "close tab"))
 	}
 	extra = []string{
 		m.hint(keys.List, keys.Palette, "search actions"),
@@ -632,7 +715,15 @@ func (m *model) listHints() (core, extra []string) {
 		m.hint(keys.List, keys.HostTunnels, "tunnels"),
 		m.hint(keys.List, keys.HostImport, "import"),
 		m.hint(keys.List, keys.Settings, "settings"),
+		m.hint(keys.List, keys.SidebarDock, "dock / hide"),
 		m.hint(keys.List, keys.Quit, "quit"),
+	}
+	if m.sessions[m.active] != nil {
+		extra = append([]string{m.hint(keys.List, keys.Menu, "actions"), m.hint(keys.List, keys.Filter, "filter")}, extra...)
+	}
+	if m.cursorTab.alias != "" || m.recentAt > 0 {
+		// x deletes a host only from the host's own row.
+		extra = without(extra, m.hint(keys.List, keys.HostDelete, "delete"))
 	}
 	// Only for a host you can reconnect; otherwise the slot goes to adding one.
 	if h, ok := m.selectedHost(); ok {
@@ -741,11 +832,9 @@ func without(hints []string, hint string) []string {
 	return out
 }
 
-// footerLine renders the legend to fit the window: core and trailing hints first, then as
-// many extras as the leftover room holds.
-func (m *model) footerLine(core, extra []string, tail string) string {
-	const sep = "  "
-
+// footerLine renders the legend to fit room: core and trailing hints first, then as many
+// extras as the leftover room holds.
+func (m *model) footerLine(core, extra []string, tail string, room int) string {
 	var keep []string
 	// Release news belongs to the list, not to a pane.
 	if h := m.updateHint(); h != "" && !m.inPane() {
@@ -754,37 +843,57 @@ func (m *model) footerLine(core, extra []string, tail string) string {
 	if tail != "" {
 		keep = append(keep, tail)
 	}
-
-	room := max(m.width-2, 0)
-	fixedW := 0
-	if len(keep) > 0 {
-		fixedW = lipgloss.Width(strings.Join(keep, sep)) + len(sep)
-	}
+	fits := func(hints []string) bool { return lipgloss.Width(m.legend(hints, keep)) <= room }
 
 	// Extras go on only while they fit whole; a half-cut key cannot be read.
 	// Copied, since the width probe below appends to it speculatively.
 	hints := append([]string{}, core...)
 	for _, e := range extra {
-		w := lipgloss.Width(strings.Join(append(hints, e), sep)) + fixedW
-		if w > room {
+		if !fits(append(hints, e)) {
 			break
 		}
 		hints = append(hints, e)
 	}
 
 	// If even the core overruns, whole hints go from the right rather than a word being cut.
-	for len(hints) > 1 && lipgloss.Width(strings.Join(hints, sep))+fixedW > room {
+	for len(hints) > 1 && !fits(hints) {
 		hints = hints[:len(hints)-1]
 	}
+	return truncate(m.legend(hints, keep), room)
+}
 
-	line := strings.Join(hints, sep)
-	if len(keep) > 0 {
-		// Never cut into: on a very narrow window the way to the card is what survives.
-		line = truncate(line, max(room-fixedW, 0))
-		if line != "" {
-			line += sep
+// legend lays the hints out, gathering every leader chord behind one leader keycap —
+// "ctrl+o  space go to  f files" rather than the leader drawn on each — after the plain
+// keys. keep is what must never be dropped: the help key and any release news. The bare "leader"
+// hint says nothing the gathered chords do not, so it goes when there are any.
+func (m *model) legend(hints, keep []string) string {
+	const sep = "  "
+	// The keys behind the leader are drawn as text, not keycaps: a row of equal keycaps read
+	// as keys to press one by one, where these are each the second half of a chord.
+	chord := func(c chordPart) string { return accentText.Bold(true).Render(c.key) + " " + dimStyle.Render(c.word) }
+	var plain, chords, tail []string
+	for _, h := range hints {
+		if c, ok := m.footerChords[h]; ok {
+			chords = append(chords, chord(c))
+			continue
 		}
-		line += strings.Join(keep, sep)
+		plain = append(plain, h)
 	}
-	return footerStyle.Render(truncate(line, room))
+	for _, h := range keep {
+		if c, ok := m.footerChords[h]; ok {
+			chords = append(chords, chord(c))
+			continue
+		}
+		tail = append(tail, h)
+	}
+	lead := m.binds.Keycap(keys.LeaderKey)
+	if len(chords) > 0 {
+		plain = without(plain, keyHint(lead, "leader"))
+	}
+	// The group goes last, so nothing drawn after it can be misread as behind the leader.
+	parts := append(plain, tail...)
+	if len(chords) > 0 {
+		parts = append(parts, kc(lead)+faint.Render(" › ")+strings.Join(chords, faint.Render(" · ")))
+	}
+	return strings.Join(parts, sep)
 }
