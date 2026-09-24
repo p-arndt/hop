@@ -267,7 +267,9 @@ func (p *Pane) TrackCwd(cli *sshx.Client, startDir string) {
 // startupLine is the line typed at a fresh shell's prompt: cd, hook, or both — joined
 // with ";" because a function definition is not a valid right-hand side of "&&" in bash.
 func startupLine(dir, hook string) string {
-	if dir == "" {
+	// Typed into a live shell, where a control byte acts before any quoting can: a name
+	// holding ^C and a newline would run the rest as a command. Such a directory is skipped.
+	if dir == "" || strings.ContainsFunc(dir, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
 		return hook
 	}
 	// The hooks' "\x15 " prefix belongs on the joined line exactly once, at the front.

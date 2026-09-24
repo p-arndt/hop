@@ -528,6 +528,9 @@ func TestStartupLine(t *testing.T) {
 		{"hook only", "", bashCwdHook, bashCwdHook},
 		{"cd only", "/srv/app", "", "\x15 cd '/srv/app'\r"},
 		{"cd and hook", "/srv/app", zshCwdHook, "\x15 cd '/srv/app'; " + strings.TrimPrefix(zshCwdHook, "\x15 ")},
+		// ^C and a carriage return would run what follows; the directory is dropped instead.
+		{"control bytes in the dir", "/tmp/a\x03touch pwned\r", "", ""},
+		{"control bytes beside a hook", "/tmp/a\x03x", bashCwdHook, bashCwdHook},
 	} {
 		got := startupLine(c.dir, c.hook)
 		if got != c.want {
