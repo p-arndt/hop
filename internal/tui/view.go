@@ -559,12 +559,18 @@ var footerModeArms = []footerArm{
 	{
 		when: func(m *model) bool { return m.mode == modeDrawer && m.active != "" },
 		hints: func(m *model) ([]string, []string) {
-			return []string{
+			core := []string{
 				m.chordHint(keys.LeaderDrawer, "hide"),
 				m.hint(keys.Pane, keys.PaneLeave, "hosts"),
 				m.chordHint(keys.LeaderTree, "tree"),
-			}, []string{m.chordHint(keys.LeaderGrow, "taller"), m.chordHint(keys.LeaderShrink, "shorter"),
-				m.chordHint(keys.LeaderToShell, "shell"), m.chordHint(keys.LeaderHosts, "go to")}
+			}
+			extra := []string{
+				m.chordHint(keys.LeaderGrow, "taller"),
+				m.chordHint(keys.LeaderShrink, "shorter"),
+				m.chordHint(keys.LeaderToShell, "shell"),
+				m.chordHint(keys.LeaderHosts, "go to"),
+			}
+			return core, extra
 		},
 	},
 	{
@@ -580,11 +586,12 @@ var footerModeArms = []footerArm{
 	{
 		when: func(m *model) bool { return m.browsing() && m.active != "" },
 		hints: func(m *model) ([]string, []string) {
-			return []string{
+			core := []string{
 				m.hint(keys.Browser, keys.In, "open"),
 				m.hint(keys.Browser, keys.BrowserClose, "close"),
 				m.hint(keys.Browser, keys.BrowserDrawer, "terminal"),
-			}, []string{
+			}
+			extra := []string{
 				m.hint(keys.Browser, keys.BrowserHosts, "go to"),
 				m.hint(keys.Browser, keys.BrowserLeave, "hosts"),
 				m.hint(keys.Browser, keys.BrowserNextTab, "tab"),
@@ -610,6 +617,7 @@ var footerModeArms = []footerArm{
 				m.hint(keys.Browser, keys.BrowserTree, "tree"),
 				m.hint(keys.Browser, keys.LeaderKey, "leader"),
 			}
+			return core, extra
 		},
 	},
 	{
@@ -741,14 +749,16 @@ func (m *model) listHints() (core, extra []string) {
 		}
 		return core, extra
 	}
-	return []string{
+	core = []string{
 		m.hint(keys.List, keys.HostAdd, "add host"),
 		m.hint(keys.List, keys.HostImport, "import"),
-	}, []string{
+	}
+	extra = []string{
 		m.hint(keys.List, keys.Palette, "search actions"),
 		m.hint(keys.List, keys.Settings, "settings"),
 		m.hint(keys.List, keys.Quit, "quit"),
 	}
+	return core, extra
 }
 
 // footerHelp is how this mode reaches the help card. Where keys are forwarded a bare "?" is
