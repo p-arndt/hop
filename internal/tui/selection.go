@@ -90,6 +90,10 @@ func (m *model) endSelection(view string) {
 	}
 	m.sel.dragging = false
 	m.sel.edge = 0
+	if m.sel.anchor == m.sel.head {
+		m.sel = selection{}
+		return
+	}
 
 	span := m.sel.span()
 	// A selection grown by scrolling covers rows that are no longer on screen, and the

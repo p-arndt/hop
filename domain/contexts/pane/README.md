@@ -84,6 +84,7 @@ The terms live in [`language.md`](language.md).
   when the program leaves the alternate screen.
 - **Shift takes the pointer back.** A shift-press over a pane whose program has the mouse
   starts hop's own selection, and that drag stays hop's until release.
+- **A click does not copy.** Only a selection spanning different cells replaces the clipboard.
 - **The clipboard is advertised only while it has a sink.** hop answers XTGETTCAP `Ms`
   so nvim sends `"+y` as OSC 52, but not when there is nowhere for the text to go.
 - **Shell integration must not be visible.** The cwd hook is one submitted line at

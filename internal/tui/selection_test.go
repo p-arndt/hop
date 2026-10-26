@@ -88,14 +88,16 @@ func TestDragOverShellSelectsAndCopies(t *testing.T) {
 func TestClickWithoutDragCopiesNothing(t *testing.T) {
 	m, copied := selModel(t, "sudo apt update\r\n", "sudo apt update")
 
-	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 40, Y: 6, Button: tea.MouseLeft}, action: actPress})
-	m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: 40, Y: 6, Button: tea.MouseLeft}, action: actRelease})
+	for _, point := range []struct{ x, y int }{{34, 1}, {40, 6}} {
+		m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: point.x, Y: point.y, Button: tea.MouseLeft}, action: actPress})
+		m.handleMouse(mouseEvt{Mouse: tea.Mouse{X: point.x, Y: point.y, Button: tea.MouseLeft}, action: actRelease})
 
-	if copied() != "" {
-		t.Fatalf("a click copied %q", copied())
-	}
-	if m.sel.active {
-		t.Fatal("a click over blank screen left a highlight up")
+		if copied() != "" {
+			t.Fatalf("a click copied %q", copied())
+		}
+		if m.sel.active {
+			t.Fatal("a click left a highlight up")
+		}
 	}
 }
 
