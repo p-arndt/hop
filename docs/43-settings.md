@@ -49,3 +49,26 @@ Turning vim keys off from this very card cannot strand you: the arrows and [[ent
 every row and are never gated. While you are *typing* a value the gate is off — [[h]] is
 then a letter of the value, not a motion.
 :::
+
+## Remapping keys
+
+Edit `<config dir>/hop/config.json` and restart hop to apply key overrides. Add a
+`keybindings` object whose keys are action IDs and whose values are key names:
+
+```json
+{
+  "keybindings": {
+    "list.pin": "z",
+    "browser.rename": "ctrl+r"
+  }
+}
+```
+
+Find action IDs in the [keyboard registry](https://github.com/p-arndt/hop/blob/main/internal/keys/keys.go).
+Use names such as `space`, `enter`, `ctrl+r`, or a two-key sequence such as `g g`.
+An empty value removes that binding; removing an override restores its default. An
+override replaces the first binding for an action, including its aliases; separate Vim
+bindings remain controlled by the Vim keys setting. The pane leader changes in all layers.
+Modal cards and digit shortcuts are not remappable. Conflicting or unknown actions are
+reported on startup and retain their defaults. hop refuses a configuration that would
+remove all exits from a pane or editor.

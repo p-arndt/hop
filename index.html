@@ -1856,6 +1856,24 @@
       Turning vim keys off from this very card cannot strand you: the arrows and <kbd>enter</kbd> drive
       every row and are never gated. While you are <em>typing</em> a value the gate is off — <kbd>h</kbd> is
       then a letter of the value, not a motion.</p></details>
+      <h3 id="remapping-keys">Remapping keys</h3>
+      <p>Edit <code>&lt;config dir&gt;/hop/config.json</code> and restart hop to apply key overrides. Add a
+      <code>keybindings</code> object whose keys are action IDs and whose values are key names:</p>
+      <pre><code class="language-json">{
+        &quot;keybindings&quot;: {
+          &quot;list.pin&quot;: &quot;z&quot;,
+          &quot;browser.rename&quot;: &quot;ctrl+r&quot;
+        }
+      }
+      </code></pre>
+      <p>Find action IDs in the <a href="https://github.com/p-arndt/hop/blob/main/internal/keys/keys.go">keyboard registry</a>.
+      Use names such as <code>space</code>, <code>enter</code>, <code>ctrl+r</code>, or a two-key sequence such as <code>g g</code>.
+      An empty value removes that binding; removing an override restores its default. An
+      override replaces the first binding for an action, including its aliases; separate Vim
+      bindings remain controlled by the Vim keys setting. The pane leader changes in all layers.
+      Modal cards and digit shortcuts are not remappable. Conflicting or unknown actions are
+      reported on startup and retain their defaults. hop refuses a configuration that would
+      remove all exits from a pane or editor.</p>
     </section>
 
     <section id="mouse">
@@ -2718,6 +2736,9 @@
 {"s":"Settings — the popover","h":"","a":"#settings","t":"The swatch picker, and when a setting is written"},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"The accent is a swatch picker, not a number to be looked up: ←/→ walk a palette of twelve colours — pink, magenta, red, orange, yellow, green, teal, cyan, blue, indigo, purple, gray — each drawn in the colour it actually is, and each applied to hop the instant you land on it. enter still opens text entry if you want a specific 256-code or a #hex, and a value that is not in the palette gets its own swatch on the strip."},
 {"s":"Settings — the popover","h":"","a":"#settings","t":"Settings are written to config.json the moment you save one, and applied on the spot. Turning vim keys off from this very card cannot strand you: the arrows and enter drive every row and are never gated. While you are typing a value the gate is off — h is then a letter of the value, not a motion."},
+{"s":"Settings — the popover","h":"Remapping keys","a":"#remapping-keys","t":"Remapping keys"},
+{"s":"Settings — the popover","h":"Remapping keys","a":"#remapping-keys","t":"Edit \u003cconfig dir\u003e/hop/config.json and restart hop to apply key overrides. Add a keybindings object whose keys are action IDs and whose values are key names:"},
+{"s":"Settings — the popover","h":"Remapping keys","a":"#remapping-keys","t":"{ \"keybindings\": { \"list.pin\": \"z\", \"browser.rename\": \"ctrl+r\" } } Find action IDs in the keyboard registry. Use names such as space, enter, ctrl+r, or a two-key sequence such as g g. An empty value removes that binding; removing an override restores its default. An override replaces the first binding for an action, including its aliases; separate Vim bindings remain controlled by the Vim keys setting. The pane leader changes in all layers. Modal cards and digit shortcuts are not remappable. Conflicting or unknown actions are reported on startup and retain their defaults. hop refuses a configuration that would remove all exits from a pane or editor."},
 {"s":"The mouse","h":"","a":"#mouse","t":"The mouse"},
 {"s":"The mouse","h":"","a":"#mouse","t":"Mouse"},
 {"s":"The mouse","h":"","a":"#mouse","t":"Every gesture is an existing binding reached by pointing, so nothing is mouse-only."},

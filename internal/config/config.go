@@ -24,6 +24,8 @@ type Config struct {
 
 	VimKeys bool `json:"vimKeys"`
 
+	Keybindings map[string]string `json:"keybindings,omitempty"`
+
 	// Defaults to on: the one field whose zero value is not its default, safe only because
 	// Load starts from Default() and unmarshals over it.
 	Mouse bool `json:"mouse"`

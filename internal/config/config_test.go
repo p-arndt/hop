@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -31,12 +32,13 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		Accent:      "99",
 		OpenWith:    "code -n",
 		Guidance:    GuidanceGuided,
+		Keybindings: map[string]string{"list.pin": "z"},
 	}
 	if err := want.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	if got := Load(); got != want {
+	if got := Load(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Load() = %+v, want %+v", got, want)
 	}
 }

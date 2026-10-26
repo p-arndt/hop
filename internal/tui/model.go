@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -238,7 +239,6 @@ func Run(st *store.Store) error {
 		notify:        make(chan struct{}, 1),
 		prompts:       make(chan authPromptMsg),
 		cfg:           cfg,
-		binds:         keys.Defaults(),
 		pasteCoalesce: coalescePastes(),
 	}
 	m.applyClipboard()
@@ -254,11 +254,24 @@ func Run(st *store.Store) error {
 	if err := st.IncludeWarning(); err != nil {
 		m.setStatus(statusWarn, "hosts saved, but ~/.ssh/config was not updated: %v", err)
 	}
+	m.applyKeybindings()
 	// 120fps: the default 60 puts up to 16ms between a keystroke's echo arriving and the screen showing it.
 	// The alt screen is a property of the view in v2; only the frame rate is an option.
 	p := tea.NewProgram(m, tea.WithFPS(120))
 	_, err = p.Run()
 	return err
+}
+
+func (m *model) applyKeybindings() {
+	binds, bindingErrors := keys.New(m.cfg.Keybindings)
+	m.binds = binds
+	if len(bindingErrors) > 0 {
+		messages := make([]string, len(bindingErrors))
+		for i, err := range bindingErrors {
+			messages[i] = err.Error()
+		}
+		m.setStatus(statusWarn, "%s", strings.Join(messages, "; "))
+	}
 }
 
 func (m *model) Init() tea.Cmd {
