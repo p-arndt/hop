@@ -3,7 +3,7 @@ module hop
 go 1.26.4
 
 require (
-	charm.land/bubbletea/v2 v2.1.0
+	charm.land/bubbletea/v2 v2.1.1
 	github.com/Microsoft/go-winio v0.6.4
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.9
@@ -13,9 +13,9 @@ require (
 	github.com/pkg/sftp v1.13.12
 	github.com/sahilm/fuzzy v0.1.3
 	github.com/skeema/knownhosts v1.3.3
-	github.com/yuin/goldmark v1.8.6
+	github.com/yuin/goldmark v1.8.7
 	golang.org/x/crypto v0.58.0
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 )
 
 require (
